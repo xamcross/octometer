@@ -2,7 +2,7 @@ import { Component } from '@angular/core';
 
 /**
  * Placeholder view for the /apps route.
- * Issue #19 adds the real app list.
+ * A later issue adds the real app table (D28, level 1).
  */
 @Component({
   selector: 'app-apps',

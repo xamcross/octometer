@@ -1,16 +1,16 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { Apps } from './apps';
+import { Manage } from './manage';
 
-describe('Apps', () => {
-  let fixture: ComponentFixture<Apps>;
+describe('Manage', () => {
+  let fixture: ComponentFixture<Manage>;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [Apps],
+      imports: [Manage],
     }).compileComponents();
 
-    fixture = TestBed.createComponent(Apps);
+    fixture = TestBed.createComponent(Manage);
     fixture.detectChanges();
   });
 
@@ -20,7 +20,7 @@ describe('Apps', () => {
 
   it('shows a focusable placeholder heading', () => {
     const heading = fixture.nativeElement.querySelector('h1');
-    expect(heading?.textContent).toContain('Apps');
+    expect(heading?.textContent).toContain('Manage');
     expect(heading?.getAttribute('tabindex')).toBe('-1');
   });
 });
