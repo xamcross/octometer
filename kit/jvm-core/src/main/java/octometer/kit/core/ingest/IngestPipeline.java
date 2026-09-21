@@ -4,14 +4,16 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import octometer.kit.core.store.EventLogStore;
+import octometer.kit.core.user.UserIdResolver;
 
 /**
  * The full ingest flow of design section 4.2.
  * It parses the raw body, checks the `sessionId` and `element` field
  * rules, then computes `ts` for each click. This class is the only
- * public entry point of the module. An adapter of a later issue calls
- * it with the raw body and a {@link Clock}, then attaches the `userId`
- * value and stores each {@link IngestEvent}.
+ * public entry point of the module. An adapter calls {@link #ingest}
+ * with the raw body, a {@link Clock}, a {@link UserIdResolver}, and an
+ * {@link EventLogStore}.
  */
 public final class IngestPipeline {
 
@@ -44,5 +46,34 @@ public final class IngestPipeline {
             events.add(new IngestEvent(parsed.sessionId(), click.element(), ts));
         }
         return List.copyOf(events);
+    }
+
+    /**
+     * Runs the full ingest flow of design section 4.2 and design
+     * decisions D18 and D19, then gives each valid event to
+     * {@code store}. It resolves the user id with
+     * {@code userIdResolver}. The client never sets the user id; a
+     * `userId` field of the request body has no effect (contract rules
+     * C6, C16, C32).
+     *
+     * <p>When the user id is {@code null} and {@code settings} does not
+     * record an anonymous click, this method appends nothing and
+     * returns.
+     *
+     * <p>It throws {@link IngestException} for a broken rule of the
+     * contract, the rules of {@link #process} and rule C6 for the
+     * resolved user id.
+     */
+    public static void ingest(String rawBody, Clock clock, UserIdResolver userIdResolver,
+            EventLogStore store, IngestSettings settings) {
+        List<IngestEvent> events = process(rawBody, clock);
+        String userId = userIdResolver.resolve();
+        EventFieldValidator.validateUserId(userId);
+        if (userId == null && !settings.recordAnonymousClicks()) {
+            return;
+        }
+        for (IngestEvent event : events) {
+            store.append(event, userId);
+        }
     }
 }
