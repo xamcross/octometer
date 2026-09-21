@@ -11,39 +11,54 @@ reject. Get a lawyer's check for each point in section 10, "When to ask a lawyer
 **Recommendation: Mode A. Ask for consent before the tracker starts. Record nothing for a
 user who refuses.** Mode A answers the Article 5(3) [the ePrivacy device-storage rule]
 question with consent. For a user who refuses, the tracker stores nothing and sends nothing,
-so Article 5(3) does not reach that user. Mode C is the only mode that removes the question by
-design, instead of narrowing it to nothing (section 2.1). Mode A needs no contract change [no
+so Article 5(3) does not reach that user. Mode C aims to remove the question by design. Section
+2.1 shows that it likely fails, because the app still gains access to its own login cookie for a
+second purpose. Mode A needs no contract change [no
 change to the event-log rules, contract C1 to C37] and no balancing test [the Article 6(1)(f)
 weighing step, section 2.2].
 
 Matomo's `requireConsent()` matches Mode A: no tracking request and no cookie until consent.
-PostHog's `on_reject` does not match Mode A — it is a different mode. PostHog's own default for
-a refusing user still counts that user, with a server-side hash. This is Mode C, not Mode A.
-[VERIFIED, PostHog docs, read 2026-09-21] EDPB Guidelines 2/2023 paragraph 55 warns that a hash
-derived from an IP address can still fall inside Article 5(3). [VERIFIED, EDPB 2/2023 paragraph
-55, read 2026-09-21]
+PostHog's option `cookieless_mode: "on_reject"` does not match Mode A. Its docs read: "If consent
+is denied, still counts those users, using a privacy-preserving hash calculated on PostHog's
+servers." That is a fifth behaviour, and it is not Mode C, because the hash does not come from a
+login-session cookie. This proposal does not use it. PostHog's own recommended consent pattern —
+opted out by default, then `opt_in_capturing()` — does match Mode A. [VERIFIED, PostHog docs,
+read 2026-09-21]
 
-**Cost to the owner.** One consent panel, one settings toggle, and one erasure call, built in
-the `investguideua` app first, then shared with the other apps later (section 9). No contract
-change.
+EDPB Guidelines 2/2023 paragraph 55 states: "Unless the entity can ensure that the IP address does
+not originate from the terminal equipment of a user or subscriber, it has to take all the steps
+pursuant to the Article 5(3) ePD." [VERIFIED, EDPB 2/2023 paragraph 55, read 2026-09-21] A server
+that derives a hash from such an IP address therefore stays inside the Article 5(3) question.
+[INFERENCE]
 
-**Recurring cost.** An EU representative service, once Article 27 applies (section 2.3): get a
-quotation. No public price source exists for this figure.
+**Cost to the owner, before the pilot.** Eight items of section 9: a consent store, a consent
+API path in the contract, an Angular panel, a Settings toggle, the `start()`/`stop()` gate, a
+withdrawal path, a notice page, and a short DPIA, due before the pilot. The event-log contract
+(rules C1 to C37) does not change. The contract gains one new consent path.
 
-**What the owner does next.** Approve Mode A below, approve the app table, and start the
-`investguideua` pilot work of section 9.
+**Recurring cost.**
+- An EU representative service, once Article 27 applies (section 2.3). Get a quotation. No
+  public price source exists.
+- The owner's own manual delete in the monitor, for each withdrawal, inside 7 days
+  (section 6).
+- A re-check of the processor section every six months (section 5).
+
+**What the owner does next.**
+- Approve Mode A below.
+- Approve the app table.
+- Start the `investguideua` pilot work of section 9.
 
 **The expected rate.** Plausible's own calculator page gives an EU/EEA acceptance-rate estimate
 of 40 to 50 percent for an equal-choice panel, and 50 to 60 percent for a mixed global audience.
 The page calls these numbers "reasonable starting points based on published research", not a
 guarantee. [VERIFIED, plausible.io/cookie-banner-traffic-loss-calculator, read 2026-09-21; a
-vendor source, since Plausible sells a cookieless product] A study of pop-ups on the top 10,000
-UK sites (680 pop-ups, from the five leading consent tools) found that removing an equal
-"reject" button from the first page raises the accept rate by 22 to 23 percentage points.
+vendor source, since Plausible sells a cookieless product] A study looked at pop-ups on the top
+10,000 UK sites: 680 pop-ups, from the five leading consent tools. It found that removing an
+equal "reject" button from the first page raises the accept rate by 22 to 23 percentage points.
 [VERIFIED, Nouwens et al., CHI 2020, arxiv.org/abs/2001.02479, read 2026-09-21] **Effect on the
 monitor: expect the level 1 totals to show under half of real clicks once consent is equal and
 honest.** [INFERENCE] A count from one app is not comparable with a count from another app at a
-different rate, and the two totals never equal the app's real traffic.
+different rate. The two totals never equal the app's real traffic.
 
 ### The apps
 
@@ -87,8 +102,8 @@ only two narrow exceptions, neither for statistics. [VERIFIED, gesetze-im-intern
 __25.html, read 2026-09-21] The `sessionStorage` write and the send of the click still happen,
 so Article 5(3) still applies in Germany and in any state with no exemption.
 
-Mode A narrows the Article 5(3) question to nothing for a refusing user. Only Mode C removes
-the question by design (section 2.1). [INFERENCE]
+Mode A narrows the Article 5(3) question to nothing for a refusing user. No mode clearly removes
+the question by design. Mode C aims to, and section 2.1 leaves the point open. [INFERENCE]
 
 ## 2. The legal frame, corrected
 
@@ -146,7 +161,9 @@ lawful." [VERIFIED, EDPB Opinion 5/2019 paragraph 41, read 2026-09-21]
 
 Article 5(3) governs the `sessionStorage` write, and needs consent. The later storage and
 analysis of the click history needs its own Article 6 basis. This document recommends consent
-under Article 6(1)(a) for both steps, so the two stay aligned. [INFERENCE]
+under Article 6(1)(a) for both steps, so the two stay aligned. [INFERENCE] Article 6(1)(f) [the
+legitimate-interest ground] would need a balancing test instead; this proposal does not rely on
+it.
 
 ### 2.3 Does the GDPR apply to this owner?
 
@@ -163,24 +180,29 @@ under Article 6(1)(a) for both steps, so the two stay aligned. [INFERENCE]
 - **Article 27(1)** [the EU-representative duty] needs a representative "designated in
   writing", "where Article 3(2) applies" — not once a risk appears. [VERIFIED,
   eur-lex.europa.eu] The Article 27(2)(a) exemption applies to processing which is "occasional",
-  "does not include, on a large scale, processing of special categories of data..." and "is
-  unlikely to result in a risk to the rights and freedoms of natural persons, taking into
-  account the nature, context, scope and purposes of the processing" — not "a high risk".
+  "does not include, on a large scale, processing of special categories of data as referred to
+  in Article 9(1) or processing of personal data relating to criminal convictions and offences
+  referred to in Article 10" and "is unlikely to result in a risk to the rights and freedoms of
+  natural persons, taking into account the nature, context, scope and purposes of the
+  processing" — not "a high risk".
   [VERIFIED, eur-lex.europa.eu, GDPR Art. 27(2)(a); EDPB 3/2018 page 26] Article 27(3) adds:
   "The representative shall be established in one of the Member States where the data
   subjects... are." [VERIFIED, eur-lex.europa.eu, GDPR Art. 27(3)] "Occasional" means not
   regular and outside the regular course of business (EDPB 3/2018 page 25). Continuous click
   tracking is neither occasional nor clearly low-risk. **The owner needs an EU representative
   from the first day an EU user's tracker runs.** [INFERENCE] This duty does not depend on the
-  tracker: if the Article 3(2)(a) test above already applies to an existing app, the duty
+  tracker. If the Article 3(2)(a) test above already applies to an existing app, the duty
   exists today, with no tracker at all. This needs a lawyer's check (section 10).
-- **Chapter V** [the GDPR's rules on data transfers outside the EU] does not apply to an EU
-  user's own click reaching the owner's app directly, because the owner sends the data to no
-  other controller or processor. A cookie disclosure is a transmission by the website operator,
-  not by the data subject (footnote 15, page 9). [VERIFIED, EDPB 05/2021, footnote 15, page 9]
-  The owner must still weigh the third country's legal framework and tell the user their data
-  leaves the EU, even with no formal transfer. [VERIFIED, EDPB 05/2021, the guidance on a data
-  flow with no formal transfer]
+- **Chapter V** [the GDPR's rules on data transfers outside the EU] does not reach the first
+  step, an EU user's click that arrives at the owner's own app, because the owner passes it to
+  nobody at that point. It does reach the next step. The owner then passes the data to three
+  processors outside the EEA. EDPB 05/2021, Example 2, page 9, calls that disclosure a transfer,
+  and it requires Article 28 and Chapter V. [VERIFIED, EDPB 05/2021, Example 2, page 9] Section 5
+  holds the open question. A cookie disclosure at the first step is a transmission by the
+  website operator, not by the data subject (footnote 15, page 9). [VERIFIED, EDPB 05/2021,
+  footnote 15, page 9] The owner must still weigh the third country's legal framework and tell
+  the user their data leaves the EU, even with no formal transfer. [VERIFIED, EDPB 05/2021,
+  page 16]
 - **Article 8** [the child's-consent rule] applies because the basis is consent. It covers a
   service "offered directly to a child": valid at 16, or lower if a Member State sets it, never
   below 13; below that, consent needs a parental-responsibility holder, with "reasonable
@@ -222,9 +244,10 @@ Detail: Appendix A.2.
 | Cloudflare | Standard Contractual Clauses for a "Restricted Transfer"; a DPF transfer to the US is defined as not a Restricted Transfer | VERIFIED, DPA version 6.4, effective 3 April 2026, cloudflare.com/cloudflare-customer-dpa, read 2026-09-21. Cloudflare, Inc.'s DPF status reads "Active - Re-certification under Review" for each of its three certifications |
 
 **The vendor tools are origin-based, not exporter-based.** MongoDB's DPF statement covers data
-transferred to it from the EEA, the UK, or Switzerland, and it also offers an SCC "where any of
-our agreements with those businesses stipulate a different transfer mechanism" such as an SCC.
-[VERIFIED, mongodb.com/legal/data-privacy-framework-statement, read 2026-09-21] Cloudflare's DPA
+transferred to it from the EEA, the UK, or Switzerland, except where any of our agreements with
+those businesses stipulate a different transfer mechanism recognized by the relevant authority
+(e.g. standard contractual clauses). [VERIFIED, mongodb.com/legal/data-privacy-framework-statement,
+read 2026-09-21] Cloudflare's DPA
 defines a "Restricted Transfer" by the same origin test, and states that a DPF transfer to the
 US is not a Restricted Transfer. [VERIFIED, Cloudflare DPA version 6.4, effective 3 April 2026,
 read 2026-09-21] An EU user's click is EEA-origin data, so both tools may reach this flow.
@@ -239,15 +262,17 @@ and re-check this section every six months.
 
 ## 6. The consent method
 
-- **Place.** A first-run panel in the app, shown once per user, at the user's next sign-in,
-  apart from any other cookie banner.
+- **Place.** A panel in the app, at the user's next sign-in, apart from any other cookie
+  banner. It returns at each later sign-in, until the user answers, or until the count of the
+  bullet "No answer yet" stops it.
 - **Panel text (draft, for issue #42 to approve).**
   > We would like to record which buttons and links you use, so we can improve this app.
-  > We do not record your name or your IP address.
+  > We do not record your name. We do not store your IP address.
   > You may allow or refuse this now, and you may withdraw your choice at any time in Settings.
   > Read the full notice: `<link>`.
   >
   > [ Refuse ] [ Allow ]
+  > [ x ] Close. This makes no choice. We ask you again at your next sign-in.
 - **Buttons.** "Allow" and "Refuse", equal size and an equal number of clicks. If one button is
   highlighted, it must be "Refuse". EDPB 03/2022 states that the options need not look
   identical, but if one is highlighted, "this needs to be the most restrictive one regarding
@@ -258,26 +283,31 @@ and re-check this section every six months.
 - **Default.** Off. No pre-ticked box. `start()` never runs before a choice (rule D24).
 - **On a read failure.** If the app cannot read the stored consent state at start, it treats
   the user as `unknown` and keeps the tracker off.
-- **No answer yet.** A user who closes the panel without a choice stays in an explicit
-  `unknown` state (each dismissal appends an `unknown` record, below). The panel returns at the
-  next sign-in, up to three `unknown` records in a row, then stops asking and stays off.
-- **A text change.** A new notice version asks again. The old consent record stays, next to the
-  new one (append-only, section 8).
+- **No answer yet.** The app appends an `unknown` document each time it shows the panel. A
+  close makes no choice, and it is not a consent and not a refusal. The panel returns at the
+  next sign-in, up to three `unknown` documents for the current notice version. After the
+  third one the app stops asking, and it keeps the tracker off. The Settings toggle stays
+  open to the user.
+- **A text change.** A new notice version asks again, and the count starts at zero. The old
+  consent document stays, next to the new one (append-only, section 8).
 - **Withdrawal.** A two-way toggle in Settings, showing the current state, as easy to reach as
   the first choice. [VERIFIED, GDPR Article 7(3), read 2026-09-21] The monitor binds to
   `127.0.0.1` and has no login (decision D12), so the app cannot call it. **MVP proposal:** a
-  withdrawal calls `stop()` and `EventLogStore.deleteByUserId` (decision D18) for the app's own
-  store at once, and it appends a withdrawal record to the consent collection (below). The
-  owner then runs the monitor's own delete-by-user-id call by hand, after one poll cycle
-  following the app delete (decision D15's order: app, then one poll cycle, then monitor — a
-  poll in flight can otherwise copy the deleted rows back), and within 7 days total [proposed;
-  the outer limit is one month under GDPR Article 12(3)]. [VERIFIED, eur-lex.europa.eu, GDPR
-  Art. 12(3), read 2026-09-21] Section 9 adds this owner routine, and a later item for the
-  monitor to read the withdrawal list itself.
+  withdrawal calls `stop()` and `EventLogStore.deleteByUserId` (decision D18) for the app's
+  own store at once. It appends a `withdrawn` document to `octometer_consent`. The owner then
+  runs the monitor's own delete for the same user id by hand:
+  `DELETE /api/apps/{appId}/events?userId=<id>` (design D13). The owner waits one poll cycle
+  after the app delete (decision D15's order: app, then one poll cycle, then monitor). A poll
+  in flight can otherwise copy the deleted rows back. The owner completes the monitor delete
+  within 7 days [proposed; the outer limit is one month under GDPR Article 12(3)]. [VERIFIED,
+  eur-lex.europa.eu, GDPR Art. 12(3), read 2026-09-21] The owner then appends a
+  `monitor_erased` document. Section 9 adds this owner routine. Section 9 adds a later item
+  for the monitor to read the withdrawal list itself.
 - **API path.** The contract has no consent endpoint today. Propose
   `/api/octometer/v1/consent`, added to the contract before the section 9 kit work starts.
-- **The record.** Collection `octometer_consent`, separate from the event log. One append-only
-  document for each choice or dismissal:
+- **The record.** Collection `octometer_consent`, in the database of the app, next to
+  `octometer_events` (contract C1), separate from the event log. One append-only document for
+  each choice or dismissal:
 
   | Field | Type | Value |
   |---|---|---|
@@ -285,22 +315,28 @@ and re-check this section every six months.
   | `appId` | string | the app name |
   | `ts` | Date | the time of the choice or dismissal |
   | `noticeVersion` | string | the version id of the shown notice text |
-  | `state` | string | one of `unknown`, `allowed`, `refused` |
+  | `state` | string | one of `unknown`, `allowed`, `refused`, `withdrawn`, `monitor_erased` |
 
-  A dismissal with no choice also appends a document, with `state: unknown`. The notice text
-  itself is stored once for each notice version, in a small collection keyed by
-  `noticeVersion`; a consent document keeps only the version id, not a copy of the text. No IP
-  address, no device fingerprint. [VERIFIED, EDPB 05/2020 paragraph 108, read 2026-09-21] GDPR
-  Article 7(1) [the duty to show that consent was given] and Ombudsman Order No. 1/02-14 clause
-  2.8 both require the owner to keep this evidence for as long as the processing runs.
+  A dismissal with no choice also appends a document, with `state: unknown`. A withdrawal
+  appends a document with `state: withdrawn`. The owner's routine reads each `withdrawn`
+  document that has no later `monitor_erased` document for the same `userId`. The owner appends
+  a `monitor_erased` document after the monitor delete runs. The notice text itself is stored
+  once for each notice version, in a small collection named `octometer_consent_notice`, keyed
+  by `noticeVersion`; a consent document keeps only the version id, not a copy of the text. No
+  IP address, no device fingerprint. [VERIFIED, EDPB 05/2020 paragraph 106, read 2026-09-21]
+  GDPR Article 7(1) [the duty to show that consent was given] and Ombudsman Order No. 1/02-14
+  clause 2.8 both require the owner to keep this evidence for as long as the processing runs.
   [VERIFIED, eur-lex.europa.eu, GDPR Art. 7(1); Order No. 1/02-14 clause 2.8, second regulator
-  review, 2026-09-21]
+  review, 2026-09-21] The TTL delete of section 8 does not reach `octometer_consent`. An
+  Article 17 erasure request leaves this consent evidence in place. [VERIFIED, GDPR Art.
+  17(3)(e); EDPB 05/2020 paragraph 107, read 2026-09-21]
 
 ## 7. Draft privacy notice text (issue #42 approves it)
 
+[Add the EU representative once section 2.3 confirms the duty.]
+
 > **Click tracking in this app**
-> The controller is `<owner name, contact address>`, established in Ukraine. [Add the EU
-> representative once section 2.3 confirms the duty.]
+> The controller is `<owner name, contact address>`, established in Ukraine.
 > We record your clicks so we can improve this app. Each record holds the time, the name of
 > the button or link, a random session id for your browser tab, and your account id. It never
 > holds your name, your email address, or your IP address, except that a request with no
@@ -313,8 +349,9 @@ and re-check this section every six months.
 > and for a separate period, also stated there, in the owner's own local product monitor — a
 > computer that the developer controls.
 > We use MongoDB Atlas to store the record, Fly.io to run this app, and Cloudflare to serve its
-> pages, each outside the EU. No EU adequacy decision covers Ukraine. We use the safeguards
-> named at `<link to the safeguards list>`, and you may ask us for a copy of them.
+> pages, each outside the EU. The EU-US Data Privacy Framework adequacy decision covers these
+> three companies in the USA. No EU adequacy decision covers Ukraine. For Ukraine we use the
+> safeguards named at `<link to the safeguards list>`, and you may ask us for a copy of them.
 > We do not sell your data, and we do not give it to an advertiser.
 > You may allow or refuse this recording at any time in Settings, and you may withdraw your
 > consent there at any time. You may ask us to show, correct, delete, or export your record, or
@@ -345,14 +382,16 @@ and re-check this section every six months.
 | 1 | Evaluation or scoring, including profiling | Yes — a per-user click history builds a behavioural profile. |
 | 2 | Automated decision-making with a legal or similar effect | No. |
 | 3 | Systematic monitoring | Yes — continuous tracking of a signed-in user's clicks. |
-| 4 | Sensitive data or data of a highly personal nature | No. |
+| 4 | Sensitive data or data of a highly personal nature | No — though a per-user click history in `investguideua` may show a financial interest (recital 71's "economic situation"). |
 | 5 | Data processed on a large scale | Not at pilot scale; yes once all four apps run. |
 | 6 | Matching or combining datasets | No. |
 | 7 | Data concerning vulnerable data subjects | Yes for `cadence` — an employee, under an employer relation. |
 | 8 | Innovative use or a new technological solution | No. |
-| 9 | A data transfer outside the EU, or preventing a right or service | No. |
+| 9 | The processing prevents a right, a service, or a contract | No. |
 
-Two or more criteria trigger a DPIA. [VERIFIED, WP248 rev.01, page 11, read 2026-09-21]
+WP248 rev.01, page 11, states: "In most cases, a data controller can consider that a
+processing meeting two criteria would require a DPIA to be carried out." [VERIFIED, WP248
+rev.01, page 11, read 2026-09-21]
 Criteria 1 and 3 already hold for the `investguideua` pilot; `cadence` adds criterion 7.
 **A short DPIA is due before the `investguideua` pilot starts, and it covers all four apps.**
 [INFERENCE] Consent makes the processing lawful; it does not by itself lower the risk that a
@@ -372,25 +411,27 @@ section 6). A withdrawal (section 6) and a data-subject erasure request both use
 - Settings toggle, a two-way state control — Small.
 - The `start()`/`stop()` calls into the consent state — Small. The tracker itself (decision
   D24) needs no change.
-- Withdrawal path: an app-side delete at once, a withdrawal record in `octometer_consent`, and
-  an owner routine to run the monitor's own delete within 7 days — Medium.
+- Withdrawal path: an app-side delete at once, a `withdrawn` document in `octometer_consent`,
+  and an owner routine to run the monitor's own delete within 7 days, then append
+  `monitor_erased` — Medium.
 - Notice page, with a version id and a stored copy of the shown text for that version — Small.
 - A short DPIA, run once before the pilot starts, covering all four apps (section 8) — Small.
 
 **Cannot wait, independent of the tracker:**
 - Appoint an EU representative under Article 27, once the Article 3(2)(a) test confirms the
-  duty for an existing app (section 2.3). Get a quotation for the recurring cost.
+  duty for an existing app (section 2.3). Get a quotation for the recurring cost — Small, an
+  owner task, not code.
 
 **Can wait until after the `investguideua` pilot:**
-- Roll the consent store into the kit, for `traficio`, `tuliplot`, and `cadence` — Large. Issue
-  #71 already proves the Maven distribution route for the kit, so this item needs no separate
-  proof step.
+- Move the consent store into a kit module — Medium.
+- Connect each other app to the kit module, for `traficio`, `tuliplot`, and `cadence` — Small,
+  each. Issue #71 covers the Maven distribution route for the kit.
 - The monitor's own consent-rate view, per app — Medium.
 - Rollout of each other app's consent panel — Medium, each.
 - A DPIA re-screen, before the second and later app launches — Small.
 - The B2B contract-terms check for `cadence` (section 2.3) — Small.
-- The monitor reads the withdrawal list itself, from `octometer_consent`. This needs a second
-  `find` database privilege and a design decision — Medium.
+- The monitor reads the `withdrawn` documents itself, from `octometer_consent`. This needs a
+  second `find` database privilege and a design decision — Medium.
 
 ## 10. What the owner decides
 
@@ -435,7 +476,7 @@ section 6). A withdrawal (section 6) and a data-subject erasure request both use
 | 12 | Law of Ukraine No. 2297-VI, Art. 2, 8(2)(8), 9, 11, 12, 21, 22, 29(3) | zakon.rada.gov.ua/laws/show/2297-17 (Ukrainian text, includes the 2024 IOSCO amendment) | 2026-09-21 | VERIFIED, HTTP 200 (needs an insecure TLS retry from this client; the Ukrainian-government TLS stack does not complete a plain handshake) |
 | 13 | Law No. 383-VII (2013 amendment to Art. 11) | zakon.rada.gov.ua/laws/show/383-18 | 2026-09-21 | VERIFIED, HTTP 200 |
 | 14 | Law No. 3585-IX (22 Feb 2024) and the IOSCO MMoU signatory list | iosco.org/about/?subsection=mmou&subsection1=signatories | 2026-09-21 | VERIFIED, HTTP 200 |
-| 15 | Cabinet Resolution No. 910 (16 Aug 2022) | zakon.rada.gov.ua/laws/show/910-2022-п | 2026-09-21 | PARTIALLY VERIFIED (paraphrase, not raw text); site reachable only with an insecure TLS retry |
+| 15 | Cabinet Resolution No. 910 (16 Aug 2022) | zakon.rada.gov.ua/laws/show/910-2022-п | 2026-09-21 | PARTIALLY VERIFIED (paraphrase, not raw text); could not connect from this session (connection timeout) this round; content per second regulator review, 2026-09-21 — NOT independently re-verified this round |
 | 16 | Draft law No. 8153, status, Resolutions 4065-IX and 4729-IX | itd.rada.gov.ua/billInfo/Bills/Card/40707 ; zakon.rada.gov.ua/laws/show/4065-20 ; /4729-20 | 2026-09-21 | VERIFIED, all HTTP 200 |
 | 17 | Ombudsman Order No. 1/02-14, clauses 1.2 and 2.8 | zakon.rada.gov.ua/rada/show/v1_02715-14 | 2026-09-21 | VERIFIED (clauses 1.2 and 2.8), second regulator review, 2026-09-21; HTTP 200 |
 | 18 | Law No. 1089-IX, On Electronic Communications | zakon.rada.gov.ua/laws/show/1089-20 | 2026-09-21 | VERIFIED (adoption date, in-force date, Chapter XV scope), second regulator review, 2026-09-21; HTTP 200 |
@@ -445,7 +486,7 @@ section 6). A withdrawal (section 6) and a data-subject erasure request both use
 | 22 | Connecticut Public Act 25-113 (SB 1295) | wiley.law/alert-Major-Changes-to-Connecticut-Consumer-Privacy-Law-Will-Take-Effect-July-1-2026 | 2026-09-21 | PARTIALLY VERIFIED, HTTP 200 |
 | 23 | IAPP US State Privacy Legislation Tracker | iapp.org/resources/article/us-state-privacy-legislation-tracker | 2026-09-21 | VERIFIED, HTTP 200 |
 | 24 | COPPA, 16 CFR 312.2-312.3 | ecfr.gov/current/title-16/chapter-I/subchapter-C/part-312/section-312.3 | 2026-09-21 | VERIFIED, HTTP 200 |
-| 25 | COPPA 2025 amendments | ftc.gov/legal-library/browse/rules/childrens-online-privacy-protection-rule-coppa ; federalregister.gov/documents/2025/01/16/2025-00913 | 2026-09-21 | VERIFIED, both HTTP 200 |
+| 25 | COPPA 2025 amendments | ftc.gov/legal-library/browse/rules/childrens-online-privacy-protection-rule-coppa ; federalregister.gov/documents/2025/04/22/2025-05904/childrens-online-privacy-protection-rule | 2026-09-21 | VERIFIED, HTTP 200 (a plain fetch with no browser user-agent redirects to the site's own bot check; a browser-agent fetch and the Federal Register API both confirm document 2025-05904, "Children's Online Privacy Protection Rule", published 22 April 2025, effective 23 June 2025), read 2026-09-21 |
 | 26 | MongoDB Data Privacy Framework statement | mongodb.com/legal/data-privacy-framework-statement | 2026-09-21 | VERIFIED, HTTP 200 |
 | 27 | Fly.io privacy policy; `fly.io/legal/dpa` | fly.io/legal/privacy-policy ; fly.io/legal/dpa | 2026-09-21 | VERIFIED, HTTP 200. `fly.io/legal/dpa` returns HTTP 404 |
 | 28 | Cloudflare GDPR page and DPA v6.4 | cloudflare.com/trust-hub/gdpr/ ; cloudflare.com/cloudflare-customer-dpa/ | 2026-09-21 | VERIFIED, both HTTP 200 |
@@ -543,5 +584,5 @@ operator with "actual knowledge" of such a user — not actual knowledge alone. 
 effective 23 June 2025, add a written retention policy (312.10) and a written information
 security program (312.8(b)), and widen "personal information" to include a biometric
 identifier. Most amended provisions carry a compliance date of 22 April 2026; three provisions
-of 312.11 carry a different date. [VERIFIED, ftc.gov, federalregister.gov document 2025-00913,
+of 312.11 carry a different date. [VERIFIED, ftc.gov, federalregister.gov document 2025-05904,
 read 2026-09-21]
