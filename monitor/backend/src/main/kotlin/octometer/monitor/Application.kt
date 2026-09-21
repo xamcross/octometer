@@ -35,16 +35,25 @@ private val log = LoggerFactory.getLogger("octometer.monitor.Application")
 
 fun main(args: Array<String>) {
     val resolved = try {
-        requireLoopbackBindAddress(HOST)
         loadConfig(args = args)
     } catch (invalidConfig: InvalidConfigException) {
         log.error("The config is invalid. {}", invalidConfig.message)
         exitProcess(2)
     }
+    // Step 6 of issue #5: refuse a non-loopback bind address. D2 names no
+    // bind-address config key, thus HOST is a constant, and this call
+    // cannot throw today. The call stays, so a future bind-address key
+    // reaches the same check, on the value that embeddedServer then uses.
+    val host = try {
+        requireLoopbackBindAddress(HOST)
+    } catch (invalidBindAddress: InvalidConfigException) {
+        log.error("The bind address is invalid. {}", invalidBindAddress.message)
+        exitProcess(2)
+    }
     logStart(resolved)
     embeddedServer(
         factory = Netty,
-        host = HOST,
+        host = host,
         port = resolved.config.port,
         module = { module(resolved.config) },
     ).start(wait = true)
