@@ -51,6 +51,15 @@ tasks.test {
     useJUnitPlatform()
 }
 
+// Each test task prints its own pass, skip, and fail count. This lets a
+// person read the CI log and confirm that a Testcontainers test really ran,
+// and did not skip.
+tasks.withType<Test>().configureEach {
+    testLogging {
+        events("passed", "skipped", "failed")
+    }
+}
+
 // A second run of the same test suite, against the newest 5.x driver
 // (issue #11, step 6). One configuration copies the test runtime
 // classpath and drops mongodb-driver-sync. A second, plain configuration
