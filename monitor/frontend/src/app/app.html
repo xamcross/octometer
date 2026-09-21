@@ -2,10 +2,12 @@
 
 <app-breadcrumb-nav [items]="breadcrumbItems()" />
 
-@if (!appReady()) {
-  <p class="first-load">Octometer is loading…</p>
-}
+<main id="main-content">
+  @if (!appReady()) {
+    <p class="first-load">Octometer is loading…</p>
+  }
 
-<router-outlet (activate)="onOutletActivated()" />
+  <router-outlet (activate)="onOutletActivated()" />
+</main>
 
 <div role="status" class="visually-hidden">{{ announcer.message() }}</div>

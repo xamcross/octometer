@@ -1,8 +1,10 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Router, provideRouter } from '@angular/router';
+import { Router, provideRouter, withComponentInputBinding } from '@angular/router';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { routes } from './app.routes';
 import { App } from './app';
+import { Announcer } from './announcer';
 
 describe('App', () => {
   let fixture: ComponentFixture<App>;
@@ -11,7 +13,7 @@ describe('App', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideRouter(routes)],
+      providers: [provideRouter(routes, withComponentInputBinding())],
     }).compileComponents();
 
     fixture = TestBed.createComponent(App);
@@ -28,29 +30,70 @@ describe('App', () => {
     expect(compiled.querySelector('.first-load')).toBeTruthy();
   });
 
-  it('hides the first-load state and moves focus to the h1 once a route is ready', async () => {
+  it('hides the first-load state once a route is ready', async () => {
     fixture.detectChanges();
     await router.navigateByUrl('/apps');
     await fixture.whenStable();
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.first-load')).toBeNull();
-    const heading = compiled.querySelector('h1');
-    expect(heading?.textContent).toContain('Apps');
-    expect(document.activeElement).toBe(heading);
+    expect(compiled.querySelector('h1')?.textContent).toContain('Apps');
   });
 
-  it('moves focus to the new h1 after a later navigation', async () => {
-    fixture.detectChanges();
-    await router.navigateByUrl('/apps');
-    await fixture.whenStable();
+  describe('the focus rule', () => {
+    it('keeps the focus on the first page load', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps');
+      await fixture.whenStable();
 
-    await router.navigateByUrl('/manage');
-    await fixture.whenStable();
+      const heading = (fixture.nativeElement as HTMLElement).querySelector('h1');
+      expect(document.activeElement).not.toBe(heading);
+      expect(document.activeElement).toBe(document.body);
+    });
 
-    const heading = (fixture.nativeElement as HTMLElement).querySelector('h1');
-    expect(heading?.textContent).toContain('Manage');
-    expect(document.activeElement).toBe(heading);
+    it('moves the focus after a later navigation to a different route', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps');
+      await fixture.whenStable();
+
+      await router.navigateByUrl('/manage');
+      await fixture.whenStable();
+
+      const heading = (fixture.nativeElement as HTMLElement).querySelector('h1');
+      expect(heading?.textContent).toContain('Manage');
+      expect(document.activeElement).toBe(heading);
+    });
+
+    it('moves the focus after a later navigation that changes a path parameter', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps/7/users');
+      await fixture.whenStable();
+
+      await router.navigateByUrl('/apps/9/users');
+      await fixture.whenStable();
+
+      const heading = (fixture.nativeElement as HTMLElement).querySelector('h1');
+      expect(heading?.textContent).toContain('Users');
+      expect(document.activeElement).toBe(heading);
+    });
+
+    it('keeps the focus after a later navigation that changes a query parameter only', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps/7/elements?userId=42');
+      await fixture.whenStable();
+
+      const probe = document.createElement('button');
+      probe.textContent = 'Probe';
+      document.body.appendChild(probe);
+      probe.focus();
+      expect(document.activeElement).toBe(probe);
+
+      await router.navigateByUrl('/apps/7/elements?userId=99');
+      await fixture.whenStable();
+
+      expect(document.activeElement).toBe(probe);
+      probe.remove();
+    });
   });
 
   it('renders the breadcrumb nav for the active route', async () => {
@@ -67,7 +110,7 @@ describe('App', () => {
     const slot = (fixture.nativeElement as HTMLElement).querySelector(
       '.banner-slot',
     ) as HTMLElement;
-    expect(slot.style.minHeight).toBe('48px');
+    expect(getComputedStyle(slot).height).toBe('48px');
   });
 
   it('keeps one permanent role="status" region, empty until a user action', () => {
@@ -75,5 +118,101 @@ describe('App', () => {
     const regions = (fixture.nativeElement as HTMLElement).querySelectorAll('[role="status"]');
     expect(regions.length).toBe(1);
     expect(regions[0].textContent).toBe('');
+  });
+
+  describe('landmarks', () => {
+    it('holds exactly one main landmark, with the router outlet and the heading inside it', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps');
+      await fixture.whenStable();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const mains = compiled.querySelectorAll('main');
+      expect(mains.length).toBe(1);
+      expect(mains[0].querySelector('h1')).toBeTruthy();
+    });
+
+    it('keeps the breadcrumb nav, the banner, and the status region outside the main landmark', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps');
+      await fixture.whenStable();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const main = compiled.querySelector('main') as HTMLElement;
+      expect(main.querySelector('nav')).toBeNull();
+      expect(main.querySelector('.banner-slot')).toBeNull();
+      expect(main.querySelector('[role="status"]')).toBeNull();
+    });
+  });
+
+  it('holds exactly one live region while the banner shows an error', () => {
+    fixture.detectChanges();
+    (
+      fixture.componentInstance as unknown as { monitorApiError: { set(v: string): void } }
+    ).monitorApiError.set('The monitor API did not answer.');
+    fixture.detectChanges();
+
+    const liveRegions = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '[role="status"], [role="alert"], [aria-live]',
+    );
+    expect(liveRegions.length).toBe(1);
+  });
+
+  describe('the announcer, driven by fake timers', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('announces one time each transition of the monitor connection', async () => {
+      fixture.detectChanges();
+      const region = (fixture.nativeElement as HTMLElement).querySelector(
+        '[role="status"]',
+      ) as HTMLElement;
+      const errorSignal = (
+        fixture.componentInstance as unknown as { monitorApiError: { set(v: string | null): void } }
+      ).monitorApiError;
+
+      errorSignal.set('The monitor API did not answer.');
+      fixture.detectChanges();
+      await vi.advanceTimersByTimeAsync(100);
+      fixture.detectChanges();
+      expect(region.textContent).toBe('The monitor API stopped answering.');
+
+      errorSignal.set(null);
+      fixture.detectChanges();
+      await vi.advanceTimersByTimeAsync(100);
+      fixture.detectChanges();
+      expect(region.textContent).toBe('The monitor API answers again.');
+    });
+
+    it('gives the same status text twice a fresh DOM write each time', async () => {
+      fixture.detectChanges();
+      const region = (fixture.nativeElement as HTMLElement).querySelector(
+        '[role="status"]',
+      ) as HTMLElement;
+      const announcer = TestBed.inject(Announcer);
+
+      announcer.announce('The refresh is paused.');
+      await vi.advanceTimersByTimeAsync(100);
+      fixture.detectChanges();
+      expect(region.textContent).toBe('The refresh is paused.');
+
+      const seenValues: string[] = [];
+      const observer = new MutationObserver(() => seenValues.push(region.textContent ?? ''));
+      observer.observe(region, { characterData: true, childList: true, subtree: true });
+
+      announcer.announce('The refresh is paused.');
+      fixture.detectChanges();
+      await vi.advanceTimersByTimeAsync(100);
+      fixture.detectChanges();
+
+      expect(region.textContent).toBe('The refresh is paused.');
+      expect(seenValues.length).toBeGreaterThanOrEqual(1);
+      observer.disconnect();
+    });
   });
 });
