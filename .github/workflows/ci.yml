@@ -1,0 +1,95 @@
+# The CI workflow of Octometer.
+# Source: docs/superpowers/specs/2026-09-21-octometer-design.md, D39.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  jvm:
+    name: JVM modules
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+      - name: Set up Temurin 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+      - name: Build each JVM module
+        run: ./gradlew build
+
+  monitor-windows:
+    name: Monitor backend on Windows
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+      - name: Set up Temurin 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+      - name: Test the monitor backend
+        run: ./gradlew :monitor:backend:test
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: monitor/frontend
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: monitor/frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: monitor/frontend/package-lock.json
+      - name: Install the frontend dependencies
+        run: npm ci
+      - name: Lint the frontend code
+        run: npm run lint
+      - name: Check the frontend format
+        run: npm run format:check
+      - name: Test the frontend code
+        run: npm run test
+      - name: Build the frontend
+        run: npm run build
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks detect
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: 'false'
