@@ -1,8 +1,10 @@
 package octometer.monitor.registry
 
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.nio.file.attribute.PosixFilePermissions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -14,6 +16,15 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 private const val SECRETS_FILE_NAME = "apps.json"
+private const val MAX_MOVE_ATTEMPTS = 5
+private const val MOVE_RETRY_PAUSE_MILLIS = 50L
+
+/**
+ * The secrets folder is not available after [MAX_MOVE_ATTEMPTS] tries of
+ * the atomic move (MAJOR 4 of the security review). The caller answers
+ * 503. The message never holds a connection string.
+ */
+class SecretStoreUnavailableException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
  * The secret store of D34: `secrets/apps.json`, next to `dataDir`, with
@@ -21,7 +32,9 @@ private const val SECRETS_FILE_NAME = "apps.json"
  * string into an exception message or into a log line.
  *
  * Each write goes to a temporary file in the same folder, then an atomic
- * move, so a reader never sees a half-written file.
+ * move, so a reader never sees a half-written file. The `Mutex` here
+ * guards one process only; issue #58 adds a lock file for two monitor
+ * processes on the same folder.
  */
 class SecretStore(dataDir: String) {
 
@@ -53,6 +66,29 @@ class SecretStore(dataDir: String) {
             }
         }
 
+    /** Reports whether an entry of one app id is in the store, with no removal. */
+    suspend fun contains(appId: Long): Boolean =
+        mutex.withLock {
+            withContext(Dispatchers.IO) { readAll().containsKey(appId.toString()) }
+        }
+
+    /**
+     * Removes each entry whose app id is not in [existingAppIds] (the
+     * sweep of MAJOR 4 of the security review, at the application
+     * start). Returns the count of removed entries; the caller writes
+     * that count to the log, and never the removed app ids.
+     */
+    suspend fun removeOrphans(existingAppIds: Set<Long>): Int =
+        mutex.withLock {
+            withContext(Dispatchers.IO) {
+                val current = readAll()
+                val orphanKeys = current.keys.filter { key -> key.toLongOrNull() !in existingAppIds }
+                if (orphanKeys.isEmpty()) return@withContext 0
+                writeAll(current - orphanKeys.toSet())
+                orphanKeys.size
+            }
+        }
+
     private fun readAll(): Map<String, String> {
         if (!secretsFile.isFile) return emptyMap()
         val text = secretsFile.readText(Charsets.UTF_8)
@@ -70,18 +106,61 @@ class SecretStore(dataDir: String) {
         check(secretsDir.mkdirs() || secretsDir.isDirectory) {
             "The secrets folder is not available."
         }
+        restrictToOwner(secretsDir)
         val json = JsonObject(entries.mapValues { (_, value) -> JsonPrimitive(value) })
         val tempFile = File.createTempFile("apps-", ".json.tmp", secretsDir)
         try {
             tempFile.writeText(json.toString(), Charsets.UTF_8)
-            Files.move(
-                tempFile.toPath(),
-                secretsFile.toPath(),
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING,
-            )
+            moveWithRetry(tempFile)
         } finally {
             tempFile.delete()
+        }
+    }
+
+    // MAJOR 4 of the security review: on Windows the atomic move fails
+    // when a different process holds apps.json, for example a backup
+    // tool or an antivirus scan. A retry gives that process time to
+    // release its handle. The temporary file stays the same file across
+    // every attempt, and the finally block of writeAll removes it once,
+    // whether the move succeeds or not.
+    private fun moveWithRetry(tempFile: File) {
+        var attempt = 1
+        while (true) {
+            try {
+                Files.move(
+                    tempFile.toPath(),
+                    secretsFile.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+                return
+            } catch (moveFailure: IOException) {
+                if (attempt >= MAX_MOVE_ATTEMPTS) {
+                    throw SecretStoreUnavailableException(
+                        "The secret file move failed after $MAX_MOVE_ATTEMPTS attempts.",
+                        moveFailure,
+                    )
+                }
+                Thread.sleep(MOVE_RETRY_PAUSE_MILLIS)
+                attempt += 1
+            }
+        }
+    }
+
+    // MINOR 5 of the security review: an owner-only folder, because D2
+    // lets the owner point dataDir (and so this sibling folder) at a
+    // shared location. A filesystem with no POSIX permission support,
+    // for example exFAT, keeps its default rights; the attempt never
+    // fails the write.
+    private fun restrictToOwner(directory: File) {
+        runCatching {
+            val posixView = Files.getFileAttributeView(
+                directory.toPath(),
+                java.nio.file.attribute.PosixFileAttributeView::class.java,
+            )
+            if (posixView != null) {
+                Files.setPosixFilePermissions(directory.toPath(), PosixFilePermissions.fromString("rwx------"))
+            }
         }
     }
 }

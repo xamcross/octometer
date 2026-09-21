@@ -7,6 +7,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -74,5 +75,57 @@ class SecretStoreTest {
         val text = secretsFile.readText()
         assertFalse(text.contains(allowlistedSrvUri()), "the old value must not stay after a replace")
         assertNull(Regex("apps-.*\\.json\\.tmp").find(File(root, "secrets").list()!!.joinToString()))
+    }
+
+    @Test
+    fun `contains reports true after put and false after remove`() = runBlocking {
+        assertFalse(store.contains(1L))
+
+        store.put(1L, allowlistedSrvUri())
+        assertTrue(store.contains(1L))
+
+        store.remove(1L)
+        assertFalse(store.contains(1L))
+    }
+
+    @Test
+    fun `removeOrphans removes only the entries outside the given app ids, and reports the count`() = runBlocking {
+        store.put(1L, allowlistedSrvUri())
+        store.put(2L, allowlistedSrvUriWithoutCredential())
+        store.put(3L, allowlistedSrvUriWithoutCredential())
+
+        val removed = store.removeOrphans(setOf(2L))
+
+        assertEquals(2, removed)
+        assertFalse(store.contains(1L))
+        assertTrue(store.contains(2L))
+        assertFalse(store.contains(3L))
+    }
+
+    @Test
+    fun `removeOrphans of an empty store removes nothing`() = runBlocking {
+        val removed = store.removeOrphans(setOf(1L))
+
+        assertEquals(0, removed)
+    }
+
+    @Test
+    fun `put retries the atomic move, and gives up with SecretStoreUnavailableException`() = runBlocking {
+        // MAJOR 4 of the security review: the move fails on Windows when a
+        // different process holds the target file. A directory at the
+        // target path blocks the move on every platform in the same way,
+        // so the test needs no real second process.
+        val secretsDir = File(root, "secrets")
+        secretsDir.mkdirs()
+        File(secretsDir, "apps.json").mkdirs()
+
+        val started = System.nanoTime()
+        val failure = assertFailsWith<SecretStoreUnavailableException> {
+            store.put(1L, allowlistedSrvUri())
+        }
+        val elapsedMillis = (System.nanoTime() - started) / 1_000_000
+
+        assertTrue(elapsedMillis >= 150, "expected at least 4 retry pauses of 50 ms, took $elapsedMillis ms")
+        assertFalse(failure.message.orEmpty().contains(allowlistedSrvUri()))
     }
 }

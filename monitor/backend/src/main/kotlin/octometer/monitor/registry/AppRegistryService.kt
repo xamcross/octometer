@@ -2,11 +2,24 @@ package octometer.monitor.registry
 
 import java.sql.Connection
 import java.sql.SQLException
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import octometer.monitor.store.SqliteDatabase
+import org.sqlite.SQLiteErrorCode
+import org.sqlite.SQLiteException
 
 /** The default chunk size of step 5 (the delete of the events). */
 const val EVENT_DELETE_CHUNK_SIZE = 10_000
+
+/** MINOR 2 of the security review: a bound on each text field of a request. */
+private const val MAX_CONNECTION_STRING_LENGTH = 2_048
+private const val MAX_SHORT_FIELD_LENGTH = 200
+
+/**
+ * MINOR 3 of the security review. Contract C1 fixes the collection name;
+ * a major change of the contract uses the second name here.
+ */
+private val ALLOWED_COLLECTION_NAMES = setOf("octometer_events", "octometer_events_v2")
 
 @Serializable
 data class CreateAppRequest(
@@ -14,13 +27,21 @@ data class CreateAppRequest(
     val connectionString: String,
     val database: String,
     val collection: String,
-)
+) {
+    // MAJOR 2 of the security review: the generated toString of a data
+    // class holds every property. This override hides connectionString
+    // from a log line, from a require message, and from a debugger.
+    override fun toString(): String = "CreateAppRequest(name=$name, database=$database, collection=$collection)"
+}
 
 @Serializable
 data class UpdateAppRequest(
     val name: String? = null,
     val connectionString: String? = null,
-)
+) {
+    override fun toString(): String =
+        "UpdateAppRequest(name=$name, connectionString=${if (connectionString == null) "null" else "<hidden>"})"
+}
 
 /** The response of a create and of a list row. It never holds a connection string. */
 @Serializable
@@ -35,6 +56,9 @@ sealed class CreateAppResult {
     data class Created(val summary: AppSummary) : CreateAppResult()
     data class InvalidRequest(val message: String) : CreateAppResult()
     data class NameTaken(val name: String) : CreateAppResult()
+
+    /** MAJOR 4 (security review) and MAJOR 1 (Ktor review): the secret store gave up. */
+    object SecretStoreUnavailable : CreateAppResult()
 }
 
 sealed class UpdateAppResult {
@@ -42,6 +66,7 @@ sealed class UpdateAppResult {
     object NotFound : UpdateAppResult()
     data class InvalidRequest(val message: String) : UpdateAppResult()
     data class NameTaken(val name: String) : UpdateAppResult()
+    object SecretStoreUnavailable : UpdateAppResult()
 }
 
 /**
@@ -59,8 +84,17 @@ class AppRegistryService(
     suspend fun createApp(request: CreateAppRequest): CreateAppResult {
         val name = request.name.trim()
         if (name.isEmpty()) return CreateAppResult.InvalidRequest("Give a non-empty name.")
+        if (name.length > MAX_SHORT_FIELD_LENGTH) return CreateAppResult.InvalidRequest("Give a shorter name.")
         if (request.database.isBlank()) return CreateAppResult.InvalidRequest("Give a non-empty database.")
-        if (request.collection.isBlank()) return CreateAppResult.InvalidRequest("Give a non-empty collection.")
+        if (request.database.length > MAX_SHORT_FIELD_LENGTH) {
+            return CreateAppResult.InvalidRequest("Give a shorter database name.")
+        }
+        if (request.collection !in ALLOWED_COLLECTION_NAMES) {
+            return CreateAppResult.InvalidRequest("Give the collection octometer_events or octometer_events_v2.")
+        }
+        if (request.connectionString.length > MAX_CONNECTION_STRING_LENGTH) {
+            return CreateAppResult.InvalidRequest("Give a shorter connection string.")
+        }
 
         val check = ConnectionStringValidator.check(request.connectionString)
         if (check is ConnectionStringCheck.Invalid) return CreateAppResult.InvalidRequest(check.message)
@@ -74,15 +108,40 @@ class AppRegistryService(
             throw constraintFailure
         }
 
-        secretStore.put(appId, request.connectionString)
+        // MAJOR 3 (both reviews): a failed secret write must not leave an
+        // orphan app row. This removes the row again and reports the
+        // failure, instead of leaving a row with no connection string.
+        try {
+            secretStore.put(appId, request.connectionString)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (secretFailure: Exception) {
+            database.write { writer -> deleteAppRow(writer, appId) }
+            if (secretFailure is SecretStoreUnavailableException) {
+                return CreateAppResult.SecretStoreUnavailable
+            }
+            throw secretFailure
+        }
         return CreateAppResult.Created(AppSummary(appId, name, request.database, request.collection))
     }
 
+    /**
+     * The update of step 4. The field check runs before the existence
+     * check. An empty body on an unknown id thus gives 400, not 404. A
+     * caller that needs 404 for every bad request sends an empty name
+     * instead.
+     */
     suspend fun updateApp(appId: Long, request: UpdateAppRequest): UpdateAppResult {
         val name = request.name?.trim()
         if (name != null && name.isEmpty()) return UpdateAppResult.InvalidRequest("Give a non-empty name.")
+        if (name != null && name.length > MAX_SHORT_FIELD_LENGTH) {
+            return UpdateAppResult.InvalidRequest("Give a shorter name.")
+        }
         if (name == null && request.connectionString == null) {
             return UpdateAppResult.InvalidRequest("Give a name, a connection string, or both.")
+        }
+        if (request.connectionString != null && request.connectionString.length > MAX_CONNECTION_STRING_LENGTH) {
+            return UpdateAppResult.InvalidRequest("Give a shorter connection string.")
         }
 
         if (request.connectionString != null) {
@@ -106,26 +165,38 @@ class AppRegistryService(
         if (!found) return UpdateAppResult.NotFound
 
         if (request.connectionString != null) {
-            secretStore.put(appId, request.connectionString)
+            try {
+                secretStore.put(appId, request.connectionString)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (secretFailure: SecretStoreUnavailableException) {
+                return UpdateAppResult.SecretStoreUnavailable
+            }
         }
         return UpdateAppResult.Updated
     }
 
     /**
-     * The delete of step 5: the events in chunks, then the skipped_event
-     * rows, the gap rows, the app row, and the secret. Each step commits
-     * on its own, thus a stopped process leaves a partial result, and a
-     * second call finishes the remaining steps, because every step here
-     * is safe to repeat.
+     * The delete of step 5, in the order of MAJOR 4 of the security
+     * review. It removes the secret first. Then it removes the events in
+     * chunks, the skipped_event rows, the gap rows, and the app row. A
+     * stop between two steps leaves an app row with no secret. The owner
+     * can see and correct that state. A stop never leaves a secret with
+     * no app row. Each step commits on its own. A second call finishes
+     * the remaining steps.
      */
     suspend fun deleteApp(appId: Long): Boolean {
+        val appRowExists = database.read { reader -> appExists(reader, appId) }
+        val secretExists = secretStore.contains(appId)
+        if (!appRowExists && !secretExists) return false
+
+        val secretRemoved = secretStore.remove(appId)
         deleteEventsInChunks(appId)
         database.write { writer ->
             deleteSkippedEvents(writer, appId)
             deleteGaps(writer, appId)
         }
         val appRowRemoved = database.write { writer -> deleteAppRow(writer, appId) }
-        val secretRemoved = secretStore.remove(appId)
         return appRowRemoved || secretRemoved
     }
 
@@ -201,5 +272,11 @@ private fun deleteAppRow(writer: Connection, appId: Long): Boolean =
         delete.executeUpdate() == 1
     }
 
+// MINOR 4 of the security review: the old check matched any message that
+// held the word UNIQUE, thus a unique rule on a different column would
+// give the same wrong result. This checks the SQLite result code and the
+// exact column, so only the name rule of the app table maps to NameTaken.
 private fun isUniqueNameViolation(error: SQLException): Boolean =
-    error.message?.contains("UNIQUE", ignoreCase = true) == true
+    error is SQLiteException &&
+        error.resultCode == SQLiteErrorCode.SQLITE_CONSTRAINT_UNIQUE &&
+        error.message?.contains("app.name") == true

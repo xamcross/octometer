@@ -13,6 +13,7 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import java.io.File
+import java.sql.DriverManager
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -40,6 +41,95 @@ class AppRegistryRoutesTest {
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals("demo", body["name"]!!.jsonPrimitive.content)
         assertFalse(response.bodyAsText().contains(allowlistedSrvUri()))
+    }
+
+    @Test
+    fun `POST 201 carries a Location header for the new app`() = testApplication {
+        // MINOR 7 of the Ktor review.
+        application { module(prodConfig()) }
+
+        val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
+        val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
+
+        assertEquals("/api/apps/$appId", created.headers[HttpHeaders.Location])
+    }
+
+    @Test
+    fun `POST with a body that is missing a field gets 400`() = testApplication {
+        // MINOR 3 of the Ktor review.
+        application { module(prodConfig()) }
+
+        val response = client.post("/api/apps") {
+            allowedHost()
+            header(HttpHeaders.Origin, "http://localhost:7431")
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"demo","database":"db","collection":"octometer_events"}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `POST with a body that is not JSON gets 400`() = testApplication {
+        application { module(prodConfig()) }
+
+        val response = client.post("/api/apps") {
+            allowedHost()
+            header(HttpHeaders.Origin, "http://localhost:7431")
+            contentType(ContentType.Application.Json)
+            setBody("this is not json")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `POST with a duplicate name gets 409`() = testApplication {
+        application { module(prodConfig()) }
+        createApp(name = "demo", connectionString = allowlistedSrvUri())
+
+        val response = createApp(name = "demo", connectionString = allowlistedSrvUriWithoutCredential())
+
+        assertEquals(HttpStatusCode.Conflict, response.status)
+    }
+
+    @Test
+    fun `PATCH with a non-numeric id gets 400`() = testApplication {
+        // MINOR 3 of the Ktor review.
+        application { module(prodConfig()) }
+
+        val response = client.patch("/api/apps/not-a-number") {
+            allowedHost()
+            header(HttpHeaders.Origin, "http://localhost:7431")
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"demo2"}""")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `DELETE with a non-numeric id gets 400`() = testApplication {
+        application { module(prodConfig()) }
+
+        val response = client.delete("/api/apps/not-a-number") {
+            allowedHost()
+            header(HttpHeaders.Origin, "http://localhost:7431")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `DELETE of an unknown id gets 404`() = testApplication {
+        application { module(prodConfig()) }
+
+        val response = client.delete("/api/apps/999") {
+            allowedHost()
+            header(HttpHeaders.Origin, "http://localhost:7431")
+        }
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
     }
 
     @Test
@@ -127,16 +217,23 @@ class AppRegistryRoutesTest {
     }
 
     @Test
-    fun `a byte search of octometer-db finds no connection string after a create`() = testApplication {
+    fun `a byte search of the store files finds no connection string after a create`() {
+        // BLOCKER 1 of the Ktor review: the store runs in WAL mode (D3), so
+        // a fresh row lives in octometer.db-wal, not in octometer.db, while
+        // the store is open. The search must run after the store closes,
+        // and it must search every file of the store, not one file.
         val dataDir = testDataDir()
-        application { module(prodConfig(dataDir = dataDir)) }
+        testApplication {
+            application { module(prodConfig(dataDir = dataDir)) }
+            createApp(name = "demo", connectionString = allowlistedSrvUri())
+        }
 
-        createApp(name = "demo", connectionString = allowlistedSrvUri())
-
-        val dbFile = File(dataDir, "octometer.db")
-        assertTrue(dbFile.isFile, "expected ${dbFile.absolutePath} to exist")
-        val dbBytes = dbFile.readBytes()
-        assertEquals(-1, indexOfBytes(dbBytes, allowlistedSrvUri().toByteArray(Charsets.UTF_8)))
+        val needle = allowlistedSrvUri().toByteArray(Charsets.UTF_8)
+        val storeFiles = File(dataDir).listFiles { file -> file.name.startsWith("octometer.db") }
+        assertTrue(!storeFiles.isNullOrEmpty(), "expected the store files in $dataDir")
+        for (file in storeFiles) {
+            assertEquals(-1, indexOfBytes(file.readBytes(), needle), file.name)
+        }
     }
 
     @Test
@@ -152,16 +249,27 @@ class AppRegistryRoutesTest {
     }
 
     @Test
-    fun `POST without an allowed Origin header gets 403, and creates no app`() = testApplication {
-        application { module(prodConfig()) }
+    fun `POST without an allowed Origin header gets 403, and creates no app`() {
+        // MINOR 2 of the Ktor review, and MINOR 7 of the security review:
+        // the old test asserted the status code only.
+        val dataDir = testDataDir()
+        lateinit var status: HttpStatusCode
+        testApplication {
+            application { module(prodConfig(dataDir = dataDir)) }
 
-        val response = client.post("/api/apps") {
-            allowedHost()
-            contentType(ContentType.Application.Json)
-            setBody("""{"name":"demo","connectionString":"x","database":"db","collection":"c"}""")
+            status = client.post("/api/apps") {
+                allowedHost()
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"demo","connectionString":"x","database":"db","collection":"c"}""")
+            }.status
         }
 
-        assertEquals(HttpStatusCode.Forbidden, response.status)
+        assertEquals(HttpStatusCode.Forbidden, status)
+        assertFalse(
+            File(File(dataDir).parentFile, "secrets/apps.json").exists(),
+            "the rejected request must write no secret",
+        )
+        assertEquals(0, countAppRows(dataDir))
     }
 
     private suspend fun ApplicationTestBuilder.createApp(
@@ -176,6 +284,21 @@ class AppRegistryRoutesTest {
         setBody(
             """{"name":"$name","connectionString":"$connectionString","database":"$database","collection":"$collection"}""",
         )
+    }
+}
+
+// The store closed when testApplication ended, so a fresh, short-lived
+// JDBC connection can read the file directly here, with no pragma of its
+// own: a plain count needs none.
+private fun countAppRows(dataDir: String): Int {
+    val url = "jdbc:sqlite:" + File(dataDir, "octometer.db").absolutePath
+    return DriverManager.getConnection(url).use { connection ->
+        connection.createStatement().use { statement ->
+            statement.executeQuery("SELECT COUNT(*) FROM app").use { result ->
+                result.next()
+                result.getInt(1)
+            }
+        }
     }
 }
 

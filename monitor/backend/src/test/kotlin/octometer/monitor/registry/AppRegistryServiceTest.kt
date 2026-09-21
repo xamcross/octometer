@@ -8,9 +8,9 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 // Steps 2 to 5 of issue #15. Each test opens its own SqliteDatabase in a
@@ -176,6 +176,113 @@ class AppRegistryServiceTest {
         assertTrue(found, "the second call must still report a change, and clear the secret")
         assertFalse(secretStore.remove(appId))
     }
+
+    @Test
+    fun `a second deleteApp call finishes the work when the app row and its events still remain, but the secret is already gone`() =
+        runBlocking {
+            // MAJOR 4 (security review): deleteApp now removes the secret
+            // FIRST. This simulates a process stop right after that step:
+            // the secret is gone, the app row and its event still remain.
+            val created = service.createApp(
+                CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+            ) as CreateAppResult.Created
+            val appId = created.summary.appId
+            seedEvent(appId, "e1")
+            secretStore.remove(appId)
+
+            val found = service.deleteApp(appId)
+
+            assertTrue(found, "the second call must still report a change, and clear the app row")
+            assertEquals(0, countAppRows())
+            assertEquals(0, countEventRows(appId))
+        }
+
+    @Test
+    fun `deleteApp on an id with neither an app row nor a secret changes nothing and returns false`() = runBlocking {
+        val found = service.deleteApp(424_242L)
+
+        assertFalse(found)
+        assertEquals(0, countAppRows())
+    }
+
+    @Test
+    fun `createApp rejects a connection string above the 2048 character limit`() = runBlocking {
+        val tooLong = allowlistedSrvUriWithoutCredential("appName=" + "a".repeat(2048))
+
+        val result = service.createApp(CreateAppRequest("demo", tooLong, "db", "octometer_events"))
+
+        assertIs<CreateAppResult.InvalidRequest>(result)
+        assertEquals(0, countAppRows())
+    }
+
+    @Test
+    fun `createApp rejects a name above the 200 character limit`() = runBlocking {
+        val result = service.createApp(
+            CreateAppRequest("a".repeat(201), allowlistedSrvUri(), "db", "octometer_events"),
+        )
+
+        assertIs<CreateAppResult.InvalidRequest>(result)
+        assertEquals(0, countAppRows())
+    }
+
+    @Test
+    fun `createApp accepts the two contract collection names`() = runBlocking {
+        val first = service.createApp(CreateAppRequest("demo1", allowlistedSrvUri(), "db", "octometer_events"))
+        val second =
+            service.createApp(CreateAppRequest("demo2", allowlistedSrvUriWithoutCredential(), "db", "octometer_events_v2"))
+
+        assertIs<CreateAppResult.Created>(first)
+        assertIs<CreateAppResult.Created>(second)
+    }
+
+    @Test
+    fun `createApp rejects a collection name outside the contract`() = runBlocking {
+        val result = service.createApp(CreateAppRequest("demo", allowlistedSrvUri(), "db", "system.users"))
+
+        assertIs<CreateAppResult.InvalidRequest>(result)
+        assertEquals(0, countAppRows())
+    }
+
+    @Test
+    fun `CreateAppRequest toString hides the connection string`() {
+        val request = CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events")
+
+        assertFalse(request.toString().contains(allowlistedSrvUri()))
+    }
+
+    @Test
+    fun `UpdateAppRequest toString hides the connection string`() {
+        val request = UpdateAppRequest(name = "demo", connectionString = allowlistedSrvUri())
+
+        assertFalse(request.toString().contains(allowlistedSrvUri()))
+    }
+
+    @Test
+    fun `createApp removes the app row when the secret write fails, and the failure propagates`() = runBlocking {
+        // MAJOR 3 (both reviews): a broken secrets folder must not leave
+        // an orphan app row. A file at the secrets folder path (instead
+        // of a directory) makes every write to the store fail.
+        File(root, "secrets").let { it.parentFile.mkdirs(); it.writeText("not a directory") }
+
+        assertFailsWith<IllegalStateException> {
+            service.createApp(CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"))
+        }
+
+        assertEquals(0, countAppRows())
+    }
+
+    @Test
+    fun `createApp reports SecretStoreUnavailable and removes the app row when the atomic move keeps failing`() =
+        runBlocking {
+            val secretsDir = File(root, "secrets")
+            secretsDir.mkdirs()
+            File(secretsDir, "apps.json").mkdirs()
+
+            val result = service.createApp(CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"))
+
+            assertIs<CreateAppResult.SecretStoreUnavailable>(result)
+            assertEquals(0, countAppRows())
+        }
 
     private suspend fun seedEvent(appId: Long, eventId: String) {
         database.write { writer ->
