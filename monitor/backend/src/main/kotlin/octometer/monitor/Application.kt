@@ -14,11 +14,16 @@ import java.util.Properties
 
 private const val HOST = "127.0.0.1"
 private const val PORT = 7431
-private const val DEFAULT_MODE = "prod"
 
 // Issue #4 replaces DEFAULT_MODE with the full config load.
+private const val DEFAULT_MODE = "prod"
+
 @Serializable
 data class HealthResponse(val version: String, val mode: String)
+
+// The version stays the same for the life of the process, so the route
+// reads the packaged resource one time, at the class load, not on each call.
+private val VERSION: String = readVersion()
 
 fun main() {
     embeddedServer(Netty, host = HOST, port = PORT, module = Application::module).start(wait = true)
@@ -30,7 +35,7 @@ fun Application.module() {
     }
     routing {
         get("/api/health") {
-            call.respond(HealthResponse(version = readVersion(), mode = readMode()))
+            call.respond(HealthResponse(version = VERSION, mode = readMode()))
         }
     }
 }
@@ -39,7 +44,7 @@ private fun readMode(): String = System.getProperty("octometer.mode", DEFAULT_MO
 
 private fun readVersion(): String {
     val properties = Properties()
-    val stream = object {}.javaClass.getResourceAsStream("/version.properties")
+    val stream = HealthResponse::class.java.getResourceAsStream("/version.properties")
     stream?.use { properties.load(it) }
     return properties.getProperty("version", "unknown")
 }
