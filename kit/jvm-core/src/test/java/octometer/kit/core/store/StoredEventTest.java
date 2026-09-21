@@ -12,10 +12,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 /**
  * Tests of {@link StoredEvent} against design decision D15: a log line
  * never holds a user id or a session id. Version 1.1 of the contract adds
- * `referrerHost` (issue #103). This module carries {@code referrerHost}
- * to {@link StoredEvent}, but not {@code path}: rule C42 says the server
- * stores no `path` field without a route pattern list, and issue #104
- * adds that list.
+ * `referrerHost` and `path` (issue #103). {@link StoredEvent#of} copies
+ * both fields from the {@link IngestEvent}. This module has no route
+ * pattern list yet, so {@code path} is always {@code null} today; issue
+ * #104 adds that list.
  */
 class StoredEventTest {
 
@@ -49,6 +49,35 @@ class StoredEventTest {
 
         StoredEvent stored = StoredEvent.of(event, null);
 
+        assertNull(stored.referrerHost());
+    }
+
+    @Test
+    void ofCopiesThePathFromTheIngestEvent() {
+        IngestEvent event = new IngestEvent("3fa85f64-5717-4562-b3fc-2c963f66afa6", "checkout.save",
+                Instant.parse("2026-09-21T10:15:30.000Z"), "/masked/:id", null);
+
+        StoredEvent stored = StoredEvent.of(event, null);
+
+        assertEquals("/masked/:id", stored.path());
+    }
+
+    @Test
+    void ofGivesNoPathWhenTheIngestEventHasNone() {
+        IngestEvent event = new IngestEvent("3fa85f64-5717-4562-b3fc-2c963f66afa6", "checkout.save",
+                Instant.parse("2026-09-21T10:15:30.000Z"));
+
+        StoredEvent stored = StoredEvent.of(event, null);
+
+        assertNull(stored.path());
+    }
+
+    @Test
+    void theFourArgumentConstructorGivesNoPathAndNoReferrerHost() {
+        StoredEvent stored = new StoredEvent("3fa85f64-5717-4562-b3fc-2c963f66afa6", "checkout.save",
+                Instant.parse("2026-09-21T10:15:30.000Z"), "user-1");
+
+        assertNull(stored.path());
         assertNull(stored.referrerHost());
     }
 }

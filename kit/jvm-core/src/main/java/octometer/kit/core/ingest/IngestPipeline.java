@@ -24,7 +24,10 @@ import octometer.kit.core.user.UserIdResolver;
  *       reserved prefix `octo:` in each letter case, except the exact
  *       text `octo:session-start` (rule C38);</li>
  *   <li>the server checks `path` against rule C39, and drops an invalid
- *       value while it keeps the entry (rule C41);</li>
+ *       value while it keeps the entry (rule C41). A valid value is not
+ *       stored yet: this module has no route pattern list (rule C42),
+ *       so {@link IngestEvent#path()} is always {@code null} until
+ *       issue #104 adds the list and the match;</li>
  *   <li>the server checks `referrerHost` against rule C40 on the
  *       `octo:session-start` entry only, and drops an invalid value or a
  *       value of another entry while it keeps the entry (rules C40,
@@ -70,6 +73,10 @@ public final class IngestPipeline {
         boolean warnedReservedElement = false;
         boolean warnedInvalidField = false;
         for (ParsedClick click : parsed.clicks()) {
+            // Rule C33 runs before rule C38. An element that breaks rule
+            // C4 makes the whole body invalid (400), also when it starts
+            // with the reserved prefix. Rule C38 then drops only an
+            // entry whose element is legal under rule C4.
             EventFieldValidator.validateElement(click.element());
             boolean isSessionStart = SESSION_START_ELEMENT.equals(click.element());
             if (!isSessionStart && hasReservedElementPrefix(click.element())) {
@@ -83,17 +90,20 @@ public final class IngestPipeline {
             }
             Instant ts = TsCalculator.computeTs(receivedAt, click.ageMs());
 
-            String path = null;
-            if (click.path() != null) {
-                if (EventFieldValidator.isValidPath(click.path())) {
-                    path = click.path();
-                } else if (!warnedInvalidField) {
-                    LOGGER.log(Level.WARNING, "The batch holds an entry with an invalid path or "
-                            + "referrerHost value. The server drops the field and keeps the entry "
-                            + "(contract rule C41).");
-                    warnedInvalidField = true;
-                }
+            // This module has no route pattern list yet (rule C42), so
+            // the event record always holds a null path. The shape
+            // check of rule C39 still runs here, only to find an
+            // invalid value for the warning of rule C41. The checked
+            // raw value stays in click (a ParsedClick) and goes no
+            // further; issue #104 adds the match that fills the event
+            // record.
+            if (click.path() != null && !EventFieldValidator.isValidPath(click.path()) && !warnedInvalidField) {
+                LOGGER.log(Level.WARNING, "The batch holds an entry with an invalid path or "
+                        + "referrerHost value. The server drops the field and keeps the entry "
+                        + "(contract rule C41).");
+                warnedInvalidField = true;
             }
+            String path = null;
 
             String referrerHost = null;
             if (isSessionStart && click.referrerHost() != null) {

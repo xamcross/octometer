@@ -5,7 +5,10 @@ import org.junit.jupiter.api.Test;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
+import octometer.kit.core.store.EventLogStore;
+import octometer.kit.core.user.UserIdResolver;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -20,8 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>This class does not match a `path` value against a route pattern
  * list; issue #104 owns that (rule C42). Each test here checks only the
- * shape check of rule C39, so {@link IngestEvent#path()} here holds the
- * checked client value, not a match result.
+ * shape check of rule C39, so {@link IngestEvent#path()} is always
+ * {@code null} in this class, also for a valid client value.
  */
 class IngestPipelinePathAndSourceTest {
 
@@ -29,13 +32,18 @@ class IngestPipelinePathAndSourceTest {
             Clock.fixed(Instant.parse("2026-09-21T10:15:30.000Z"), ZoneOffset.UTC);
 
     @Test
-    void aValidPathOnAClickEntryReachesTheEventRecord() {
+    void aValidPathPassesTheShapeCheckButDoesNotReachTheEventRecord() {
+        // Rule C39 checks the shape of a valid path with no fatal error.
+        // Rule C42 says the server stores only a route pattern match,
+        // and this module has no route pattern list yet. The event
+        // record then holds a null path, also for a valid client value.
+        // Issue #104 adds the match and fills this component.
         String body = ExampleFiles.read("ingest-valid-C39-path.json");
 
         List<IngestEvent> events = IngestPipeline.process(body, FIXED_CLOCK);
 
         assertEquals(1, events.size());
-        assertEquals("/articles/example-article", events.get(0).path());
+        assertNull(events.get(0).path());
     }
 
     @Test
@@ -219,6 +227,32 @@ class IngestPipelinePathAndSourceTest {
         assertEquals(1, CapturingLoggerFinder.messages().size());
     }
 
+    /**
+     * MINOR 2 of the first Java review of pull request #131: no test
+     * capped the rule C38 warning at one for each batch. This test adds
+     * that missing coverage, with the same shape as
+     * {@link #aBatchWithThreeInvalidPathValuesWritesAtMostOneWarning()}.
+     */
+    @Test
+    void aBatchWithThreeReservedElementsWritesAtMostOneWarning() {
+        CapturingLoggerFinder.clear();
+        String body = """
+                {"sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                 "clicks": [
+                   {"element": "octo:one", "ageMs": 1},
+                   {"element": "octo:two", "ageMs": 1},
+                   {"element": "octo:three", "ageMs": 1},
+                   {"element": "checkout.save", "ageMs": 1}
+                 ]}
+                """;
+
+        List<IngestEvent> events = IngestPipeline.process(body, FIXED_CLOCK);
+
+        assertEquals(1, events.size());
+        assertEquals("checkout.save", events.get(0).element());
+        assertEquals(1, CapturingLoggerFinder.messages().size());
+    }
+
     @Test
     void theResponseStaysValidForABatchWithInvalidValues() {
         // The acceptance criterion asks for status 204 for such a batch.
@@ -257,6 +291,48 @@ class IngestPipelinePathAndSourceTest {
             assertFalse(message.contains("Attacker.example"), "a message must not hold a raw host");
             assertFalse(message.contains("//one"), "a message must not hold a raw path");
         }
+    }
+
+    /**
+     * The new criterion of the maintainer's correction of 2026-09-22, on
+     * pull request #131. A test store records each event of {@link
+     * IngestPipeline#ingest}. For a request with a valid `path`, no
+     * component of the recorded event, and no {@code toString()} text of
+     * the event or of the parsed click, holds the client value. This
+     * proves rule C39 ("the server never stores the raw client value")
+     * at the seam that an app store reads.
+     */
+    @Test
+    void aStoreNeverReceivesTheRawClientPathForAValidPath() {
+        String rawPath = "/articles/example-article";
+        String body = ExampleFiles.read("ingest-valid-C39-path.json");
+        List<IngestEvent> recordedEvents = new ArrayList<>();
+        EventLogStore testStore = new EventLogStore() {
+            @Override
+            public void append(List<IngestEvent> events, String userId) {
+                recordedEvents.addAll(events);
+            }
+
+            @Override
+            public void deleteByUserId(String userId) {
+                throw new UnsupportedOperationException();
+            }
+        };
+        UserIdResolver resolver = () -> "user-1";
+
+        IngestPipeline.ingest(body, FIXED_CLOCK, resolver, testStore, new IngestSettings(false));
+
+        assertEquals(1, recordedEvents.size());
+        IngestEvent recordedEvent = recordedEvents.get(0);
+        assertNull(recordedEvent.path(), "the event record must not hold the client path");
+        assertFalse(recordedEvent.toString().contains(rawPath),
+                "the event text must not hold the client path");
+
+        ParsedIngestRequest parsed = IngestParser.parse(body);
+        assertFalse(parsed.toString().contains(rawPath),
+                "the parsed request text must not hold the client path");
+        assertFalse(parsed.clicks().get(0).toString().contains(rawPath),
+                "the parsed click text must not hold the client path");
     }
 
     private static String sessionStartBody(String referrerHostJsonValue) {
