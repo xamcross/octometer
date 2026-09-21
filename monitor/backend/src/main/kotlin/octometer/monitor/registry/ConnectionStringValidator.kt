@@ -1,18 +1,24 @@
 package octometer.monitor.registry
 
-// D11 and section 4.3: the accepted forms and the forbidden options. The
-// map key is the lower-case option name; the map value is the forbidden
-// value, matched case-insensitively.
-private val FORBIDDEN_BOOLEAN_OPTIONS = mapOf(
-    "tls" to "false",
-    "ssl" to "false",
-    "tlsinsecure" to "true",
-    "tlsallowinvalidcertificates" to "true",
-    "tlsallowinvalidhostnames" to "true",
-)
-
 private const val SRV_PREFIX = "mongodb+srv://"
 private const val STANDARD_PREFIX = "mongodb://"
+
+// D11 and section 4.3: the allow-list of step 1, after the correction of
+// the pull request review. The monitor sets the read preference and each
+// TLS option in code (D10), thus the registry needs a very small set of
+// options. Each name below is lower-case, because the compare ignores the
+// letter case of the option name. tls and ssl pass only with the exact
+// value "true"; each other name passes with any value.
+private val ALLOWED_OPTIONS_ANY_VALUE = setOf(
+    "retrywrites",
+    "retryreads",
+    "w",
+    "appname",
+    "authsource",
+    "replicaset",
+)
+private val ALLOWED_TRUE_ONLY_OPTIONS = setOf("tls", "ssl")
+private const val REQUIRED_TRUE_VALUE = "true"
 
 /** The result of the check of D11. It never holds the checked text. */
 sealed class ConnectionStringCheck {
@@ -25,9 +31,17 @@ sealed class ConnectionStringCheck {
 /**
  * The URI check of D11 and section 4.3 (step 1). It runs on the raw text,
  * before a driver parses it (D10). It accepts `mongodb+srv://`, and
- * `mongodb://` only for a loopback host. It rejects each insecure TLS
- * option and `readPreference`, because the monitor sets the read
- * preference in code. Each error message names the rule, never the text.
+ * `mongodb://` only for a loopback host.
+ *
+ * The query check is an allow-list, not a deny-list. Only the names of
+ * [ALLOWED_OPTIONS_ANY_VALUE] and [ALLOWED_TRUE_ONLY_OPTIONS] may appear.
+ * Each name may appear one time only, and each name needs a value. The
+ * check splits the query on "&" and on ";", because the MongoDB driver
+ * accepts both separators. The check decodes a percent escape in each
+ * option name before the compare. A percent-encoded evasion of the
+ * allow-list thus fails too. Each error message names the rule and the
+ * option name. It never names a value, and it never repeats a part of
+ * the checked text.
  */
 object ConnectionStringValidator {
 
@@ -44,14 +58,23 @@ object ConnectionStringValidator {
             return invalid("A mongodb:// connection string needs a loopback host.")
         }
 
-        for ((key, value) in optionsOf(remainder)) {
-            val lowerKey = key.lowercase()
-            if (lowerKey == "readpreference") {
-                return invalid("The option readPreference is not allowed in a connection string.")
+        val seenNames = mutableSetOf<String>()
+        for ((rawName, rawValue) in optionsOf(remainder)) {
+            val name = decodedLowerName(rawName)
+                ?: return invalid("An option name must use valid percent-encoding.")
+            if (rawValue == null) {
+                return invalid("The option $name needs a value.")
             }
-            val forbiddenValue = FORBIDDEN_BOOLEAN_OPTIONS[lowerKey]
-            if (forbiddenValue != null && value.equals(forbiddenValue, ignoreCase = true)) {
-                return invalid("The option $key=$forbiddenValue is not allowed in a connection string.")
+            if (!seenNames.add(name)) {
+                return invalid("The option $name must appear one time.")
+            }
+            when (name) {
+                in ALLOWED_TRUE_ONLY_OPTIONS ->
+                    if (rawValue != REQUIRED_TRUE_VALUE) {
+                        return invalid("The option $name accepts only the value true.")
+                    }
+                in ALLOWED_OPTIONS_ANY_VALUE -> Unit
+                else -> return invalid("The option $name is not on the allow-list of accepted options.")
             }
         }
 
@@ -90,14 +113,40 @@ object ConnectionStringValidator {
     private fun isLoopbackHost(host: String): Boolean =
         host.equals("localhost", ignoreCase = true) || host == "127.0.0.1" || host == "::1"
 
-    private fun optionsOf(remainder: String): List<Pair<String, String>> {
+    // A plain percent-decode of the option name only. It never touches "+",
+    // because a connection string option name uses no form-encoding rule.
+    // A malformed escape gives null, and the caller then rejects the URI.
+    private fun decodedLowerName(rawName: String): String? {
+        val decoded = StringBuilder()
+        var index = 0
+        while (index < rawName.length) {
+            val char = rawName[index]
+            if (char == '%') {
+                if (index + 2 >= rawName.length) return null
+                val byteValue = rawName.substring(index + 1, index + 3).toIntOrNull(16) ?: return null
+                decoded.append(byteValue.toChar())
+                index += 3
+            } else {
+                decoded.append(char)
+                index += 1
+            }
+        }
+        return decoded.toString().lowercase()
+    }
+
+    // The value stays as null when the pair has no "=", so the caller can
+    // tell "no value" apart from "an empty value". D11 rejects both,
+    // because a data class with a null String? already means "absent"
+    // everywhere else in this module, and an empty value never matches
+    // the required value "true" of an allow-listed option anyway.
+    private fun optionsOf(remainder: String): List<Pair<String, String?>> {
         val queryStart = remainder.indexOf('?')
         if (queryStart == -1) return emptyList()
         val query = remainder.substring(queryStart + 1)
-        return query.split("&").mapNotNull { pair ->
+        return query.split('&', ';').mapNotNull { pair ->
             if (pair.isBlank()) return@mapNotNull null
             val eq = pair.indexOf('=')
-            if (eq == -1) pair to "" else pair.substring(0, eq) to pair.substring(eq + 1)
+            if (eq == -1) pair to null else pair.substring(0, eq) to pair.substring(eq + 1)
         }
     }
 }
