@@ -1,1 +1,11 @@
-<router-outlet />
+<app-banner [apiError]="monitorApiError()" />
+
+<app-breadcrumb-nav [items]="breadcrumbItems()" />
+
+@if (!appReady()) {
+  <p class="first-load">Octometer is loading…</p>
+}
+
+<router-outlet (activate)="onOutletActivated()" />
+
+<div role="status" class="visually-hidden">{{ announcer.message() }}</div>
