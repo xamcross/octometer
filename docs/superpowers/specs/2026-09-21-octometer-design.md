@@ -264,9 +264,16 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   holds no credential. No encryption in the application. The run guide names BitLocker
   (`manage-bde -status C:`). The API never returns a connection string. The code parses the
   URI one time, keeps `MongoClientSettings`, and never logs a `ConnectionString` or a
-  `Config` object. Accepted: `mongodb+srv://`, and `mongodb://` only for a loopback host. A
-  non-loopback URI with `tls=false`, `ssl=false`, `tlsInsecure=true`,
-  `tlsAllowInvalidCertificates=true`, or `tlsAllowInvalidHostnames=true` is rejected.
+  `Config` object. Accepted: `mongodb+srv://`, and `mongodb://` only for a loopback host.
+  Corrected in the review of pull request #125: the query check is an allow-list of option
+  names, not a deny-list. The query splits on `&` and on `;`, because the driver accepts
+  both. Each option name is decoded and lower-cased before the compare. The allowed names
+  are `retryWrites`, `retryReads`, `w`, `appName`, `authSource`, and `replicaSet`, with any
+  value, plus `tls` and `ssl` with the value `true`, in any letter case. Each other name, a repeated name,
+  and a name with no value are rejected. No allowed name can turn off TLS, change the read
+  preference, or send a credential to a different host (source: the MongoDB manual,
+  "Connection String Options", read on 2026-09-21; see the pull request text for the exact
+  finding of each option).
 - **D12. Exposure.** The server binds to `127.0.0.1` and refuses another address. No login.
   Each request passes a Host check (`localhost:<port>`, `127.0.0.1:<port>`, plus the
   `ng serve` port in dev mode). GET and HEAD are the safe methods; each other method needs an
