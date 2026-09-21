@@ -17,8 +17,8 @@ describe('Banner', () => {
     fixture.detectChanges();
 
     const slot = fixture.nativeElement.querySelector('.banner-slot') as HTMLElement;
-    expect(slot.style.minHeight).toBe('48px');
-    expect(slot.querySelector('[role="alert"]')).toBeNull();
+    expect(getComputedStyle(slot).height).toBe('48px');
+    expect(slot.querySelector('.banner-text')).toBeNull();
   });
 
   it('keeps the same reserved height and shows the error text on a failed monitor API', () => {
@@ -26,8 +26,26 @@ describe('Banner', () => {
     fixture.detectChanges();
 
     const slot = fixture.nativeElement.querySelector('.banner-slot') as HTMLElement;
-    expect(slot.style.minHeight).toBe('48px');
-    const alert = slot.querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain('The monitor API did not answer.');
+    expect(getComputedStyle(slot).height).toBe('48px');
+    const text = slot.querySelector('.banner-text');
+    expect(text?.textContent).toContain('The monitor API did not answer.');
+  });
+
+  it('carries no live-region role, because the announcer holds the one status region', () => {
+    fixture.componentRef.setInput('apiError', 'The monitor API did not answer.');
+    fixture.detectChanges();
+
+    const liveRegions = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '[role="alert"], [role="status"], [aria-live]',
+    );
+    expect(liveRegions.length).toBe(0);
+  });
+
+  it('shows an icon before the error text, hidden from a screen reader', () => {
+    fixture.componentRef.setInput('apiError', 'The monitor API did not answer.');
+    fixture.detectChanges();
+
+    const icon = fixture.nativeElement.querySelector('.banner-icon');
+    expect(icon?.getAttribute('aria-hidden')).toBe('true');
   });
 });

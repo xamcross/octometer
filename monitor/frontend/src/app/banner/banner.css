@@ -1,6 +1,6 @@
 .banner-slot {
-  display: flex;
-  align-items: center;
+  height: 48px;
+  overflow-y: auto;
 }
 
 .banner-text {
@@ -9,4 +9,8 @@
   padding: 0.5rem 1rem;
   background-color: #7a1913;
   color: #ffffff;
+}
+
+.banner-icon {
+  margin-right: 0.5rem;
 }
