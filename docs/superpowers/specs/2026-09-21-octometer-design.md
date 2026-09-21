@@ -133,9 +133,12 @@ Collection `octometer_events` in the database of the app.
 - The server calculates `ts = receivedAt - ageMs`. It clamps an `ageMs` above 600 000. A
   negative `ageMs` is invalid.
 - The server takes `userId` from the authentication context. The client never sends it.
+- The server ignores an unknown field in the body, a `userId` field included.
+- The server checks `element` and `sessionId` with the rules of 4.1.
 - Limits: 50 clicks for each batch, a body of 16 KB.
 - Responses: 204 for success and for a batch that the event cap drops, 400 for an invalid
-  body, 415 for a content type other than JSON, 429 for the rate limit.
+  body (a broken limit and a broken field rule included), 415 for a content type other than
+  JSON, 429 for the rate limit.
 
 ### 4.3 The reader rule (monitor)
 

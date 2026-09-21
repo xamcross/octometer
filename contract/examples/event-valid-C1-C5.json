@@ -1,0 +1,7 @@
+{
+  "_id": {"$oid": "6ab103c23c4d5e6f7a8b9c0d"},
+  "ts": {"$date": "2026-09-21T10:15:30.000Z"},
+  "element": "checkout.save",
+  "sessionId": "0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11",
+  "userId": "demo-user-42"
+}
