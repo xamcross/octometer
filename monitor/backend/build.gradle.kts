@@ -18,6 +18,7 @@ dependencies {
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.typesafe.config)
     runtimeOnly(libs.logback.classic)
 
     testImplementation(libs.ktor.server.test.host)
@@ -33,9 +34,9 @@ tasks.test {
 }
 
 // The dev mode of D2 (docs/superpowers/specs/2026-09-21-octometer-design.md).
-// Issue #4 adds the full config load. This line only sets the mode for `run`.
+// The argument holds the top precedence level of octometer.monitor.config.loadConfig.
 tasks.named<JavaExec>("run") {
-    systemProperty("octometer.mode", "dev")
+    args = listOf("-P:octometer.mode=dev")
 }
 
 // The version value must sit inside the task block. A value outside it
