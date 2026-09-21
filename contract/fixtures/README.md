@@ -68,4 +68,21 @@ db.octometer_events.deleteMany({ octometerProbeMarker: "octometer-check-privileg
 
 ### Result on Atlas M0
 
-The owner does not have a result yet.
+The owner ran the script on a real Atlas M0 cluster on 2026-09-21, with the
+user and the role of section 4.4. The output is in
+`connection-status-m0.json`; the file replaces the real database name with
+`exampledb`.
+
+- The cluster tier is M0. `connectionStatus` with `showPrivileges: true`
+  returns `authenticatedUserPrivileges`. The array is complete and exact:
+  one resource (the one collection), with the one action `find`.
+  `authenticatedUserRoles` shows the one role `octometerEventReader`.
+- `find` on `octometer_events` works. `insertOne` on `octometer_events`
+  fails, and `find` on the second collection fails. Each failure has the
+  code 8000, the code name `AtlasError`, and the text "user is not allowed
+  to do action [...]". A local MongoDB gives the code 13 (`Unauthorized`)
+  for the same case.
+- `listCollections` with `authorizedCollections: true, nameOnly: true`
+  returns an empty list, because the collection did not exist at the time
+  of the run. The result on M0 for a user with only `find` when the
+  collection exists is not known yet.

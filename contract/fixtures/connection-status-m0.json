@@ -1,0 +1,60 @@
+{
+  "database": "exampledb",
+  "databaseWarning": null,
+  "eventsCollection": "octometer_events",
+  "otherCollection": "octometer_probe_other",
+  "connectionStatus": {
+    "authInfo": {
+      "authenticatedUsers": [
+        {
+          "user": "REDACTED",
+          "db": "admin"
+        }
+      ],
+      "authenticatedUserRoles": [
+        {
+          "role": "octometerEventReader",
+          "db": "admin"
+        }
+      ],
+      "authenticatedUserPrivileges": [
+        {
+          "resource": {
+            "db": "exampledb",
+            "collection": "octometer_events"
+          },
+          "actions": [
+            "find"
+          ]
+        }
+      ]
+    },
+    "ok": 1
+  },
+  "listCollections": {
+    "ok": 1,
+    "collections": []
+  },
+  "findEvents": {
+    "ok": true,
+    "count": 0,
+    "fields": []
+  },
+  "insertEvents": {
+    "insertWorked": false,
+    "error": {
+      "code": 8000,
+      "codeName": "AtlasError",
+      "errmsg": "user is not allowed to do action [insert] on [exampledb.octometer_events]"
+    }
+  },
+  "findOther": {
+    "ok": false,
+    "count": null,
+    "error": {
+      "code": 8000,
+      "codeName": "AtlasError",
+      "errmsg": "user is not allowed to do action [find] on [exampledb.octometer_probe_other]"
+    }
+  }
+}
