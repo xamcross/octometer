@@ -175,4 +175,23 @@ class EventFieldValidatorTest {
         assertEquals("octo:session-start", ExampleFiles.extractStringField(json, "element"));
         assertTrue(Set.of("google.com", "bing.com", "other").contains(host));
     }
+
+    @Test
+    void acceptsTheMaskedPathOfTheC42Example() {
+        String json = ExampleFiles.read("event-valid-C42-masked-path.json");
+        String path = ExampleFiles.extractStringField(json, "path");
+
+        assertEquals("/history/:id", path);
+        assertTrue(path.startsWith("/"));
+        assertNotEquals('/', path.charAt(1));
+        assertTrue(path.getBytes(StandardCharsets.UTF_8).length <= 150);
+    }
+
+    @Test
+    void acceptsTheOtherPathOfTheC42Example() {
+        String json = ExampleFiles.read("event-valid-C42-other-path.json");
+
+        assertEquals("/other", ExampleFiles.extractStringField(json, "path"));
+        assertTrue(ExampleFiles.hasNullField(json, "userId"));
+    }
 }

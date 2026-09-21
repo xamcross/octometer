@@ -112,15 +112,17 @@ application/json`.
 - **C37.** `ageMs` is a JSON integer. A value with a fraction or an exponent, for example
   `1.0` or `1e3`, makes the body invalid.
 - **C38.** The element prefix `octo:` is reserved for the contract. An app must not use it as
-  a `data-octo` value. The tracker drops such a value, and it writes one console warning for
-  the first dropped value. The element `octo:session-start` marks the first event of a
+  a `data-octo` value. The tracker drops such a value in each letter case (for example
+  `OCTO:foo`), except the exact text `octo:session-start`, and it writes one console warning
+  for the first dropped value. The element `octo:session-start` marks the first event of a
   session. It is not a click. A reader of version 1.0 counts it as a click. The tracker sends
   the session start as one entry of `clicks`, with `element: "octo:session-start"` and
   `ageMs: 0` (rule C13). This is not a new request form. The server accepts the element
-  `octo:session-start`. It drops each other entry whose `element` starts with `octo:`. It
-  keeps the rest of the batch, and it writes a maximum of one warning for each batch. A
-  session start is a statement of the client. It is not a proof of a visit. The rate limits
-  of the kit control a flood.
+  `octo:session-start`. It drops each other entry whose `element` starts with `octo:` in each
+  letter case (for example `OCTO:foo`), except the exact text `octo:session-start`. It keeps
+  the rest of the batch, and it writes a maximum of one warning for each batch. A session
+  start is a statement of the client. It is not a proof of a visit. The rate limits of the
+  kit control a flood.
 - **C39.** The `path` field is optional on an event and on an entry of `clicks`. It has 1 to
   150 bytes in UTF-8. It starts with `/`, and its second character is not `/`. Each other
   character is in the set `[A-Za-z0-9._~!$&'()*+,;=:@/-]`, or it is a part of a well-formed
@@ -137,9 +139,10 @@ application/json`.
   `^([a-z0-9-]+\.)*google\.((com|co)\.[a-z]{2}|com|[a-z]{2})$` gives `google.com`. Each other
   host gives the literal `other`. The stored `referrerHost` value is exactly one of three
   literals: `google.com`, `bing.com`, or `other`. The server repeats the same match on the
-  client value, and it stores the entry or the literal `other`. For a client value with the
-  form of a host name that matches no entry, the server stores `other`. The server drops a
-  client value with a different form, under rule C41. The server drops a `referrerHost`
+  client value, and it stores the entry or the literal `other`. The server stores a value of
+  that set as it is. For a client value with the form of a host name that matches no entry,
+  the server stores `other`. The server drops a client value with a different form, under
+  rule C41. The server drops a `referrerHost`
   field on an entry with an element other than `octo:session-start`. A free host name can
   name an employer, a tenant, or an internal host, thus the source list is fixed. An entry
   `octo:session-start` without `referrerHost` is a direct visit, or a visit from a source
@@ -158,9 +161,10 @@ application/json`.
   when that segment matches `^[A-Za-z0-9](?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2}){0,79}$`. Each
   other value for that segment makes the whole path `/other`. The segment `:name` writes the
   literal `:name` in place of the real segment. For a literal segment and for a `:name`
-  segment, the stored value uses the text of the pattern, never the text of the input. The
-  match of a literal segment ignores the ASCII letter case. The server removes a trailing
-  slash before the match, but not for the root path. A path with an empty segment, a `.`
+  segment, the stored value uses the text of the pattern, never the text of the input. A
+  result above 150 bytes becomes `/other`. The match of a literal segment ignores the ASCII
+  letter case. The server removes a trailing slash before the match, but not for the root
+  path. A path with an empty segment, a `.`
   segment, or a `..` segment gives `/other`. The server decodes no `%` escape before the
   match. A path that matches no pattern gives `/other`. The server stores `/other` for that
   path. It does not drop the `path` field. Without a route pattern list, the server stores no
