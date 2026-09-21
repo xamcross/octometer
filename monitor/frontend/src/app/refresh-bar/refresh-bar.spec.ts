@@ -128,4 +128,38 @@ describe('RefreshBar', () => {
 
     expect(otherText).toBe('The refresh is paused.');
   });
+
+  it('shows the singular form for a refreshSeconds value of 1', () => {
+    answerHealth(1);
+    expect(text()).toBe('The table refreshes each 1 second.');
+  });
+
+  it('sends no more health requests 30 seconds after a valid answer (BLOCKER 1)', () => {
+    answerHealth(10);
+
+    vi.advanceTimersByTime(30_000);
+    httpMock.expectNone('/api/health');
+  });
+
+  it('sends no more health requests while the user pauses (BLOCKER 1)', () => {
+    answerHealth(10);
+    button().click();
+    fixture.detectChanges();
+
+    vi.advanceTimersByTime(30_000);
+    httpMock.expectNone('/api/health');
+  });
+
+  it('creates and destroys 20 bars, and sends only the one health request', () => {
+    answerHealth(10);
+
+    for (let i = 0; i < 20; i++) {
+      const extra = TestBed.createComponent(RefreshBar);
+      extra.detectChanges();
+      extra.destroy();
+    }
+
+    vi.advanceTimersByTime(60_000);
+    httpMock.expectNone('/api/health');
+  });
 });
