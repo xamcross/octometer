@@ -1,0 +1,4 @@
+# Git keeps the LF line end of gradlew. Git keeps the CRLF line end of gradlew.bat.
+/gradlew text eol=lf
+/gradlew.bat text eol=crlf
+/gradle/wrapper/gradle-wrapper.jar binary
