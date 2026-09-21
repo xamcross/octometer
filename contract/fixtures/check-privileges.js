@@ -17,19 +17,45 @@ const PROBE_MARKER = "octometer-check-privileges-probe";
 const ERROR_TEXT_LIMIT = 300;
 const REDACTED_HOST = "<host>";
 
-// Matches a host name or an IP address, together with a port. Also matches
-// a lone Atlas host name (the pattern "*.mongodb.net"). Used only on the
-// text of a server error, so it never touches a database or a collection
-// name (a name never holds a colon or a port).
-const HOST_PORT_PATTERN = /\b[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?:\d{2,5}\b/g;
+// Each pattern below matches one form of a host name or an IP address.
+// Used only on the text of a server error.
+//
+// - IPV6_PATTERN: an IPv6 address inside brackets, with an optional port.
+// - IPV4_PATTERN: an IPv4 address, with an optional port.
+// - HOST_PORT_PATTERN: a host name, together with a port (for example
+//   "mongo1:27017"). The host part must hold a dot, or two letters. This
+//   rule keeps a plain time value out of the match, for example "10:30"
+//   inside a timestamp such as "2026-09-21T10:30:00Z". The letter "T" of
+//   that timestamp is one letter, not two. The timestamp also holds no
+//   dot.
+// - MONGODB_NET_PATTERN: a lone Atlas host name, in the form
+//   "*.mongodb.net". The flag `i` covers each letter case. DNS does not
+//   care about the case of a host name.
+const IPV6_PATTERN = /\[[0-9A-Fa-f:.]+\](?::\d{2,5})?/g;
+const IPV4_PATTERN = /\b\d{1,3}(?:\.\d{1,3}){3}(?::\d{2,5})?\b/g;
+const HOST_PORT_PATTERN =
+  /\b(?=[A-Za-z0-9.-]*\.|[A-Za-z0-9.-]*[A-Za-z][A-Za-z0-9.-]*[A-Za-z])[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?:\d{2,5}\b/g;
 const MONGODB_NET_PATTERN =
-  /\b[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.mongodb\.net\b/g;
+  /\b[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.mongodb\.net\b/gi;
 
 // Removes a host name, an IP address, and a port from a piece of text. A
-// server error text can hold a host name, for example a "not primary" text
-// or a "host unreachable" text.
+// server error text can hold a host name, for example a "not primary"
+// text or a "host unreachable" text. The function covers these forms:
+//
+// - An IPv4 address, with or without a port.
+// - An IPv6 address inside brackets, with or without a port.
+// - A host name with a dot, or with two letters, together with a port.
+// - An Atlas host name in the form "*.mongodb.net", in any letter case.
+//
+// The function cannot know a bare host name with no port, no dot, and no
+// "mongodb.net" suffix, for example "localhost". Such a name looks the
+// same as an ordinary word, thus the function leaves it as it is.
 function redactHost(text) {
-  return text.replace(HOST_PORT_PATTERN, REDACTED_HOST).replace(MONGODB_NET_PATTERN, REDACTED_HOST);
+  return text
+    .replace(IPV6_PATTERN, REDACTED_HOST)
+    .replace(IPV4_PATTERN, REDACTED_HOST)
+    .replace(HOST_PORT_PATTERN, REDACTED_HOST)
+    .replace(MONGODB_NET_PATTERN, REDACTED_HOST);
 }
 
 // A server error has a number in `code` and a text in `codeName`. Each
@@ -54,7 +80,7 @@ function errorInfo(e) {
     code: server ? e.code : null,
     codeName: server ? e.codeName : null,
     errmsg: server
-      ? redactHost(String(e.errmsg || e.message || "").slice(0, ERROR_TEXT_LIMIT))
+      ? redactHost(String(e.errmsg || e.message || "")).slice(0, ERROR_TEXT_LIMIT)
       : "",
   };
   if (!server) {

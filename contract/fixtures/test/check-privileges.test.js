@@ -7,7 +7,7 @@
 // errorInfo helper: a server error keeps its code, its code name, and its
 // text; each other error is a driver error, and it holds no host name.
 //
-// Run: node --test contract/fixtures/test
+// Run: node --test contract/fixtures/test/*.test.js
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -149,6 +149,114 @@ test("code: 0 with a codeName gives a server error, and the host is still remove
   assert.ok(!result.findEvents.error.errmsg.includes("cluster0-shard-00-01"), "the host must be gone");
   assert.ok(!printed.includes("cluster0-shard-00-01"), "the output must hold no host name");
   assert.ok(!printed.includes(":27017"), "the output must hold no port");
+});
+
+// The four holes of redactHost that the second security review of #85
+// found. Each test names the hole, and fails against the code before the
+// fix.
+
+test("a bare IPv4 address with no port is removed from a server errmsg", () => {
+  const e = { code: 6, codeName: "HostUnreachable", errmsg: "getaddrinfo ENOTFOUND 10.20.30.40" };
+  const { printed, result } = runScript({ findEvents: e });
+  assert.equal(result.findEvents.error.errmsg, "getaddrinfo ENOTFOUND <host>");
+  assert.ok(!printed.includes("10.20.30.40"), "the output must hold no IPv4 address");
+});
+
+test("an IPv6 address in brackets, with a port, is removed from a server errmsg", () => {
+  const e = { code: 6, codeName: "HostUnreachable", errmsg: "connection 1 to [::1]:27017 closed" };
+  const { printed, result } = runScript({ findEvents: e });
+  assert.equal(result.findEvents.error.errmsg, "connection 1 to <host> closed");
+  assert.ok(!printed.includes("::1"), "the output must hold no IPv6 address");
+  assert.ok(!printed.includes("27017"), "the output must hold no port");
+});
+
+test("a full IPv6 address in brackets, with a port, is removed from a server errmsg", () => {
+  const e = { code: 6, codeName: "HostUnreachable", errmsg: "connection 3 to [2001:db8::1]:27017 closed" };
+  const { printed, result } = runScript({ findEvents: e });
+  assert.equal(result.findEvents.error.errmsg, "connection 3 to <host> closed");
+  assert.ok(!printed.includes("2001:db8"), "the output must hold no IPv6 address");
+});
+
+test("an Atlas host name in upper case is removed from a server errmsg", () => {
+  const e = {
+    code: 6,
+    codeName: "HostUnreachable",
+    errmsg: "host CLUSTER0-SHARD-00-01.ABCDE.MONGODB.NET is down",
+  };
+  const { printed, result } = runScript({ findEvents: e });
+  assert.equal(result.findEvents.error.errmsg, "host <host> is down");
+  assert.ok(!printed.includes("CLUSTER0"), "the output must hold no upper-case cluster name");
+});
+
+test("redactHost runs before the 300-character cut, so a host at the limit is fully removed", () => {
+  const prefix = "a".repeat(273) + " ";
+  const host = "ac-abc123-shard-00-01.xyz.mongodb.net:27017";
+  const e = { code: 6, codeName: "HostUnreachable", errmsg: prefix + host + " was cleared" };
+  const { printed, result } = runScript({ findEvents: e });
+  assert.ok(
+    !result.findEvents.error.errmsg.includes("ac-abc123-shard-00-01"),
+    "the kept errmsg must hold no part of the host name"
+  );
+  assert.ok(!printed.includes("ac-abc123-shard-00-01"), "the output must hold no part of the host name");
+});
+
+// Regression tests. Each case worked before the fix of the four holes
+// above, and it must still work after the fix.
+
+test("an IPv4 address with a port is removed from a server errmsg", () => {
+  const e = { code: 6, codeName: "HostUnreachable", errmsg: "connection 1 to 10.20.30.40:27017 timed out" };
+  const { printed, result } = runScript({ findEvents: e });
+  assert.equal(result.findEvents.error.errmsg, "connection 1 to <host> timed out");
+  assert.ok(!printed.includes("10.20.30.40"));
+});
+
+test("an Atlas host name in lower case, with no port, is removed from a server errmsg", () => {
+  const e = {
+    code: 6,
+    codeName: "HostUnreachable",
+    errmsg: "could not reach cluster0-shard-00-01.abcde.mongodb.net",
+  };
+  const { printed, result } = runScript({ findEvents: e });
+  assert.equal(result.findEvents.error.errmsg, "could not reach <host>");
+  assert.ok(!printed.includes("cluster0-shard-00-01"));
+});
+
+test("two host names in one errmsg are both removed", () => {
+  const e = {
+    code: 6,
+    codeName: "HostUnreachable",
+    errmsg:
+      "failover from cluster0-shard-00-01.abcde.mongodb.net:27017 to cluster0-shard-00-02.abcde.mongodb.net:27017",
+  };
+  const { printed, result } = runScript({ findEvents: e });
+  assert.equal(result.findEvents.error.errmsg, "failover from <host> to <host>");
+  assert.ok(!printed.includes("cluster0-shard-00"));
+});
+
+test("a plain host name with a letter and a port is removed, for example mongo1:27017", () => {
+  const e = { code: 6, codeName: "HostUnreachable", errmsg: "could not reach mongo1:27017" };
+  const { printed, result } = runScript({ findEvents: e });
+  assert.equal(result.findEvents.error.errmsg, "could not reach <host>");
+  assert.ok(!printed.includes("mongo1:27017"));
+});
+
+test("a plain time value inside a server errmsg is not mistaken for a host", () => {
+  const e = { code: 6, codeName: "HostUnreachable", errmsg: "operation timed out at 2026-09-21T10:30:00Z" };
+  const { result } = runScript({ findEvents: e });
+  assert.equal(result.findEvents.error.errmsg, "operation timed out at 2026-09-21T10:30:00Z");
+});
+
+test("the Atlas allowed-action text stays as it is", () => {
+  const e = {
+    code: 8000,
+    codeName: "AtlasError",
+    errmsg: "user is not allowed to do action [find] on [exampledb.octometer_probe_other]",
+  };
+  const { result } = runScript({ findEvents: e });
+  assert.equal(
+    result.findEvents.error.errmsg,
+    "user is not allowed to do action [find] on [exampledb.octometer_probe_other]"
+  );
 });
 
 test("the two errors of connection-status-m0.json come back byte for byte", () => {
