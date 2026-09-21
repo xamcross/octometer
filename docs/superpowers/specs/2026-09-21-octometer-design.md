@@ -144,6 +144,7 @@ Collection `octometer_events` in the database of the app.
 - Responses: 204 for success and for a batch that the event cap drops, 400 for an invalid
   body (a broken limit and a broken field rule included), 415 for a content type other than
   JSON, 429 for the rate limit.
+- A duplicate key makes the body invalid. `ageMs` is a JSON integer.
 
 ### 4.3 The reader rule (monitor)
 

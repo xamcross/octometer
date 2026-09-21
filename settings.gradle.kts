@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 }
 
 include(":monitor:backend")
+include(":kit:jvm-core")
