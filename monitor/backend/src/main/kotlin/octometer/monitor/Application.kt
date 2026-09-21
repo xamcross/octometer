@@ -16,6 +16,8 @@ import octometer.monitor.config.MonitorConfig
 import octometer.monitor.config.ResolvedConfig
 import octometer.monitor.config.escapeForLog
 import octometer.monitor.config.loadConfig
+import octometer.monitor.security.installRequestGuard
+import octometer.monitor.security.requireLoopbackBindAddress
 import org.slf4j.LoggerFactory
 import java.util.Properties
 import kotlin.system.exitProcess
@@ -38,10 +40,20 @@ fun main(args: Array<String>) {
         log.error("The config is invalid. {}", invalidConfig.message)
         exitProcess(2)
     }
+    // Step 6 of issue #5: refuse a non-loopback bind address. D2 names no
+    // bind-address config key, thus HOST is a constant, and this call
+    // cannot throw today. The call stays, so a future bind-address key
+    // reaches the same check, on the value that embeddedServer then uses.
+    val host = try {
+        requireLoopbackBindAddress(HOST)
+    } catch (invalidBindAddress: InvalidConfigException) {
+        log.error("The bind address is invalid. {}", invalidBindAddress.message)
+        exitProcess(2)
+    }
     logStart(resolved)
     embeddedServer(
         factory = Netty,
-        host = HOST,
+        host = host,
         port = resolved.config.port,
         module = { module(resolved.config) },
     ).start(wait = true)
@@ -51,6 +63,7 @@ fun Application.module(config: MonitorConfig) {
     install(ContentNegotiation) {
         json()
     }
+    installRequestGuard(config)
     routing {
         get("/api/health") {
             call.respond(

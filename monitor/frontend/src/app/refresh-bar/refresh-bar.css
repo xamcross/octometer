@@ -1,0 +1,15 @@
+/*
+ * The bar holds one button and one text. This rule puts the two on one
+ * line, and it wraps them onto two lines at a narrow width, for example
+ * 320 CSS px (WCAG 1.4.10).
+ */
+:host {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+p {
+  margin: 0;
+}

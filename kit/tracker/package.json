@@ -1,0 +1,36 @@
+{
+  "name": "octometer-tracker",
+  "version": "0.1.0",
+  "description": "The click tracker of Octometer. It sends a click on a data-octo element to the ingest route.",
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src/index.ts",
+    "README.md"
+  ],
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.types.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "jsdom": "^28.0.0",
+    "typescript": "~6.0.2",
+    "vitest": "^4.0.8"
+  }
+}

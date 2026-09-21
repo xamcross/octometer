@@ -23,4 +23,8 @@ describe('Manage', () => {
     expect(heading?.textContent).toContain('Manage');
     expect(heading?.getAttribute('tabindex')).toBe('-1');
   });
+
+  it('shows no refresh bar (#92)', () => {
+    expect(fixture.nativeElement.querySelector('app-refresh-bar')).toBeNull();
+  });
 });

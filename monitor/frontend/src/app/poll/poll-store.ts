@@ -1,5 +1,4 @@
-import { HttpClient } from '@angular/common/http';
-import { DestroyRef, Signal, WritableSignal, inject, signal } from '@angular/core';
+import { DestroyRef, Signal, WritableSignal, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import {
   EMPTY,
@@ -9,21 +8,17 @@ import {
   catchError,
   distinctUntilChanged,
   exhaustMap,
-  filter,
   fromEvent,
   map,
   merge,
   of,
   startWith,
   switchMap,
-  take,
   timer,
 } from 'rxjs';
 
-/** The part of the health response that the store reads. */
-interface HealthResponse {
-  refreshSeconds: number;
-}
+import { RefreshIntervalState } from './refresh-interval-state';
+import { RefreshPauseState } from './refresh-pause-state';
 
 /** The signals and the controls of one poll store. */
 export interface PollStore<T> {
@@ -45,17 +40,6 @@ export interface PollStore<T> {
   refresh(): void;
 }
 
-/** The interval to use when the health response holds no valid refreshSeconds. */
-const FALLBACK_INTERVAL_MS = 60_000;
-
-/** The wait between one failed health request and the next try. */
-const HEALTH_RETRY_MS = 5_000;
-
-/** Returns true only for a finite number above 0. */
-function isPositiveNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0;
-}
-
 /** Returns true while the document focus sits inside a table body. */
 function isFocusInTbody(): boolean {
   return document.activeElement?.closest('tbody') != null;
@@ -65,9 +49,11 @@ function isFocusInTbody(): boolean {
  * Creates one poll store. Call this function inside an injection context,
  * for example a component field or a component constructor.
  *
- * The store reads `refreshSeconds` from `GET /api/health`. It tries the
- * health route again at each tick until it gets a valid interval. A failed
- * health request goes to the `error` signal.
+ * The store reads the interval from the one root-level
+ * `RefreshIntervalState`, in `refreshSeconds` of `GET /api/health`. That
+ * service tries the health route again until it gets a valid interval,
+ * then it stops. A failed health request goes to the `error` signal,
+ * until a good answer arrives.
  *
  * The store then polls `request` with `timer(0, ms)` and `exhaustMap`.
  * `exhaustMap` does not cancel a slow request. A failed request keeps the
@@ -79,39 +65,30 @@ function isFocusInTbody(): boolean {
  * The refresh stops while the tab is hidden, while the focus sits inside a
  * `<tbody>`, or while `paused` is true. As soon as one condition clears,
  * the store sends one request at once. It then goes back to the interval.
+ *
+ * `paused` reads and writes the one root-level `RefreshPauseState`. Each
+ * poll store then shares one paused state, so the state stays the same
+ * after a navigation that destroys one store and creates another.
  */
 export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
-  const http = inject(HttpClient);
   const destroyRef = inject(DestroyRef);
+  const intervalState = inject(RefreshIntervalState);
 
   const data = signal<T | undefined>(undefined);
   const lastSuccessAt = signal<Date | undefined>(undefined);
-  const error = signal<unknown>(undefined);
-  const paused = signal(false);
+  const dataError = signal<unknown>(undefined);
+  const paused = inject(RefreshPauseState).paused;
   const firstLoadPending = signal(true);
   const manualRefresh$ = new Subject<void>();
 
-  const canPoll = (): boolean => !paused() && !document.hidden && !isFocusInTbody();
+  /**
+   * The error of the last failed request. It reads the health error
+   * first, so a health failure shows before the store sends one data
+   * request. It reads the data error once the health route answers.
+   */
+  const error = computed(() => intervalState.error() ?? dataError());
 
-  /** Tries GET /api/health at each tick until it gives a valid refreshSeconds. */
-  const intervalMs$ = timer(0, HEALTH_RETRY_MS).pipe(
-    exhaustMap(() =>
-      http.get<HealthResponse>('/api/health').pipe(
-        map((health) => {
-          error.set(undefined);
-          return isPositiveNumber(health.refreshSeconds)
-            ? health.refreshSeconds * 1000
-            : FALLBACK_INTERVAL_MS;
-        }),
-        catchError((healthError: unknown) => {
-          error.set(healthError);
-          return of(undefined);
-        }),
-      ),
-    ),
-    filter((ms): ms is number => ms !== undefined),
-    take(1),
-  );
+  const canPoll = (): boolean => !paused() && !document.hidden && !isFocusInTbody();
 
   /**
    * Gives the current value of `canPoll()` after each event that can change
@@ -138,7 +115,7 @@ export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
    * gate opens again, so the store sends one request at once, and it never
    * fires a tick that a closed gate made stale.
    */
-  const scheduledTicks$ = intervalMs$.pipe(
+  const scheduledTicks$ = intervalState.intervalMs$.pipe(
     switchMap((ms) => gateOpen$.pipe(switchMap((open) => (open ? timer(0, ms) : EMPTY)))),
   );
 
@@ -157,9 +134,9 @@ export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
       if (result.ok) {
         data.set(result.value);
         lastSuccessAt.set(new Date());
-        error.set(undefined);
+        dataError.set(undefined);
       } else {
-        error.set(result.requestError);
+        dataError.set(result.requestError);
       }
     });
 

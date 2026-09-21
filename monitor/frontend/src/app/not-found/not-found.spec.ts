@@ -37,4 +37,8 @@ describe('NotFound', () => {
     expect(style.minWidth).toBe('24px');
     expect(style.minHeight).toBe('24px');
   });
+
+  it('shows no refresh bar (#92)', () => {
+    expect(fixture.nativeElement.querySelector('app-refresh-bar')).toBeNull();
+  });
 });

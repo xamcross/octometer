@@ -10,7 +10,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import octometer.monitor.config.MonitorConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -25,7 +24,7 @@ class HealthRouteTest {
         testApplication {
             application { module(devConfig()) }
 
-            val response = client.get("/api/health")
+            val response = client.get("/api/health") { allowedHost() }
 
             assertEquals(HttpStatusCode.OK, response.status)
             assertEquals(ContentType.Application.Json, response.contentType()?.withoutParameters())
@@ -39,26 +38,10 @@ class HealthRouteTest {
     fun `refreshSeconds is 60 in prod mode`() = testApplication {
         application { module(prodConfig()) }
 
-        val response = client.get("/api/health")
+        val response = client.get("/api/health") { allowedHost() }
 
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals("prod", body["mode"]!!.jsonPrimitive.content)
         assertEquals(60, body["refreshSeconds"]!!.jsonPrimitive.int)
     }
-
-    private fun devConfig() = MonitorConfig(
-        mode = "dev",
-        port = 7431,
-        dataDir = "build/dev-data",
-        settleLagSeconds = 2,
-        retentionDays = 395,
-    )
-
-    private fun prodConfig() = MonitorConfig(
-        mode = "prod",
-        port = 7431,
-        dataDir = "C:/data",
-        settleLagSeconds = 60,
-        retentionDays = 395,
-    )
 }
