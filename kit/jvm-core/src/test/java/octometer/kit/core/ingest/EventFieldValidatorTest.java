@@ -2,16 +2,24 @@ package octometer.kit.core.ingest;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests of the field rules of section 4.1 (C4, C5, C6). Two tests read the
  * event document examples of `contract/examples/` (issue #8).
+ *
+ * <p>Version 1.1 adds the fields `path` and `referrerHost`, and the reserved
+ * element `octo:session-start` (rules C38 to C40, issue #101). Three tests
+ * below read the three new event examples. `ExampleFiles.read` takes an
+ * exact file name, so each new example file needs its own test.
  */
 class EventFieldValidatorTest {
 
@@ -137,5 +145,53 @@ class EventFieldValidatorTest {
         String userId = "user-1 " + (char) 0x20 + (char) 0x7e;
 
         assertDoesNotThrow(() -> EventFieldValidator.validateUserId(userId));
+    }
+
+    @Test
+    void acceptsTheSessionStartElementOfTheC38Example() {
+        String json = ExampleFiles.read("event-valid-C38-session-start.json");
+        String element = ExampleFiles.extractStringField(json, "element");
+
+        assertEquals("octo:session-start", element);
+        assertDoesNotThrow(() -> EventFieldValidator.validateElement(element));
+        assertTrue(ExampleFiles.hasNullField(json, "userId"));
+    }
+
+    @Test
+    void acceptsThePathOfTheC39Example() {
+        String json = ExampleFiles.read("event-valid-C39-path.json");
+        String path = ExampleFiles.extractStringField(json, "path");
+
+        assertTrue(path.startsWith("/"));
+        assertNotEquals('/', path.charAt(1));
+        assertTrue(path.getBytes(StandardCharsets.UTF_8).length <= 150);
+    }
+
+    @Test
+    void acceptsTheReferrerHostOfTheC40Example() {
+        String json = ExampleFiles.read("event-valid-C40-source.json");
+        String host = ExampleFiles.extractStringField(json, "referrerHost");
+
+        assertEquals("octo:session-start", ExampleFiles.extractStringField(json, "element"));
+        assertTrue(Set.of("google.com", "bing.com", "other").contains(host));
+    }
+
+    @Test
+    void acceptsTheMaskedPathOfTheC42Example() {
+        String json = ExampleFiles.read("event-valid-C42-masked-path.json");
+        String path = ExampleFiles.extractStringField(json, "path");
+
+        assertEquals("/history/:id", path);
+        assertTrue(path.startsWith("/"));
+        assertNotEquals('/', path.charAt(1));
+        assertTrue(path.getBytes(StandardCharsets.UTF_8).length <= 150);
+    }
+
+    @Test
+    void acceptsTheOtherPathOfTheC42Example() {
+        String json = ExampleFiles.read("event-valid-C42-other-path.json");
+
+        assertEquals("/other", ExampleFiles.extractStringField(json, "path"));
+        assertTrue(ExampleFiles.hasNullField(json, "userId"));
     }
 }
