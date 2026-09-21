@@ -6,6 +6,32 @@ import { routes } from './app.routes';
 import { App } from './app';
 import { Announcer } from './announcer';
 
+/**
+ * Finds the first loaded CSS rule with the given selector text.
+ * jsdom does not update `getComputedStyle` for a `:focus` selector, so a
+ * test reads the rule from the stylesheet itself, not from a live style.
+ * Angular appends its own content attribute to a selector of an emulated
+ * component, so this function strips that attribute before the comparison.
+ */
+function findCssRule(selectorText: string): CSSStyleRule | undefined {
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules: CSSRuleList | undefined;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      continue;
+    }
+    for (const rule of Array.from(rules ?? [])) {
+      const styleRule = rule as CSSStyleRule;
+      const plainSelector = styleRule.selectorText?.replace(/\[_ngcontent-[\w-]+\]/g, '');
+      if (plainSelector === selectorText) {
+        return styleRule;
+      }
+    }
+  }
+  return undefined;
+}
+
 describe('App', () => {
   let fixture: ComponentFixture<App>;
   let router: Router;
@@ -96,6 +122,103 @@ describe('App', () => {
     });
   });
 
+  describe('the skip link', () => {
+    it('is the first focusable element after a fresh load', () => {
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const focusable = compiled.querySelectorAll('a, button, [tabindex]');
+      expect(focusable.length).toBeGreaterThan(0);
+      expect(focusable[0].classList.contains('skip-link')).toBe(true);
+    });
+
+    it('links to the main content, which exists', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps');
+      await fixture.whenStable();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const skipLink = compiled.querySelector('.skip-link') as HTMLAnchorElement;
+      expect(skipLink.getAttribute('href')).toBe('#main-content');
+      expect(compiled.querySelector('#main-content')).toBeTruthy();
+    });
+
+    it('stays out of the tab order removal: it is not display:none nor visibility:hidden', () => {
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const skipLink = compiled.querySelector('.skip-link') as HTMLElement;
+      const style = getComputedStyle(skipLink);
+      expect(style.display).not.toBe('none');
+      expect(style.visibility).not.toBe('hidden');
+    });
+
+    it('can take the focus, because it is not display:none nor visibility:hidden', () => {
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const skipLink = compiled.querySelector('.skip-link') as HTMLElement;
+
+      skipLink.focus();
+
+      expect(document.activeElement).toBe(skipLink);
+    });
+
+    it('becomes visible on focus, through a `:focus` style rule that moves it back on screen', () => {
+      fixture.detectChanges();
+
+      const baseTop = findCssRule('.skip-link')?.style.top;
+      const focusTop = findCssRule('.skip-link:focus')?.style.top;
+
+      expect(baseTop).toBeTruthy();
+      expect(focusTop).toBeTruthy();
+      expect(focusTop).not.toBe(baseTop);
+    });
+
+    it('gives the skip link a minimum target size of 24 by 24 CSS px', () => {
+      fixture.detectChanges();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const skipLink = compiled.querySelector('.skip-link') as HTMLElement;
+      const style = getComputedStyle(skipLink);
+      expect(style.minWidth).toBe('24px');
+      expect(style.minHeight).toBe('24px');
+    });
+
+    it('moves the focus to the main content on activation, and not to the h1', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps');
+      await fixture.whenStable();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const skipLink = compiled.querySelector('.skip-link') as HTMLAnchorElement;
+      const heading = compiled.querySelector('h1') as HTMLElement;
+      const main = compiled.querySelector('#main-content') as HTMLElement;
+
+      skipLink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      fixture.detectChanges();
+
+      expect(document.activeElement).toBe(main);
+      expect(document.activeElement).not.toBe(heading);
+    });
+
+    it('does not start a router navigation that moves the focus to the h1', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps');
+      await fixture.whenStable();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const skipLink = compiled.querySelector('.skip-link') as HTMLAnchorElement;
+      const navigateSpy = vi.spyOn(router, 'navigateByUrl');
+
+      skipLink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(navigateSpy).not.toHaveBeenCalled();
+    });
+  });
+
   it('renders the breadcrumb nav for the active route', async () => {
     fixture.detectChanges();
     await router.navigateByUrl('/apps');
@@ -142,6 +265,87 @@ describe('App', () => {
       expect(main.querySelector('nav')).toBeNull();
       expect(main.querySelector('.banner-slot')).toBeNull();
       expect(main.querySelector('[role="status"]')).toBeNull();
+    });
+
+    it('shows a nav landmark labelled "Main", different from the nav labelled "Breadcrumb"', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps');
+      await fixture.whenStable();
+
+      const compiled = fixture.nativeElement as HTMLElement;
+      const navs = Array.from(compiled.querySelectorAll('nav')) as HTMLElement[];
+      const labels = navs.map((nav) => nav.getAttribute('aria-label'));
+      expect(labels).toContain('Main');
+      expect(labels).toContain('Breadcrumb');
+    });
+  });
+
+  describe('the main nav on each route', () => {
+    function mainNavLinks(): HTMLAnchorElement[] {
+      const nav = (fixture.nativeElement as HTMLElement).querySelector(
+        'nav[aria-label="Main"]',
+      ) as HTMLElement;
+      return Array.from(nav.querySelectorAll('a'));
+    }
+
+    it('shows the "Apps" and the "Manage apps" links on the Manage route, with Manage apps current', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/manage');
+      await fixture.whenStable();
+
+      const [appsLink, manageLink] = mainNavLinks();
+      expect(appsLink.textContent?.trim()).toBe('Apps');
+      expect(manageLink.textContent?.trim()).toBe('Manage apps');
+      expect(manageLink.getAttribute('aria-current')).toBe('page');
+      expect(appsLink.getAttribute('aria-current')).toBeNull();
+    });
+
+    it('shows both links on the Apps route, with Apps current', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps');
+      await fixture.whenStable();
+
+      const [appsLink, manageLink] = mainNavLinks();
+      expect(appsLink.getAttribute('aria-current')).toBe('page');
+      expect(manageLink.getAttribute('aria-current')).toBeNull();
+    });
+
+    it('shows both links on the Users route, with no page marked current, and Apps visually active', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps/7/users');
+      await fixture.whenStable();
+
+      const [appsLink, manageLink] = mainNavLinks();
+      expect(appsLink.textContent?.trim()).toBe('Apps');
+      expect(manageLink.textContent?.trim()).toBe('Manage apps');
+      expect(appsLink.getAttribute('aria-current')).toBeNull();
+      expect(manageLink.getAttribute('aria-current')).toBeNull();
+      expect(appsLink.classList.contains('current-section')).toBe(true);
+    });
+
+    it('shows both links on the Elements route, with no page marked current, and Apps visually active', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps/7/elements?userId=42');
+      await fixture.whenStable();
+
+      const [appsLink, manageLink] = mainNavLinks();
+      expect(appsLink.textContent?.trim()).toBe('Apps');
+      expect(manageLink.textContent?.trim()).toBe('Manage apps');
+      expect(appsLink.getAttribute('aria-current')).toBeNull();
+      expect(manageLink.getAttribute('aria-current')).toBeNull();
+      expect(appsLink.classList.contains('current-section')).toBe(true);
+    });
+
+    it('shows both links on an unknown route, with neither link current', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/no-such-route');
+      await fixture.whenStable();
+
+      const [appsLink, manageLink] = mainNavLinks();
+      expect(appsLink.textContent?.trim()).toBe('Apps');
+      expect(manageLink.textContent?.trim()).toBe('Manage apps');
+      expect(appsLink.getAttribute('aria-current')).toBeNull();
+      expect(manageLink.getAttribute('aria-current')).toBeNull();
     });
   });
 

@@ -1,0 +1,25 @@
+<nav aria-label="Main">
+  <ul>
+    <li>
+      <a
+        routerLink="/apps"
+        routerLinkActive
+        ariaCurrentWhenActive="page"
+        [routerLinkActiveOptions]="{ exact: true }"
+        [class.current-section]="appsSectionActive()"
+      >
+        Apps
+      </a>
+    </li>
+    <li>
+      <a
+        routerLink="/manage"
+        routerLinkActive="current-section"
+        ariaCurrentWhenActive="page"
+        [routerLinkActiveOptions]="{ exact: true }"
+      >
+        Manage apps
+      </a>
+    </li>
+  </ul>
+</nav>

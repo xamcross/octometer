@@ -16,13 +16,15 @@ import { Banner } from './banner/banner';
 import type { BreadcrumbItem } from './breadcrumb';
 import { buildBreadcrumb } from './breadcrumb';
 import { BreadcrumbNav } from './breadcrumb-nav/breadcrumb-nav';
+import { MainNav } from './main-nav/main-nav';
 
 /**
  * Root shell of the app.
- * It holds the breadcrumb, the banner, the status region, and the router outlet.
+ * It holds the skip link, the main nav, the breadcrumb, the banner, the status
+ * region, and the router outlet.
  */
 @Component({
-  imports: [RouterOutlet, Banner, BreadcrumbNav],
+  imports: [RouterOutlet, Banner, BreadcrumbNav, MainNav],
   selector: 'app-root',
   styleUrl: './app.css',
   templateUrl: './app.html',
@@ -64,6 +66,16 @@ export class App {
   /** Runs when the router outlet activates a view component. */
   protected onOutletActivated(): void {
     this.appReady.set(true);
+  }
+
+  /**
+   * Moves the focus to the main content on a skip-link activation.
+   * The link keeps its native `href`, so a browser without script still
+   * scrolls to the target. This method makes the focus move reliable in
+   * each browser, and it starts no router navigation.
+   */
+  protected onSkipLinkActivated(): void {
+    this.hostElement.nativeElement.querySelector<HTMLElement>('#main-content')?.focus();
   }
 
   /**
