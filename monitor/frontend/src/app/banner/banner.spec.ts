@@ -17,7 +17,8 @@ describe('Banner', () => {
     fixture.detectChanges();
 
     const slot = fixture.nativeElement.querySelector('.banner-slot') as HTMLElement;
-    expect(getComputedStyle(slot).height).toBe('48px');
+    // 3rem equals 48px at the default font size, and it grows at a text zoom.
+    expect(getComputedStyle(slot).minHeight).toBe('3rem');
     expect(slot.querySelector('.banner-text')).toBeNull();
   });
 
@@ -26,7 +27,7 @@ describe('Banner', () => {
     fixture.detectChanges();
 
     const slot = fixture.nativeElement.querySelector('.banner-slot') as HTMLElement;
-    expect(getComputedStyle(slot).height).toBe('48px');
+    expect(getComputedStyle(slot).minHeight).toBe('3rem');
     const text = slot.querySelector('.banner-text');
     expect(text?.textContent).toContain('The monitor API did not answer.');
   });

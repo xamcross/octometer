@@ -63,25 +63,31 @@ describe('routes', () => {
 
   it('opens the Elements placeholder for /apps/:appId/elements with a user id', async () => {
     await harness.navigateByUrl('/apps/7/elements?userId=42');
-    expect(heading()).toContain('Elements');
+    expect(heading()).toBe('Elements of User 42');
     expect(TestBed.inject(Title).getTitle()).toBe('User 42 of App 7 - Octometer');
-    expect(buildBreadcrumb(router.routerState.snapshot.root)).toEqual([
+    const breadcrumb = buildBreadcrumb(router.routerState.snapshot.root);
+    expect(breadcrumb).toEqual([
       { label: 'Apps', path: '/apps' },
       { label: 'App 7', path: null },
       { label: 'Users', path: '/apps/7/users' },
       { label: 'User 42', path: null },
     ]);
+    // The heading and the last breadcrumb entry name the same view.
+    expect(heading()).toContain(breadcrumb[breadcrumb.length - 1].label);
   });
 
   it('opens the Elements placeholder for an anonymous user', async () => {
     await harness.navigateByUrl('/apps/7/elements?anonymous=true');
+    expect(heading()).toBe('Elements of Anonymous');
     expect(TestBed.inject(Title).getTitle()).toBe('Anonymous of App 7 - Octometer');
-    expect(buildBreadcrumb(router.routerState.snapshot.root)).toEqual([
+    const breadcrumb = buildBreadcrumb(router.routerState.snapshot.root);
+    expect(breadcrumb).toEqual([
       { label: 'Apps', path: '/apps' },
       { label: 'App 7', path: null },
       { label: 'Users', path: '/apps/7/users' },
       { label: 'Anonymous', path: null },
     ]);
+    expect(heading()).toContain(breadcrumb[breadcrumb.length - 1].label);
   });
 
   it('sends /apps/:appId/elements with no user id and no anonymous flag to the user list', async () => {

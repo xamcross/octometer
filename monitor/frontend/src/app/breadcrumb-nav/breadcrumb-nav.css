@@ -11,7 +11,8 @@ li {
 }
 
 li:not(:last-child)::after {
-  content: '/';
+  /* The empty alternative text keeps the slash out of the accessibility tree. */
+  content: '/' / '';
   padding: 0 0.5rem;
   color: #595959;
 }

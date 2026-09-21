@@ -30,4 +30,11 @@ describe('NotFound', () => {
     const link = fixture.nativeElement.querySelector('a');
     expect(link?.getAttribute('href')).toBe('/apps');
   });
+
+  it('gives the link a minimum target size of 24 by 24 CSS px', () => {
+    const link = fixture.nativeElement.querySelector('a') as HTMLElement;
+    const style = getComputedStyle(link);
+    expect(style.minWidth).toBe('24px');
+    expect(style.minHeight).toBe('24px');
+  });
 });

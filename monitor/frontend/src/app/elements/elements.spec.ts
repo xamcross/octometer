@@ -23,4 +23,20 @@ describe('Elements', () => {
     expect(heading?.textContent).toContain('Elements');
     expect(heading?.getAttribute('tabindex')).toBe('-1');
   });
+
+  it('names the user in the heading, the same as the last breadcrumb entry', () => {
+    fixture.componentRef.setInput('userId', '42');
+    fixture.detectChanges();
+
+    const heading = fixture.nativeElement.querySelector('h1');
+    expect(heading?.textContent).toContain('User 42');
+  });
+
+  it('names the anonymous user in the heading, the same as the last breadcrumb entry', () => {
+    fixture.componentRef.setInput('anonymous', 'true');
+    fixture.detectChanges();
+
+    const heading = fixture.nativeElement.querySelector('h1');
+    expect(heading?.textContent).toContain('Anonymous');
+  });
 });
