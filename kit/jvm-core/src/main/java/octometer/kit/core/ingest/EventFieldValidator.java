@@ -53,7 +53,10 @@ public final class EventFieldValidator {
 
     /**
      * Checks the `userId` value against rule C6: {@code null}, or a
-     * string of 1 to 254 characters.
+     * string of 1 to 254 characters, with no control character and no
+     * delete character (U+007F). The character rule is a defence for a
+     * later log line and a later export; the contract states only the
+     * length rule.
      */
     public static void validateUserId(String userId) {
         if (userId == null) {
@@ -63,6 +66,13 @@ public final class EventFieldValidator {
         if (length < 1 || length > 254) {
             throw new IngestException(IngestException.Reason.USER_ID_LENGTH,
                     "The userId value must have 1 to 254 characters.");
+        }
+        for (int i = 0; i < length; i++) {
+            char c = userId.charAt(i);
+            if (c < 0x20 || c == 0x7f) {
+                throw new IngestException(IngestException.Reason.USER_ID_CHARACTER,
+                        "The userId value must not hold a control character.");
+            }
         }
     }
 }
