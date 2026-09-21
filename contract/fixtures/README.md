@@ -42,6 +42,27 @@ An error object holds `code`, `codeName`, and `errmsg`. The `errmsg` field
 stops after 300 characters. Each probe command of this script takes a
 constant argument, thus the error text holds no value of a real document.
 
+A driver error has no `code`, for example a lost connection during a probe.
+Its text can hold the host name and the port of the cluster. The script
+drops this text: `errmsg` stays an empty text, and the error object holds
+the field `driverError: true`. A server error keeps its `code`, `codeName`,
+and `errmsg`, because decision D8 of the design needs the error code 8000
+and its text.
+
+### A failed connection at the start
+
+When the URI itself is wrong, or the cluster is not reachable, `mongosh`
+fails before it runs the script. `mongosh` then prints its own error text
+on standard error, and this text can hold the host name and the port of
+the cluster. The script does not run in this case, so it cannot change
+this text.
+
+Before the owner pastes the output into a public issue, the owner must
+read the full terminal output, not only the JSON line. When the command
+fails (a non-zero exit code, or a line before or after the JSON line), the
+owner removes the host name and the port by hand, or pastes only the JSON
+line and drops the rest.
+
 ### The probe document
 
 When `insertOne` on `octometer_events` works, the script inserts one
