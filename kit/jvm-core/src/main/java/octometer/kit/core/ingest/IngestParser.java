@@ -8,7 +8,9 @@ import java.util.Set;
 
 /**
  * A strict parser for the one ingest body shape of design section 4.2
- * (`contract/README.md`, rules C13, C17, C18, C32, C36, C37).
+ * (`contract/README.md`, rules C13, C17, C18, C32, C36, C37). It also
+ * reads the optional fields `path` and `referrerHost` of a click entry
+ * (rules C39, C40), with no shape check at this level (issue #103).
  * It is a hand-written parser. It is not a general JSON library.
  * {@link IngestPipeline} is the public entry point of this module; a
  * caller must not reach this class from outside the package.
@@ -208,6 +210,8 @@ final class IngestParser {
         boolean elementSeen = false;
         long ageMs = 0;
         boolean ageMsSeen = false;
+        String path = null;
+        String referrerHost = null;
         Set<String> seenKeys = new HashSet<>();
 
         skipWhitespace();
@@ -230,6 +234,10 @@ final class IngestParser {
                 } else if (key.equals("ageMs")) {
                     ageMs = parseAgeMsValue();
                     ageMsSeen = true;
+                } else if (key.equals("path")) {
+                    path = parseOptionalStringValue();
+                } else if (key.equals("referrerHost")) {
+                    referrerHost = parseOptionalStringValue();
                 } else {
                     skipValue();
                 }
@@ -256,7 +264,25 @@ final class IngestParser {
             throw new IngestException(IngestException.Reason.MISSING_FIELD,
                     "A click entry is missing the ageMs field.");
         }
-        return new ParsedClick(element, ageMs);
+        return new ParsedClick(element, ageMs, path, referrerHost);
+    }
+
+    /**
+     * Reads `path` or `referrerHost` (rules C39, C40). Each field is a
+     * plain JSON string, with no shape check at this level. A value of a
+     * JSON type other than a string is not an error at this level; this
+     * method skips it and returns {@code null}, the same as an absent
+     * field. {@link IngestPipeline#process} holds the shape check, and
+     * rule C41 makes an invalid value non-fatal, so this parser stays
+     * lenient about the JSON type too.
+     */
+    private String parseOptionalStringValue() {
+        skipWhitespace();
+        if (pos < length && body.charAt(pos) == '"') {
+            return parseRawString();
+        }
+        skipValue();
+        return null;
     }
 
     // -- Generic value skip, for an unknown field (rule C32) --------------

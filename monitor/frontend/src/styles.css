@@ -1,1 +1,19 @@
 /* You can add global styles to this file, and also import other style files */
+
+/*
+ * Hides an element from sight, but keeps it for a screen reader. Angular
+ * scopes a component style to that component, so this class stays global,
+ * for use across each component.
+ */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

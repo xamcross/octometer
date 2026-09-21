@@ -1,16 +1,20 @@
 package octometer.monitor
 
+import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.Serializable
-import octometer.monitor.apps.appTotals
 import octometer.monitor.config.InvalidConfigException
 import octometer.monitor.config.Mode
 import octometer.monitor.config.MonitorConfig
@@ -19,7 +23,6 @@ import octometer.monitor.config.escapeForLog
 import octometer.monitor.config.loadConfig
 import octometer.monitor.security.installRequestGuard
 import octometer.monitor.security.requireLoopbackBindAddress
-import octometer.monitor.store.SqliteDatabase
 import org.slf4j.LoggerFactory
 import java.util.Properties
 import kotlin.system.exitProcess
@@ -53,25 +56,40 @@ fun main(args: Array<String>) {
         exitProcess(2)
     }
     logStart(resolved)
-    // Issue #18 opens the store here in the smallest way. Issue #15 (the
-    // app registry API) owns this open call and this close call; a merge
-    // of that issue keeps one open call and one close call, not two.
-    val database = SqliteDatabase.open(resolved.config.dataDir)
-    try {
-        embeddedServer(
-            factory = Netty,
-            host = host,
-            port = resolved.config.port,
-            module = { module(resolved.config, database) },
-        ).start(wait = true)
-    } finally {
-        database.close()
-    }
+    embeddedServer(
+        factory = Netty,
+        host = host,
+        port = resolved.config.port,
+        module = { module(resolved.config) },
+    ).start(wait = true)
 }
 
-fun Application.module(config: MonitorConfig, database: SqliteDatabase? = null) {
+fun Application.module(config: MonitorConfig) {
+    // Step 6 of issue #15: this is the first user of the store of #9, thus
+    // this issue owns the open call and the close call. MonitorServices
+    // opens the store, the secret store, and runs the orphan-secret sweep
+    // one time, at the start; it closes when the application stops.
+    val services = MonitorServices.open(config)
+    monitor.subscribe(ApplicationStopped) {
+        services.close()
+    }
+
     install(ContentNegotiation) {
         json()
+    }
+    // MAJOR 6 (Ktor review) and MAJOR 2 of the second review: a failure
+    // that leaves a route handler must never reach the default Ktor error
+    // page. That page can print the request and the stack trace.
+    // kotlinx.coroutines.CancellationException is a type alias of
+    // java.util.concurrent.CancellationException on the JVM. A task
+    // inside a store can throw that exact class while this call stays
+    // active. Only a real cancellation of this call may skip the response.
+    install(StatusPages) {
+        exception<Throwable> { call, cause ->
+            if (cause is CancellationException && !call.isActive) throw cause
+            log.error("An unhandled exception reached the server. {}", cause.javaClass.simpleName)
+            call.respond(HttpStatusCode.InternalServerError, ErrorBody("The server had an internal error."))
+        }
     }
     installRequestGuard(config)
     routing {
@@ -84,11 +102,7 @@ fun Application.module(config: MonitorConfig, database: SqliteDatabase? = null) 
                 ),
             )
         }
-        // Null in a test that does not need the store, for example
-        // HealthRouteTest. Issue #15 adds the other methods of /api/apps.
-        if (database != null) {
-            appTotals(database)
-        }
+        apiRoutes(services)
     }
 }
 

@@ -1,0 +1,79 @@
+/*
+ * No table element gets a `display` value in this file, so the table keeps
+ * its native semantics for a screen reader.
+ */
+caption {
+  text-align: left;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+
+th,
+td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+/*
+ * Only a free-text cell breaks inside a word. A number and a header stay on
+ * one line. A narrow viewport then does not break each one into one
+ * character for each line.
+ */
+th[scope='row'],
+.data-from,
+.error-text {
+  overflow-wrap: anywhere;
+}
+
+th[scope='row'] {
+  min-width: 8rem;
+}
+
+.num,
+.data-time {
+  white-space: nowrap;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+th[scope='row'] a,
+.manage-link {
+  display: inline-flex;
+  align-items: center;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+.data-from,
+.error-text {
+  margin: 0.25rem 0 0;
+}
+
+/* The table scrolls sideways when the columns need more width than the screen. */
+/* `position: relative` makes this container the containing block of each `.visually-hidden` span, so the page keeps one scroll direction. */
+.table-scroll {
+  position: relative;
+  overflow-x: auto;
+}
+
+/* A click on a data cell opens the link of the name cell (D28). */
+tbody td {
+  cursor: pointer;
+}
+
+tbody tr:hover,
+tbody tr:focus-within {
+  background-color: #eef2f7;
+}
+
+@media (forced-colors: active) {
+  tbody tr:hover,
+  tbody tr:focus-within {
+    background-color: Highlight;
+    color: HighlightText;
+  }
+}

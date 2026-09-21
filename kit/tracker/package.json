@@ -15,6 +15,7 @@
   "files": [
     "dist",
     "src/index.ts",
+    "src/path-match.ts",
     "README.md"
   ],
   "private": true,

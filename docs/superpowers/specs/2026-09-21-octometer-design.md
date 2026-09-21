@@ -7,14 +7,14 @@ Source: `App Description.md` in the root of the repository.
 ## 1. Purpose
 
 Octometer is a monitor for the click metrics of the owner's web apps. The owner runs it on a
-local Windows 11 machine. It reads the click events of each app, stores them, and shows three
-table views.
+local Windows 11 machine. It reads the events of each app, stores them, and shows three table
+levels. Version 1.1 adds the two views of decision D44.
 
 | Level | One row is | Columns |
 |---|---|---|
 | 1 | An app | Total clicks, unique users, unique sessions |
 | 2 | A user of the app | Clicks, sessions, unique elements |
-| 3 | An element that the user touched | Clicks, sessions, last interaction timestamp |
+| 3 | An element that a visitor touched | Clicks, sessions, last interaction timestamp |
 
 A click on a level 1 row opens level 2. A click on a level 2 row opens level 3.
 
@@ -29,7 +29,8 @@ A click on a level 1 row opens level 2. A click on a level 2 row opens level 3.
 - R6. Each app stores the metrics in its own database as a flat event log. The log has no
   groups and no references.
 - R7. One event is one click or tap. It holds a timestamp, an element name (id), a session id,
-  a username, and an IP address. **Decision O5 changes the last two fields.**
+  a username, and an IP address. **Decision O5 changes the last two fields. Decision D41 adds
+  one event that is not a click.**
 - R8, R9, R10. The three table levels of section 1.
 
 ### 2.2 Owner decisions on 2026-09-21
@@ -78,16 +79,19 @@ A click on a level 1 row opens level 2. A click on a level 2 row opens level 3.
 - An ObjectId is not monotonic across processes. The time part has a resolution of 1 second,
   and the clock of the client sets it.
 - Measured on `mongo:8.0`: one event costs 185 bytes with its two indexes. 200 000 events use
-  about 37 MB.
+  about 37 MB. The reviewer estimates that the field `path` of version 1.1 adds a maximum of
+  about 160 bytes to each click event. No measurement of this addition exists yet. The
+  estimate gives about 70 MB for 200 000 events. The cap of D21 stays inside the 512 MB of an
+  M0 cluster.
 - Measured on SQLite 3.50 with the indexes of section 6: each level needs less than 0.4 s with
   1 million events, and 2 to 9 s with 10 million events.
 
 ## 3. Components and repository layout
 
 ```
-contract/            Event log contract v1: README.md, examples/*.json, fixtures/
+contract/            Event log contract v1.1: README.md, examples/*.json, fixtures/
 monitor/backend/     Ktor server: registry, MongoDB reader, SQLite store, totals API
-monitor/frontend/    Angular app: three table views, the app management page
+monitor/frontend/    Angular app: five table views, the app management page
 kit/jvm-core/        Java 21, no run-time dependency: the ingest logic
 kit/jvm-mongo/       Java 21: the MongoDB event store
 kit/jvm-ktor/        Kotlin: the ingest route for a Ktor 3 app
@@ -106,7 +110,7 @@ One Gradle build is at the root, with one toolchain (JDK 21), the foojay toolcha
 and the version catalog `gradle/libs.versions.toml`. Each npm project has its own
 `package.json`.
 
-## 4. Event log contract v1
+## 4. Event log contract v1.1
 
 ### 4.1 The event document
 
@@ -119,12 +123,16 @@ Collection `octometer_events` in the database of the app.
 | `element` | String | 1 to 100 characters, pattern `[A-Za-z0-9_.:-]+`. |
 | `sessionId` | String | A UUID. One session is the life of one browser tab. |
 | `userId` | String or null | 1 to 254 characters. `null` means "not signed in". |
+| `path` | String | Optional. The form and the limits are in contract rule C39. The stored value is the result of the route-pattern match, or the literal `/other` (contract rule C42; design decision D40). |
+| `referrerHost` | String | Optional, only on `octo:session-start`. The value set is in contract rule C40 (design decision D42). |
 
 - The app only inserts. It never updates an event.
 - Indexes: `_id`, plus a TTL index on `ts` (default 30 days, `OCTOMETER_RETENTION_DAYS`).
 - A reader ignores an unknown field. A new field is a minor change.
 - A major change uses a new collection name: `octometer_events_v2`.
 - An app that writes its own store must not add a `_class` field (Spring Data adds it).
+- The `element` value `octo:session-start` marks the first event of a session. It is not a
+  click (contract rule C38; design decision D41).
 
 ### 4.2 The ingest request (tracker to app backend)
 
@@ -135,11 +143,21 @@ Collection `octometer_events` in the database of the app.
  "clicks": [{"element": "checkout.save", "ageMs": 1200}]}
 ```
 
+A session start is its own request, with one entry only (design decision D41):
+
+```json
+{"sessionId": "0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11",
+ "clicks": [{"element": "octo:session-start", "ageMs": 0, "path": "/", "referrerHost": "google.com"}]}
+```
+
 - The server calculates `ts = receivedAt - ageMs`. It clamps an `ageMs` above 600 000. A
   negative `ageMs` is invalid.
 - The server takes `userId` from the authentication context. The client never sends it.
-- The server ignores an unknown field in the body, a `userId` field included.
-- The server checks `element` and `sessionId` with the rules of 4.1.
+- The server ignores an unknown field in the body, a `userId` field included, and an unknown
+  field inside an entry of `clicks` (contract rule C32).
+- The server checks `element` and `sessionId` with the rules of 4.1. It drops an entry whose
+  `element` starts with the reserved prefix `octo:`, except the exact text
+  `octo:session-start` (contract rule C38; design decision D41).
 - Limits: 50 clicks for each batch, a body of 16 KB.
 - Responses: 204 for success and for a batch that the event cap drops, 400 for an invalid
   body (a broken limit and a broken field rule included), 415 for a content type other than
@@ -208,7 +226,9 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
 - **D5. Invalid document.** The reader skips it, writes `skipped_event(app_id, event_id,
   reason)`, and moves the cursor. Invalid means: an absent field, a wrong BSON type, or an
   empty `userId`. At the end of a good cycle the reader sets `last_poll_at`,
-  `last_success_at`, and the status `OK`, or `INVALID_DATA` after a skip.
+  `last_success_at`, and the status `OK`, or `INVALID_DATA` after a skip. The reader copies a
+  `path` value and a `referrer_host` value as they are. A wrong BSON type is an invalid
+  document under this decision.
 - **D6. Scheduler.** One loop with a tick of 1 second. It starts a poll for each app with
   `next_poll_at <= now` or `next_poll_at IS NULL`, and no active poll. One cycle reads a maximum of 10 pages inside
   `withTimeout(45 s)`. Success sets `next_poll_at = now + interval` (5 s dev, 60 s prod).
@@ -244,9 +264,16 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   holds no credential. No encryption in the application. The run guide names BitLocker
   (`manage-bde -status C:`). The API never returns a connection string. The code parses the
   URI one time, keeps `MongoClientSettings`, and never logs a `ConnectionString` or a
-  `Config` object. Accepted: `mongodb+srv://`, and `mongodb://` only for a loopback host. A
-  non-loopback URI with `tls=false`, `ssl=false`, `tlsInsecure=true`,
-  `tlsAllowInvalidCertificates=true`, or `tlsAllowInvalidHostnames=true` is rejected.
+  `Config` object. Accepted: `mongodb+srv://`, and `mongodb://` only for a loopback host.
+  Corrected in the review of pull request #125: the query check is an allow-list of option
+  names, not a deny-list. The query splits on `&` and on `;`, because the driver accepts
+  both. Each option name is decoded and lower-cased before the compare. The allowed names
+  are `retryWrites`, `retryReads`, `w`, `appName`, `authSource`, and `replicaSet`, with any
+  value, plus `tls` and `ssl` with the value `true`, in any letter case. Each other name, a repeated name,
+  and a name with no value are rejected. No allowed name can turn off TLS, change the read
+  preference, or send a credential to a different host (source: the MongoDB manual,
+  "Connection String Options", read on 2026-09-21; see the pull request text for the exact
+  finding of each option).
 - **D12. Exposure.** The server binds to `127.0.0.1` and refuses another address. No login.
   Each request passes a Host check (`localhost:<port>`, `127.0.0.1:<port>`, plus the
   `ng serve` port in dev mode). GET and HEAD are the safe methods; each other method needs an
@@ -264,27 +291,45 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   - `GET /api/apps/{appId}/users?page=&q=`: level 2, pages of 50, the filter `q` on the user
     id, the fixed order `clicks DESC, user_id ASC`, a page clamp with `page` and `pageCount`.
     A row holds `userId: string | null`.
-  - `GET /api/apps/{appId}/elements?userId=<id>` or `?anonymous=true`: level 3, no pages,
-    the fixed order `clicks DESC, element ASC`, exactly one of the two parameters, else 400.
+  - `GET /api/apps/{appId}/elements?userId=<id>`, `?anonymous=true`, or `?sessionId=<uuid>`:
+    level 3, no pages, the fixed order `clicks DESC, element ASC`, exactly one of the three
+    parameters, else 400 (design decision D44).
+  - `GET /api/apps/{appId}/first-pages?page=`: the first-page table, pages of 50, the fixed
+    order `sessions DESC, path ASC` (design decision D44).
+  - `GET /api/apps/{appId}/sessions?anonymous=true&firstPath=<path>&page=`: the anonymous
+    session table, pages of 50, the fixed order `startTime DESC, sessionId ASC`. The parameter
+    `anonymous=true` is mandatory, and it selects each session that holds a minimum of one
+    event with `user_id IS NULL`. The parameter `firstPath` is optional, and it keeps the
+    sessions of one first path. Each other parameter set gives 400 (design decision D44).
   - Registry: `POST /api/apps` (JSON fields `name`, `connectionString`, `database`,
     `collection`),
     `PATCH /api/apps/{id}` (name, connection string), `DELETE /api/apps/{id}` (deletes the
     events in chunks of 10 000).
-  - `DELETE /api/apps/{appId}/events?userId=<id>`: the erasure of one user.
+  - `DELETE /api/apps/{appId}/events?userId=<id>`: the erasure of one user. Contract rule C43
+    sets its width: it also removes the anonymous events of each session of that user id.
   - JSON field names. Health: `version`, `schemaVersion`, `mode`, `refreshSeconds`,
     `retentionDays`, `databaseBytes`, `freeDiskBytes`. Level 1 row: `appId`, `name`,
     `clicks`, `uniqueUsers`, `uniqueSessions`, `status`, `lastSuccessAt`, `lastError`,
     `nextPollAt`, `gaps`. Level 2: `page`, `pageCount`, `rows` with `userId`, `clicks`,
     `sessions`, `uniqueElements`. Level 3: `rows` with `element`, `clicks`, `sessions`,
-    `lastInteractionAt`. A gap holds `from` and `to`. The erasure returns `deleted`. Each
-    time field is UTC ISO 8601 with milliseconds.
+    `lastInteractionAt`. First pages: `page`, `pageCount`, `rows` with `path`, `sessions`.
+    Anonymous sessions: `page`, `pageCount`, `rows` with `sessionId`, `firstPath`, `source`,
+    `startTime`, `clicks`, `userId`. A gap
+    holds `from` and `to`. The erasure returns `deleted`. Each time field is UTC ISO 8601
+    with milliseconds.
+  - Each route of D44 keeps the Host check of D12, sends `Cache-Control: no-store`, and adds
+    no CORS header.
 - **D14. Totals.** SQL at query time, with the indexes and statements of section 6. No rollup
   table and no result cache in version 1.
 - **D15. Personal data.** A log line never holds a user id or a connection string. A sentinel
   test searches the captured log. `PRAGMA secure_delete=ON`. After an erasure and after a
   purge: `PRAGMA wal_checkpoint(TRUNCATE)`. The purge runs at the start and each 24 hours, in
   chunks of 10 000 rows. The erasure order is: first the app, then one poll cycle, then the
-  monitor.
+  monitor. Contract rule C43 sets the width of an erasure: the erasure of one user id also
+  removes the anonymous events of each session of that user id. An event of a second user id
+  in the same session stays. The kit (#35) and the monitor (#61) both apply the rule. Reason:
+  after a sign-in in the same tab, the earlier anonymous events of that session describe an
+  identified person.
 - **D16. Gap.** At the cycle start, a cursor time older than the server time minus 29 days
   writes a gap row: `from_ts` is the time of the cursor `_id`, and `to_ts` is the server time
   minus 30 days. The UI shows it.
@@ -295,36 +340,53 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   no Kotlin library, because the Spring Boot 3.3 BOM forces `kotlin-stdlib` 1.9.25. Only
   `kit/jvm-ktor` uses Kotlin. Each framework dependency of an adapter is `compileOnly`.
 - **D18. Core.** It takes the raw body as a `String` and parses it with its own strict
-  parser for the one shape of section 4.2. It holds the validation, the `ts` rule, a
-  `UserIdResolver` that the app gives, the `EventLogStore` interface (`append`,
-  `deleteByUserId`), and an in-memory store.
+  parser for the one shape of section 4.2. The parser accepts `path` and `referrerHost`. The
+  raw client `path`, after the shape check of rule C39, stays in the parsed click only. No
+  store gets the raw client value. The event record and the call `append` carry
+  `referrerHost` and one component `path`. The component `path` holds only the match result
+  of the server (rule C42). It is empty when the kit has no route pattern list. The decision
+  holds the validation, the `ts` rule, a `UserIdResolver` that the app gives, the
+  `EventLogStore` interface (`append`, `deleteByUserId`), and an in-memory store.
+  `deleteByUserId` also removes the anonymous events of each session of that user id
+  (contract rule C43).
 - **D19. Anonymous clicks.** Off by default. `OCTOMETER_RECORD_ANONYMOUS=true` turns them on.
-- **D20. Rate limit.** In memory, a fixed window of 60 seconds, a maximum of 10 000 keys. The
-  key is the user id (30 requests each minute). Without a user id the key is the IP address
-  (120 requests each minute) from the header that `OCTOMETER_CLIENT_IP_HEADER` names, or the remote address without that
-  variable. The IP
-  address stays in memory only. The map is empty at the start of each window. When it holds
-  10 000 keys, a request with a new key gets the rate-limit result until the window ends.
+  The pilot app `investguideua` turns it on. Design decision D43 states its caps.
+- **D20. Rate limit.** In memory, a fixed window of 60 seconds, two maps with an LRU
+  eviction: 5 000 user keys and 20 000 anonymous keys. The key is the user id, with 30
+  requests each minute. Without a user id the key is the client address, with 120 requests
+  each minute. With anonymous events on (D19), decision D43 replaces that limit of 120
+  requests, and it sets the form of the anonymous key. The kit reads the IP address from the
+  header that `OCTOMETER_CLIENT_IP_HEADER` names, at the position that
+  `OCTOMETER_TRUSTED_PROXY_COUNT` sets (default 1, counted from the right of the header
+  list), or from the remote address without that header. The IP address stays in memory
+  only. Each map is empty at the start of each window. An LRU eviction removes the oldest
+  key when a map is full.
 - **D21. Event cap.** `OCTOMETER_MAX_EVENTS`, default 200 000. The store reads
   `estimatedDocumentCount()` a maximum of one time each 60 seconds. Above the cap it drops the
   batch, returns 204, and writes one warning. Reason: a full M0 cluster refuses each write of
-  the app.
+  the app. The pilot app `investguideua` keeps this default. It has fewer than 500 visits
+  each day (owner decision, 2026-09-21).
 - **D22. MongoDB store.** The constructor takes a `com.mongodb.client.MongoDatabase` from the
   app. The kit never creates a client. The driver is `compileOnly`
   `org.mongodb:mongodb-driver-sync:5.0.1`. The tests run against 5.0.1 and against the newest
   5.x. At start the store creates the TTL index. On error code 85 it runs `collMod`. An index
-  error gives a warning, never a failed app start. An app with the coroutine driver adds
+  error gives a warning, never a failed app start. The store writes a field only when the
+  field is present. It adds no key with a null value. An app with the coroutine driver adds
   `mongodb-driver-sync` at the same version and one sync client with `maxPoolSize=5`.
 - **D23. Adapters.** Each one mounts only the ingest route, with an `ingestPath` option. The
   route stays in the security chain of the app, because it needs the session. It answers 415
   to a content type other than JSON. It writes no CORS header. The Ktor adapter calls the
-  store inside `withContext(Dispatchers.IO)`.
+  store inside `withContext(Dispatchers.IO)`. The default is a view of `Dispatchers.IO` that
+  `limitedParallelism(8)` gives, so the route never fills the whole shared pool.
 - **D24. Tracker.** Plain TypeScript, ESM, zero dependencies, `"sideEffects": false`, no code
   at import time, no action in SSR. Options: `endpoint` (mandatory), `credentials` (default
-  `same-origin`), `headers: () => Record<string,string>`, `flushIntervalMs` (default 5000).
-  It is off until the app calls `start()` after the consent signal. `stop()` empties the
-  queue and removes the `sessionStorage` key. One capture-phase `click` listener searches
-  `event.composedPath()` for the first element with `data-octo`. It skips a disabled element.
+  `same-origin`), `headers: () => Record<string,string>`, `flushIntervalMs` (default 5000),
+  `routes` (the ordered route pattern list of D40), and `ignoreWebdriver` (default false,
+  D41). It is off until the app calls `start()` after the consent signal. For a new session
+  id, `start()` sends the entry `octo:session-start` at once, in its own request (design
+  decision D41). `stop()` empties the queue and removes the `sessionStorage` key. One
+  capture-phase `click` listener searches `event.composedPath()` for the first element with
+  `data-octo`. It skips a disabled element.
   The queue holds a maximum of 200 entries and drops the oldest entry when it is full. A
   keepalive body stays below 64 KB. One `setTimeout` starts when a click enters an
   empty queue (no interval). On `pagehide` and on `visibilitychange` to hidden it sends with
@@ -346,9 +408,12 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   version`), standalone components, zoneless change detection, signals, Vitest, the Router
   with `withComponentInputBinding()`. No NgRx, no SSR, no component library. The dev proxy
   target is `http://127.0.0.1:7431` with `changeOrigin: false`.
-- **D28. Views.** Routes `/manage`, `/apps`, `/apps/:appId/users`, `/apps/:appId/elements` (with the
-  query parameter `userId=<id>` or `anonymous=true`, the same as the API). Each view is
-  one flat `<table>` with a `<caption>` and `<th scope>`. The name cell is
+- **D28. Views.** Routes `/manage`, `/apps`, `/apps/:appId/users`, `/apps/:appId/elements`
+  (with the query parameter `userId=<id>`, `anonymous=true`, or `sessionId=<uuid>`, the same
+  as the API), `/apps/:appId/first-pages`, and `/apps/:appId/sessions` (with the mandatory
+  query parameter `anonymous=true` and the optional parameter `firstPath=<path>`, the same as
+  the API; design decision D44). Each view is one flat `<table>` with a `<caption>` and
+  `<th scope>`. The name cell is
   `<th scope="row"><a routerLink>`, and a click on a row cell opens that link. The breadcrumb is `<nav aria-label="Breadcrumb"><ol>` with
   `aria-current="page"`. The first load keeps the focus. After each later navigation that
   changes the path or a path parameter, the focus moves to `<h1 tabindex="-1">`. A change of
@@ -400,6 +465,70 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   `/api/health`), `frontend`, `tracker`, `consumer-smoke`, `secrets`.
   `@Testcontainers(disabledWithoutDocker = true)` locally.
 
+### Version 1.1 (the first page and the anonymous visitor)
+
+Source: the design brief of issue #101, and `contract/README.md` version 1.1 (rules C38 to
+C43). Where the two differ, `contract/README.md` on `main` has priority.
+
+- **D40. Route pattern list.** The app gives one ordered list of route patterns to the
+  tracker (option `routes`) and to the kit (`OCTOMETER_PATH_PATTERNS`). Contract rule C42
+  states the pattern match and the `/other` fallback. The tracker repeats the same match
+  before it sends a click. The kit repeats it again on the server, because a client rule is
+  not a control. The monitor shows the stored path as plain text only, with no
+  `[innerHTML]`, no `[href]`, no `[attr.*]`, and no `DomSanitizer.bypass*` call, because a
+  kept `*` segment can hold an escaped markup text. Without the list, the tracker sends no
+  `path`, and the kit stores none.
+- **D41. Session start.** `start()` creates the session id and, for a new id, sends one entry
+  `octo:session-start` at once, in its own request, with `ageMs: 0` (contract rule C38). While
+  `document.prerendering` is true, `start()` waits for the event `prerenderingchange`. While
+  `document.visibilityState` is `hidden`, it waits for the event `visibilitychange`. It then
+  runs one time only. It sends nothing when `navigator.webdriver` is true, except when the option
+  `ignoreWebdriver` turns this check off for an end-to-end test. Without `sessionStorage`, the
+  tracker keeps the id in a module variable, thus it sends one session start for each
+  document. The pilot app `investguideua` calls `start()` in the browser only, for example
+  from `afterNextRender`, because it uses server-side rendering.
+- **D42. Visitor source.** The `octo:session-start` entry can hold `referrerHost`: the host
+  of `document.referrer` in lower case, matched against the closed set of contract rule C40
+  (`google.com`, `bing.com`, or `other`). The tracker sends no `referrerHost` field for one of
+  these cases:
+
+  - an empty referrer;
+  - a referrer with a scheme other than `http` or `https`;
+  - the origin of the app;
+  - an IP literal;
+  - a host without a dot.
+
+  This is a rule of the tracker. Contract rule C40 states no such case. An absent field marks
+  a direct visit: a typed address, a bookmark, or a source that sends no referrer. The monitor
+  shows the text `(direct)` for it. The set holds three fixed values, thus the column needs no
+  purge.
+- **D43. Anonymous caps.** With anonymous events on (D19), the kit applies three counters to
+  one key in a window of 60 seconds. The counters are 300 requests, 900 click entries, and
+  120 entries `octo:session-start` (`OCTOMETER_ANON_REQ_PER_MIN`,
+  `OCTOMETER_ANON_EVENTS_PER_MIN`, `OCTOMETER_ANON_SESSIONS_PER_MIN`). A key is one IPv4
+  address, or the first 64 bits of an IPv6 address. These three counters replace the limit of
+  120 requests each minute of D20 for a request without a user id. Above a per-minute counter
+  the kit answers 429, as decision D20 and contract rule C19 state. A global cap
+  `OCTOMETER_MAX_ANON_EVENTS_PER_DAY` (default 20 000) and a cap for each key
+  `OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY` (default 2 000) limit one day. Above a daily cap,
+  the kit drops the batch, returns 204, and writes one warning each hour. The ingest
+  route also drops a batch when the `User-Agent` header matches
+  `bot|crawl|spider|slurp|headless|preview|monitor|Go-http-client|python-requests|curl`. The
+  match ignores the letter case. The route returns 204, it writes one debug line, and it
+  never stores the user agent. Each daily counter resets each 24 hours. The daily key map
+  holds 20 000 keys with an LRU eviction. This daily map is a third map. It is separate from
+  the two windowed maps of D20. The pilot app `investguideua` has fewer than 500
+  visits each day, thus the default caps fit (owner decision, 2026-09-21).
+- **D44. First pages and anonymous sessions.** Two views join the monitor: "First pages"
+  (`path`, `sessions`) and "Anonymous sessions". Each row of "Anonymous sessions" holds the
+  session id, the first path, and the source. It holds the start time and the click count. It
+  holds the user id of a later sign-in in the same session. The first-pages statement holds no
+  `COALESCE`. The API writes `(unknown)` for a `NULL` path. A session without a start row
+  shows the path `(unknown)` and the time of its first click. A row of "First pages" opens
+  "Anonymous sessions" with `firstPath`. The row `(anonymous)` of level 2 opens "Anonymous
+  sessions" too. A session row opens the element view with `sessionId`. Each level 1 app row
+  gets a link cell "First pages".
+
 ## 6. Monitor data model (SQLite)
 
 ```sql
@@ -416,31 +545,46 @@ CREATE TABLE event (
   ts INTEGER NOT NULL,                       -- epoch milliseconds, UTC
   element TEXT NOT NULL, session_id TEXT NOT NULL,
   user_id TEXT CHECK (user_id IS NULL OR user_id <> ''),
+  path TEXT, referrer_host TEXT, kind INTEGER NOT NULL DEFAULT 0, -- 0 = click, 1 = session start
   PRIMARY KEY (app_id, event_id)
 ) STRICT;
 
-CREATE INDEX event_agg     ON event(app_id, user_id, element, session_id, ts);
-CREATE INDEX event_session ON event(app_id, session_id);
+CREATE INDEX event_agg     ON event(app_id, user_id, element, session_id, ts) WHERE kind = 0;
+CREATE INDEX event_session ON event(app_id, session_id, element, ts, user_id, kind);
+CREATE INDEX event_first_page ON event(app_id, path, ts, session_id, user_id) WHERE kind = 1;
+CREATE INDEX event_start   ON event(app_id, user_id, ts, session_id) WHERE kind = 1;
 
 CREATE TABLE skipped_event (app_id INTEGER NOT NULL, event_id TEXT NOT NULL, reason TEXT NOT NULL,
   PRIMARY KEY (app_id, event_id)) STRICT;
 CREATE TABLE gap (app_id INTEGER NOT NULL, from_ts INTEGER NOT NULL, to_ts INTEGER NOT NULL) STRICT;
 ```
 
-Level 1 uses three statements, each on one covering index:
-`COUNT(*)`, `COUNT(DISTINCT user_id)`, `COUNT(DISTINCT session_id)`, each `GROUP BY app_id`.
-Level 2 groups by `user_id`. Level 3 filters with `user_id IS ?` and groups by `element`.
-Each `ORDER BY` ends with a unique column. `COUNT(DISTINCT user_id)` ignores `NULL`, thus
-level 2 can show one row more than the level 1 user count. The sums across the levels do not
-agree, because one session can belong to two users.
+Migration `002` adds the columns `path`, `referrer_host`, and `kind`, then replaces
+`event_agg` and `event_session`, and adds `event_first_page` and `event_start` (design
+decisions D40, D42, D44). The reader sets `kind = 1` for the element `octo:session-start`. It
+copies `path` from each event, and `referrer_host` from a session start.
+
+Level 1 uses three statements, each on one covering index: `COUNT(*)` and
+`COUNT(DISTINCT user_id)` with the filter `kind = 0`, and `COUNT(DISTINCT session_id)` with
+no `kind` filter, because a first visitor who clicks nothing is a session too. Each statement
+groups by `app_id`. Level 2 and level 3 keep the filter `kind = 0`, else SQLite ignores the
+index `event_agg`. Level 2 groups by `user_id`. Level 3 filters with `user_id IS ?` and
+groups by `element`. The first-pages query filters with `kind = 1`, and it uses the index
+`event_first_page`. The anonymous-sessions query reads the start row of each session with
+`kind = 1` on the index `event_start`. It counts the clicks of that session with `kind = 0` on
+the index `event_session`. A session without a start row holds no row with `kind = 1`, thus
+the query finds that session on `event_session` too. Each `ORDER BY` ends
+with a unique column. `COUNT(DISTINCT user_id)` ignores `NULL`, thus level 2 can show one row
+more than the level 1 user count. The sums across the levels do not agree, because one
+session can belong to two users.
 
 ## 7. Out of scope for version 1
 
 A time-range filter, a chart, an alert, an export, a login, a Docker image, a rollup table, a
-result cache, an event type other than a click, a native mobile app, a sort that the user
-selects, a disable operation for an app, the encryption of a connection string, an OpenAPI
-file, the npm registry, a Playwright test, a new session id after 30 idle minutes, an hourly
-repair read, X.509 and AWS IAM authentication.
+result cache, an event type other than a click and the session start of D41, a record of each
+page view, a native mobile app, a sort that the user selects, a disable operation for an app,
+the encryption of a connection string, an OpenAPI file, the npm registry, a Playwright test, a
+new session id after 30 idle minutes, an hourly repair read, X.509 and AWS IAM authentication.
 
 ## 8. Owner work
 
@@ -452,7 +596,8 @@ repair read, X.509 and AWS IAM authentication.
 - Create three Atlas alerts for each app: connections, network, and storage at 80 percent. M0
   records no access history, thus an alert is the only signal of a leaked password.
 - Decide the retention time of the monitor store. The default is 13 months.
-- Select the pilot app. The proposal is `traficio` (Ktor, the same stack as the monitor).
+- Done: the owner selected the pilot app `investguideua` on 2026-09-21 (the owner comment on
+  issue #43). It uses Spring Boot 3.4.1 with Maven, and Angular 17.3.
 - Verify the start after a reboot, and do the screen reader pass.
 - Accept the residual risks: a forged click, a hostile browser extension on the monitor
   machine, a leaked reader password (M0 records no access history), and a reader role with a
@@ -461,7 +606,8 @@ repair read, X.509 and AWS IAM authentication.
 ## 9. Backlog
 
 Five milestones, named after the result. Labels follow the skill `managing-github-issues`.
-Filed on 2026-09-21 in `xamcross/octometer` as the issues #1 to #71.
+Filed on 2026-09-21 in `xamcross/octometer` as the issues #1 to #71. Version 1.1 adds the
+issues #101 to #119, and issue #111 is closed, with its rule kept in issues #18, #50, and #51.
 
 | Key, issue | Title |
 |---|---|

@@ -173,8 +173,9 @@ class AppTotalsRouteTest {
                 lastPollAt = 1_700_000_000_000L,
                 lastError = hostileError,
             )
+            database.close()
 
-            application { module(devConfig(), database) }
+            application { module(devConfig(dataDir = tempDir.absolutePath)) }
 
             val response = client.get("/api/apps") { allowedHost() }
 
@@ -209,8 +210,9 @@ class AppTotalsRouteTest {
     fun `GET api-apps answers with the rows and Cache-Control no-store`() = testApplication {
         val appId = insertApp(database, name = "http-app")
         insertEvent(database, appId, eventId = "e1", sessionId = "s1", userId = "user-1", kind = 0)
+        database.close()
 
-        application { module(devConfig(), database) }
+        application { module(devConfig(dataDir = tempDir.absolutePath)) }
 
         val response = client.get("/api/apps") { allowedHost() }
 
