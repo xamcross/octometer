@@ -60,6 +60,9 @@ export const routes: Routes = [
   },
   {
     path: 'apps/:appId/elements',
+    // The title and the guard read userId and anonymous. This route re-runs
+    // both on a query-parameter change, not on a path change alone.
+    runGuardsAndResolvers: 'paramsOrQueryParamsChange',
     canActivate: [requireElementsFilter],
     title: (route: ActivatedRouteSnapshot) =>
       `${elementsUserLabel(route)} of App ${route.paramMap.get('appId')} - Octometer`,

@@ -95,6 +95,22 @@ describe('routes', () => {
     expect(router.url).toBe('/apps/7/users');
   });
 
+  it('gives a new title after a change of only the userId query parameter', async () => {
+    await harness.navigateByUrl('/apps/7/elements?userId=42');
+    expect(TestBed.inject(Title).getTitle()).toBe('User 42 of App 7 - Octometer');
+
+    await harness.navigateByUrl('/apps/7/elements?userId=99');
+    expect(TestBed.inject(Title).getTitle()).toBe('User 99 of App 7 - Octometer');
+  });
+
+  it('redirects to the user list when a later navigation on the same route drops the filter', async () => {
+    await harness.navigateByUrl('/apps/7/elements?userId=42');
+    expect(router.url).toBe('/apps/7/elements?userId=42');
+
+    await harness.navigateByUrl('/apps/7/elements');
+    expect(router.url).toBe('/apps/7/users');
+  });
+
   it('opens the not-found view for an unknown URL', async () => {
     await harness.navigateByUrl('/nope');
     expect(heading()).toContain('Page not found');
