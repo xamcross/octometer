@@ -11,8 +11,19 @@
 // in gradle/libs.versions.toml.
 //
 // JUnit Jupiter, Testcontainers, and Mockito are test-only dependencies.
-// monitor/backend has no shared entry for them yet, so this module states
-// its own version, the same way kit/jvm-core states its JUnit version.
+// Each version sits in gradle/libs.versions.toml, confirmed on Maven
+// Central on 2026-09-21.
+//
+// A container test needs Docker (@Testcontainers(disabledWithoutDocker =
+// true)), and it skips with no failure when Docker is absent. The CI
+// runner "JVM modules" always has Docker, so a skip there is a real
+// problem, not an absent tool. The listener near the end of this file
+// fails the build when a test skips and the environment variable CI
+// holds "true".
+import org.gradle.api.tasks.testing.TestDescriptor
+import org.gradle.api.tasks.testing.TestListener
+import org.gradle.api.tasks.testing.TestResult
+
 plugins {
     `java-library`
 }
@@ -28,14 +39,15 @@ java {
 
 val mongoDriverSyncVersion = libs.versions.mongodb.driver.sync.get()
 val mongoDriverSyncNewestVersion = libs.versions.mongodb.sync.newest.get()
-val testcontainersVersion = "2.0.5"
-val mockitoVersion = "5.23.0"
+val junitVersion = libs.versions.junit.get()
+val testcontainersVersion = libs.versions.testcontainers.get()
+val mockitoVersion = libs.versions.mockito.get()
 
 dependencies {
     api(project(":kit:jvm-core"))
     compileOnly("org.mongodb:mongodb-driver-sync:$mongoDriverSyncVersion")
 
-    testImplementation(platform("org.junit:junit-bom:6.1.3"))
+    testImplementation(platform("org.junit:junit-bom:$junitVersion"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation("org.mongodb:mongodb-driver-sync:$mongoDriverSyncVersion")
@@ -51,12 +63,30 @@ tasks.test {
     useJUnitPlatform()
 }
 
-// Each test task prints its own pass, skip, and fail count. This lets a
-// person read the CI log and confirm that a Testcontainers test really ran,
-// and did not skip.
+// A container test must run on CI, and it must not silently skip. The
+// listener fails the task when the environment variable CI holds "true"
+// and one test or more of that task skipped. A local run with no Docker,
+// and with no CI variable, still skips a container test with no failure.
 tasks.withType<Test>().configureEach {
-    testLogging {
-        events("passed", "skipped", "failed")
+    if (System.getenv("CI") == "true") {
+        addTestListener(object : TestListener {
+            override fun beforeSuite(suite: TestDescriptor) {}
+
+            override fun beforeTest(testDescriptor: TestDescriptor) {}
+
+            override fun afterTest(testDescriptor: TestDescriptor, result: TestResult) {}
+
+            override fun afterSuite(suite: TestDescriptor, result: TestResult) {
+                if (suite.parent == null && result.skippedTestCount > 0) {
+                    throw GradleException(
+                        "The task \"${suite.name}\" of kit:jvm-mongo skipped " +
+                            "${result.skippedTestCount} test(s) on CI. A container " +
+                            "test needs Docker. Add Docker to this job, or find why " +
+                            "it is absent."
+                    )
+                }
+            }
+        })
     }
 }
 

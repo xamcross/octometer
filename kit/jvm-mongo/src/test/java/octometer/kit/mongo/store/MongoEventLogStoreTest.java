@@ -20,6 +20,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -75,6 +76,7 @@ class MongoEventLogStoreTest {
         store.append(event, null);
 
         Document stored = rawCollection().find().first();
+        assertTrue(stored.containsKey("userId"));
         assertNull(stored.get("userId"));
     }
 
@@ -117,15 +119,26 @@ class MongoEventLogStoreTest {
     }
 
     @Test
-    void theCollectionKeepsTheDefaultIdIndexAndTheTtlIndexOnTs() {
+    void theCollectionKeepsExactlyTheDefaultIdIndexAndTheTtlIndexOnTs() {
         new MongoEventLogStore(database, 30);
 
-        List<String> indexNames = new ArrayList<>();
+        List<Document> indexes = new ArrayList<>();
         for (Document index : rawCollection().listIndexes()) {
-            indexNames.add(index.getString("name"));
+            indexes.add(index);
         }
-        assertTrue(indexNames.contains("_id_"));
-        assertTrue(indexNames.stream().anyMatch(name -> !name.equals("_id_")));
+        assertEquals(2, indexes.size());
+
+        Document ttlIndex = null;
+        for (Document index : indexes) {
+            if ("ts_ttl".equals(index.getString("name"))) {
+                ttlIndex = index;
+            } else {
+                assertEquals("_id_", index.getString("name"));
+            }
+        }
+        assertNotNull(ttlIndex, "The index \"ts_ttl\" is missing.");
+        assertEquals(new Document("ts", 1), ttlIndex.get("key"));
+        assertEquals(30L * 24 * 60 * 60, ((Number) ttlIndex.get("expireAfterSeconds")).longValue());
     }
 
     private MongoCollection<Document> rawCollection() {

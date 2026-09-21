@@ -13,14 +13,17 @@ import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import octometer.kit.core.ingest.IngestEvent;
 import octometer.kit.core.store.EventLogStore;
 import org.bson.Document;
 
 /**
  * The MongoDB {@link EventLogStore} of design decision D22 and contract
- * rules C1 to C11 (issue #11). An app gives the {@link MongoDatabase}; the
- * kit never creates a client.
+ * rules C1, C2, C3, C6, C7, C8, and C11 (issue #11). Rule C4 and rule C5
+ * are the concern of {@code kit/jvm-core}. Rule C9 and rule C10 are the
+ * concern of the monitor. An app gives the {@link MongoDatabase}; the kit
+ * never creates a client.
  *
  * <p>Each stored document holds exactly the fields of design section 4.1:
  * {@code _id}, {@code ts}, {@code element}, {@code sessionId}, and {@code
@@ -31,8 +34,33 @@ import org.bson.Document;
  * environment variable {@code OCTOMETER_RETENTION_DAYS} (default 30 days,
  * contract rule C8). On error code 85 (a conflict of index options), it
  * runs {@code collMod} to change {@code expireAfterSeconds}. Each other
- * index error gives a warn-level log line, and the app start still
+ * index error gives a warn-level log line with the failed step and the
+ * numeric error code, never the server text, and the app start still
  * succeeds.
+ *
+ * <p>{@link #append} sends one ordered {@code insertMany} call for the
+ * whole batch. It opens no transaction: the constructor takes only a
+ * {@link MongoDatabase}, and a transaction needs a client session. A
+ * transaction would also cost two more round trips on an Atlas M0
+ * cluster. A failure in the middle of the batch therefore keeps each
+ * event before the failure, and it drops each event after the failure.
+ * The caller gets an {@link EventLogWriteException}, with no host, no
+ * port, and no database name in its message (design decision D15). The
+ * adapter maps it to status 500, the tracker retries the batch one time
+ * (design decision D24), and the retry writes new {@code _id} values. The
+ * monitor keys on {@code _id} (contract rule C24), thus it cannot drop
+ * the repeated events. This is the accepted cost of at-least-once
+ * delivery on an M0 cluster.
+ *
+ * <p>The store sets no write concern, no read preference, and no
+ * timeout. It uses the settings of the {@link MongoDatabase} of the app.
+ * The driver has no socket read timeout by default, so a blocked primary
+ * holds the calling thread for ever. An app that calls {@link #append}
+ * from a thread pool, for example {@code Dispatchers.IO} of the Ktor
+ * route (issue #12), must set a timeout on its own {@code
+ * MongoClientSettings}: {@code timeoutMS} with driver 5.2 or newer, or a
+ * socket read timeout plus a write concern with a {@code wtimeout} with
+ * driver 5.0.
  *
  * <p>{@link #deleteByUserId} does not yet delete an event; issue #35 adds
  * that behavior.
@@ -46,6 +74,17 @@ public final class MongoEventLogStore implements EventLogStore {
     private static final String TTL_INDEX_NAME = "ts_ttl";
     private static final int DEFAULT_RETENTION_DAYS = 30;
     private static final int INDEX_OPTIONS_CONFLICT_ERROR_CODE = 85;
+
+    /**
+     * The largest retention that the TTL index field of the server
+     * accepts. {@code expireAfterSeconds} is a 32-bit whole number on the
+     * server, and 24855 days is the largest whole number of days whose
+     * second count still fits. A value above this bound is clamped.
+     */
+    private static final int MAX_RETENTION_DAYS = 24855;
+
+    /** Only an ASCII digit sets a retention. A Unicode digit does not. */
+    private static final Pattern ASCII_DIGITS = Pattern.compile("[0-9]+");
 
     private static final Logger LOGGER = System.getLogger("octometer.kit.mongo");
 
@@ -62,10 +101,14 @@ public final class MongoEventLogStore implements EventLogStore {
 
     /**
      * Builds the store with an explicit retention, with no read of the
-     * process environment. A test uses this constructor.
+     * process environment. A test uses this constructor. The value of
+     * {@code retentionDays} must be 1 or more.
      */
     MongoEventLogStore(MongoDatabase database, int retentionDays) {
         Objects.requireNonNull(database, "database must not be null");
+        if (retentionDays < 1) {
+            throw new IllegalArgumentException("retentionDays must be 1 or more");
+        }
         this.collection = database.getCollection(COLLECTION_NAME);
         ensureTtlIndex(database, retentionDays);
     }
@@ -81,13 +124,21 @@ public final class MongoEventLogStore implements EventLogStore {
             Objects.requireNonNull(event, "event must not be null");
             documents.add(toDocument(event, userId));
         }
-        collection.insertMany(documents, new InsertManyOptions().ordered(true));
+        try {
+            collection.insertMany(documents, new InsertManyOptions().ordered(true));
+        } catch (MongoCommandException e) {
+            throw new EventLogWriteException(e.getErrorCode());
+        } catch (RuntimeException e) {
+            throw new EventLogWriteException(-1);
+        }
     }
 
     @Override
     public void deleteByUserId(String userId) {
         throw new UnsupportedOperationException(
-                "The store does not implement deleteByUserId yet. Issue #35 adds it.");
+                "The store does not delete an event by user id yet. No event was deleted. "
+                        + "Each event of this user stays until the TTL index removes it. "
+                        + "Issue #35 adds the delete.");
     }
 
     private static Document toDocument(IngestEvent event, String userId) {
@@ -99,7 +150,8 @@ public final class MongoEventLogStore implements EventLogStore {
     }
 
     private void ensureTtlIndex(MongoDatabase database, int retentionDays) {
-        long expireAfterSeconds = (long) retentionDays * 24 * 60 * 60;
+        int clampedRetentionDays = clampRetentionDays(retentionDays);
+        long expireAfterSeconds = (long) clampedRetentionDays * 24 * 60 * 60;
         try {
             collection.createIndex(Indexes.ascending("ts"),
                     new IndexOptions().name(TTL_INDEX_NAME).expireAfter(expireAfterSeconds, TimeUnit.SECONDS));
@@ -107,10 +159,10 @@ public final class MongoEventLogStore implements EventLogStore {
             if (e.getErrorCode() == INDEX_OPTIONS_CONFLICT_ERROR_CODE) {
                 runCollMod(database, expireAfterSeconds);
             } else {
-                warnIndexError();
+                warnIndexError("createIndex", e);
             }
         } catch (RuntimeException e) {
-            warnIndexError();
+            warnIndexError("createIndex", e);
         }
     }
 
@@ -121,13 +173,35 @@ public final class MongoEventLogStore implements EventLogStore {
                             .append("expireAfterSeconds", expireAfterSeconds));
             database.runCommand(command);
         } catch (RuntimeException e) {
-            warnIndexError();
+            warnIndexError("collMod", e);
         }
     }
 
-    private static void warnIndexError() {
-        LOGGER.log(Level.WARNING, "The store could not set up the TTL index on ts. "
-                + "The app start continues with no TTL index change.");
+    /**
+     * Logs one warn-level line for a failed TTL index step. The line
+     * names the step and the numeric MongoDB error code. It never holds
+     * the server text, because the server text can hold a host, a port,
+     * or a database name (design decision D15).
+     *
+     * <p>A failed {@code createIndex} step leaves the collection with no
+     * TTL index at all, so every event of this app then stays with no
+     * time limit, and contract rule C8 does not apply until an
+     * administrator creates the index. A failed {@code collMod} step
+     * leaves the previous TTL index in place, so contract rule C8 still
+     * applies, but with the old retention value.
+     */
+    private static void warnIndexError(String step, RuntimeException cause) {
+        String errorCode = cause instanceof MongoCommandException commandException
+                ? Integer.toString(commandException.getErrorCode())
+                : "unknown";
+        String consequence = "createIndex".equals(step)
+                ? "The event collection now has no TTL index. Each event of this app "
+                        + "stays with no time limit. Contract rule C8 does not apply "
+                        + "until an administrator creates the index."
+                : "The TTL index on ts keeps its old retention value. Contract rule "
+                        + "C8 applies with the old value, not the new value.";
+        LOGGER.log(Level.WARNING, "The TTL index step \"" + step + "\" failed with the "
+                + "MongoDB error code " + errorCode + ". The app start continues. " + consequence);
     }
 
     /**
@@ -141,24 +215,63 @@ public final class MongoEventLogStore implements EventLogStore {
     /**
      * Turns the raw text of {@code OCTOMETER_RETENTION_DAYS} into a
      * retention in days (contract rule C8). A {@code null} value gives the
-     * default of 30 days, with no warning. A value that is not a positive
-     * whole number also gives the default, with one warning; the warning
-     * names the variable and never repeats the value.
+     * default of 30 days, with no warning. A value that holds a character
+     * other than an ASCII digit, or that is not a positive whole number,
+     * also gives the default, with one warning; the warning names the
+     * variable and never repeats the value. A value above {@link
+     * #MAX_RETENTION_DAYS} is clamped at start, with its own warning.
      */
     static int retentionDaysFromValue(String rawValue) {
         if (rawValue == null) {
             return DEFAULT_RETENTION_DAYS;
         }
-        try {
-            int days = Integer.parseInt(rawValue.trim());
-            if (days > 0) {
-                return days;
+        String trimmed = rawValue.trim();
+        if (ASCII_DIGITS.matcher(trimmed).matches()) {
+            try {
+                int days = Integer.parseInt(trimmed);
+                if (days > 0) {
+                    return days;
+                }
+            } catch (NumberFormatException e) {
+                // A text of only ASCII digits can still overflow an int.
+                // The warning below covers this case too.
             }
-        } catch (NumberFormatException e) {
-            // The text below covers this case too.
         }
         LOGGER.log(Level.WARNING, OCTOMETER_RETENTION_DAYS + " holds a value that is not a positive "
-                + "whole number. The store uses the default of 30 days.");
+                + "whole number of ASCII digits. The store uses the default of 30 days.");
         return DEFAULT_RETENTION_DAYS;
+    }
+
+    private static int clampRetentionDays(int retentionDays) {
+        if (retentionDays > MAX_RETENTION_DAYS) {
+            LOGGER.log(Level.WARNING, OCTOMETER_RETENTION_DAYS + " asks for " + retentionDays
+                    + " days. The store clamps the value to " + MAX_RETENTION_DAYS
+                    + " days, the largest value that the TTL index field of the server accepts.");
+            return MAX_RETENTION_DAYS;
+        }
+        return retentionDays;
+    }
+
+    /**
+     * A failed write to the event collection. The message holds only a
+     * fixed text and the numeric MongoDB error code. It holds no host, no
+     * port, and no database name, and it holds no cause, so a full stack
+     * trace also stays clean (design decision D15). The error code is -1
+     * when the driver gives no code.
+     */
+    public static final class EventLogWriteException extends RuntimeException {
+
+        private final int errorCode;
+
+        EventLogWriteException(int errorCode) {
+            super("The store could not write the event batch to the event collection. "
+                    + "The MongoDB error code is " + errorCode + ".");
+            this.errorCode = errorCode;
+        }
+
+        /** The numeric MongoDB error code, or -1 when the driver gives no code. */
+        public int errorCode() {
+            return errorCode;
+        }
     }
 }

@@ -59,6 +59,28 @@ class MongoEventLogStoreRetentionDaysTest {
     }
 
     @Test
+    void aUnicodeDigitGivesTheDefaultAndAWarning() {
+        CapturingLoggerFinder.clear();
+
+        // "١٠" is the Arabic-Indic text for the number 10. It must not
+        // give 10 days: only an ASCII digit sets a retention.
+        int days = MongoEventLogStore.retentionDaysFromValue("١٠");
+
+        assertEquals(30, days);
+        assertOneWarningNaming("OCTOMETER_RETENTION_DAYS");
+    }
+
+    @Test
+    void aLeadingPlusSignGivesTheDefaultAndAWarning() {
+        CapturingLoggerFinder.clear();
+
+        int days = MongoEventLogStore.retentionDaysFromValue("+5");
+
+        assertEquals(30, days);
+        assertOneWarningNaming("OCTOMETER_RETENTION_DAYS");
+    }
+
+    @Test
     void aNullValueGivesNoWarning() {
         CapturingLoggerFinder.clear();
 

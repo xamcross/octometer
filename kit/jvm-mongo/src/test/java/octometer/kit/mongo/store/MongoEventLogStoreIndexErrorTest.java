@@ -16,8 +16,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -51,11 +53,14 @@ class MongoEventLogStoreIndexErrorTest {
         assertTrue(commandCaptor.getValue() instanceof Document);
         Document command = (Document) commandCaptor.getValue();
         assertEquals("octometer_events", command.getString("collMod"));
+        Document index = command.get("index", Document.class);
+        assertEquals(new Document("ts", 1), index.get("keyPattern"));
+        assertEquals(10L * 24 * 60 * 60, ((Number) index.get("expireAfterSeconds")).longValue());
         assertTrue(CapturingLoggerFinder.records().isEmpty());
     }
 
     @Test
-    void aDifferentErrorCodeGivesAWarnLevelLogLineAndTheStoreStillWorks() {
+    void aDifferentErrorCodeNamesTheStepAndTheErrorCodeAndSaysNoTtlIndexRemains() {
         MongoDatabase database = mock(MongoDatabase.class);
         MongoCollection<Document> collection = mock(MongoCollection.class);
         when(database.getCollection("octometer_events")).thenReturn(collection);
@@ -68,7 +73,11 @@ class MongoEventLogStoreIndexErrorTest {
         assertEquals(1, CapturingLoggerFinder.records().size());
         CapturingLoggerFinder.Record record = CapturingLoggerFinder.records().peek();
         assertEquals(java.lang.System.Logger.Level.WARNING, record.level());
-        assertTrue(record.message().toLowerCase().contains("index"));
+        assertTrue(record.message().contains("\"createIndex\""), "The line must name the step.");
+        assertTrue(record.message().contains("13"), "The line must name the numeric error code.");
+        assertTrue(record.message().contains("no TTL index"), "The line must state the plain result.");
+        assertFalse(record.message().toLowerCase().contains("unauthorized"),
+                "The line must never hold the server text.");
         verify(database, never()).runCommand(any(Bson.class));
 
         // The store still works: an append call reaches the collection.
@@ -78,7 +87,7 @@ class MongoEventLogStoreIndexErrorTest {
     }
 
     @Test
-    void collModFailureAlsoGivesAWarnLevelLogLine() {
+    void collModFailureNamesTheStepAndSaysTheOldRetentionStays() {
         MongoDatabase database = mock(MongoDatabase.class);
         MongoCollection<Document> collection = mock(MongoCollection.class);
         when(database.getCollection("octometer_events")).thenReturn(collection);
@@ -90,12 +99,46 @@ class MongoEventLogStoreIndexErrorTest {
         new MongoEventLogStore(database, 10);
 
         assertEquals(1, CapturingLoggerFinder.records().size());
-        assertEquals(java.lang.System.Logger.Level.WARNING,
-                CapturingLoggerFinder.records().peek().level());
+        CapturingLoggerFinder.Record record = CapturingLoggerFinder.records().peek();
+        assertEquals(java.lang.System.Logger.Level.WARNING, record.level());
+        assertTrue(record.message().contains("\"collMod\""), "The line must name the step.");
+        assertTrue(record.message().contains("2"), "The line must name the numeric error code.");
+        assertTrue(record.message().contains("old retention value"), "The line must state the plain result.");
+        assertFalse(record.message().toLowerCase().contains("badvalue"),
+                "The line must never hold the server text.");
     }
 
     @Test
-    void deleteByUserIdThrowsAnUnsupportedOperationException() {
+    void aRetentionAboveTheMaximumIsClampedWithAWarning() {
+        MongoDatabase database = mock(MongoDatabase.class);
+        MongoCollection<Document> collection = mock(MongoCollection.class);
+        when(database.getCollection("octometer_events")).thenReturn(collection);
+        CapturingLoggerFinder.clear();
+
+        new MongoEventLogStore(database, 30_000);
+
+        ArgumentCaptor<IndexOptions> optionsCaptor = ArgumentCaptor.forClass(IndexOptions.class);
+        verify(collection).createIndex(any(Bson.class), optionsCaptor.capture());
+        assertEquals(24_855L * 24 * 60 * 60, optionsCaptor.getValue().getExpireAfter(TimeUnit.SECONDS));
+        assertEquals(1, CapturingLoggerFinder.records().size());
+        CapturingLoggerFinder.Record record = CapturingLoggerFinder.records().peek();
+        assertEquals(java.lang.System.Logger.Level.WARNING, record.level());
+        assertTrue(record.message().contains("30000"));
+        assertTrue(record.message().contains("24855"));
+    }
+
+    @Test
+    void aRetentionBelowOneDayIsRejected() {
+        MongoDatabase database = mock(MongoDatabase.class);
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> new MongoEventLogStore(database, 0));
+
+        assertTrue(exception.getMessage().contains("1 or more"));
+    }
+
+    @Test
+    void deleteByUserIdThrowsAnUnsupportedOperationExceptionAndDeletesNoEvent() {
         MongoDatabase database = mock(MongoDatabase.class);
         MongoCollection<Document> collection = mock(MongoCollection.class);
         when(database.getCollection("octometer_events")).thenReturn(collection);
@@ -105,6 +148,7 @@ class MongoEventLogStoreIndexErrorTest {
         UnsupportedOperationException exception = assertThrows(UnsupportedOperationException.class,
                 () -> store.deleteByUserId("user-1"));
         assertTrue(exception.getMessage().contains("#35"));
+        assertTrue(exception.getMessage().contains("No event was deleted"));
     }
 
     private static MongoCommandException commandException(int code, String codeName) {
