@@ -46,30 +46,47 @@ describe('PauseRefreshButton bound to a poll store', () => {
     return fixture.nativeElement.querySelector('button');
   }
 
-  it('stops the requests when the button is pressed', () => {
-    httpMock.expectOne('/api/health').flush({ refreshSeconds: 10 });
+  /** Answers the health request and runs the first data tick. */
+  function startStore(refreshSeconds = 10): void {
     vi.advanceTimersByTime(0);
+    httpMock.expectOne('/api/health').flush({ refreshSeconds });
+    vi.advanceTimersByTime(0);
+  }
+
+  it('stops the requests when the button is pressed', () => {
+    startStore(10);
     expect(fixture.componentInstance.calls).toBe(1);
 
     button().click();
     fixture.detectChanges();
     expect(button().getAttribute('aria-pressed')).toBe('true');
 
+    // A change from a click on a mounted button flushes through Angular's
+    // own change detection, so a plain time advance is enough here.
+    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(1);
     vi.advanceTimersByTime(10_000);
     expect(fixture.componentInstance.calls).toBe(1);
   });
 
   it('resumes the requests when the button is pressed again', () => {
-    httpMock.expectOne('/api/health').flush({ refreshSeconds: 10 });
-    vi.advanceTimersByTime(0);
+    startStore(10);
 
     button().click();
     fixture.detectChanges();
+    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(1);
+    expect(button().getAttribute('aria-pressed')).toBe('true');
+
+    // Some time passes while the store is paused, then the user unpauses it.
+    vi.advanceTimersByTime(3_000);
     button().click();
     fixture.detectChanges();
     expect(button().getAttribute('aria-pressed')).toBe('false');
 
-    vi.advanceTimersByTime(10_000);
+    // The second request comes at once, well before the 10 s interval.
+    vi.advanceTimersByTime(0);
+    vi.advanceTimersByTime(1);
     expect(fixture.componentInstance.calls).toBe(2);
   });
 });
