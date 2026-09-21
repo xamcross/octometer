@@ -348,12 +348,16 @@ describe('createPollStore', () => {
 
     // A navigation destroys the first view and its store, then a new view
     // creates a second store. The second store must read the same paused
-    // state, and not a fresh one that starts at false.
+    // state, and not a fresh one that starts at false. The health answer
+    // is already cached, so the second store sends no new health request.
     let secondCalls = 0;
-    const second = startStore(() => {
-      secondCalls++;
-      return of(`b${secondCalls}`);
-    }, 10);
+    const second = TestBed.runInInjectionContext(() =>
+      createPollStore(() => {
+        secondCalls++;
+        return of(`b${secondCalls}`);
+      }),
+    );
+    vi.advanceTimersByTime(0);
 
     expect(second.paused()).toBe(true);
     vi.advanceTimersByTime(10_000);
