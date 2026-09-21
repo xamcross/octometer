@@ -83,20 +83,20 @@ describe('MainNav', () => {
     expect(appsLink.getAttribute('aria-current')).toBeNull();
   });
 
-  it('does not set aria-current="page" on the Apps link for a user list below /apps', async () => {
+  it('sets aria-current="true" on the Apps link for a user list below /apps', async () => {
     await router.navigateByUrl('/apps/7/users');
     fixture.detectChanges();
 
     const [appsLink] = links();
-    expect(appsLink.getAttribute('aria-current')).toBeNull();
+    expect(appsLink.getAttribute('aria-current')).toBe('true');
   });
 
-  it('does not set aria-current="page" on the Apps link for an element list below /apps', async () => {
+  it('sets aria-current="true" on the Apps link for an element list below /apps', async () => {
     await router.navigateByUrl('/apps/7/elements');
     fixture.detectChanges();
 
     const [appsLink] = links();
-    expect(appsLink.getAttribute('aria-current')).toBeNull();
+    expect(appsLink.getAttribute('aria-current')).toBe('true');
   });
 
   it('keeps a visual current-section state on the Apps link for a user list below /apps', async () => {
@@ -121,5 +121,22 @@ describe('MainNav', () => {
 
     const [appsLink] = links();
     expect(appsLink.classList.contains('current-section')).toBe(false);
+  });
+
+  it('sets aria-current="page" on the Apps link when the URL keeps a fragment', async () => {
+    await router.navigateByUrl('/apps#main-content');
+    fixture.detectChanges();
+
+    const [appsLink] = links();
+    expect(appsLink.getAttribute('aria-current')).toBe('page');
+    expect(appsLink.classList.contains('current-section')).toBe(true);
+  });
+
+  it('keeps aria-current="page" on the Manage apps link when the URL keeps a query string', async () => {
+    await router.navigateByUrl('/manage?tab=apps');
+    fixture.detectChanges();
+
+    const [, manageLink] = links();
+    expect(manageLink.getAttribute('aria-current')).toBe('page');
   });
 });

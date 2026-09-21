@@ -5,14 +5,17 @@
 
 /*
  * The skip link stays in the tab order at all times. It moves off-screen
- * with a negative offset, not with display:none nor visibility:hidden, so
- * a screen reader and the Tab key still reach it. The link becomes visible
- * again on focus.
+ * with a transform, not with display:none nor visibility:hidden, so a
+ * screen reader and the Tab key still reach it. `translateY(-100%)` moves
+ * the link up by its own height, at each viewport width and at each text
+ * zoom, so no part of the link stays on screen while it is hidden. The
+ * link becomes visible again on focus.
  */
 .skip-link {
   position: absolute;
-  top: -3rem;
+  top: 0;
   left: 0;
+  transform: translateY(-100%);
   z-index: 100;
   display: inline-flex;
   align-items: center;
@@ -24,7 +27,9 @@
 }
 
 .skip-link:focus {
-  top: 0;
+  transform: translateY(0);
+  outline: 3px solid #ffffff;
+  outline-offset: -3px;
 }
 
 .visually-hidden {

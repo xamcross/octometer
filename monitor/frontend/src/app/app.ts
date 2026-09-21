@@ -70,11 +70,11 @@ export class App {
 
   /**
    * Moves the focus to the main content on a skip-link activation.
-   * The link keeps its native `href`, so a browser without script still
-   * scrolls to the target. This method makes the focus move reliable in
-   * each browser, and it starts no router navigation.
+   * The method stops the default action. `<base href="/">` makes a
+   * fragment href point at the root page, not at the present page.
    */
-  protected onSkipLinkActivated(): void {
+  protected onSkipLinkActivated(event: Event): void {
+    event.preventDefault();
     this.hostElement.nativeElement.querySelector<HTMLElement>('#main-content')?.focus();
   }
 
@@ -86,7 +86,7 @@ export class App {
   private onNavigationEnd(event: NavigationEnd): void {
     this.breadcrumbItems.set(buildBreadcrumb(this.router.routerState.snapshot.root));
 
-    const path = event.urlAfterRedirects.split('?')[0];
+    const path = event.urlAfterRedirects.split(/[?#]/)[0];
     const isFirstNavigation = this.previousPath === null;
     const pathChanged = path !== this.previousPath;
     this.previousPath = path;

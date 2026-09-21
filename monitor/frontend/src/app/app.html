@@ -1,10 +1,12 @@
-<a class="skip-link" href="#main-content" (click)="onSkipLinkActivated()">
+<a class="skip-link" href="#main-content" (click)="onSkipLinkActivated($event)">
   Skip to the main content
 </a>
 
-<app-main-nav />
+<header>
+  <app-banner [apiError]="monitorApiError()" />
 
-<app-banner [apiError]="monitorApiError()" />
+  <app-main-nav />
+</header>
 
 <app-breadcrumb-nav [items]="breadcrumbItems()" />
 

@@ -3,10 +3,8 @@
     <li>
       <a
         routerLink="/apps"
-        routerLinkActive
-        ariaCurrentWhenActive="page"
-        [routerLinkActiveOptions]="{ exact: true }"
-        [class.current-section]="appsSectionActive()"
+        [attr.aria-current]="appsCurrent()"
+        [class.current-section]="appsCurrent() !== null"
       >
         Apps
       </a>
@@ -16,7 +14,12 @@
         routerLink="/manage"
         routerLinkActive="current-section"
         ariaCurrentWhenActive="page"
-        [routerLinkActiveOptions]="{ exact: true }"
+        [routerLinkActiveOptions]="{
+          paths: 'exact',
+          queryParams: 'ignored',
+          fragment: 'ignored',
+          matrixParams: 'ignored',
+        }"
       >
         Manage apps
       </a>

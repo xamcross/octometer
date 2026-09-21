@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Router, provideRouter, withComponentInputBinding } from '@angular/router';
+import { NavigationStart, Router, provideRouter, withComponentInputBinding } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { routes } from './app.routes';
@@ -120,6 +120,24 @@ describe('App', () => {
       expect(document.activeElement).toBe(probe);
       probe.remove();
     });
+
+    it('keeps the focus after a later navigation that only adds a fragment to the same path', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps');
+      await fixture.whenStable();
+
+      const probe = document.createElement('button');
+      probe.textContent = 'Probe';
+      document.body.appendChild(probe);
+      probe.focus();
+      expect(document.activeElement).toBe(probe);
+
+      await router.navigateByUrl('/apps#main-content');
+      await fixture.whenStable();
+
+      expect(document.activeElement).toBe(probe);
+      probe.remove();
+    });
   });
 
   describe('the skip link', () => {
@@ -143,7 +161,7 @@ describe('App', () => {
       expect(compiled.querySelector('#main-content')).toBeTruthy();
     });
 
-    it('stays out of the tab order removal: it is not display:none nor visibility:hidden', () => {
+    it('keeps its place in the tab order, because it is not display:none nor visibility:hidden', () => {
       fixture.detectChanges();
 
       const compiled = fixture.nativeElement as HTMLElement;
@@ -164,15 +182,14 @@ describe('App', () => {
       expect(document.activeElement).toBe(skipLink);
     });
 
-    it('becomes visible on focus, through a `:focus` style rule that moves it back on screen', () => {
+    it('becomes visible on focus, by translating the link back onto the screen', () => {
       fixture.detectChanges();
 
-      const baseTop = findCssRule('.skip-link')?.style.top;
-      const focusTop = findCssRule('.skip-link:focus')?.style.top;
+      const baseTransform = findCssRule('.skip-link')?.style.transform;
+      const focusTransform = findCssRule('.skip-link:focus')?.style.transform;
 
-      expect(baseTop).toBeTruthy();
-      expect(focusTop).toBeTruthy();
-      expect(focusTop).not.toBe(baseTop);
+      expect(baseTransform).toBe('translateY(-100%)');
+      expect(focusTransform).toBe('translateY(0)');
     });
 
     it('gives the skip link a minimum target size of 24 by 24 CSS px', () => {
@@ -202,20 +219,30 @@ describe('App', () => {
       expect(document.activeElement).not.toBe(heading);
     });
 
-    it('does not start a router navigation that moves the focus to the h1', async () => {
+    it('stops the default action, moves the focus to main, and starts no router navigation', async () => {
       fixture.detectChanges();
       await router.navigateByUrl('/apps');
       await fixture.whenStable();
 
       const compiled = fixture.nativeElement as HTMLElement;
       const skipLink = compiled.querySelector('.skip-link') as HTMLAnchorElement;
-      const navigateSpy = vi.spyOn(router, 'navigateByUrl');
+      const main = compiled.querySelector('#main-content') as HTMLElement;
+      const startedNavigations: NavigationStart[] = [];
+      const subscription = router.events.subscribe((routerEvent) => {
+        if (routerEvent instanceof NavigationStart) {
+          startedNavigations.push(routerEvent);
+        }
+      });
 
-      skipLink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+      skipLink.dispatchEvent(event);
       fixture.detectChanges();
       await fixture.whenStable();
 
-      expect(navigateSpy).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(main);
+      expect(startedNavigations).toEqual([]);
+      subscription.unsubscribe();
     });
   });
 
@@ -310,7 +337,7 @@ describe('App', () => {
       expect(manageLink.getAttribute('aria-current')).toBeNull();
     });
 
-    it('shows both links on the Users route, with no page marked current, and Apps visually active', async () => {
+    it('shows both links on the Users route, with Apps current as a section, not as the page', async () => {
       fixture.detectChanges();
       await router.navigateByUrl('/apps/7/users');
       await fixture.whenStable();
@@ -318,12 +345,12 @@ describe('App', () => {
       const [appsLink, manageLink] = mainNavLinks();
       expect(appsLink.textContent?.trim()).toBe('Apps');
       expect(manageLink.textContent?.trim()).toBe('Manage apps');
-      expect(appsLink.getAttribute('aria-current')).toBeNull();
+      expect(appsLink.getAttribute('aria-current')).toBe('true');
       expect(manageLink.getAttribute('aria-current')).toBeNull();
       expect(appsLink.classList.contains('current-section')).toBe(true);
     });
 
-    it('shows both links on the Elements route, with no page marked current, and Apps visually active', async () => {
+    it('shows both links on the Elements route, with Apps current as a section, not as the page', async () => {
       fixture.detectChanges();
       await router.navigateByUrl('/apps/7/elements?userId=42');
       await fixture.whenStable();
@@ -331,7 +358,7 @@ describe('App', () => {
       const [appsLink, manageLink] = mainNavLinks();
       expect(appsLink.textContent?.trim()).toBe('Apps');
       expect(manageLink.textContent?.trim()).toBe('Manage apps');
-      expect(appsLink.getAttribute('aria-current')).toBeNull();
+      expect(appsLink.getAttribute('aria-current')).toBe('true');
       expect(manageLink.getAttribute('aria-current')).toBeNull();
       expect(appsLink.classList.contains('current-section')).toBe(true);
     });
