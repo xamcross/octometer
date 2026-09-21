@@ -8,6 +8,7 @@ private data class Migration(val version: Int, val resource: String)
 // under db/. Never edit a file that a past release already ran.
 private val MIGRATIONS = listOf(
     Migration(1, "/db/001_init.sql"),
+    Migration(2, "/db/002_first_page.sql"),
 )
 
 /**
