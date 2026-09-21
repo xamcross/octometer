@@ -20,6 +20,8 @@ import {
   timer,
 } from 'rxjs';
 
+import { RefreshPauseState } from './refresh-pause-state';
+
 /** The part of the health response that the store reads. */
 interface HealthResponse {
   refreshSeconds: number;
@@ -79,6 +81,10 @@ function isFocusInTbody(): boolean {
  * The refresh stops while the tab is hidden, while the focus sits inside a
  * `<tbody>`, or while `paused` is true. As soon as one condition clears,
  * the store sends one request at once. It then goes back to the interval.
+ *
+ * `paused` reads and writes the one root-level `RefreshPauseState`. Each
+ * poll store then shares one paused state, so the state stays the same
+ * after a navigation that destroys one store and creates another.
  */
 export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
   const http = inject(HttpClient);
@@ -87,7 +93,7 @@ export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
   const data = signal<T | undefined>(undefined);
   const lastSuccessAt = signal<Date | undefined>(undefined);
   const error = signal<unknown>(undefined);
-  const paused = signal(false);
+  const paused = inject(RefreshPauseState).paused;
   const firstLoadPending = signal(true);
   const manualRefresh$ = new Subject<void>();
 
