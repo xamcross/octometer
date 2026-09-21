@@ -19,12 +19,24 @@ const ERROR_TEXT_LIMIT = 300;
 // Builds one error object from a caught error. The text stops after 300
 // characters. Each probe command of this script takes a constant argument,
 // thus the error text holds no value of a real document.
+//
+// A driver error has no code. Its text can hold the host name and the port
+// of the cluster. The script never prints the URI, so it also drops this
+// text. It sets driverError: true in this case, so the field errmsg stays
+// empty and the caller still knows that an error happened.
 function errorInfo(e) {
-  return {
+  const hasCode = e.code !== undefined && e.code !== null;
+  const info = {
     code: e.code || null,
     codeName: e.codeName || null,
-    errmsg: String(e.errmsg || e.message || "").slice(0, ERROR_TEXT_LIMIT),
+    errmsg: hasCode
+      ? String(e.errmsg || e.message || "").slice(0, ERROR_TEXT_LIMIT)
+      : "",
   };
+  if (!hasCode) {
+    info.driverError = true;
+  }
+  return info;
 }
 
 const result = {
