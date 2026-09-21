@@ -11,15 +11,46 @@ import octometer.monitor.config.MonitorConfig
 // RequestGuardTest held their own copy before; this file removes the
 // duplication.
 
+// MAJOR 9 (Ktor review): a test run never deleted a temporary root. Two
+// runs then left many folders in the temp folder of the machine. Each
+// call to testDataDir() registers its root here. The shutdown hook
+// deletes each root when the test JVM ends, on a pass and on a failure.
+// A test with its own folder outside testDataDir() can register that
+// folder too, with registerTempRoot(root).
+private val tempRoots = mutableListOf<File>()
+
+private val cleanupHookRegistered: Boolean = run {
+    Runtime.getRuntime().addShutdownHook(
+        Thread {
+            synchronized(tempRoots) {
+                for (root in tempRoots) {
+                    root.deleteRecursively()
+                }
+            }
+        },
+    )
+    true
+}
+
+/** Registers [root] for deletion when the test JVM ends. */
+fun registerTempRoot(root: File) {
+    check(cleanupHookRegistered)
+    synchronized(tempRoots) { tempRoots += root }
+}
+
 /**
  * A fresh temporary folder for one test, never the real data folder.
- * Issue #15: module() opens a real SqliteDatabase in config.dataDir, thus
- * a config for a test must never name a real folder such as "C:/data".
- * The parent of the returned folder is a folder of its own, so a test that
- * also reads the sibling "secrets" folder of D34 never shares it with a
- * different test.
+ * module() opens a real SqliteDatabase in config.dataDir (issue #15). A
+ * config for a test must never name a real folder, for example
+ * "C:/data". The parent of the returned folder is a folder of its own.
+ * A test that also reads the sibling "secrets" folder of D34 thus never
+ * shares it with a different test.
  */
-fun testDataDir(): String = File(Files.createTempDirectory("octometer-test-").toFile(), "data").absolutePath
+fun testDataDir(): String {
+    val root = Files.createTempDirectory("octometer-test-").toFile()
+    registerTempRoot(root)
+    return File(root, "data").absolutePath
+}
 
 /** The dev mode config of the tests, with the configured port 7431. */
 fun devConfig(dataDir: String = testDataDir()) = MonitorConfig(
