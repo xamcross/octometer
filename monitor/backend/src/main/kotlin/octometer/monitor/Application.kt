@@ -2,6 +2,7 @@ package octometer.monitor
 
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
@@ -16,8 +17,12 @@ import octometer.monitor.config.MonitorConfig
 import octometer.monitor.config.ResolvedConfig
 import octometer.monitor.config.escapeForLog
 import octometer.monitor.config.loadConfig
+import octometer.monitor.registry.AppRegistryService
+import octometer.monitor.registry.SecretStore
+import octometer.monitor.registry.appRegistryRoutes
 import octometer.monitor.security.installRequestGuard
 import octometer.monitor.security.requireLoopbackBindAddress
+import octometer.monitor.store.SqliteDatabase
 import org.slf4j.LoggerFactory
 import java.util.Properties
 import kotlin.system.exitProcess
@@ -60,6 +65,16 @@ fun main(args: Array<String>) {
 }
 
 fun Application.module(config: MonitorConfig) {
+    // Step 6 of issue #15: this is the first user of the store of #9, thus
+    // this issue owns the open call and the close call. The store opens
+    // one time, at the start, and it closes when the application stops.
+    val database = SqliteDatabase.open(config.dataDir)
+    monitor.subscribe(ApplicationStopped) {
+        database.close()
+    }
+    val secretStore = SecretStore(config.dataDir)
+    val appRegistryService = AppRegistryService(database, secretStore)
+
     install(ContentNegotiation) {
         json()
     }
@@ -74,6 +89,7 @@ fun Application.module(config: MonitorConfig) {
                 ),
             )
         }
+        appRegistryRoutes(appRegistryService)
     }
 }
 
