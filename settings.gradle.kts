@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 
 include(":monitor:backend")
 include(":kit:jvm-core")
+include(":kit:jvm-ktor")
