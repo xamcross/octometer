@@ -1,3 +1,5 @@
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NavigationStart, Router, provideRouter, withComponentInputBinding } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -35,15 +37,21 @@ function findCssRule(selectorText: string): CSSStyleRule | undefined {
 describe('App', () => {
   let fixture: ComponentFixture<App>;
   let router: Router;
+  let httpMock: HttpTestingController;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideRouter(routes, withComponentInputBinding())],
+      providers: [
+        provideRouter(routes, withComponentInputBinding()),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(App);
     router = TestBed.inject(Router);
+    httpMock = TestBed.inject(HttpTestingController);
   });
 
   it('creates the app', () => {
@@ -376,80 +384,128 @@ describe('App', () => {
     });
   });
 
-  it('holds exactly one live region while the banner shows an error', () => {
-    fixture.detectChanges();
-    (
-      fixture.componentInstance as unknown as { monitorApiError: { set(v: string): void } }
-    ).monitorApiError.set('The monitor API did not answer.');
-    fixture.detectChanges();
-
-    const liveRegions = (fixture.nativeElement as HTMLElement).querySelectorAll(
-      '[role="status"], [role="alert"], [aria-live]',
-    );
-    expect(liveRegions.length).toBe(1);
-  });
-
-  describe('the announcer, driven by fake timers', () => {
+  describe('the monitor API banner (D30), driven by fake timers', () => {
     beforeEach(() => {
+      // RefreshIntervalState sends GET /api/health at once, in its
+      // constructor. The fake clock must run before that happens, so this
+      // block builds its own fixture, and not the one of the outer
+      // `beforeEach` (built before the fake clock started).
       vi.useFakeTimers();
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        imports: [App],
+        providers: [
+          provideRouter(routes, withComponentInputBinding()),
+          provideHttpClient(),
+          provideHttpClientTesting(),
+        ],
+      });
+      fixture = TestBed.createComponent(App);
+      httpMock = TestBed.inject(HttpTestingController);
     });
 
     afterEach(() => {
       vi.useRealTimers();
+      httpMock.verify();
     });
 
-    it('announces one time each transition of the monitor connection', async () => {
+    /** Runs the first health tick, so the request reaches HttpTestingController. */
+    function startHealth(): void {
+      vi.advanceTimersByTime(0);
+    }
+
+    /** Fails the pending GET /api/health request. */
+    function failHealth(): void {
+      httpMock
+        .expectOne('/api/health')
+        .flush(null, { status: 503, statusText: 'Service Unavailable' });
+      fixture.detectChanges();
+    }
+
+    /** Answers the pending GET /api/health request with a good interval. */
+    function succeedHealth(refreshSeconds = 10): void {
+      httpMock.expectOne('/api/health').flush({ refreshSeconds });
+      fixture.detectChanges();
+    }
+
+    function bannerText(): string {
+      const slot = (fixture.nativeElement as HTMLElement).querySelector('.banner-slot');
+      return slot?.textContent?.trim() ?? '';
+    }
+
+    it('shows the banner text for a failed GET /api/health', () => {
+      fixture.detectChanges();
+      startHealth();
+      failHealth();
+
+      expect(bannerText()).toContain('The app did not get the refresh interval.');
+    });
+
+    it('clears the banner once GET /api/health answers after a failure', () => {
+      fixture.detectChanges();
+      startHealth();
+      failHealth();
+      expect(bannerText()).toContain('The app did not get the refresh interval.');
+
+      vi.advanceTimersByTime(5_000);
+      succeedHealth();
+
+      expect(bannerText()).toBe('');
+    });
+
+    it('holds exactly one live region while the banner shows an error', () => {
+      fixture.detectChanges();
+      startHealth();
+      failHealth();
+
+      const liveRegions = (fixture.nativeElement as HTMLElement).querySelectorAll(
+        '[role="status"], [role="alert"], [aria-live]',
+      );
+      expect(liveRegions.length).toBe(1);
+    });
+
+    it('announces one time each transition of the monitor connection, and a recovery clears the banner', async () => {
       fixture.detectChanges();
       const region = (fixture.nativeElement as HTMLElement).querySelector(
         '[role="status"]',
       ) as HTMLElement;
-      const errorSignal = (
-        fixture.componentInstance as unknown as { monitorApiError: { set(v: string | null): void } }
-      ).monitorApiError;
 
-      errorSignal.set('The monitor API did not answer.');
-      fixture.detectChanges();
+      startHealth();
+      failHealth();
       await vi.advanceTimersByTimeAsync(100);
       fixture.detectChanges();
       expect(region.textContent).toBe('The monitor API stopped answering.');
 
-      errorSignal.set(null);
-      fixture.detectChanges();
+      vi.advanceTimersByTime(5_000);
+      succeedHealth();
       await vi.advanceTimersByTimeAsync(100);
       fixture.detectChanges();
       expect(region.textContent).toBe('The monitor API answers again.');
+      expect(bannerText()).toBe('');
     });
 
-    it('announces one time per outage, even when the error text changes during it', async () => {
+    it('announces one time per outage, even while a retry keeps on failing', async () => {
       fixture.detectChanges();
       const region = (fixture.nativeElement as HTMLElement).querySelector(
         '[role="status"]',
       ) as HTMLElement;
-      const errorSignal = (
-        fixture.componentInstance as unknown as { monitorApiError: { set(v: string | null): void } }
-      ).monitorApiError;
 
-      errorSignal.set('A timeout happened.');
-      fixture.detectChanges();
+      startHealth();
+      failHealth();
       await vi.advanceTimersByTimeAsync(100);
       fixture.detectChanges();
       expect(region.textContent).toBe('The monitor API stopped answering.');
 
-      errorSignal.set('The server answered 500.');
+      vi.advanceTimersByTime(5_000);
+      failHealth();
       fixture.detectChanges();
       expect(region.textContent).toBe('The monitor API stopped answering.');
 
-      errorSignal.set(null);
-      fixture.detectChanges();
+      vi.advanceTimersByTime(5_000);
+      succeedHealth();
       await vi.advanceTimersByTimeAsync(100);
       fixture.detectChanges();
       expect(region.textContent).toBe('The monitor API answers again.');
-
-      errorSignal.set('A new timeout happened.');
-      fixture.detectChanges();
-      await vi.advanceTimersByTimeAsync(100);
-      fixture.detectChanges();
-      expect(region.textContent).toBe('The monitor API stopped answering.');
     });
 
     it('gives the same status text twice a fresh DOM write each time', async () => {
@@ -458,6 +514,8 @@ describe('App', () => {
         '[role="status"]',
       ) as HTMLElement;
       const announcer = TestBed.inject(Announcer);
+      startHealth();
+      failHealth(); // Drains the health request, so afterEach.verify() finds none pending.
 
       announcer.announce('The refresh is paused.');
       await vi.advanceTimersByTimeAsync(100);

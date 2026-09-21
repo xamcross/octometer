@@ -1,0 +1,125 @@
+# The Dependabot config of Octometer.
+# Dependabot reads this file. It opens one grouped pull request for each
+# ecosystem, every week.
+#
+# Source: issue #23 and the design document, decision D38. The
+# confirmation record for this schema sits in the pull request text.
+#
+# Each schedule below sets the day, so the config states the day in
+# plain text instead of a hidden default. Each ecosystem keeps the
+# platform default of five open pull requests, because the groups below
+# already keep the count small.
+version: 2
+
+updates:
+  # The Gradle build at the root. Dependabot reads the version catalog
+  # gradle/libs.versions.toml, and it also reads the Gradle wrapper.
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(gradle)"
+    groups:
+      # kit/jvm-ktor states a consumer contract: the Kotlin apiVersion
+      # KOTLIN_2_0 and the Ktor version of the catalog. A raise of
+      # either one moves the minimum version that a consumer app needs,
+      # and no test of this repository catches that move. This group
+      # keeps such a change in its own pull request.
+      kotlin-and-ktor:
+        patterns:
+          - "io.ktor:*"
+          - "org.jetbrains.kotlin*"
+      # A major update travels alone, so one bad major does not block a
+      # patch. Dependabot opens an individual pull request for a
+      # dependency that matches no group.
+      gradle-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    # org.mongodb:mongodb-driver-sync stays at 5.0.1 for the compile
+    # step. This is the version of the Spring Boot 3.3 BOM (design
+    # decision D22). gradle/libs.versions.toml holds this coordinate
+    # twice: mongodb-driver-sync = "5.0.1" and mongodb-sync-newest.
+    # Dependabot names a Gradle dependency "groupId:artifactId", thus
+    # one rule covers both entries. The rule holds the compile pin, and
+    # it also stops an update of mongodb-sync-newest. A person raises
+    # mongodb-sync-newest by hand (kit/jvm-mongo/README.md).
+    #
+    # Today Dependabot reads neither entry. A [versions] entry with no
+    # [libraries] reference is not a dependency, and
+    # kit/jvm-mongo/build.gradle.kts builds the coordinate from a
+    # Kotlin variable. This rule is a guard for a later refactor of the
+    # catalog.
+    ignore:
+      - dependency-name: "org.mongodb:mongodb-driver-sync"
+
+  # The Angular app.
+  - package-ecosystem: "npm"
+    directory: "/monitor/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(frontend)"
+    groups:
+      # An Angular release binds its TypeScript and its RxJS version.
+      # Angular 22.0.x needs TypeScript >=6.0.0 <6.1.0 and RxJS
+      # ^6.5.3 || ^7.4.0 (angular.dev/reference/versions).
+      # angular-eslint and typescript-eslint follow the Angular major
+      # version. This group moves each of them in one pull request.
+      angular:
+        patterns:
+          - "@angular/*"
+          - "@angular-devkit/*"
+          - "angular-eslint"
+          - "typescript"
+          - "typescript-eslint"
+          - "rxjs"
+      frontend-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # The click tracker.
+  - package-ecosystem: "npm"
+    directory: "/kit/tracker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(tracker)"
+    groups:
+      tracker-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # The GitHub Actions of .github/workflows/ci.yml. Each action stays
+  # pinned to a commit SHA with a version comment. Dependabot keeps
+  # this form, and it updates the comment together with the SHA.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
