@@ -2,3 +2,7 @@
 /gradlew text eol=lf
 /gradlew.bat text eol=crlf
 /gradle/wrapper/gradle-wrapper.jar binary
+
+# Git keeps the LF line end of the pre-commit hook. The hook is a POSIX
+# shell script and needs LF, also on a Windows clone.
+/.githooks/pre-commit text eol=lf

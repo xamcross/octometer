@@ -1,0 +1,28 @@
+# The secret scan of this repository.
+#
+# Source: https://github.com/gitleaks/gitleaks (the README of the master
+# branch, section "Configuration"), read on 2026-09-21.
+#
+# [extend] adds this file to the default rule set of gitleaks. useDefault
+# keeps each built-in rule. Each rule below adds to the default set.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "mongodb-uri-password"
+description = "A MongoDB connection string that holds a plain user name and a plain password."
+regex = '''mongodb(?:\+srv)?://[A-Za-z0-9._%+-]+:[^@\s/]+@[A-Za-z0-9.-]+'''
+keywords = ["mongodb"]
+tags = ["mongodb", "connection-string", "credentials"]
+
+# The angle-bracket placeholder form, for example
+# mongodb+srv://<user>:<password>@<host>/<db>, does not match the regex
+# above. The user-name group excludes "<" and ">", so a document of this
+# repository can show the placeholder form without a finding.
+
+[[rules.allowlists]]
+description = "One fake URI for a test fixture. This is not a real credential."
+regexes = [
+  '''mongodb\+srv://octotest:S3cr3t-Test-Only@cluster0\.example\.mongodb\.net''',
+]
