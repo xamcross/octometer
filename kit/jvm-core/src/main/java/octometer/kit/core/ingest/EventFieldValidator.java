@@ -1,6 +1,7 @@
 package octometer.kit.core.ingest;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -14,8 +15,7 @@ import java.util.regex.Pattern;
  * Unlike {@link #validateElement}, {@link #validateSessionId}, and
  * {@link #validateUserId}, the two new methods return a value instead of
  * throwing: rule C41 makes an invalid `path` or `referrerHost` value
- * non-fatal, so {@link IngestPipeline} drops the field and keeps the
- * entry, instead of stopping the whole request.
+ * non-fatal, and it does not stop the whole request.
  */
 public final class EventFieldValidator {
 
@@ -42,8 +42,11 @@ public final class EventFieldValidator {
     private static final Pattern GOOGLE_HOST_PATTERN =
             Pattern.compile("^([a-z0-9-]+\\.)*google\\.((com|co)\\.[a-z]{2}|com|[a-z]{2})$");
 
-    /** The source list of rule C40, besides the literal `other`. */
-    private static final Set<String> REFERRER_HOST_SOURCE_LIST = Set.of("google.com", "bing.com");
+    /** The source list of rule C40, besides the literal `other`. The order fixes the match order. */
+    private static final List<String> REFERRER_HOST_SOURCE_LIST = List.of("google.com", "bing.com");
+
+    /** The same list, as a set, for {@link #referrerHostSourceList()}. */
+    private static final Set<String> REFERRER_HOST_SOURCE_SET = Set.copyOf(REFERRER_HOST_SOURCE_LIST);
 
     private EventFieldValidator() {
     }
@@ -112,13 +115,19 @@ public final class EventFieldValidator {
      * Checks a `path` value against rule C39: 1 to 150 bytes in UTF-8, a
      * leading `/`, a second character that is not `/`, and each other
      * character in the set {@code [A-Za-z0-9._~!$&'()*+,;=:@/-]} or in a
-     * well-formed escape {@code %[0-9A-Fa-f]{2}}. It returns a boolean
-     * instead of throwing, because rule C41 makes an invalid value
-     * non-fatal.
+     * well-formed escape {@code %[0-9A-Fa-f]{2}}. It returns a boolean.
+     * It does not throw, because rule C41 makes an invalid value
+     * non-fatal. The value of {@code path} must not be {@code null}.
      */
     public static boolean isValidPath(String path) {
+        // A UTF-8 encoding never needs fewer bytes than the string has
+        // UTF-16 chars. This check rejects a huge value with no array
+        // allocation.
+        if (path.isEmpty() || path.length() > MAX_PATH_BYTES) {
+            return false;
+        }
         int byteLength = path.getBytes(StandardCharsets.UTF_8).length;
-        if (byteLength < 1 || byteLength > MAX_PATH_BYTES) {
+        if (byteLength > MAX_PATH_BYTES) {
             return false;
         }
         int length = path.length();
@@ -161,10 +170,11 @@ public final class EventFieldValidator {
      * Returns the source list of rule C40, besides the literal `other`:
      * {@code google.com} and {@code bing.com}. A test compares this list
      * against the source list of `contract/README.md`, so the two lists
-     * never drift apart.
+     * never drift apart. {@link #matchReferrerHost} reads the same list,
+     * in the same order, so the two lists never drift apart either.
      */
     public static Set<String> referrerHostSourceList() {
-        return REFERRER_HOST_SOURCE_LIST;
+        return REFERRER_HOST_SOURCE_SET;
     }
 
     /**
@@ -172,12 +182,16 @@ public final class EventFieldValidator {
      * {@code google.com}, {@code bing.com}, or the literal {@code other}
      * for a value with the shape of a host name. It returns {@code null}
      * for a value with a different shape; rule C41 then makes the
-     * caller drop the field instead of stopping the whole request.
+     * caller drop the field, and it does not stop the whole request.
+     * The value of {@code rawValue} must not be {@code null}.
      *
      * <p>The value {@code other} matches at once, with no shape check:
      * rule C40 states it as a literal, not as a host name. A value with
      * the shape of a host name that matches no entry of the source list
-     * also gives {@code other} (rule C40).
+     * also gives {@code other} (rule C40). The method reads {@link
+     * #REFERRER_HOST_SOURCE_LIST} in order, so a test over each entry of
+     * {@link #referrerHostSourceList()} also proves the match rule, and
+     * not only the closed set.
      */
     public static String matchReferrerHost(String rawValue) {
         if (REFERRER_HOST_OTHER.equals(rawValue)) {
@@ -186,11 +200,17 @@ public final class EventFieldValidator {
         if (!isValidHostNameShape(rawValue)) {
             return null;
         }
-        if (matchesSourceEntry(rawValue, "google.com") || GOOGLE_HOST_PATTERN.matcher(rawValue).matches()) {
-            return "google.com";
+        for (String entry : REFERRER_HOST_SOURCE_LIST) {
+            if (matchesSourceEntry(rawValue, entry)) {
+                return entry;
+            }
         }
-        if (matchesSourceEntry(rawValue, "bing.com")) {
-            return "bing.com";
+        // The literal text "google." must be present before the pattern
+        // runs, so a long host with no chance of a match costs one
+        // cheap search and not one regex match (issue #103, second
+        // review).
+        if (rawValue.indexOf("google.") >= 0 && GOOGLE_HOST_PATTERN.matcher(rawValue).matches()) {
+            return "google.com";
         }
         return REFERRER_HOST_OTHER;
     }

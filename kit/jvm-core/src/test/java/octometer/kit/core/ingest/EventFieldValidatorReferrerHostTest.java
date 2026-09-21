@@ -97,9 +97,9 @@ class EventFieldValidatorReferrerHostTest {
     @Test
     void theSourceListMatchesTheContractSourceList() {
         String readme = ContractReadme.read();
-        // The raw markdown wraps this sentence across two source lines, so
-        // the pattern allows a run of whitespace (a space, or a line
-        // break plus the indent) between each word.
+        // The raw markdown wraps this sentence across two source lines.
+        // The pattern allows a run of whitespace between each word: a
+        // space, or a line break plus the indent.
         Pattern pattern = Pattern.compile(
                 "The\\s+source\\s+list\\s+has\\s+two\\s+entries:\\s*"
                         + "`([a-z0-9.-]+)`\\s+and\\s+`([a-z0-9.-]+)`\\.");
@@ -110,5 +110,24 @@ class EventFieldValidatorReferrerHostTest {
         contractList.add(matcher.group(2));
 
         assertEquals(contractList, EventFieldValidator.referrerHostSourceList());
+    }
+
+    /**
+     * MAJOR 2 of the first Java review of pull request #131:
+     * {@code matchReferrerHost} must read {@link
+     * EventFieldValidator#referrerHostSourceList()}, and not a private
+     * copy of the two host names. This test proves the match for each
+     * entry of the list itself, and not only for the two literals
+     * `google.com` and `bing.com`. A new entry in the source list then
+     * makes this test check that entry too, with no edit here.
+     */
+    @Test
+    void matchesEachEntryOfTheSourceListExactlyAndAsASubdomain() {
+        for (String entry : EventFieldValidator.referrerHostSourceList()) {
+            assertEquals(entry, EventFieldValidator.matchReferrerHost(entry),
+                    "the entry " + entry + " must match itself");
+            assertEquals(entry, EventFieldValidator.matchReferrerHost("www." + entry),
+                    "a subdomain of " + entry + " must match the entry");
+        }
     }
 }
