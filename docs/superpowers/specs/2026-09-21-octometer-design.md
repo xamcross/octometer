@@ -349,8 +349,9 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   query parameter `userId=<id>` or `anonymous=true`, the same as the API). Each view is
   one flat `<table>` with a `<caption>` and `<th scope>`. The name cell is
   `<th scope="row"><a routerLink>`, and a click on a row cell opens that link. The breadcrumb is `<nav aria-label="Breadcrumb"><ol>` with
-  `aria-current="page"`. After each navigation that follows the first load, the focus moves to
-  `<h1 tabindex="-1">`; the first load and a change of only a query parameter keep the focus.
+  `aria-current="page"`. The first load keeps the focus. After each later navigation that
+  changes the path or a path parameter, the focus moves to `<h1 tabindex="-1">`. A change of
+  only a query parameter keeps the focus.
 - **D29. Poll store.** `timer(0, ms)` plus `exhaustMap`, with `catchError` inside. Signals
   `data`, `lastSuccessAt`, `error`. No `httpResource`. `@for` tracks the stable key. A refresh
   keeps the old rows until the new rows arrive. A button "Pause refresh" with `aria-pressed`
@@ -368,7 +369,8 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   name, and the event count. The connection string field is write-only.
 - **D33. Accessibility.** Each UI issue holds its criteria: no CSS `display` on table
   elements, targets of 24 by 24 CSS px, status as an icon plus text, one permanent
-  `role="status"` region for user actions only, `aria-disabled` on pager buttons.
+  `role="status"` region for a user action and for one transition of the monitor connection,
+  `aria-disabled` on pager buttons.
 
 ### Operation
 
