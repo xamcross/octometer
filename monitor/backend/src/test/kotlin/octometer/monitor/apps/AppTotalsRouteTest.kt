@@ -129,6 +129,65 @@ class AppTotalsRouteTest {
             assertEquals("2023-11-14T22:14:20.000Z", row.nextPollAt)
         }
 
+    // MINOR 2 of correction round 1: the exact plan line, not a
+    // substring check on the joined text, so a future plan with a
+    // second line (for example an added "USE TEMP B-TREE") cannot pass
+    // by matching one word on each of two different lines.
+    //
+    // The review of this pull request ran the same three statements on
+    // 50 000 rows in 3 apps, with and without ANALYZE, and got the same
+    // three plan lines in each run. This test keeps 3 rows, because the
+    // plan does not depend on the row count once the table holds rows of
+    // both kinds; the review comment on pull request #127 records the
+    // full-scale evidence.
+    // MINOR 3 of correction round 1: a poll cycle that ran (last_poll_at
+    // is not null) but wrote no status is a defect of that cycle. The
+    // row must show ERROR, not a silent NEVER_POLLED.
+    @Test
+    fun `a poll cycle that wrote no status gives ERROR, not NEVER_POLLED`() = runBlocking {
+        insertApp(
+            database,
+            name = "half-written-app",
+            status = null,
+            lastPollAt = 1_700_000_000_000L,
+        )
+
+        val row = loadAppTotals(database).single()
+
+        assertEquals("ERROR", row.status)
+    }
+
+    // MINOR 4 of correction round 1: a hostile name and a hostile error
+    // text must still leave the body as valid JSON, with the value
+    // unchanged, because kotlinx.serialization writes the JSON and this
+    // route builds no text by hand.
+    @Test
+    fun `a hostile name and a hostile lastError stay valid JSON with the value unchanged`() =
+        testApplication {
+            val hostileName = "a \"quote\", a \\backslash\\, a\ttab, and </script>"
+            val hostileError = "\u0007\u0000 a control character and a NUL"
+            val appId = insertApp(
+                database,
+                name = hostileName,
+                status = "ERROR",
+                lastPollAt = 1_700_000_000_000L,
+                lastError = hostileError,
+            )
+
+            application { module(devConfig(), database) }
+
+            val response = client.get("/api/apps") { allowedHost() }
+
+            assertTrue(
+                response.headers[HttpHeaders.ContentType]?.startsWith("application/json") == true,
+                "the Content-Type header is application/json",
+            )
+            val row = Json.parseToJsonElement(response.bodyAsText()).jsonArray.single().jsonObject
+            assertEquals(appId, row.getValue("appId").jsonPrimitive.content.toLong())
+            assertEquals(hostileName, row.getValue("name").jsonPrimitive.content)
+            assertEquals(hostileError, row.getValue("lastError").jsonPrimitive.content)
+        }
+
     @Test
     fun `EXPLAIN QUERY PLAN shows a covering index for each of the three statements`() = runBlocking {
         val appOne = insertApp(database, name = "app-one")
@@ -141,12 +200,9 @@ class AppTotalsRouteTest {
         val uniqueUsersPlan = explainPlan(database, UNIQUE_USERS_SQL)
         val uniqueSessionsPlan = explainPlan(database, UNIQUE_SESSIONS_SQL)
 
-        assertTrue(clicksPlan.contains("event_agg"), "clicks: $clicksPlan")
-        assertTrue(clicksPlan.contains("COVERING"), "clicks: $clicksPlan")
-        assertTrue(uniqueUsersPlan.contains("event_agg"), "uniqueUsers: $uniqueUsersPlan")
-        assertTrue(uniqueUsersPlan.contains("COVERING"), "uniqueUsers: $uniqueUsersPlan")
-        assertTrue(uniqueSessionsPlan.contains("event_session"), "uniqueSessions: $uniqueSessionsPlan")
-        assertTrue(uniqueSessionsPlan.contains("COVERING"), "uniqueSessions: $uniqueSessionsPlan")
+        assertEquals("SCAN event USING COVERING INDEX event_agg", clicksPlan)
+        assertEquals("SCAN event USING COVERING INDEX event_agg", uniqueUsersPlan)
+        assertEquals("SCAN event USING COVERING INDEX event_session", uniqueSessionsPlan)
     }
 
     @Test
@@ -228,6 +284,9 @@ private suspend fun insertEvent(
 private suspend fun explainPlan(database: SqliteDatabase, sql: String): String =
     database.read { reader -> explainPlanText(reader, sql) }
 
+// Each of the three statements gives one plan line for a covering index
+// scan. A plan of two or more lines is itself a finding, thus this
+// helper asserts the single line instead of joining a list.
 private fun explainPlanText(connection: Connection, sql: String): String {
     val lines = mutableListOf<String>()
     connection.createStatement().use { statement ->
@@ -237,7 +296,8 @@ private fun explainPlanText(connection: Connection, sql: String): String {
             }
         }
     }
-    return lines.joinToString(" | ")
+    check(lines.size == 1) { "expected one plan line, got $lines" }
+    return lines.single()
 }
 
 private fun java.sql.PreparedStatement.setNullableLong(index: Int, value: Long?) {

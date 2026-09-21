@@ -14,7 +14,8 @@ import octometer.monitor.store.SqliteDatabase
 /**
  * One row of `GET /api/apps` (D13, level 1 of the design). Each time field
  * is a UTC ISO 8601 string with milliseconds, or null when the app holds
- * no such time yet.
+ * no such time yet. D13 also names a tenth field, `gaps` (D16). Issue #62
+ * owns that field; this issue (#18) does not add it.
  */
 @Serializable
 data class AppTotalsRow(
@@ -44,6 +45,10 @@ internal const val UNIQUE_USERS_SQL =
 internal const val UNIQUE_SESSIONS_SQL =
     "SELECT app_id, COUNT(DISTINCT session_id) AS total FROM event GROUP BY app_id"
 
+// MINOR 7 of correction round 1: D13 names no row order for level 1.
+// Order by id, not by name: id is stable and it needs no collation
+// rule, and this issue adds no sort feature. A later issue can add a
+// name order or a client-side sort, on its own evidence.
 private const val APPS_SQL =
     "SELECT id, name, status, last_poll_at, last_success_at, last_error, next_poll_at " +
         "FROM app ORDER BY id"
@@ -69,7 +74,11 @@ suspend fun loadAppTotals(database: SqliteDatabase): List<AppTotalsRow> =
         val clicks = readTotals(reader, CLICKS_SQL)
         val uniqueUsers = readTotals(reader, UNIQUE_USERS_SQL)
         val uniqueSessions = readTotals(reader, UNIQUE_SESSIONS_SQL)
-        apps.map { app -> app.toRow(clicks, uniqueSessions, uniqueUsers) }
+        // MINOR 1 of correction round 1: named arguments, in the order of
+        // D13, stop a silent swap of the three maps at a later edit.
+        apps.map { app ->
+            app.toRow(clicks = clicks, uniqueUsers = uniqueUsers, uniqueSessions = uniqueSessions)
+        }
     }
 
 private data class AppRecord(
@@ -82,18 +91,20 @@ private data class AppRecord(
     val nextPollAt: Long?,
 ) {
     // D8: the derived status NEVER_POLLED replaces the stored status when
-    // the app has no poll cycle yet.
+    // the app has no poll cycle yet. MINOR 3 of correction round 1: a
+    // poll cycle that ran but wrote no status is a defect of that cycle,
+    // not a silent NEVER_POLLED (section 10 names this past defect).
     fun toRow(
         clicks: Map<Long, Long>,
-        uniqueSessions: Map<Long, Long>,
         uniqueUsers: Map<Long, Long>,
+        uniqueSessions: Map<Long, Long>,
     ) = AppTotalsRow(
         appId = id,
         name = name,
         clicks = clicks[id] ?: 0L,
         uniqueUsers = uniqueUsers[id] ?: 0L,
         uniqueSessions = uniqueSessions[id] ?: 0L,
-        status = if (lastPollAt == null) "NEVER_POLLED" else status ?: "NEVER_POLLED",
+        status = if (lastPollAt == null) "NEVER_POLLED" else status ?: "ERROR",
         lastSuccessAt = formatInstant(lastSuccessAt),
         lastError = lastError,
         nextPollAt = formatInstant(nextPollAt),
