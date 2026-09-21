@@ -69,12 +69,12 @@ A click on a level 1 row opens level 2. A click on a level 2 row opens level 3.
 - The Atlas CLI role format is `roleName[@dbName[.collection]]`. A custom role takes a
   privilege such as `FIND@<database>.<collection>`.
 - Observed on 2026-09-21 on a real Atlas M0 cluster (issue #1): `connectionStatus` with
-  `showPrivileges: true` returns the full privilege list for a user with the custom role of
-  section 4.4: one resource, the one collection, the one action `find`. A statement of 2022
-  (Compass PR 2959) said that M0 returns no privileges; it is out of date. `listCollections`
-  with `authorizedCollections: true, nameOnly: true` returns an empty list when the collection
-  does not exist. An authorization failure on Atlas has the code 8000 (`AtlasError`) with the
-  text "user is not allowed to do action [...]".
+  `showPrivileges: true` returns the full privilege list. The user had the custom role of
+  section 4.4, and the list held one resource, the one collection, and the one action `find`.
+  A statement of 2022 (Compass PR 2959) said that M0 returns no privileges; it is out of date.
+  `listCollections` with `authorizedCollections: true, nameOnly: true` returns an empty list
+  when the collection does not exist. An authorization failure on Atlas has the code 8000
+  (`AtlasError`) with the text "user is not allowed to do action [...]".
 - An ObjectId is not monotonic across processes. The time part has a resolution of 1 second,
   and the clock of the client sets it.
 - Measured on `mongo:8.0`: one event costs 185 bytes with its two indexes. 200 000 events use
@@ -225,8 +225,10 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   `find`). Section 2.4 shows that M0 returns this list. A failed check gives `OVERPRIVILEGED`
   and stops the poll of that app. When the privilege list is absent or empty, check 1 alone
   decides; a write action on the one collection is then not visible, and section 8 lists this
-  risk. While the status is `OVERPRIVILEGED`, each cycle runs the checks again before a read,
-  thus a corrected role ends the stop.
+  risk. When the privilege list is absent or empty and check 1 returns an empty list, the
+  monitor has no evidence, thus it gives `OVERPRIVILEGED`. While the status is
+  `OVERPRIVILEGED`, each cycle runs the checks again before a read, thus a corrected role ends
+  the stop.
 - **D10. MongoDB client.** One client for each app, created at the first poll cycle, not at
   the start of the monitor. The monitor keeps it for the next cycles and closes it after a
   PATCH of the connection string or a delete of the app. `maxPoolSize=2`, `serverSelectionTimeoutMS=10000`, `maxIdleTimeMS=120000`,
@@ -444,8 +446,8 @@ repair read, X.509 and AWS IAM authentication.
 - Select the pilot app. The proposal is `traficio` (Ktor, the same stack as the monitor).
 - Verify the start after a reboot, and do the screen reader pass.
 - Accept the residual risks: a forged click, a hostile browser extension on the monitor
-  machine, a leaked reader password (M0 records no access history), and a reader role with
-  a write action that the monitor cannot see on M0.
+  machine, a leaked reader password (M0 records no access history), and a reader role with a
+  write action that the monitor cannot see when the cluster reports no privilege list.
 
 ## 9. Backlog
 
