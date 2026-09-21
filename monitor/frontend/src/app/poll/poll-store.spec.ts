@@ -60,6 +60,8 @@ describe('createPollStore', () => {
     httpMock.verify();
     // Restores the real activeElement getter after a test overrides it.
     delete (document as unknown as Record<string, unknown>)['activeElement'];
+    // Restores the real hidden getter after a test overrides it.
+    delete (document as unknown as Record<string, unknown>)['hidden'];
   });
 
   function flushHealth(body: unknown): void {
