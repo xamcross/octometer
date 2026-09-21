@@ -663,9 +663,15 @@ class IngestRouteTest {
             }
         }
 
+    // This test checks isRealCancellationOfTheCall() on its own, with no
+    // route and no HTTP call. The earlier name of this test ("a real
+    // cancellation of the call coroutine still cancels, and hides
+    // nothing") promised a route behaviour, but the test never installs
+    // the route (the third security review of this pull request, MINOR
+    // 1). The name below states what the test really checks.
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun `a real cancellation of the call coroutine still cancels, and hides nothing`(): Unit = runBlocking {
+    fun `isRealCancellationOfTheCall is true only for a cancelled coroutine`(): Unit = runBlocking {
         val slowStoreStarted = CompletableDeferred<Unit>()
         val sawRealCancellation = CompletableDeferred<Boolean>()
         val respondedInstead = AtomicBoolean(false)
@@ -687,8 +693,8 @@ class IngestRouteTest {
         job.cancel()
         job.join()
 
-        assertTrue(sawRealCancellation.await(), "Expected a real cancellation of the call coroutine.")
-        assertFalse(respondedInstead.get(), "Expected the route to write no answer for a real cancellation.")
+        assertTrue(sawRealCancellation.await(), "Expected isRealCancellationOfTheCall() to see a cancelled coroutine.")
+        assertFalse(respondedInstead.get(), "Expected no code path to treat this as a defect of the app.")
         assertTrue(job.isCancelled)
     }
 

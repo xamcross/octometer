@@ -72,11 +72,11 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  * exception (design decision D15).
  *
  * A [CancellationException] of [resolveUserId] or of [store] gives status
- * 500 too, with the same empty body and the same log line; a timeout of
- * `withTimeout` inside the store is one example. The route rethrows a
- * [CancellationException] only when the coroutine of the call is no
- * longer active, for example after the engine cancels the call. That
- * check tells a real cancellation of the call apart from a
+ * 500 too. The body stays empty, and the log line stays the same. A
+ * timeout of `withTimeout` inside the store is one example. The route
+ * rethrows a [CancellationException] only when the coroutine of the call
+ * is no longer active, for example after the engine cancels the call.
+ * That check separates a real cancellation of the call from a
  * [CancellationException] that the app throws by itself.
  *
  * @param store the event log store of the app.
@@ -137,15 +137,20 @@ public fun Route.octometerIngestRoute(
             call.respond(HttpStatusCode.NoContent)
         } catch (cause: CancellationException) {
             if (isRealCancellationOfTheCall()) {
-                // The engine cancelled the call, for example after the
-                // client closes the connection. There is nobody to
-                // answer, so this rethrow must not become a 500 answer.
+                // The engine cancels the call, for example after the
+                // client closes the connection. Netty 3.6.0 does not
+                // cancel the call this way today (confirmed by the third
+                // security review of this pull request), but a future
+                // engine, or a different engine, can cancel it this way.
+                // There is nobody to answer. This rethrow must not
+                // become a 500 answer.
                 throw cause
             }
-            // The store or resolveUserId threw a CancellationException of
-            // its own, for example from a withTimeout inside the store.
-            // The call coroutine is still active, so treat this as a
-            // defect of the app, not as a real cancellation.
+            // The store or resolveUserId throws a CancellationException
+            // of its own, for example from a withTimeout inside the
+            // store. The call coroutine is still active, so this branch
+            // treats the exception as a defect of the app, not as a
+            // real cancellation.
             respondWithDefect(call, cause)
         } catch (cause: Throwable) {
             respondWithDefect(call, cause)
@@ -157,8 +162,8 @@ public fun Route.octometerIngestRoute(
  * True when a caught [CancellationException] means a real cancellation of
  * the coroutine of the current call, for example after the engine
  * cancels the call. False when the coroutine of the call is still
- * active, so the [CancellationException] came from the store or from
- * `resolveUserId` itself and not from a real cancellation.
+ * active. The [CancellationException] then comes from the store or from
+ * `resolveUserId` itself. It is not a real cancellation.
  *
  * This function is `internal`, so a test of `kit/jvm-ktor` can check it
  * on its own, against a coroutine that a test cancels itself (see
