@@ -26,7 +26,8 @@ export interface TrackerOptions {
    * example `['/', '/articles', '/articles/*', '/history/:id']`. With this
    * option, each click entry holds `path`: the pattern text, with a `*`
    * segment kept as the real segment. Without this option, no click entry
-   * holds `path`.
+   * holds `path`. One bad pattern, or a value that is not an array, gives
+   * the same result as a missing option: no click entry holds `path`.
    */
   routes?: readonly string[];
 }
@@ -76,10 +77,9 @@ export function createTracker(options: TrackerOptions): Tracker {
   const credentials = options.credentials ?? DEFAULT_CREDENTIALS;
   const getExtraHeaders = options.headers;
   const flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
-  // The routes option is checked and split one time here, not at each
-  // click: a bad entry is dropped with one console warning that names its
-  // index, and an empty or an all-bad list counts as no routes option at
-  // all (contract rule C42 gives the same rule to the server).
+  // The tracker checks the routes option one time here, not at each click.
+  // One bad entry stops the whole list, and the tracker then sends no
+  // path field. Rule C42 of the contract gives the server the same rule.
   const preparedRoutes = prepareRoutesOption(options.routes);
 
   let queue: QueueEntry[] = [];
@@ -293,19 +293,32 @@ export function createTracker(options: TrackerOptions): Tracker {
 }
 
 /**
- * Checks and splits the `routes` option one time. Gives `undefined` for a
- * missing option, an empty list, and a list whose entries are all bad:
- * each of the three cases sends no `path` field (contract rule C42 gives
- * the server the same rule for a missing route pattern list). A bad entry
- * writes one console warning that names its index in the given list.
+ * Checks and splits the `routes` option one time. It fails closed: one
+ * bad entry counts as no route list, because a dropped entry would move
+ * a later pattern into its place and change the match order (contract
+ * rule C42 gives the server the same rule).
+ *
+ * This function gives `undefined` in four cases. The option is missing.
+ * The option is not an array. The option is an empty array. The option
+ * holds one bad entry or more. Each case sends no `path` field. A bad
+ * entry, and a value that is not an array, each write one console
+ * warning. The warning never holds the text of a pattern.
  */
 function prepareRoutesOption(routes: TrackerOptions['routes']): readonly PreparedRoute[] | undefined {
   if (routes === undefined) {
     return undefined;
   }
+  if (!Array.isArray(routes)) {
+    console.warn('octometer: the routes option must be an array. The tracker sends no path.');
+    return undefined;
+  }
   const { routes: prepared, warnings } = prepareRoutes(routes);
   for (const warning of warnings) {
     console.warn(warning);
+  }
+  if (warnings.length > 0) {
+    // One bad entry stops the whole list, so the match order stays fixed.
+    return undefined;
   }
   if (prepared.length === 0) {
     console.warn('octometer: the routes option holds no valid pattern. The tracker sends no path.');

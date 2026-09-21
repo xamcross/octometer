@@ -112,9 +112,11 @@ application/json`.
 - **C37.** `ageMs` is a JSON integer. A value with a fraction or an exponent, for example
   `1.0` or `1e3`, makes the body invalid.
 - **C38.** The element prefix `octo:` is reserved for the contract. An app must not use it as
-  a `data-octo` value. The tracker drops such a value in each letter case (for example
-  `OCTO:foo`), except the exact text `octo:session-start`, and it writes one console warning
-  for the first dropped value. The element `octo:session-start` marks the first event of a
+  a `data-octo` value. The tracker drops each `data-octo` value with the prefix `octo:` in
+  each letter case (for example `OCTO:foo`), also the exact text `octo:session-start`, and it
+  writes one console warning for the first dropped value. Only the own call of the tracker
+  makes a session start. A `data-octo` attribute of a page never makes a session start. The
+  element `octo:session-start` marks the first event of a
   session. It is not a click. A reader of version 1.0 counts it as a click. The tracker sends
   the session start as one entry of `clicks`, with `element: "octo:session-start"` and
   `ageMs: 0` (rule C13). This is not a new request form. The server accepts the element
@@ -168,7 +170,10 @@ application/json`.
   segment, or a `..` segment gives `/other`. The server decodes no `%` escape before the
   match. A path that matches no pattern gives `/other`. The server stores `/other` for that
   path. It does not drop the `path` field. Without a route pattern list, the server stores no
-  `path` field, and it writes one warning at startup. **Warning for an app team.** A path can
+  `path` field, and it writes one warning at startup. A pattern list with one invalid pattern
+  counts as no list: the tracker sends no `path`, and the server stores no `path` and writes
+  one warning at the start. Neither side drops one pattern and keeps the rest, because a
+  dropped pattern would change the match order. **Warning for an app team.** A path can
   hold an identifier, a token, or a search term. Mark each such segment with `:name` in the
   route list. Never use `*` for a segment that holds a token, an email address, or a user id.
 
@@ -257,5 +262,5 @@ is also valid JSON. Its value breaks one rule of the contract.
 | C39 | The shape of the `path` field | `examples/event-valid-C39-path.json` (stored event), `examples/ingest-valid-C39-path.json` (ingest body) |
 | C40 | The shape of `referrerHost`, its closed set, and the source list | `examples/event-valid-C40-source.json` |
 | C41 | The rule for an invalid `path` or `referrerHost` value | `examples/ingest-valid-C41-bad-path-dropped.json` — the file holds a `path` value that breaks rule C39; the body stays valid, and the present parser ignores the field as an unknown field (rule C32). |
-| C42 | The route pattern list and the derivation of the stored `path` | `examples/event-valid-C42-masked-path.json` (a masked `:name` segment), `examples/event-valid-C42-other-path.json` (no matching pattern), `examples/event-valid-C39-path.json` (a kept `*` segment), `examples/C42-path-match-cases.json` (the shared matcher case table: an ordered route pattern list, an input path, and the expected result, for the tracker and for the server of issue #104) |
+| C42 | The route pattern list and the derivation of the stored `path` | `examples/event-valid-C42-masked-path.json` (a masked `:name` segment), `examples/event-valid-C42-other-path.json` (no matching pattern), `examples/event-valid-C39-path.json` (a kept `*` segment), `examples/C42-path-match-cases.json` (the shared matcher case table: an ordered route pattern list, an input path, and the expected result, for the tracker and for the server of issue #104). The case file covers the match rule only. Each side checks each pattern before the first match. |
 | C43 | The erasure of an anonymous session | No example file. This rule states an app action, not a document shape. |

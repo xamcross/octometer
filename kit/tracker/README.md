@@ -72,17 +72,27 @@ the same count of segments that matches:
 > `%40`, a space as `%20`, and a `<` as `%3C`. The segment
 > `user%40example.com` passes the test, thus it leaves the browser. Use
 > `:name` for each such segment.
+>
+> A `*` segment also keeps `%00`, `%2F`, and a double escape such as
+> `%252F`. A reader of the value decodes nothing.
 
 The tracker sends `/other` for a path with no matching pattern, for a bad
 `*` segment, for an empty segment, a `.` segment, or a `..` segment, and
 for a result above 150 bytes in UTF-8. It never decodes a `%` escape.
 
 The tracker checks each route pattern one time, at the creation of the
-tracker: a pattern is a string, it starts with `/`, and each segment
-holds only the character set of rule C39. A bad entry is dropped, with
-one console warning that names its index in the list. An empty list, or
-a list whose entries are all bad, counts as no `routes` option at all: no
-click entry holds `path`, and the tracker writes one console warning.
+tracker. A pattern is a string. It starts with `/`. Each segment holds
+only the character set of rule C39, or a well-formed escape
+`%[0-9A-Fa-f]{2}`.
+
+One bad entry stops the whole list, because a dropped entry would move a
+later pattern into its place and change the match order. The tracker
+sends no `path` field for the whole list, and it writes one console
+warning for each bad entry, with its index in the list. A `routes` value
+that is not an array gives the same result: no `path` field, with one
+console warning. An empty list also sends no `path` field, with one
+console warning. No warning holds the text of a pattern, and no throw
+of a bad `routes` value reaches the page.
 
 The matcher itself, `matchPath` in `src/path-match.ts`, is an internal
 module. The package `exports` list holds no entry for it, thus an app

@@ -16,9 +16,10 @@ const STAR_SEGMENT_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2}){0,
 /**
  * The character set of a route pattern segment (contract rule C39). A
  * literal segment, a `:name` segment, and the wildcard segment `*` each
- * pass this set on their own text.
+ * pass this set on their own text. Rule C39 also allows a well-formed
+ * escape `%[0-9A-Fa-f]{2}` inside a segment.
  */
-const SEGMENT_CHAR_PATTERN = /^[A-Za-z0-9._~!$&'()*+,;=:@-]+$/;
+const SEGMENT_CHAR_PATTERN = /^(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[0-9A-Fa-f]{2})+$/;
 
 /** The stored path has a maximum of 150 bytes in UTF-8 (contract rule C42). */
 const MAX_PATH_BYTES = 150;
@@ -70,10 +71,11 @@ export interface PreparedRoutes {
  * Checks and splits each entry of `routes` one time, so a later click
  * reuses the split form instead of splitting the whole list again.
  *
- * An entry that is not a non-empty string, that does not start with `/`,
- * or that holds a segment with a character outside the set of rule C39,
- * is dropped. The result holds one warning message for each dropped
- * entry, with the index of that entry in the given list.
+ * This function drops an entry in three cases. The entry is not a
+ * string, or it is an empty string. The entry does not start with `/`.
+ * A segment of the entry holds a character outside the set of rule C39.
+ * The result holds one warning message for each dropped entry, with
+ * the index of that entry in the given list.
  */
 export function prepareRoutes(routes: readonly unknown[]): PreparedRoutes {
   const prepared: PreparedRoute[] = [];

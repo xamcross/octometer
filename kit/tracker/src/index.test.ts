@@ -742,6 +742,23 @@ describe('createTracker', () => {
     expect(at(clicks, 0).path).toBe('/articles/first');
   });
 
+  it('reads location.pathname only, never the query string or the fragment', () => {
+    // A `*` segment rejects the character `?`. A tracker that also reads
+    // `location.search` would send `/other` here in place of the match.
+    window.history.pushState({}, '', '/articles/42?token=a-secret-token#a-secret-fragment');
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT, routes: ['/articles/*'] });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0).path).toBe('/articles/42');
+  });
+
   it('drops a click on a data-octo value that starts with octo: in each letter case', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const upper = document.createElement('div');
@@ -822,7 +839,7 @@ describe('createTracker', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('drops a bad entry of the routes option, with one console warning that names its index', () => {
+  it('sends no path field for the whole list when one entry is bad, with one console warning', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     window.history.pushState({}, '', '/history/42');
     const host = document.createElement('div');
@@ -838,9 +855,49 @@ describe('createTracker', () => {
     vi.advanceTimersByTime(5000);
 
     const clicks = at(parseCalls(fetchMock), 0).body.clicks;
-    expect(at(clicks, 0).path).toBe('/history/:id');
+    expect(at(clicks, 0)).not.toHaveProperty('path');
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(String(warnSpy.mock.calls[0]?.[0])).toContain('entry 1');
+  });
+
+  it('sends no path field when a missing leading slash reorders the match (MAJOR 1, privacy review)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    window.history.pushState({}, '', '/reset-password/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({
+      endpoint: ENDPOINT,
+      // The first entry holds no leading slash, thus it is a bad pattern.
+      // A dropped entry here would let the second pattern uncover the token.
+      routes: ['reset-password/:token', '/:lang/*'],
+    });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0)).not.toHaveProperty('path');
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('sends no path field and throws nothing when the routes option is not an array', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    expect(() => {
+      tracker = createTracker({ endpoint: ENDPOINT, routes: '/articles' as unknown as string[] });
+    }).not.toThrow();
+    tracker?.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0)).not.toHaveProperty('path');
+    expect(warnSpy).toHaveBeenCalled();
   });
 
   it('sends no path field when every entry of the routes option is bad, with one console warning', () => {

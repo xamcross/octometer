@@ -75,4 +75,16 @@ describe('prepareRoutes and matchPreparedPath', () => {
     expect(routes).toHaveLength(4);
     expect(warnings).toHaveLength(0);
   });
+
+  it('keeps an entry whose literal segment holds a well-formed percent escape (rule C39)', () => {
+    const { routes, warnings } = prepareRoutes(['/caf%C3%A9']);
+    expect(routes.map((route) => route.pattern)).toEqual(['/caf%C3%A9']);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('drops an entry with a bad percent escape', () => {
+    const { routes, warnings } = prepareRoutes(['/a%zz']);
+    expect(routes).toHaveLength(0);
+    expect(warnings).toHaveLength(1);
+  });
 });

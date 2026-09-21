@@ -182,8 +182,8 @@
     "result": "/ovdp/rates"
   },
   {
-    "name": "an empty route list gives /other",
-    "rule": "C42 no route list (tracker side)",
+    "name": "an empty route list gives /other inside the matcher function",
+    "rule": "C42 matcher function only. A caller with no route pattern list sends no path field.",
     "routes": [],
     "path": "/",
     "result": "/other"
@@ -274,6 +274,44 @@
       "/ovdp/rates"
     ],
     "path": "/history//",
+    "result": "/other"
+  },
+  {
+    "name": "a literal segment with a well-formed percent escape is a valid pattern",
+    "rule": "C39 literal segment percent escape",
+    "routes": [
+      "/caf%C3%A9"
+    ],
+    "path": "/caf%C3%A9",
+    "result": "/caf%C3%A9"
+  },
+  {
+    "name": "the first pattern of two that match gives the result",
+    "rule": "C42 first match wins",
+    "routes": [
+      "/articles/*",
+      "/articles/:id"
+    ],
+    "path": "/articles/abc",
+    "result": "/articles/abc"
+  },
+  {
+    "name": "the reverse order of the same two patterns gives the other result",
+    "rule": "C42 first match wins",
+    "routes": [
+      "/articles/:id",
+      "/articles/*"
+    ],
+    "path": "/articles/abc",
+    "result": "/articles/:id"
+  },
+  {
+    "name": "a short pattern list gives a clean prefix mismatch",
+    "rule": "C42 no prefix match (short list)",
+    "routes": [
+      "/articles"
+    ],
+    "path": "/articles/x",
     "result": "/other"
   }
 ]
