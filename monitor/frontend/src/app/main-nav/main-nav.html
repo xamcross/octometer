@@ -1,0 +1,28 @@
+<nav aria-label="Main">
+  <ul>
+    <li>
+      <a
+        routerLink="/apps"
+        [attr.aria-current]="appsCurrent()"
+        [class.current-section]="appsCurrent() !== null"
+      >
+        Apps
+      </a>
+    </li>
+    <li>
+      <a
+        routerLink="/manage"
+        routerLinkActive="current-section"
+        ariaCurrentWhenActive="page"
+        [routerLinkActiveOptions]="{
+          paths: 'exact',
+          queryParams: 'ignored',
+          fragment: 'ignored',
+          matrixParams: 'ignored',
+        }"
+      >
+        Manage apps
+      </a>
+    </li>
+  </ul>
+</nav>

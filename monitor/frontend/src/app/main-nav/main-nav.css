@@ -1,0 +1,31 @@
+ul {
+  display: flex;
+  flex-wrap: wrap;
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+}
+
+a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0.25rem 0.75rem;
+  text-decoration: underline;
+}
+
+a:focus-visible {
+  outline: 3px solid #001f3f;
+  outline-offset: 2px;
+}
+
+/*
+ * The current link keeps its underline, so the state does not rely on
+ * font-weight alone. The thicker underline is a second cue next to the
+ * bold weight, not a cue of colour (WCAG 1.4.1).
+ */
+a.current-section {
+  font-weight: bold;
+  text-decoration-thickness: 0.2em;
+}

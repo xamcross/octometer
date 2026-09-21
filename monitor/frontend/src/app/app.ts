@@ -16,13 +16,15 @@ import { Banner } from './banner/banner';
 import type { BreadcrumbItem } from './breadcrumb';
 import { buildBreadcrumb } from './breadcrumb';
 import { BreadcrumbNav } from './breadcrumb-nav/breadcrumb-nav';
+import { MainNav } from './main-nav/main-nav';
 
 /**
  * Root shell of the app.
- * It holds the breadcrumb, the banner, the status region, and the router outlet.
+ * It holds the skip link, the main nav, the breadcrumb, the banner, the status
+ * region, and the router outlet.
  */
 @Component({
-  imports: [RouterOutlet, Banner, BreadcrumbNav],
+  imports: [RouterOutlet, Banner, BreadcrumbNav, MainNav],
   selector: 'app-root',
   styleUrl: './app.css',
   templateUrl: './app.html',
@@ -67,6 +69,16 @@ export class App {
   }
 
   /**
+   * Moves the focus to the main content on a skip-link activation.
+   * The method stops the default action. `<base href="/">` makes a
+   * fragment href point at the root page, not at the present page.
+   */
+  protected onSkipLinkActivated(event: Event): void {
+    event.preventDefault();
+    this.hostElement.nativeElement.querySelector<HTMLElement>('#main-content')?.focus();
+  }
+
+  /**
    * Updates the breadcrumb, and moves the focus to the `<h1>` of the new view.
    * The focus stays where it is on the first load, and on a change of a query
    * parameter alone. The focus moves on each later navigation that changes the path.
@@ -74,7 +86,7 @@ export class App {
   private onNavigationEnd(event: NavigationEnd): void {
     this.breadcrumbItems.set(buildBreadcrumb(this.router.routerState.snapshot.root));
 
-    const path = event.urlAfterRedirects.split('?')[0];
+    const path = event.urlAfterRedirects.split(/[?#]/)[0];
     const isFirstNavigation = this.previousPath === null;
     const pathChanged = path !== this.previousPath;
     this.previousPath = path;

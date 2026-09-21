@@ -1,8 +1,16 @@
-<app-banner [apiError]="monitorApiError()" />
+<a class="skip-link" href="#main-content" (click)="onSkipLinkActivated($event)">
+  Skip to the main content
+</a>
+
+<header>
+  <app-banner [apiError]="monitorApiError()" />
+
+  <app-main-nav />
+</header>
 
 <app-breadcrumb-nav [items]="breadcrumbItems()" />
 
-<main id="main-content">
+<main id="main-content" tabindex="-1">
   @if (!appReady()) {
     <p class="first-load">Octometer is loading…</p>
   }
