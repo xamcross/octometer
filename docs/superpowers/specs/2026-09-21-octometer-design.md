@@ -152,6 +152,7 @@ bound  = ObjectId.getSmallestWithDate(serverTime - lag)
 filter = { _id: { $gt: cursor, $lt: bound } }     sort { _id: 1 }   limit 1000   batchSize 1000
 ```
 
+- Without a cursor, the reader starts at the oldest event.
 - `serverTime` is `localTime` from the `hello` command of the primary.
 - `lag` is 60 seconds in prod mode and 2 seconds in dev mode (config value).
 - The read preference is `primary`, set in code. The monitor rejects `readPreference` in a URI.
