@@ -249,9 +249,10 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   `tlsAllowInvalidCertificates=true`, or `tlsAllowInvalidHostnames=true` is rejected.
 - **D12. Exposure.** The server binds to `127.0.0.1` and refuses another address. No login.
   Each request passes a Host check (`localhost:<port>`, `127.0.0.1:<port>`, plus the
-  `ng serve` port in dev mode). Each POST, PUT, PATCH, and DELETE needs an allowed `Origin`
-  header and `Content-Type: application/json` (else 415). The server never installs the CORS
-  plugin. It
+  `ng serve` port in dev mode). GET and HEAD are the safe methods; each other method needs an
+  allowed `Origin` header, also `OPTIONS`, `TRACE`, and a custom method. Each request that
+  holds a body needs `Content-Type: application/json` (else 415); a request without a body
+  needs no `Content-Type` header. The server never installs the CORS plugin. It
   sends `Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline';
   object-src 'none'; base-uri 'self'; frame-ancestors 'none'` (Angular adds its component
   styles as inline `<style>` elements), `X-Content-Type-Options: nosniff`, and
