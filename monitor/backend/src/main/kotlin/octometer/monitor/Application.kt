@@ -1,5 +1,6 @@
 package octometer.monitor
 
+import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
@@ -7,9 +8,11 @@ import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import octometer.monitor.config.InvalidConfigException
 import octometer.monitor.config.Mode
@@ -17,12 +20,8 @@ import octometer.monitor.config.MonitorConfig
 import octometer.monitor.config.ResolvedConfig
 import octometer.monitor.config.escapeForLog
 import octometer.monitor.config.loadConfig
-import octometer.monitor.registry.AppRegistryService
-import octometer.monitor.registry.SecretStore
-import octometer.monitor.registry.appRegistryRoutes
 import octometer.monitor.security.installRequestGuard
 import octometer.monitor.security.requireLoopbackBindAddress
-import octometer.monitor.store.SqliteDatabase
 import org.slf4j.LoggerFactory
 import java.util.Properties
 import kotlin.system.exitProcess
@@ -66,17 +65,27 @@ fun main(args: Array<String>) {
 
 fun Application.module(config: MonitorConfig) {
     // Step 6 of issue #15: this is the first user of the store of #9, thus
-    // this issue owns the open call and the close call. The store opens
-    // one time, at the start, and it closes when the application stops.
-    val database = SqliteDatabase.open(config.dataDir)
+    // this issue owns the open call and the close call. MonitorServices
+    // opens the store, the secret store, and runs the orphan-secret sweep
+    // one time, at the start; it closes when the application stops.
+    val services = MonitorServices.open(config)
     monitor.subscribe(ApplicationStopped) {
-        database.close()
+        services.close()
     }
-    val secretStore = SecretStore(config.dataDir)
-    val appRegistryService = AppRegistryService(database, secretStore)
 
     install(ContentNegotiation) {
         json()
+    }
+    // MAJOR 6 (Ktor review): a failure that leaves a route handler must
+    // never reach the default Ktor error page. That page can print the
+    // request and the stack trace. This gives a fixed JSON body instead,
+    // and one log line with the exception class name only.
+    install(StatusPages) {
+        exception<Throwable> { call, cause ->
+            if (cause is CancellationException) throw cause
+            log.error("An unhandled exception reached the server. {}", cause.javaClass.simpleName)
+            call.respond(HttpStatusCode.InternalServerError, ErrorBody("The server had an internal error."))
+        }
     }
     installRequestGuard(config)
     routing {
@@ -89,7 +98,7 @@ fun Application.module(config: MonitorConfig) {
                 ),
             )
         }
-        appRegistryRoutes(appRegistryService)
+        apiRoutes(config, services)
     }
 }
 
