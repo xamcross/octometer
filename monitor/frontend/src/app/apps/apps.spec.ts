@@ -1,17 +1,29 @@
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { Apps } from './apps';
 
 describe('Apps', () => {
   let fixture: ComponentFixture<Apps>;
+  let httpMock: HttpTestingController;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [Apps],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
     }).compileComponents();
 
+    httpMock = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(Apps);
     fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    for (const request of httpMock.match('/api/health')) {
+      request.flush({ refreshSeconds: 10 });
+    }
+    httpMock.verify();
   });
 
   it('creates the component', () => {
@@ -22,5 +34,22 @@ describe('Apps', () => {
     const heading = fixture.nativeElement.querySelector('h1');
     expect(heading?.textContent).toContain('Apps');
     expect(heading?.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('puts the refresh bar directly after the heading, and before the table content', () => {
+    const root: HTMLElement = fixture.nativeElement;
+    const children = Array.from(root.children);
+    const headingIndex = children.findIndex((el) => el.tagName === 'H1');
+    const refreshBarIndex = children.findIndex((el) => el.tagName === 'APP-REFRESH-BAR');
+    const contentIndex = children.findIndex((el) => el.tagName === 'P');
+
+    expect(headingIndex).toBeGreaterThanOrEqual(0);
+    expect(refreshBarIndex).toBeGreaterThan(headingIndex);
+    expect(contentIndex).toBeGreaterThan(refreshBarIndex);
+  });
+
+  it('shows the button "Pause refresh" from the refresh bar', () => {
+    const button = fixture.nativeElement.querySelector('button');
+    expect(button?.textContent?.trim()).toBe('Pause refresh');
   });
 });

@@ -338,6 +338,34 @@ describe('createPollStore', () => {
     expect(calls).toBe(0);
   });
 
+  it('shares the paused state between two poll stores, so it stays after a navigation', () => {
+    let firstCalls = 0;
+    const first = startStore(() => {
+      firstCalls++;
+      return of(`a${firstCalls}`);
+    }, 10);
+
+    first.paused.set(true);
+    flushEffects();
+
+    // A navigation destroys the first view and its store, then a new view
+    // creates a second store. The second store must read the same paused
+    // state, and not a fresh one that starts at false. The health answer
+    // is already cached, so the second store sends no new health request.
+    let secondCalls = 0;
+    const second = TestBed.runInInjectionContext(() =>
+      createPollStore(() => {
+        secondCalls++;
+        return of(`b${secondCalls}`);
+      }),
+    );
+    vi.advanceTimersByTime(0);
+
+    expect(second.paused()).toBe(true);
+    vi.advanceTimersByTime(10_000);
+    expect(secondCalls).toBe(0);
+  });
+
   it('sends no request when document.hidden becomes true while the health request is open', () => {
     let calls = 0;
     TestBed.runInInjectionContext(() =>
