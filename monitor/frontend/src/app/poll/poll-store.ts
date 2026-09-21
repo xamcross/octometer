@@ -37,7 +37,11 @@ export interface PollStore<T> {
   readonly paused: WritableSignal<boolean>;
   /** True until the store gets its first answer, good or bad. */
   readonly firstLoadPending: Signal<boolean>;
-  /** Sends one request now. A caller uses this after it changes data on the server. */
+  /**
+   * Sends one request now. A caller uses this after it changes data on the
+   * server. Call `refresh()` only from a user action. A pause must stop
+   * each automatic update.
+   */
   refresh(): void;
 }
 
@@ -68,6 +72,9 @@ function isFocusInTbody(): boolean {
  * The store then polls `request` with `timer(0, ms)` and `exhaustMap`.
  * `exhaustMap` does not cancel a slow request. A failed request keeps the
  * old `data`, and it sets `error`.
+ *
+ * The store sends no data poll while the health route fails. Issue #20
+ * must show that state to the user.
  *
  * The refresh stops while the tab is hidden, while the focus sits inside a
  * `<tbody>`, or while `paused` is true. As soon as one condition clears,
@@ -109,7 +116,9 @@ export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
   /**
    * Gives the current value of `canPoll()` after each event that can change
    * a stop condition: a visibility change, a focus change, or a pause
-   * change. `auditTime(0)` waits one tick, so the focus change lands first.
+   * change. `auditTime(0)` waits one tick, so the browser moves the focus
+   * first. `startWith(null)` stands before `map`, so the first value reads
+   * `canPoll()` at the subscription, and not at the pipe build.
    */
   const gateOpen$ = merge(
     fromEvent(document, 'visibilitychange'),
@@ -118,8 +127,8 @@ export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
     toObservable(paused),
   ).pipe(
     auditTime(0),
+    startWith(null),
     map(() => canPoll()),
-    startWith(canPoll()),
     distinctUntilChanged(),
   );
 

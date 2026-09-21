@@ -9,19 +9,33 @@ button {
   color: ButtonText;
 }
 
+/* The check mark holds its space in both states, so the button keeps one size. */
+button::before {
+  content: '\2713\00a0' / '';
+  visibility: hidden;
+}
+
 /* The pressed state (WCAG 1.4.1). A border form and an icon carry the state, not colour alone. */
 button[aria-pressed='true'] {
   border-style: inset;
-  background: Highlight;
-  color: HighlightText;
+  background: #003366;
+  color: #ffffff;
 }
 
 button[aria-pressed='true']::before {
-  content: '\2713\00a0';
+  visibility: visible;
 }
 
-/* A visible focus indicator (WCAG 2.4.7). */
+/* The forced-colours mode keeps the system pair. The user picks that colour there. */
+@media (forced-colors: active) {
+  button[aria-pressed='true'] {
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+
+/* A visible focus indicator (WCAG 2.4.7). CanvasText contrasts with the page, not the button text. */
 button:focus-visible {
-  outline: 2px solid currentColor;
+  outline: 2px solid CanvasText;
   outline-offset: 2px;
 }

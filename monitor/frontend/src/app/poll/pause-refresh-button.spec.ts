@@ -54,7 +54,7 @@ describe('PauseRefreshButton', () => {
     expect(button().getAttribute('role')).toBeNull();
   });
 
-  it('keeps the accessible name "Pause refresh" in both states', () => {
+  it('keeps the text "Pause refresh" in both states', () => {
     expect(button().textContent?.trim()).toBe('Pause refresh');
     expect(button().getAttribute('aria-label')).toBeNull();
     expect(button().getAttribute('aria-labelledby')).toBeNull();

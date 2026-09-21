@@ -31,9 +31,10 @@ function flushEffects(): void {
 
 /**
  * Flushes the gate: the auditTime(0) tick, and then the first tick of a
- * fresh timer(0, ms) that a gate reopen may start from inside that tick.
- * Vitest fake timers need a time advance above 0 to pick up a timer that a
- * timer callback creates, so the second step moves the clock by 1 ms.
+ * fresh timer(0, ms) from a gate reopen.
+ * Vitest fake timers need a time advance above 0 to notice a timer that a
+ * timer callback creates.
+ * The second step moves the clock by 1 ms for that reason.
  */
 function settleGate(): void {
   vi.advanceTimersByTime(0);
@@ -57,6 +58,8 @@ describe('createPollStore', () => {
     vi.useRealTimers();
     document.body.innerHTML = '';
     httpMock.verify();
+    // Restores the real activeElement getter after a test overrides it.
+    delete (document as unknown as Record<string, unknown>)['activeElement'];
   });
 
   function flushHealth(body: unknown): void {
@@ -313,5 +316,41 @@ describe('createPollStore', () => {
   it('firstLoadPending becomes false after a failed first request too', () => {
     const store = startStore(() => throwError(() => new Error('boom')), 10);
     expect(store.firstLoadPending()).toBe(false);
+  });
+
+  it('sends no request when paused becomes true while the health request is open', () => {
+    let calls = 0;
+    const store = TestBed.runInInjectionContext(() =>
+      createPollStore(() => {
+        calls++;
+        return of(`v${calls}`);
+      }),
+    );
+    vi.advanceTimersByTime(0);
+
+    store.paused.set(true);
+    flushEffects();
+    flushHealth({ refreshSeconds: 10 });
+    vi.advanceTimersByTime(0);
+
+    expect(calls).toBe(0);
+  });
+
+  it('sends no request when document.hidden becomes true while the health request is open', () => {
+    let calls = 0;
+    TestBed.runInInjectionContext(() =>
+      createPollStore(() => {
+        calls++;
+        return of(`v${calls}`);
+      }),
+    );
+    vi.advanceTimersByTime(0);
+
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    flushHealth({ refreshSeconds: 10 });
+    vi.advanceTimersByTime(0);
+
+    expect(calls).toBe(0);
   });
 });
