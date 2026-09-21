@@ -6,7 +6,7 @@ const ENDPOINT = 'https://app.example/api/octometer/v1/clicks';
 interface FetchCall {
   url: string;
   init: RequestInit;
-  body: { sessionId: string; clicks: Array<{ element: string; ageMs: number }> };
+  body: { sessionId: string; clicks: Array<{ element: string; ageMs: number; path?: string }> };
 }
 
 /** Reads an array entry, and throws a clear error for a missing one. */
@@ -675,5 +675,69 @@ describe('createTracker', () => {
 
   it('throws a TypeError when the caller gives no endpoint', () => {
     expect(() => createTracker({ endpoint: '' })).toThrow(TypeError);
+  });
+
+  it('adds no path field to a click entry without the routes option', () => {
+    window.history.pushState({}, '', '/history/42');
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0)).not.toHaveProperty('path');
+  });
+
+  it('adds the matched path field to a click entry with the routes option', () => {
+    window.history.pushState({}, '', '/history/42');
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({
+      endpoint: ENDPOINT,
+      routes: ['/', '/articles', '/articles/*', '/history/:id', '/ovdp/rates'],
+    });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0).path).toBe('/history/:id');
+  });
+
+  it('sends /other for a path without a matching pattern', () => {
+    window.history.pushState({}, '', '/tokens/abc');
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT, routes: ['/articles/*'] });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0).path).toBe('/other');
+  });
+
+  it('reads location.pathname at the time of the click, not at the time of the flush', () => {
+    window.history.pushState({}, '', '/articles/first');
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT, routes: ['/articles/*'] });
+    tracker.start();
+    clickElement(host);
+    window.history.pushState({}, '', '/articles/second');
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0).path).toBe('/articles/first');
   });
 });

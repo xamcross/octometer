@@ -9,6 +9,8 @@
  * server-side rendering, where `document` is absent.
  */
 
+import { matchPath } from './path-match.js';
+
 /** An option of the tracker. `endpoint` is mandatory; the rest have a default. */
 export interface TrackerOptions {
   /** The ingest URL of the app, for example `/api/octometer/v1/clicks`. */
@@ -19,6 +21,14 @@ export interface TrackerOptions {
   headers?: () => Record<string, string>;
   /** The delay, in milliseconds, before the tracker sends a filled queue. The default is 5000. */
   flushIntervalMs?: number;
+  /**
+   * The ordered route pattern list of the app (contract rule C42), for
+   * example `['/', '/articles', '/articles/*', '/history/:id']`. With this
+   * option, each click entry holds `path`: the pattern text, with a `*`
+   * segment kept as the real segment. Without this option, no click entry
+   * holds `path`.
+   */
+  routes?: readonly string[];
 }
 
 /** The tracker instance. Call `start()` after consent, and `stop()` to end tracking. */
@@ -46,6 +56,8 @@ const DEFAULT_CREDENTIALS: RequestCredentials = 'same-origin';
 interface QueueEntry {
   element: string;
   queuedAt: number;
+  /** The stored path of the click, present only with the routes option. */
+  path?: string;
 }
 
 /** Creates one tracker instance. The tracker holds its own queue and its own session id. */
@@ -57,6 +69,7 @@ export function createTracker(options: TrackerOptions): Tracker {
   const credentials = options.credentials ?? DEFAULT_CREDENTIALS;
   const getExtraHeaders = options.headers;
   const flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
+  const routes = options.routes;
 
   let queue: QueueEntry[] = [];
   let timerId: ReturnType<typeof setTimeout> | null = null;
@@ -100,8 +113,8 @@ export function createTracker(options: TrackerOptions): Tracker {
   }
 
   function handleClick(event: Event): void {
-    const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
-    const target = findOctoElement(path);
+    const eventPath = typeof event.composedPath === 'function' ? event.composedPath() : [];
+    const target = findOctoElement(eventPath);
     if (target === null || isDisabled(target)) {
       return;
     }
@@ -109,15 +122,23 @@ export function createTracker(options: TrackerOptions): Tracker {
     if (name === null || !ELEMENT_PATTERN.test(name)) {
       return;
     }
-    enqueue(name);
+    // The path of a click is the page at the time of the click, not the
+    // page at the time of the later flush (an app can navigate between the
+    // two, because the tracker holds the click in its queue).
+    const path = routes !== undefined ? matchPath(routes, location.pathname) : undefined;
+    enqueue(name, path);
   }
 
-  function enqueue(element: string): void {
+  function enqueue(element: string, path: string | undefined): void {
     if (queue.length >= MAX_QUEUE_SIZE) {
       // The queue drops the oldest entry when it is full (design decision D24).
       queue.shift();
     }
-    queue.push({ element, queuedAt: monotonicNow() });
+    const entry: QueueEntry = { element, queuedAt: monotonicNow() };
+    if (path !== undefined) {
+      entry.path = path;
+    }
+    queue.push(entry);
     if (queue.length === 1) {
       scheduleFlush();
     }
@@ -154,10 +175,16 @@ export function createTracker(options: TrackerOptions): Tracker {
 
   function sendBatch(id: string, batch: QueueEntry[]): Promise<void> {
     const now = monotonicNow();
-    const clicks = batch.map((entry) => ({
-      element: entry.element,
-      ageMs: Math.max(0, Math.round(now - entry.queuedAt)),
-    }));
+    const clicks = batch.map((entry) => {
+      const click: { element: string; ageMs: number; path?: string } = {
+        element: entry.element,
+        ageMs: Math.max(0, Math.round(now - entry.queuedAt)),
+      };
+      if (entry.path !== undefined) {
+        click.path = entry.path;
+      }
+      return click;
+    });
     const headers: Record<string, string> = {};
     if (getExtraHeaders) {
       try {

@@ -38,12 +38,39 @@ with the pattern `[A-Za-z0-9_.:-]+` (contract rule C4).
 | `credentials` | `same-origin` | The `fetch` credentials mode. |
 | `headers` | none | A function that returns extra request headers. |
 | `flushIntervalMs` | `5000` | The delay before the tracker sends a filled queue. |
+| `routes` | none | The ordered route pattern list of the app. With this option, each click entry holds `path`. |
+
+## The path of a click
+
+Give the option `routes` to add `path` to each click entry: an ordered
+list of route patterns, for example `['/', '/articles', '/articles/*',
+'/history/:id']` (contract rule C42). Without this option, no click entry
+holds `path`.
+
+The tracker reads `location.pathname` at the time of the click, removes a
+trailing slash (not for the root path), and finds the first pattern with
+the same count of segments that matches:
+
+- A literal segment matches without the ASCII letter case. The stored
+  text is the text of the pattern, never the text of the input.
+- A `:name` segment matches one segment, and the stored text is the
+  literal `:name`.
+- A `*` segment matches one segment, and it keeps the real segment only
+  when the segment holds a plain token: `^[A-Za-z0-9](?:[A-Za-z0-9._~-]|
+  %[0-9A-Fa-f]{2}){0,79}$`. Never use `*` for a segment that can hold an
+  identifier, a token, or a search term; use `:name` for that segment
+  instead.
+
+The tracker sends `/other` for a path with no matching pattern, for a bad
+`*` segment, for an empty segment, a `.` segment, or a `..` segment, and
+for a result above 150 bytes in UTF-8. It never decodes a `%` escape.
 
 ## What leaves the browser
 
-Each request body holds only `sessionId` and `clicks`. Each click holds only
-`element` and `ageMs`. The tracker never sends a user id: the app takes the
-user id from its own authentication context (owner decision O5).
+Each request body holds only `sessionId` and `clicks`. Each click holds
+only `element`, `ageMs`, and, with the `routes` option, `path`. The
+tracker never sends a user id: the app takes the user id from its own
+authentication context (owner decision O5).
 
 The session id is a UUID. The tracker keeps it under the `sessionStorage` key
 `octo_session_id`, for the life of one browser tab.
