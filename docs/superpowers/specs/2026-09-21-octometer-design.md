@@ -189,7 +189,10 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   `mode` (default `prod`; the Gradle `run` task sets `dev`), `port` (default 7431),
   `dataDir` (`%LOCALAPPDATA%\Octometer\data` in prod, `build/dev-data` in dev),
   `settleLagSeconds`, `retentionDays`. An invalid value gives exit code 2. The start log
-  prints each value and its source, never a secret.
+  prints each value and its source, never a secret. The user file uses the same
+  `octometer { }` block as the bundled file, and a Windows path in it needs forward slashes
+  or double backslashes. Without `LOCALAPPDATA`, `dataDir` defaults to
+  `<user home>/.octometer/data` in prod mode.
 - **D3. Store.** One SQLite file `octometer.db` in `dataDir`, driver `sqlite-jdbc`, plain JDBC.
   Migrations: numbered files `db/001_init.sql` plus `PRAGMA user_version`. No Flyway.
   Pragmas for each connection: `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000`,
