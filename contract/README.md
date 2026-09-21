@@ -6,7 +6,7 @@ section 4 of `docs/superpowers/specs/2026-09-21-octometer-design.md`, plus secti
 last paragraph of section 6 for the definitions below. Some rules also cite an owner decision
 or a design decision from that document: O4, O5, D4, D5, and D21.
 
-Each rule has an ID, `C1` to `C35`. The table at the end maps each rule ID to its example file.
+Each rule has an ID, `C1` to `C37`. The table at the end maps each rule ID to its example file.
 
 ## Purpose
 
@@ -93,6 +93,9 @@ application/json`.
 - **C33.** The ingest route checks the `element` value with the rule of C4, and the
   `sessionId` value with the rule of C5. A value that breaks one of these rules makes the
   body invalid; the server returns 400.
+- **C36.** A duplicate key in one JSON object makes the body invalid.
+- **C37.** `ageMs` is a JSON integer. A value with a fraction or an exponent, for example
+  `1.0` or `1e3`, makes the body invalid.
 
 ## 3. The reader rule (design section 4.3)
 
@@ -172,3 +175,5 @@ invalid ingest body is also valid JSON. Its value breaks one rule of the contrac
 | C33 | Ingest-time check of `element` (C4) and `sessionId` (C5) | `examples/ingest-invalid-C4-element-pattern.json`, `examples/ingest-invalid-C4-element-length.json`, `examples/ingest-invalid-C5-session-id.json` |
 | C34 | Cursor start value and advance rule | No example file. This rule states a server-side algorithm. |
 | C35 | Database role limit (`FIND` only, one collection) | No example file. This rule states a database administration fact. |
+| C36 | Duplicate-key rejection | `examples/ingest-invalid-C36-duplicate-key.json` — the file repeats the `sessionId` key with the same value, thus the file breaks only the duplicate-key rule. |
+| C37 | `ageMs` as a plain integer, invalid with a fraction or an exponent | `examples/ingest-invalid-C37-agems-fraction.json` |

@@ -17,6 +17,7 @@ java {
 // (repo1.maven.org/maven2/org/junit/jupiter/junit-jupiter/maven-metadata.xml,
 // <release>6.1.3</release>). monitor/backend has no JUnit Jupiter entry yet,
 // thus this module states its own version.
+// Follow-up: move this version to gradle/libs.versions.toml after issue #4 merges.
 dependencies {
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")

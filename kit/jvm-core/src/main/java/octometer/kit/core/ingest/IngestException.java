@@ -12,6 +12,8 @@ public final class IngestException extends RuntimeException {
         BODY_TOO_LARGE,
         /** The body is not valid JSON for the one ingest shape. */
         INVALID_JSON,
+        /** The body holds a duplicate key in one JSON object (rule C36). */
+        DUPLICATE_FIELD,
         /** The top-level JSON value is not an object. */
         WRONG_TOP_LEVEL_TYPE,
         /** A required field is absent (rule C13). */

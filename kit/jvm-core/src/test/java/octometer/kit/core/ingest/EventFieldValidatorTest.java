@@ -18,18 +18,18 @@ class EventFieldValidatorTest {
     @Test
     void acceptsTheFieldsOfTheValidEventExample() {
         String json = ExampleFiles.read("event-valid-C1-C5.json");
+        String element = ExampleFiles.extractStringField(json, "element");
+        String sessionId = ExampleFiles.extractStringField(json, "sessionId");
 
-        assertDoesNotThrow(() -> EventFieldValidator.validateElement("checkout.save"));
-        assertDoesNotThrow(() -> EventFieldValidator.validateSessionId("0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11"));
-        assertTrue(json.contains("\"checkout.save\""));
-        assertTrue(json.contains("\"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11\""));
+        assertDoesNotThrow(() -> EventFieldValidator.validateElement(element));
+        assertDoesNotThrow(() -> EventFieldValidator.validateSessionId(sessionId));
     }
 
     @Test
     void acceptsTheNullUserIdOfTheEventExample() {
         String json = ExampleFiles.read("event-userid-null-C6.json");
 
-        assertTrue(json.contains("\"userId\": null"));
+        assertTrue(ExampleFiles.hasNullField(json, "userId"));
         assertDoesNotThrow(() -> EventFieldValidator.validateUserId(null));
     }
 
@@ -52,6 +52,14 @@ class EventFieldValidatorTest {
     }
 
     @Test
+    void rejectsASessionIdOfTheWrongLength() {
+        IngestException error = assertThrows(IngestException.class,
+                () -> EventFieldValidator.validateSessionId("3fa85f64-5717-4562-b3fc-2c963f66afa"));
+
+        assertEquals(IngestException.Reason.SESSION_ID_NOT_UUID, error.reason());
+    }
+
+    @Test
     void rejectsASessionIdThatIsNotAUuid() {
         String body = ExampleFiles.read("ingest-invalid-C5-session-id.json");
 
@@ -67,6 +75,13 @@ class EventFieldValidatorTest {
         IngestException error = assertThrows(IngestException.class, () -> IngestPipeline.process(body, Clock.systemUTC()));
 
         assertEquals(IngestException.Reason.NEGATIVE_AGE_MS, error.reason());
+    }
+
+    @Test
+    void acceptsAnElementOfExactly100Characters() {
+        String element = "a".repeat(100);
+
+        assertDoesNotThrow(() -> EventFieldValidator.validateElement(element));
     }
 
     @Test

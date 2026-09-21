@@ -32,8 +32,19 @@ public final class EventFieldValidator {
         }
     }
 
-    /** Checks the `sessionId` value against rule C5: a UUID. */
+    /**
+     * Checks the `sessionId` value against rule C5: a UUID.
+     *
+     * <p>The pattern below is stricter than {@link java.util.UUID#fromString}.
+     * That method accepts a short form such as `1-1-1-1-1`. It also
+     * accepts a 35-character value. This module keeps the canonical
+     * 36-character form only.
+     */
     public static void validateSessionId(String sessionId) {
+        if (sessionId.length() != 36) {
+            throw new IngestException(IngestException.Reason.SESSION_ID_NOT_UUID,
+                    "The sessionId value must be a UUID.");
+        }
         if (!UUID_PATTERN.matcher(sessionId).matches()) {
             throw new IngestException(IngestException.Reason.SESSION_ID_NOT_UUID,
                     "The sessionId value must be a UUID.");

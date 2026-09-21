@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * Tests with the ingest body examples of `contract/examples/` (issue #8).
  * Each valid file must parse. Each invalid file must fail with the rule
- * that its file name holds (rules C13, C15, C17, C18 of the contract).
+ * that its file name holds (rules C13, C15, C17, C18, C36, C37).
  */
 class IngestParserContractExamplesTest {
 
@@ -24,6 +24,23 @@ class IngestParserContractExamplesTest {
         assertEquals(1200L, request.clicks().get(0).ageMs());
         assertEquals("nav.menu.open", request.clicks().get(1).element());
         assertEquals(400L, request.clicks().get(1).ageMs());
+    }
+
+    @Test
+    void acceptsABatchOfExactly50Clicks() {
+        StringBuilder clicks = new StringBuilder("[");
+        for (int i = 0; i < 50; i++) {
+            if (i > 0) {
+                clicks.append(",");
+            }
+            clicks.append("{\"element\": \"checkout.save\", \"ageMs\": 1}");
+        }
+        clicks.append("]");
+        String body = "{\"sessionId\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\", \"clicks\": " + clicks + "}";
+
+        ParsedIngestRequest request = IngestParser.parse(body);
+
+        assertEquals(50, request.clicks().size());
     }
 
     @Test
@@ -80,5 +97,23 @@ class IngestParserContractExamplesTest {
         IngestException error = assertThrows(IngestException.class, () -> IngestParser.parse(body));
 
         assertEquals(IngestException.Reason.WRONG_TOP_LEVEL_TYPE, error.reason());
+    }
+
+    @Test
+    void rejectsABodyWithADuplicateKey() {
+        String body = ExampleFiles.read("ingest-invalid-C36-duplicate-key.json");
+
+        IngestException error = assertThrows(IngestException.class, () -> IngestParser.parse(body));
+
+        assertEquals(IngestException.Reason.DUPLICATE_FIELD, error.reason());
+    }
+
+    @Test
+    void rejectsAnAgeMsWithAFraction() {
+        String body = ExampleFiles.read("ingest-invalid-C37-agems-fraction.json");
+
+        IngestException error = assertThrows(IngestException.class, () -> IngestParser.parse(body));
+
+        assertEquals(IngestException.Reason.WRONG_FIELD_TYPE, error.reason());
     }
 }
