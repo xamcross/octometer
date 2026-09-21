@@ -318,7 +318,8 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
 - **D23. Adapters.** Each one mounts only the ingest route, with an `ingestPath` option. The
   route stays in the security chain of the app, because it needs the session. It answers 415
   to a content type other than JSON. It writes no CORS header. The Ktor adapter calls the
-  store inside `withContext(Dispatchers.IO)`.
+  store inside `withContext(Dispatchers.IO)`. The default is a view of `Dispatchers.IO` that
+  `limitedParallelism(8)` gives, so the route never fills the whole shared pool.
 - **D24. Tracker.** Plain TypeScript, ESM, zero dependencies, `"sideEffects": false`, no code
   at import time, no action in SSR. Options: `endpoint` (mandatory), `credentials` (default
   `same-origin`), `headers: () => Record<string,string>`, `flushIntervalMs` (default 5000).
