@@ -5,7 +5,7 @@ event document, the ingest request, the reader rule, and the database user. The 
 section 4 of `docs/superpowers/specs/2026-09-21-octometer-design.md`, plus section 1 and the
 last paragraph of section 6 for the definitions below.
 
-Each rule has an ID, `C1` to `C31`. The table at the end maps each rule ID to its example file.
+Each rule has an ID, `C1` to `C33`. The table at the end maps each rule ID to its example file.
 
 ## Purpose
 
@@ -70,11 +70,19 @@ application/json`.
 - **C15.** A negative `ageMs` value is invalid.
 - **C16.** The server takes the `userId` value from the authentication context. The client
   never sends a `userId` field.
-- **C17.** One batch holds a maximum of 50 clicks.
-- **C18.** One request body has a maximum size of 16 KB.
+- **C17.** One batch holds a maximum of 50 clicks. A batch above this limit is invalid; the
+  server returns 400.
+- **C18.** One request body has a maximum size of 16 KB. A body above this limit is invalid;
+  the server returns 400.
 - **C19.** The server returns status 204 for a success and for a batch that the event cap
   drops. It returns 400 for an invalid body, 415 for a content type other than JSON, and 429
   for the rate limit.
+- **C32.** The server ignores an unknown field in the ingest request body. A `userId` field
+  in the body is such a field: the server ignores it, and the stored user id comes only from
+  the authentication context (rule C16).
+- **C33.** The ingest route checks the `element` value with the rule of C4, and the
+  `sessionId` value with the rule of C5. A value that breaks one of these rules makes the
+  body invalid; the server returns 400.
 
 ## 3. The reader rule (design section 4.3)
 
@@ -138,29 +146,12 @@ shows an invalid ingest body — the file is valid JSON, but the value it holds 
 | C13 | Ingest body shape | `examples/ingest-valid-C13.json` |
 | C14 | `ageMs` clamp | No example file. The design does not ask for an example of the clamp. |
 | C15 | Negative `ageMs` | `examples/ingest-invalid-C15-negative-age.json` |
-| C16 | `userId` from the authentication context | No example file. See "Open points" below. |
-| C17 | Batch limit (50 clicks) | `examples/ingest-invalid-C17-batch-limit.json` |
-| C18 | Body size limit (16 KB) | `examples/ingest-invalid-C18-body-size.json` |
+| C16 | `userId` from the authentication context | No example file. See rule C32. |
+| C17 | Batch limit (50 clicks), invalid above the limit | `examples/ingest-invalid-C17-batch-limit.json` |
+| C18 | Body size limit (16 KB), invalid above the limit | `examples/ingest-invalid-C18-body-size.json` — the file's padding field is an ignored unknown field (rule C32); the file breaks only the size rule. |
 | C19 | Response codes | No example file. An HTTP response is not a JSON document in this contract. |
 | C20–C24, C26 | The read window and the delivery model | No example file. These rules state a server-side read algorithm. |
 | C25 | The accepted loss | No example file. This rule states a timing bound, not a document shape. |
 | C27–C31 | The database user | No example file. These rules state shell commands. |
-
-## Open points
-
-The design is silent on three points. This document does not guess an answer.
-
-1. Section 4.2 states that a negative `ageMs` value "is invalid" (rule C15), and it states the
-   50-click and 16 KB limits (rules C17, C18), but it does not state the response code for a
-   batch or a body that breaks one of these two limits. This document treats status 400
-   ("an invalid body") as the likely code, because the design lists no other code for this
-   case, but the design does not say so directly.
-2. Rule C16 states that the client never sends a `userId` field, but the design does not
-   state the server's action when a client sends one anyway (accept and ignore it, or reject
-   the request).
-3. Rules C4 and C5 come from the stored event document (section 4.1). The design does not
-   state, in section 4.2, that the ingest request checks the `element` pattern or the
-   `sessionId` UUID form before it stores the event. This document applies C4 and C5 to the
-   ingest body too, because the `clicks[].element` and `sessionId` values of the request
-   become the `element` and `sessionId` fields of the stored document with no other named
-   step in between.
+| C32 | Unknown-field tolerance in the ingest body, `userId` included | No dedicated example file. The padding field of `examples/ingest-invalid-C18-body-size.json` is such an ignored field. |
+| C33 | Ingest-time check of `element` (C4) and `sessionId` (C5) | `examples/ingest-invalid-C4-element-pattern.json`, `examples/ingest-invalid-C5-session-id.json` |
