@@ -13,9 +13,23 @@
 const EVENTS_COLLECTION = "octometer_events";
 const OTHER_COLLECTION = "octometer_probe_other";
 const REDACTED_USER = "REDACTED";
+const PROBE_MARKER = "octometer-check-privileges-probe";
+const ERROR_TEXT_LIMIT = 300;
+
+// Builds one error object from a caught error. The text stops after 300
+// characters. Each probe command of this script takes a constant argument,
+// thus the error text holds no value of a real document.
+function errorInfo(e) {
+  return {
+    code: e.code || null,
+    codeName: e.codeName || null,
+    errmsg: String(e.errmsg || e.message || "").slice(0, ERROR_TEXT_LIMIT),
+  };
+}
 
 const result = {
   database: null,
+  databaseWarning: null,
   eventsCollection: EVENTS_COLLECTION,
   otherCollection: OTHER_COLLECTION,
   connectionStatus: null,
@@ -25,9 +39,15 @@ const result = {
   findOther: null,
 };
 
-// The database name. It comes from the URI, not from a constant.
+// The database name. It comes from the URI, not from a constant. A value
+// of "test" is the default of the driver, not proof of a real database
+// path. The Atlas "Connect" panel gives a URI without a database path.
 try {
   result.database = db.getName();
+  if (result.database === "test") {
+    result.databaseWarning =
+      "The URI probably has no database path. Add /<database> to the URI, then run the script again.";
+  }
 } catch (e) {
   result.database = null;
 }
@@ -45,10 +65,7 @@ try {
   }
   result.connectionStatus = status;
 } catch (e) {
-  result.connectionStatus = {
-    ok: 0,
-    error: { code: e.code || null, codeName: e.codeName || null },
-  };
+  result.connectionStatus = { ok: 0, error: errorInfo(e) };
 }
 
 // D9 check 1: listCollections with authorizedCollections. The list must
@@ -67,10 +84,7 @@ try {
     }),
   };
 } catch (e) {
-  result.listCollections = {
-    ok: 0,
-    error: { code: e.code || null, codeName: e.codeName || null },
-  };
+  result.listCollections = { ok: 0, error: errorInfo(e) };
 }
 
 // One find on octometer_events must work. The output holds the document
@@ -83,29 +97,34 @@ try {
     fields: docs.length > 0 ? Object.keys(docs[0]) : [],
   };
 } catch (e) {
-  result.findEvents = {
-    ok: false,
-    count: null,
-    fields: [],
-    error: { code: e.code || null, codeName: e.codeName || null },
-  };
+  result.findEvents = { ok: false, count: null, fields: [], error: errorInfo(e) };
 }
 
 // One insertOne on octometer_events must fail. The probe document holds a
-// clear marker field. When the insert works, the script deletes the probe
-// document again. It then reports insertWorked: true.
+// clear marker field. The insert and the delete each run in their own
+// try/catch block, thus a failed delete never hides inside the insert
+// result. When the delete does not remove the document, the output shows
+// this, and the owner must remove the document with the marker by hand.
+let probeId = null;
 try {
-  const marker = "octometer-check-privileges-probe";
   const insertResult = db
     .getCollection(EVENTS_COLLECTION)
-    .insertOne({ octometerProbeMarker: marker });
-  db.getCollection(EVENTS_COLLECTION).deleteOne({ _id: insertResult.insertedId });
+    .insertOne({ octometerProbeMarker: PROBE_MARKER });
+  probeId = insertResult.insertedId;
   result.insertEvents = { insertWorked: true, error: null };
 } catch (e) {
-  result.insertEvents = {
-    insertWorked: false,
-    error: { code: e.code || null, codeName: e.codeName || null },
-  };
+  result.insertEvents = { insertWorked: false, error: errorInfo(e) };
+}
+if (probeId !== null) {
+  result.insertEvents.probeMarker = PROBE_MARKER;
+  try {
+    const del = db.getCollection(EVENTS_COLLECTION).deleteOne({ _id: probeId });
+    result.insertEvents.probeDeleted = del.deletedCount === 1;
+    result.insertEvents.deleteError = null;
+  } catch (e) {
+    result.insertEvents.probeDeleted = false;
+    result.insertEvents.deleteError = errorInfo(e);
+  }
 }
 
 // One find on a second collection must fail. The name of the second
@@ -118,11 +137,7 @@ try {
     .toArray();
   result.findOther = { ok: true, count: otherDocs.length, error: null };
 } catch (e) {
-  result.findOther = {
-    ok: false,
-    count: null,
-    error: { code: e.code || null, codeName: e.codeName || null },
-  };
+  result.findOther = { ok: false, count: null, error: errorInfo(e) };
 }
 
 print(JSON.stringify(result));
