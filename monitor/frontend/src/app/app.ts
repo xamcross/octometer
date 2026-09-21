@@ -47,8 +47,8 @@ export class App {
   /** The path part of the previous URL. Null before the first navigation ends. */
   private previousPath: string | null = null;
 
-  /** The previous value of `monitorApiError`, so an effect finds only a real transition. */
-  private previousMonitorApiError: string | null = null;
+  /** True when the monitor API did not answer the last request. */
+  private monitorApiFailed = false;
 
   constructor() {
     this.router.events
@@ -84,18 +84,20 @@ export class App {
     }
   }
 
-  /** Announces one time each transition of the monitor connection through the status region. */
+  /**
+   * Announces one time each transition of the monitor connection through the status region.
+   * It compares the failed state, not the error text, so two different error texts of one
+   * outage give one announcement.
+   */
   private announceMonitorApiTransition(): void {
-    const current = this.monitorApiError();
-    if (current === this.previousMonitorApiError) {
+    const failed = this.monitorApiError() !== null;
+    if (failed === this.monitorApiFailed) {
       return;
     }
-    if (current) {
-      this.announcer.announce('The monitor API stopped answering.');
-    } else if (this.previousMonitorApiError) {
-      this.announcer.announce('The monitor API answers again.');
-    }
-    this.previousMonitorApiError = current;
+    this.monitorApiFailed = failed;
+    this.announcer.announce(
+      failed ? 'The monitor API stopped answering.' : 'The monitor API answers again.',
+    );
   }
 
   private focusHeading(): void {

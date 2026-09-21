@@ -110,7 +110,7 @@ describe('App', () => {
     const slot = (fixture.nativeElement as HTMLElement).querySelector(
       '.banner-slot',
     ) as HTMLElement;
-    expect(getComputedStyle(slot).height).toBe('48px');
+    expect(getComputedStyle(slot).minHeight).toBe('3rem');
   });
 
   it('keeps one permanent role="status" region, empty until a user action', () => {
@@ -189,6 +189,38 @@ describe('App', () => {
       expect(region.textContent).toBe('The monitor API answers again.');
     });
 
+    it('announces one time per outage, even when the error text changes during it', async () => {
+      fixture.detectChanges();
+      const region = (fixture.nativeElement as HTMLElement).querySelector(
+        '[role="status"]',
+      ) as HTMLElement;
+      const errorSignal = (
+        fixture.componentInstance as unknown as { monitorApiError: { set(v: string | null): void } }
+      ).monitorApiError;
+
+      errorSignal.set('A timeout happened.');
+      fixture.detectChanges();
+      await vi.advanceTimersByTimeAsync(100);
+      fixture.detectChanges();
+      expect(region.textContent).toBe('The monitor API stopped answering.');
+
+      errorSignal.set('The server answered 500.');
+      fixture.detectChanges();
+      expect(region.textContent).toBe('The monitor API stopped answering.');
+
+      errorSignal.set(null);
+      fixture.detectChanges();
+      await vi.advanceTimersByTimeAsync(100);
+      fixture.detectChanges();
+      expect(region.textContent).toBe('The monitor API answers again.');
+
+      errorSignal.set('A new timeout happened.');
+      fixture.detectChanges();
+      await vi.advanceTimersByTimeAsync(100);
+      fixture.detectChanges();
+      expect(region.textContent).toBe('The monitor API stopped answering.');
+    });
+
     it('gives the same status text twice a fresh DOM write each time', async () => {
       fixture.detectChanges();
       const region = (fixture.nativeElement as HTMLElement).querySelector(
@@ -201,17 +233,35 @@ describe('App', () => {
       fixture.detectChanges();
       expect(region.textContent).toBe('The refresh is paused.');
 
-      const seenValues: string[] = [];
-      const observer = new MutationObserver(() => seenValues.push(region.textContent ?? ''));
-      observer.observe(region, { characterData: true, childList: true, subtree: true });
+      const oldValuesOfEachRecord: string[] = [];
+      const observer = new MutationObserver((records) => {
+        for (const record of records) {
+          oldValuesOfEachRecord.push(record.oldValue ?? '');
+        }
+      });
+      observer.observe(region, {
+        characterData: true,
+        characterDataOldValue: true,
+        childList: true,
+        subtree: true,
+      });
 
       announcer.announce('The refresh is paused.');
       fixture.detectChanges();
+      // Let the pending mutation record of the clear step reach the observer
+      // before the settle step writes the text again, so each write keeps its
+      // own record.
+      await Promise.resolve();
       await vi.advanceTimersByTimeAsync(100);
       fixture.detectChanges();
+      // Let the pending mutation record of the settle step reach the observer
+      // before the assertion reads it.
+      await Promise.resolve();
 
       expect(region.textContent).toBe('The refresh is paused.');
-      expect(seenValues.length).toBeGreaterThanOrEqual(1);
+      // Two DOM writes happen for one repeated message: the clear step, then the
+      // settle step. Each write is its own mutation record.
+      expect(oldValuesOfEachRecord).toEqual(['The refresh is paused.', '']);
       observer.disconnect();
     });
   });

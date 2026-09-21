@@ -39,11 +39,15 @@ describe('Announcer', () => {
     expect(announcer.message()).toBe('The refresh is paused.');
   });
 
-  it('clears the message on a clear call', async () => {
-    announcer.announce('The refresh is paused.');
-    await vi.advanceTimersByTimeAsync(100);
+  it('cancels a waiting timer, so two different messages within 100 ms give only the last one', async () => {
+    announcer.announce('A');
+    await vi.advanceTimersByTimeAsync(50);
+    announcer.announce('B');
 
-    announcer.clear();
+    await vi.advanceTimersByTimeAsync(50);
     expect(announcer.message()).toBe('');
+
+    await vi.advanceTimersByTimeAsync(50);
+    expect(announcer.message()).toBe('B');
   });
 });
