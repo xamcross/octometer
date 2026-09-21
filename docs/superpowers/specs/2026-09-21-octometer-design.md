@@ -144,6 +144,7 @@ Collection `octometer_events` in the database of the app.
 - Responses: 204 for success and for a batch that the event cap drops, 400 for an invalid
   body (a broken limit and a broken field rule included), 415 for a content type other than
   JSON, 429 for the rate limit.
+- A duplicate key makes the body invalid. `ageMs` is a JSON integer.
 
 ### 4.3 The reader rule (monitor)
 
@@ -152,6 +153,7 @@ bound  = ObjectId.getSmallestWithDate(serverTime - lag)
 filter = { _id: { $gt: cursor, $lt: bound } }     sort { _id: 1 }   limit 1000   batchSize 1000
 ```
 
+- Without a cursor, the reader starts at the oldest event.
 - `serverTime` is `localTime` from the `hello` command of the primary.
 - `lag` is 60 seconds in prod mode and 2 seconds in dev mode (config value).
 - The read preference is `primary`, set in code. The monitor rejects `readPreference` in a URI.
