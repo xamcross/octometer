@@ -451,6 +451,14 @@ describe('Apps', () => {
       expect(hoverRule?.style.backgroundColor).toBeTruthy();
     });
 
+    it('gives .table-scroll position relative, so a hidden span cannot escape its clip', () => {
+      startStore();
+      flushApps([buildRow()]);
+
+      const scrollRule = findCssRule('.table-scroll');
+      expect(scrollRule?.style.position).toBe('relative');
+    });
+
     it('wraps a long lastError with overflow-wrap anywhere, and no ellipsis', () => {
       startStore();
       flushApps([

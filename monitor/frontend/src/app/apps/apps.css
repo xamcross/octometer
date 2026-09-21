@@ -26,6 +26,10 @@ th[scope='row'],
   overflow-wrap: anywhere;
 }
 
+th[scope='row'] {
+  min-width: 8rem;
+}
+
 .num,
 .data-time {
   white-space: nowrap;
@@ -50,7 +54,9 @@ th[scope='row'] a,
 }
 
 /* The table scrolls sideways when the columns need more width than the screen. */
+/* `position: relative` makes this container the containing block of each `.visually-hidden` span, so the page keeps one scroll direction. */
 .table-scroll {
+  position: relative;
   overflow-x: auto;
 }
 
