@@ -16,6 +16,8 @@ import octometer.monitor.config.MonitorConfig
 import octometer.monitor.config.ResolvedConfig
 import octometer.monitor.config.escapeForLog
 import octometer.monitor.config.loadConfig
+import octometer.monitor.security.installRequestGuard
+import octometer.monitor.security.requireLoopbackBindAddress
 import org.slf4j.LoggerFactory
 import java.util.Properties
 import kotlin.system.exitProcess
@@ -33,6 +35,7 @@ private val log = LoggerFactory.getLogger("octometer.monitor.Application")
 
 fun main(args: Array<String>) {
     val resolved = try {
+        requireLoopbackBindAddress(HOST)
         loadConfig(args = args)
     } catch (invalidConfig: InvalidConfigException) {
         log.error("The config is invalid. {}", invalidConfig.message)
@@ -51,6 +54,7 @@ fun Application.module(config: MonitorConfig) {
     install(ContentNegotiation) {
         json()
     }
+    installRequestGuard(config)
     routing {
         get("/api/health") {
             call.respond(
