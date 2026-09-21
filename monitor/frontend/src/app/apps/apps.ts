@@ -17,7 +17,7 @@ const STATUS_LABEL: Record<AppStatus, string> = {
   ERROR: 'Error',
 };
 
-/** The icon of each status value. `aria-hidden` hides it; the text next to it carries the meaning. */
+/** The icon of each status value. `aria-hidden` hides it. The text next to it gives the meaning. */
 const STATUS_ICON: Record<AppStatus, string> = {
   OK: '✓',
   NEVER_POLLED: '–',
@@ -63,14 +63,15 @@ function readZoneName(): string {
  * app, and it reads `GET /api/apps` through the poll store of #25.
  * `RefreshBar` of #92 stands between the heading and the table.
  *
- * The table is one flat `<table>`. `@for` tracks each row by `appId` (D29),
- * so a refresh keeps the DOM node of a row, and with it the focus and the
+ * The table is one flat `<table>`. `@for` tracks each row by `appId` (D29).
+ * A refresh then keeps the DOM node of a row, and with it the focus and the
  * scroll position of the user.
  *
- * A click on a data cell of a row opens the link of the name cell (D28). The
- * cell carries no `role`, and it adds no second link, so the browser still
- * lets the user select the text of a cell with the mouse: the click handler
- * checks `getSelection()` first, and it does nothing while text is selected.
+ * A click on a data cell of a row opens the link of the name cell (D28).
+ * The cell carries no `role`, and it adds no second link. The click handler
+ * still lets the user select the text of a cell with the mouse: it does
+ * nothing while a selection touches the clicked cell, for a secondary
+ * button, or for a modifier key.
  */
 @Component({
   selector: 'app-apps',
@@ -116,13 +117,29 @@ export class Apps {
 
   /**
    * Opens the link of the name cell, from a click on a different cell of the
-   * same row (D28). It does nothing while the user selects text with the
-   * mouse, so a drag over a number still selects that number.
+   * same row (D28). It does nothing while the user selects text inside the
+   * clicked cell with the mouse, so a drag over a number still selects that
+   * number. A selection in a different part of the page does not stop the
+   * click. It also does nothing for a secondary button or a modifier key.
+   * The browser then handles a click on the name link itself, for example
+   * to open a new tab.
    */
-  protected onRowCellClick(row: AppRow): void {
-    if ((window.getSelection()?.toString().length ?? 0) > 0) {
+  protected onRowCellClick(row: AppRow, event: MouseEvent): void {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    if (this.selectionTouchesCell(event.currentTarget)) {
       return;
     }
     void this.router.navigate(['/apps', row.appId, 'users']);
+  }
+
+  /** True while the user selects text that touches the given cell. */
+  private selectionTouchesCell(cell: EventTarget | null): boolean {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || cell === null) {
+      return false;
+    }
+    return selection.containsNode(cell as Node, true);
   }
 }

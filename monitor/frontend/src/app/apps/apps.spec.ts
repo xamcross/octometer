@@ -6,6 +6,35 @@ import { Router, provideRouter } from '@angular/router';
 import type { AppRow } from './app-row';
 import { Apps } from './apps';
 
+/**
+ * Finds the first loaded CSS rule with the given selector text. `jsdom`
+ * does not compute a style for a `:hover` selector, so a test reads the
+ * rule from the stylesheet, not from a live style. Angular appends its own
+ * content attribute to a selector of an emulated component, so this
+ * function strips that attribute before the comparison.
+ */
+function findCssRule(selectorText: string): CSSStyleRule | undefined {
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules: CSSRuleList | undefined;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      continue;
+    }
+    for (const rule of Array.from(rules ?? [])) {
+      const styleRule = rule as CSSStyleRule;
+      const plainSelector = styleRule.selectorText
+        ?.replace(/\[_ngcontent-[\w-]+\]/g, '')
+        .replace(/\s+/g, ' ');
+      const selectorParts = plainSelector?.split(',').map((part) => part.trim()) ?? [];
+      if (selectorParts.includes(selectorText)) {
+        return styleRule;
+      }
+    }
+  }
+  return undefined;
+}
+
 /** Builds one app row. Each test overrides only the fields it checks. */
 function buildRow(overrides: Partial<AppRow> = {}): AppRow {
   return {
@@ -97,6 +126,16 @@ describe('Apps', () => {
       expect(link).toBeTruthy();
     });
 
+    it('gives the link of the empty state a minimum target size of 24 by 24 CSS px', () => {
+      startStore();
+      flushApps([]);
+
+      const link = root().querySelector('a[href="/manage"]') as HTMLElement;
+      const style = getComputedStyle(link);
+      expect(style.minWidth).toBe('24px');
+      expect(style.minHeight).toBe('24px');
+    });
+
     it('renders a table with a caption and a scoped row header for the app name', () => {
       startStore();
       flushApps([buildRow()]);
@@ -140,7 +179,7 @@ describe('Apps', () => {
       expect(style.fontVariantNumeric).toContain('tabular-nums');
     });
 
-    it('shows "–" for each count of a NEVER_POLLED app, not 0', () => {
+    it('shows "–" for each count of a NEVER_POLLED app, not 0, with a hidden text for a screen reader', () => {
       startStore();
       flushApps([
         buildRow({
@@ -153,8 +192,12 @@ describe('Apps', () => {
       ]);
 
       const numCells = Array.from(root().querySelectorAll('tbody td.num'));
+      expect(numCells.length).toBe(3);
       for (const cell of numCells) {
-        expect(cell.textContent?.trim()).toBe('–');
+        const hiddenText = cell.querySelector('.visually-hidden');
+        const dash = cell.querySelector('[aria-hidden="true"]');
+        expect(hiddenText?.textContent?.trim()).toBe('No data');
+        expect(dash?.textContent?.trim()).toBe('–');
       }
     });
 
@@ -204,6 +247,55 @@ describe('Apps', () => {
       expect(time.textContent?.trim()).toBe(expected);
     });
 
+    it('formats the data time in a fixed zone against a literal string, not against a mirror of the code', () => {
+      vi.stubEnv('TZ', 'UTC');
+      try {
+        startStore();
+        flushApps([buildRow({ status: 'OK', lastSuccessAt: '2026-09-21T09:05:03.000Z' })]);
+
+        const time = root().querySelector('td.data-time time') as HTMLTimeElement;
+        expect(time.textContent?.trim()).toBe('2026-09-21 09:05:03');
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it('shows 0 for an OK app with zero events, not a dash', () => {
+      startStore();
+      flushApps([buildRow({ status: 'OK', clicks: 0, uniqueUsers: 0, uniqueSessions: 0 })]);
+
+      const numCells = Array.from(root().querySelectorAll('tbody td.num'));
+      expect(numCells.length).toBe(3);
+      for (const cell of numCells) {
+        expect(cell.textContent?.trim()).toBe('0');
+      }
+    });
+
+    it('shows the data time of a failed app that holds a lastSuccessAt, not an empty cell', () => {
+      startStore();
+      flushApps([
+        buildRow({
+          status: 'UNREACHABLE',
+          lastSuccessAt: '2026-09-21T09:05:03.000Z',
+          lastError: 'The server did not answer.',
+        }),
+      ]);
+
+      const time = root().querySelector('td.data-time time') as HTMLTimeElement;
+      expect(time).toBeTruthy();
+      expect(time.getAttribute('datetime')).toBe('2026-09-21T09:05:03.000Z');
+    });
+
+    it('shows a dash with a hidden text in the "Data time" cell of a row with no lastSuccessAt', () => {
+      startStore();
+      flushApps([buildRow({ status: 'NEVER_POLLED', lastSuccessAt: null })]);
+
+      const cell = root().querySelector('td.data-time') as HTMLElement;
+      expect(cell.querySelector('time')).toBeNull();
+      expect(cell.querySelector('.visually-hidden')?.textContent?.trim()).toBe('No data');
+      expect(cell.querySelector('[aria-hidden="true"]')?.textContent?.trim()).toBe('–');
+    });
+
     it('names the time zone in the "Data time" column header', () => {
       startStore();
       flushApps([buildRow()]);
@@ -229,16 +321,64 @@ describe('Apps', () => {
       expect(navigateSpy).toHaveBeenCalledWith(['/apps', 9, 'users']);
     });
 
-    it('does not navigate on a cell click while the user has text selected', () => {
+    it('does not navigate on a cell click while the user has text selected inside that cell', () => {
       startStore();
       flushApps([buildRow()]);
       const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+      const numCell = root().querySelector('td.num') as HTMLElement;
       vi.spyOn(window, 'getSelection').mockReturnValue({
+        isCollapsed: false,
         toString: () => 'a number the user picked',
+        containsNode: (node: Node) => node === numCell,
       } as unknown as Selection);
 
-      const numCell = root().querySelector('td.num') as HTMLElement;
       numCell.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(navigateSpy).not.toHaveBeenCalled();
+    });
+
+    it('navigates on a cell click even while the user has text selected in a different part of the page', () => {
+      startStore();
+      flushApps([buildRow({ appId: 4 })]);
+      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+      const numCell = root().querySelector('td.num') as HTMLElement;
+      const heading = root().querySelector('h1') as HTMLElement;
+      vi.spyOn(window, 'getSelection').mockReturnValue({
+        isCollapsed: false,
+        toString: () => 'Apps',
+        containsNode: (node: Node) => node === heading,
+      } as unknown as Selection);
+
+      numCell.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(navigateSpy).toHaveBeenCalledWith(['/apps', 4, 'users']);
+    });
+
+    it('does not navigate on a cell click with a modifier key, so the browser can open a new tab', () => {
+      startStore();
+      flushApps([buildRow({ appId: 9 })]);
+      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+      const numCell = root().querySelector('td.num') as HTMLElement;
+
+      for (const init of [
+        { ctrlKey: true },
+        { metaKey: true },
+        { shiftKey: true },
+        { altKey: true },
+      ]) {
+        numCell.dispatchEvent(new MouseEvent('click', { bubbles: true, ...init }));
+      }
+
+      expect(navigateSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not navigate on a cell click with a button other than the primary button', () => {
+      startStore();
+      flushApps([buildRow({ appId: 9 })]);
+      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+      const numCell = root().querySelector('td.num') as HTMLElement;
+
+      numCell.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 1 }));
 
       expect(navigateSpy).not.toHaveBeenCalled();
     });
@@ -271,6 +411,46 @@ describe('Apps', () => {
       expect(style.minHeight).toBe('24px');
     });
 
+    it('puts the table in a scroll container with tabindex 0, role region, and a name from the caption', () => {
+      startStore();
+      flushApps([buildRow()]);
+
+      const wrapper = root().querySelector('.table-scroll') as HTMLElement;
+      expect(wrapper).toBeTruthy();
+      expect(wrapper.getAttribute('tabindex')).toBe('0');
+      expect(wrapper.getAttribute('role')).toBe('region');
+      const labelledBy = wrapper.getAttribute('aria-labelledby');
+      expect(labelledBy).toBeTruthy();
+      expect(document.getElementById(labelledBy ?? '')?.tagName).toBe('CAPTION');
+      expect(wrapper.querySelector('table')).toBeTruthy();
+    });
+
+    it('keeps a number cell and the data-time cell on one line, not broken word by word', () => {
+      startStore();
+      flushApps([buildRow()]);
+
+      const numCell = root().querySelector('tbody td.num') as HTMLElement;
+      const dataTimeCell = root().querySelector('tbody td.data-time') as HTMLElement;
+      expect(getComputedStyle(numCell).whiteSpace).toBe('nowrap');
+      expect(getComputedStyle(dataTimeCell).whiteSpace).toBe('nowrap');
+    });
+
+    it('gives a pointer cursor to each data cell of a row', () => {
+      startStore();
+      flushApps([buildRow()]);
+
+      const cell = root().querySelector('tbody td') as HTMLElement;
+      expect(getComputedStyle(cell).cursor).toBe('pointer');
+    });
+
+    it('gives a hovered row a background colour, not colour alone, as the hover state', () => {
+      startStore();
+      flushApps([buildRow()]);
+
+      const hoverRule = findCssRule('tbody tr:hover');
+      expect(hoverRule?.style.backgroundColor).toBeTruthy();
+    });
+
     it('wraps a long lastError with overflow-wrap anywhere, and no ellipsis', () => {
       startStore();
       flushApps([
@@ -287,22 +467,44 @@ describe('Apps', () => {
       expect(style.textOverflow).not.toBe('ellipsis');
     });
 
-    it('tracks each row with the stable key appId: a refresh reuses the row node, and keeps a focus outside tbody', () => {
+    it('tracks each row with the stable key appId: a second answer that drops a row and changes the order keeps the tr node of each surviving row', () => {
+      startStore(10);
+      flushApps([
+        buildRow({ appId: 1, name: 'alpha' }),
+        buildRow({ appId: 2, name: 'beta' }),
+        buildRow({ appId: 3, name: 'gamma' }),
+      ]);
+
+      const rowsBefore = Array.from(root().querySelectorAll('tbody tr'));
+      const trOfAppId = new Map<number, Element>([
+        [1, rowsBefore[0]],
+        [2, rowsBefore[1]],
+        [3, rowsBefore[2]],
+      ]);
+
+      vi.advanceTimersByTime(10_000);
+      // The second answer drops appId 2, and it puts appId 3 before appId 1.
+      flushApps([buildRow({ appId: 3, name: 'gamma' }), buildRow({ appId: 1, name: 'alpha' })]);
+
+      const rowsAfter = Array.from(root().querySelectorAll('tbody tr'));
+      expect(rowsAfter.length).toBe(2);
+      expect(rowsAfter[0]).toBe(trOfAppId.get(3));
+      expect(rowsAfter[1]).toBe(trOfAppId.get(1));
+    });
+
+    it('keeps a focus outside tbody across a refresh', () => {
       startStore(10);
       flushApps([buildRow({ appId: 3, clicks: 1 })]);
 
-      // The pause button sits before the table, outside <tbody>, so a focus
-      // there does not stop the poll store (D29 stops it only for a focus
-      // inside <tbody>).
+      // The pause button sits before the table, outside <tbody>. A focus
+      // there does not stop the poll store: D29 stops it only for a focus
+      // inside <tbody>.
       const pauseButton = root().querySelector('button') as HTMLElement;
       pauseButton.focus();
-      const firstLink = root().querySelector('tbody th a') as HTMLElement;
 
       vi.advanceTimersByTime(10_000);
       flushApps([buildRow({ appId: 3, clicks: 2 })]);
 
-      const secondLink = root().querySelector('tbody th a') as HTMLElement;
-      expect(secondLink).toBe(firstLink);
       expect(document.activeElement).toBe(pauseButton);
       expect(root().querySelector('tbody td.num')?.textContent?.trim()).toBe(
         new Intl.NumberFormat().format(2),

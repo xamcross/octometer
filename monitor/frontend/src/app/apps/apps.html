@@ -5,64 +5,80 @@
   @if (rows.length === 0) {
     <p>
       No app is registered.
-      <a routerLink="/manage">Go to the app management page.</a>
+      <a class="manage-link" routerLink="/manage">Go to the app management page.</a>
     </p>
   } @else {
-    <table>
-      <caption>
-        The registered apps, with the click totals of each app.
-      </caption>
-      <thead>
-        <tr>
-          <th scope="col">App</th>
-          <th scope="col" class="num">Clicks</th>
-          <th scope="col" class="num">Unique users</th>
-          <th scope="col" class="num">Unique sessions</th>
-          <th scope="col">Status</th>
-          <th scope="col">Data time ({{ zoneName }})</th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (row of rows; track row.appId) {
+    <div class="table-scroll" tabindex="0" role="region" aria-labelledby="apps-caption">
+      <table>
+        <caption id="apps-caption">
+          The registered apps, with the click totals of each app.
+        </caption>
+        <thead>
           <tr>
-            <th scope="row">
-              <a [routerLink]="['/apps', row.appId, 'users']">{{ row.name }}</a>
-            </th>
-            <td class="num" (click)="onRowCellClick(row)">{{ formatCount(row, row.clicks) }}</td>
-            <td class="num" (click)="onRowCellClick(row)">
-              {{ formatCount(row, row.uniqueUsers) }}
-            </td>
-            <td class="num" (click)="onRowCellClick(row)">
-              {{ formatCount(row, row.uniqueSessions) }}
-            </td>
-            <td class="status" (click)="onRowCellClick(row)">
-              <span aria-hidden="true">{{ statusIcon(row.status) }}</span>
-              {{ statusLabel(row.status) }}
-              @if (isFailed(row.status) && row.lastSuccessAt) {
-                <p class="data-from">
-                  Data from
-                  <time [attr.datetime]="row.lastSuccessAt">{{
-                    formatTime(row.lastSuccessAt)
-                  }}</time>
-                </p>
-              }
-              @if (isFailed(row.status) && row.lastError) {
-                <p class="error-text">{{ row.lastError }}</p>
-              }
-            </td>
-            <td class="data-time" (click)="onRowCellClick(row)">
-              @if (!isFailed(row.status) && row.lastSuccessAt) {
-                <time [attr.datetime]="row.lastSuccessAt">{{
-                  formatDateTime(row.lastSuccessAt)
-                }}</time>
-              } @else if (!row.lastSuccessAt) {
-                <span>–</span>
-              }
-            </td>
+            <th scope="col">App</th>
+            <th scope="col" class="num">Clicks</th>
+            <th scope="col" class="num">Unique users</th>
+            <th scope="col" class="num">Unique sessions</th>
+            <th scope="col">Status</th>
+            <th scope="col">Data time ({{ zoneName }})</th>
           </tr>
-        }
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          @for (row of rows; track row.appId) {
+            <tr>
+              <th scope="row">
+                <a [routerLink]="['/apps', row.appId, 'users']">{{ row.name }}</a>
+              </th>
+              <td class="num" (click)="onRowCellClick(row, $event)">
+                @if (row.status === 'NEVER_POLLED') {
+                  <span class="visually-hidden">No data</span><span aria-hidden="true">–</span>
+                } @else {
+                  {{ formatCount(row, row.clicks) }}
+                }
+              </td>
+              <td class="num" (click)="onRowCellClick(row, $event)">
+                @if (row.status === 'NEVER_POLLED') {
+                  <span class="visually-hidden">No data</span><span aria-hidden="true">–</span>
+                } @else {
+                  {{ formatCount(row, row.uniqueUsers) }}
+                }
+              </td>
+              <td class="num" (click)="onRowCellClick(row, $event)">
+                @if (row.status === 'NEVER_POLLED') {
+                  <span class="visually-hidden">No data</span><span aria-hidden="true">–</span>
+                } @else {
+                  {{ formatCount(row, row.uniqueSessions) }}
+                }
+              </td>
+              <td class="status" (click)="onRowCellClick(row, $event)">
+                <span aria-hidden="true">{{ statusIcon(row.status) }}</span>
+                {{ statusLabel(row.status) }}
+                @if (isFailed(row.status) && row.lastSuccessAt) {
+                  <p class="data-from">
+                    Data from
+                    <time [attr.datetime]="row.lastSuccessAt">{{
+                      formatTime(row.lastSuccessAt)
+                    }}</time>
+                  </p>
+                }
+                @if (isFailed(row.status) && row.lastError) {
+                  <p class="error-text">{{ row.lastError }}</p>
+                }
+              </td>
+              <td class="data-time" (click)="onRowCellClick(row, $event)">
+                @if (row.lastSuccessAt) {
+                  <time [attr.datetime]="row.lastSuccessAt">{{
+                    formatDateTime(row.lastSuccessAt)
+                  }}</time>
+                } @else {
+                  <span class="visually-hidden">No data</span><span aria-hidden="true">–</span>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
   }
 } @else {
   <p>Octometer reads the app list.</p>

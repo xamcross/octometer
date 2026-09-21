@@ -13,7 +13,22 @@ td {
   padding: 0.5rem 0.75rem;
   text-align: left;
   vertical-align: top;
+}
+
+/*
+ * Only a free-text cell breaks inside a word. A number and a header stay on
+ * one line. A narrow viewport then does not break each one into one
+ * character for each line.
+ */
+th[scope='row'],
+.data-from,
+.error-text {
   overflow-wrap: anywhere;
+}
+
+.num,
+.data-time {
+  white-space: nowrap;
 }
 
 .num {
@@ -21,7 +36,8 @@ td {
   font-variant-numeric: tabular-nums;
 }
 
-th[scope='row'] a {
+th[scope='row'] a,
+.manage-link {
   display: inline-flex;
   align-items: center;
   min-width: 24px;
@@ -31,5 +47,27 @@ th[scope='row'] a {
 .data-from,
 .error-text {
   margin: 0.25rem 0 0;
-  overflow-wrap: anywhere;
+}
+
+/* The table scrolls sideways when the columns need more width than the screen. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* A click on a data cell opens the link of the name cell (D28). */
+tbody td {
+  cursor: pointer;
+}
+
+tbody tr:hover,
+tbody tr:focus-within {
+  background-color: #eef2f7;
+}
+
+@media (forced-colors: active) {
+  tbody tr:hover,
+  tbody tr:focus-within {
+    background-color: Highlight;
+    color: HighlightText;
+  }
 }
