@@ -26,8 +26,9 @@ export interface Tracker {
   /** Starts the click listener. A second call has no extra effect. */
   start(): void;
   /**
-   * Empties the queue, stops the pending timer, removes the click listener,
-   * and removes the session id from `sessionStorage`.
+   * Empties the queue, stops the pending timer, and removes the click
+   * listener. It also removes the session id from `sessionStorage`, but
+   * only when `start()` ran at least one time before.
    */
   stop(): void;
 }
@@ -61,6 +62,7 @@ export function createTracker(options: TrackerOptions): Tracker {
   let timerId: ReturnType<typeof setTimeout> | null = null;
   let sessionId: string | null = null;
   let started = false;
+  let everStarted = false;
   let clickListener: ((event: Event) => void) | null = null;
 
   function start(): void {
@@ -72,6 +74,7 @@ export function createTracker(options: TrackerOptions): Tracker {
       return;
     }
     started = true;
+    everStarted = true;
     clickListener = (event: Event) => handleClick(event);
     document.addEventListener('click', clickListener, true);
   }
@@ -87,9 +90,11 @@ export function createTracker(options: TrackerOptions): Tracker {
       document.removeEventListener('click', clickListener, true);
     }
     clickListener = null;
-    if (sessionId !== null) {
-      // The tracker removes the key only when this instance made or read it.
-      sessionId = null;
+    sessionId = null;
+    if (everStarted) {
+      // A started tracker always removes the key, also with no flush before.
+      // A tracker that never started still touches no storage.
+      everStarted = false;
       removeStoredSessionId();
     }
   }
@@ -137,9 +142,11 @@ export function createTracker(options: TrackerOptions): Tracker {
     if (queue.length === 0) {
       return;
     }
-    const id = getOrCreateSessionId();
+    // The queue empties before the session id call, so a throw there drops
+    // only this one batch. A later click still starts a new timer.
     const entries = queue;
     queue = [];
+    const id = getOrCreateSessionId();
     for (let offset = 0; offset < entries.length; offset += MAX_BATCH_SIZE) {
       void sendBatch(id, entries.slice(offset, offset + MAX_BATCH_SIZE));
     }
@@ -159,7 +166,14 @@ export function createTracker(options: TrackerOptions): Tracker {
         // The tracker sends the batch with the default headers only.
       }
     }
-    // The tracker sets Content-Type last, so an app header cannot replace it.
+    // The tracker owns the content type. It drops each spelling of the
+    // header name first, so a header object cannot carry the name two
+    // times with a different case (contract rule C12).
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === 'content-type') {
+        delete headers[name];
+      }
+    }
     headers['Content-Type'] = 'application/json';
     return fetch(endpoint, {
       method: 'POST',

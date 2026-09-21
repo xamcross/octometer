@@ -246,13 +246,21 @@ describe('createTracker', () => {
     expect(() => tracker?.stop()).not.toThrow();
   });
 
-  it('does not touch sessionStorage when stop() runs before a flush ever wrote it', () => {
+  it('does not touch sessionStorage when stop() runs before start()', () => {
     const removeItemSpy = vi.spyOn(window.sessionStorage.__proto__, 'removeItem');
+    tracker = createTracker({ endpoint: ENDPOINT });
+    tracker.stop();
+
+    expect(removeItemSpy).not.toHaveBeenCalled();
+  });
+
+  it('stop() removes a session id of an earlier page load, also before a flush', () => {
+    window.sessionStorage.setItem('octo_session_id', 'an-older-id');
     tracker = createTracker({ endpoint: ENDPOINT });
     tracker.start();
     tracker.stop();
 
-    expect(removeItemSpy).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem('octo_session_id')).toBeNull();
   });
 
   it('creates a new sessionId after stop() and a later start()', () => {
@@ -400,6 +408,27 @@ describe('createTracker', () => {
     );
   });
 
+  it('drops each spelling of the content-type header name before it sets its own', () => {
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({
+      endpoint: ENDPOINT,
+      headers: () => ({ 'content-type': 'text/plain' }),
+    });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const call = at(parseCalls(fetchMock), 0);
+    // A real Headers object merges two spellings of one name into one field.
+    const headers = new Headers(call.init.headers as Record<string, string>);
+    const names = Array.from(headers.keys()).filter((name) => name.toLowerCase() === 'content-type');
+    expect(names).toHaveLength(1);
+    expect(headers.get('content-type')).toBe('application/json');
+  });
+
   it('sends the batch with the default headers when the headers() callback throws', () => {
     const host = document.createElement('div');
     host.setAttribute('data-octo', 'save');
@@ -465,6 +494,29 @@ describe('createTracker', () => {
     vi.advanceTimersByTime(1000);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not throw and does not stall the queue when getOrCreateSessionId() throws', () => {
+    const realCrypto = globalThis.crypto;
+    // No stored session id and no crypto: generateUuid() must run and throw.
+    vi.stubGlobal('crypto', undefined);
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT, flushIntervalMs: 1000 });
+    tracker.start();
+    clickElement(host);
+    expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // The failed flush drops its batch. A later click still starts a timer.
+    vi.stubGlobal('crypto', realCrypto);
+    clickElement(host);
+    vi.advanceTimersByTime(1000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(at(parseCalls(fetchMock), 0).body.clicks).toHaveLength(1);
   });
 
   it('uses the default flushIntervalMs of 5000 ms', () => {

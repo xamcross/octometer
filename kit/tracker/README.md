@@ -7,8 +7,9 @@ and sends it to the ingest route of the app.
 
 The tracker stays off until the app calls `start()`. Call `start()` only
 after the consent signal of the app. Call `stop()` to end tracking. `stop()`
-empties the queue, stops the pending timer, removes the click listener, and
-removes the session id from `sessionStorage`.
+empties the queue, stops the pending timer, and removes the click listener.
+It also removes the session id from `sessionStorage`, but only when
+`start()` ran at least one time before.
 
 ## Use
 
@@ -33,7 +34,7 @@ with the pattern `[A-Za-z0-9_.:-]+` (contract rule C4).
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `endpoint` | none, mandatory | The ingest URL of the app. |
+| `endpoint` | none, mandatory | The ingest URL of the app. `createTracker()` throws a `TypeError` for an empty or a missing value. |
 | `credentials` | `same-origin` | The `fetch` credentials mode. |
 | `headers` | none | A function that returns extra request headers. |
 | `flushIntervalMs` | `5000` | The delay before the tracker sends a filled queue. |

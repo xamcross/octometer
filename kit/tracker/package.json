@@ -14,11 +14,12 @@
   },
   "files": [
     "dist",
-    "src"
+    "src/index.ts",
+    "README.md"
   ],
   "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.types.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
