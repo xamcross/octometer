@@ -1,0 +1,100 @@
+# The Dependabot config of Octometer.
+# Dependabot reads this file. It opens one grouped pull request for each
+# ecosystem, every week.
+#
+# Source: issue #23 and the design document, decision D38.
+#
+# Confirmation record (2026-09-22, WebFetch on the GitHub documentation):
+# 1. "Configuration options for the dependabot.yml file"
+#    (docs.github.com/en/code-security/dependabot/dependabot-version-updates/
+#    configuration-options-for-the-dependabot.yml-file). The page gives
+#    each key of this file: package-ecosystem, directory, schedule,
+#    open-pull-requests-limit, groups, ignore, labels, commit-message.
+# 2. "Dependabot supported ecosystems and repositories"
+#    (docs.github.com/en/code-security/dependabot/ecosystems-supported-by-dependabot/
+#    supported-ecosystems-and-repositories). The page confirms the three
+#    ecosystem names in this file: gradle, npm, github-actions.
+# 3. "Keeping your actions up to date with Dependabot". The page gives
+#    the example for the github-actions ecosystem: directory "/".
+# 4. "Security hardening for GitHub Actions". The page confirms that
+#    Dependabot updates the version comment next to a pinned commit SHA,
+#    for example "actions/checkout@<commit> # v7.0.1".
+#
+# Each schedule below sets the day, so the config states the day in
+# plain text instead of a hidden default. Each ecosystem keeps the
+# platform default of five open pull requests, because the groups below
+# already keep the count small.
+version: 2
+
+updates:
+  # The Gradle build at the root. Dependabot reads the version catalog
+  # gradle/libs.versions.toml.
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(gradle)"
+    groups:
+      gradle-dependencies:
+        patterns:
+          - "*"
+    # org.mongodb:mongodb-driver-sync stays at 5.0.1 on purpose. This is
+    # the version of the Spring Boot 3.3 BOM (design decision D22). A
+    # second test task already runs the same test suite against the
+    # newest 5.x driver, through the separate catalog entry
+    # mongodb-sync-newest. An automatic update of the pinned compile
+    # version 5.0.1 breaks this design decision.
+    ignore:
+      - dependency-name: "org.mongodb:mongodb-driver-sync"
+
+  # The Angular app.
+  - package-ecosystem: "npm"
+    directory: "/monitor/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(frontend)"
+    groups:
+      # The Angular packages must move together. This group keeps them
+      # in one pull request.
+      angular:
+        patterns:
+          - "@angular/*"
+      frontend-dependencies:
+        patterns:
+          - "*"
+
+  # The click tracker.
+  - package-ecosystem: "npm"
+    directory: "/kit/tracker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(tracker)"
+    groups:
+      tracker-dependencies:
+        patterns:
+          - "*"
+
+  # The GitHub Actions of .github/workflows/ci.yml. Each action stays
+  # pinned to a commit SHA with a version comment. Dependabot keeps this
+  # form; see confirmation record item 4 above.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
