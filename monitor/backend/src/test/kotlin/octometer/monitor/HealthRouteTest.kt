@@ -7,11 +7,12 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import octometer.monitor.config.MonitorConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class HealthRouteTest {
 
@@ -20,15 +21,44 @@ class HealthRouteTest {
     private val projectVersion = "0.1.0"
 
     @Test
-    fun `the health route answers with a version and a mode`() = testApplication {
-        application { module() }
+    fun `the health route answers with the version and the mode, and refreshSeconds is 5 in dev mode`() =
+        testApplication {
+            application { module(devConfig()) }
+
+            val response = client.get("/api/health")
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertEquals(ContentType.Application.Json, response.contentType()?.withoutParameters())
+            val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals(projectVersion, body["version"]!!.jsonPrimitive.content)
+            assertEquals("dev", body["mode"]!!.jsonPrimitive.content)
+            assertEquals(5, body["refreshSeconds"]!!.jsonPrimitive.int)
+        }
+
+    @Test
+    fun `refreshSeconds is 60 in prod mode`() = testApplication {
+        application { module(prodConfig()) }
 
         val response = client.get("/api/health")
 
-        assertEquals(HttpStatusCode.OK, response.status)
-        assertEquals(ContentType.Application.Json, response.contentType()?.withoutParameters())
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
-        assertEquals(projectVersion, body["version"]!!.jsonPrimitive.content)
-        assertTrue(body["mode"]!!.jsonPrimitive.content.isNotBlank())
+        assertEquals("prod", body["mode"]!!.jsonPrimitive.content)
+        assertEquals(60, body["refreshSeconds"]!!.jsonPrimitive.int)
     }
+
+    private fun devConfig() = MonitorConfig(
+        mode = "dev",
+        port = 7431,
+        dataDir = "build/dev-data",
+        settleLagSeconds = 2,
+        retentionDays = 395,
+    )
+
+    private fun prodConfig() = MonitorConfig(
+        mode = "prod",
+        port = 7431,
+        dataDir = "C:/data",
+        settleLagSeconds = 60,
+        retentionDays = 395,
+    )
 }
