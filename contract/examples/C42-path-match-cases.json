@@ -1,0 +1,317 @@
+[
+  {
+    "name": "the root path",
+    "rule": "C42 root path",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/",
+    "result": "/"
+  },
+  {
+    "name": "a named segment masks the real value",
+    "rule": "C42 :name segment",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/history/42",
+    "result": "/history/:id"
+  },
+  {
+    "name": "a star segment keeps a valid real value",
+    "rule": "C42 * segment kept",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/articles/ovdp-2026",
+    "result": "/articles/ovdp-2026"
+  },
+  {
+    "name": "a trailing slash goes before the match, and the match ignores the letter case",
+    "rule": "C42 trailing slash, literal letter case",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/ARTICLES/",
+    "result": "/articles"
+  },
+  {
+    "name": "a path with no matching pattern",
+    "rule": "C42 no match",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/tokens/abc",
+    "result": "/other"
+  },
+  {
+    "name": "a path with a different segment count than each pattern",
+    "rule": "C42 no prefix match",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/articles/a/b",
+    "result": "/other"
+  },
+  {
+    "name": "an empty segment",
+    "rule": "C42 empty segment",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/articles//x",
+    "result": "/other"
+  },
+  {
+    "name": "a dot segment",
+    "rule": "C42 dot segment",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/articles/.",
+    "result": "/other"
+  },
+  {
+    "name": "a dot-dot segment",
+    "rule": "C42 dot-dot segment",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/articles/..",
+    "result": "/other"
+  },
+  {
+    "name": "a star segment of 80 characters stays valid",
+    "rule": "C42 * segment max length",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/articles/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "result": "/articles/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+    "name": "a star segment of 81 characters",
+    "rule": "C42 * segment above max length",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/articles/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "result": "/other"
+  },
+  {
+    "name": "a star segment with a raw space",
+    "rule": "C42 * segment charset",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/articles/a b",
+    "result": "/other"
+  },
+  {
+    "name": "a star segment that keeps a well-formed escape, undecoded",
+    "rule": "C42 * segment escape kept",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/articles/a%20b",
+    "result": "/articles/a%20b"
+  },
+  {
+    "name": "a literal segment match ignores the letter case, without a trailing slash",
+    "rule": "C42 literal letter case",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/OvDp/RaTeS",
+    "result": "/ovdp/rates"
+  },
+  {
+    "name": "an empty route list gives /other inside the matcher function",
+    "rule": "C42 matcher function only. A caller with no route pattern list sends no path field.",
+    "routes": [],
+    "path": "/",
+    "result": "/other"
+  },
+  {
+    "name": "a percent-encoded path above 150 bytes at a full route match",
+    "rule": "C42 result byte cap, above",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/articles/a%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0%D0%B0",
+    "result": "/other"
+  },
+  {
+    "name": "a result of exactly 150 bytes stays",
+    "rule": "C42 result byte cap, at the limit",
+    "routes": [
+      "/a/*/*"
+    ],
+    "path": "/a/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "result": "/a/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  {
+    "name": "a result of 151 bytes gives /other",
+    "rule": "C42 result byte cap, above by one",
+    "routes": [
+      "/a/*/*"
+    ],
+    "path": "/a/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "result": "/other"
+  },
+  {
+    "name": "never decodes a percent escape before the match",
+    "rule": "C42 no decode",
+    "routes": [
+      "/articles/*"
+    ],
+    "path": "/articles/e%CC%81t%C3%A9",
+    "result": "/articles/e%CC%81t%C3%A9"
+  },
+  {
+    "name": "uses the text of the pattern for a literal segment, never the text of the input",
+    "rule": "C42 pattern text, not input text",
+    "routes": [
+      "/Articles"
+    ],
+    "path": "/articles",
+    "result": "/Articles"
+  },
+  {
+    "name": "a dot segment at a named position",
+    "rule": "C42 dot segment (named route)",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/history/.",
+    "result": "/other"
+  },
+  {
+    "name": "a dot-dot segment at a named position",
+    "rule": "C42 dot-dot segment (named route)",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/history/..",
+    "result": "/other"
+  },
+  {
+    "name": "an empty segment after a removed trailing slash",
+    "rule": "C42 empty segment (named route)",
+    "routes": [
+      "/",
+      "/articles",
+      "/articles/*",
+      "/history/:id",
+      "/ovdp/rates"
+    ],
+    "path": "/history//",
+    "result": "/other"
+  },
+  {
+    "name": "a literal segment with a well-formed percent escape is a valid pattern",
+    "rule": "C39 literal segment percent escape",
+    "routes": [
+      "/caf%C3%A9"
+    ],
+    "path": "/caf%C3%A9",
+    "result": "/caf%C3%A9"
+  },
+  {
+    "name": "the first pattern of two that match gives the result",
+    "rule": "C42 first match wins",
+    "routes": [
+      "/articles/*",
+      "/articles/:id"
+    ],
+    "path": "/articles/abc",
+    "result": "/articles/abc"
+  },
+  {
+    "name": "the reverse order of the same two patterns gives the other result",
+    "rule": "C42 first match wins",
+    "routes": [
+      "/articles/:id",
+      "/articles/*"
+    ],
+    "path": "/articles/abc",
+    "result": "/articles/:id"
+  },
+  {
+    "name": "a short pattern list gives a clean prefix mismatch",
+    "rule": "C42 no prefix match (short list)",
+    "routes": [
+      "/articles"
+    ],
+    "path": "/articles/x",
+    "result": "/other"
+  }
+]
