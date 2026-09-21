@@ -1,6 +1,9 @@
 package octometer.kit.mongo.store;
 
+import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoCredential;
 import com.mongodb.MongoException;
+import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
@@ -63,7 +66,7 @@ class MongoEventLogStoreInsertOnlyUserTest {
                 .append("pwd", APP_PASSWORD)
                 .append("roles", List.of(new Document("role", "insertOnly").append("db", APP_DATABASE))));
 
-        appClient = MongoClients.create(connectionString(APP_USER, APP_PASSWORD, APP_DATABASE));
+        appClient = clientFor(APP_USER, APP_PASSWORD, APP_DATABASE);
     }
 
     @AfterEach
@@ -104,11 +107,10 @@ class MongoEventLogStoreInsertOnlyUserTest {
     }
 
     private static MongoClient connectWithRetry(String user, String password, String authDatabase) {
-        String connectionString = connectionString(user, password, authDatabase);
         MongoException lastFailure = null;
         for (int attempt = 0; attempt < 10; attempt++) {
             try {
-                MongoClient client = MongoClients.create(connectionString);
+                MongoClient client = clientFor(user, password, authDatabase);
                 client.getDatabase("admin").runCommand(new Document("ping", 1));
                 return client;
             } catch (MongoException e) {
@@ -127,8 +129,18 @@ class MongoEventLogStoreInsertOnlyUserTest {
         }
     }
 
-    private static String connectionString(String user, String password, String authDatabase) {
-        return "mongodb://" + user + ":" + password + "@" + MONGO.getHost() + ":"
-                + MONGO.getMappedPort(27017) + "/?authSource=" + authDatabase;
+    /**
+     * Builds a client with a {@link MongoCredential}, so no text of the
+     * form {@code user:password@host} ever exists in this file (the
+     * gitleaks rule {@code mongodb-uri-password} of {@code
+     * .gitleaks.toml}).
+     */
+    private static MongoClient clientFor(String user, String password, String authDatabase) {
+        MongoClientSettings settings = MongoClientSettings.builder()
+                .applyToClusterSettings(builder -> builder.hosts(
+                        List.of(new ServerAddress(MONGO.getHost(), MONGO.getMappedPort(27017)))))
+                .credential(MongoCredential.createCredential(user, authDatabase, password.toCharArray()))
+                .build();
+        return MongoClients.create(settings);
     }
 }

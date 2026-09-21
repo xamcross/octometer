@@ -4,6 +4,8 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.IndexOptions;
+import com.mongodb.client.model.Indexes;
 import octometer.kit.core.ingest.IngestEvent;
 import org.bson.Document;
 import org.junit.jupiter.api.AfterEach;
@@ -13,6 +15,8 @@ import org.testcontainers.containers.MongoDBContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -109,6 +113,27 @@ class MongoEventLogStoreTest {
     }
 
     @Test
+    void appendWrapsARealDuplicateKeyFailureWithTheRealCodeAndNoConnectionDetail() {
+        MongoEventLogStore store = new MongoEventLogStore(database, 30);
+        rawCollection().createIndex(Indexes.ascending("sessionId"), new IndexOptions().unique(true));
+        List<IngestEvent> events = List.of(
+                new IngestEvent("duplicate-session", "e1", Instant.now()),
+                new IngestEvent("duplicate-session", "e2", Instant.now()));
+
+        MongoEventLogStore.EventLogWriteException thrown = assertThrows(
+                MongoEventLogStore.EventLogWriteException.class, () -> store.append(events, "user-1"));
+
+        assertEquals(11000, thrown.errorCode(), "A duplicate key must give the real server code.");
+        assertNull(thrown.getCause(), "The kit exception must hold no cause.");
+        String fullText = (thrown.getMessage() + " " + fullStackTraceText(thrown)).toLowerCase();
+        assertFalse(fullText.contains(MONGO.getHost().toLowerCase()), "The text must hold no host.");
+        assertFalse(fullText.contains(Integer.toString(MONGO.getFirstMappedPort())), "The text must hold no port.");
+        assertFalse(fullText.contains(database.getName().toLowerCase()), "The text must hold no database name.");
+        assertFalse(fullText.contains("duplicate-session"), "The text must hold no field value.");
+        assertEquals(1, rawCollection().countDocuments());
+    }
+
+    @Test
     void aSecondStartWithADifferentRetentionChangesExpireAfterSecondsAndDoesNotFail() {
         new MongoEventLogStore(database, 30);
         assertEquals(30L * 24 * 60 * 60, ttlExpireAfterSeconds());
@@ -152,5 +177,11 @@ class MongoEventLogStoreTest {
             }
         }
         throw new AssertionError("No TTL index found on octometer_events.");
+    }
+
+    private static String fullStackTraceText(Throwable throwable) {
+        StringWriter stringWriter = new StringWriter();
+        throwable.printStackTrace(new PrintWriter(stringWriter));
+        return stringWriter.toString();
     }
 }

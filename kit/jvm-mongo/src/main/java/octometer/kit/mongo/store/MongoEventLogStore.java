@@ -1,5 +1,6 @@
 package octometer.kit.mongo.store;
 
+import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
@@ -126,11 +127,29 @@ public final class MongoEventLogStore implements EventLogStore {
         }
         try {
             collection.insertMany(documents, new InsertManyOptions().ordered(true));
+        } catch (MongoBulkWriteException e) {
+            throw new EventLogWriteException(firstErrorCode(e));
         } catch (MongoCommandException e) {
             throw new EventLogWriteException(e.getErrorCode());
         } catch (RuntimeException e) {
             throw new EventLogWriteException(-1);
         }
+    }
+
+    /**
+     * The numeric code of a failed bulk write: the code of the first
+     * write error, or the code of the write concern error, or -1 when
+     * neither one exists. The method reads only a numeric code. It never
+     * reads a message, a name space, or a document, because each one can
+     * hold a host, a port, or a stored value (design decision D15).
+     */
+    private static int firstErrorCode(MongoBulkWriteException exception) {
+        if (!exception.getWriteErrors().isEmpty()) {
+            return exception.getWriteErrors().get(0).getCode();
+        }
+        return exception.getWriteConcernError() == null
+                ? -1
+                : exception.getWriteConcernError().getCode();
     }
 
     @Override
@@ -183,9 +202,9 @@ public final class MongoEventLogStore implements EventLogStore {
      * the server text, because the server text can hold a host, a port,
      * or a database name (design decision D15).
      *
-     * <p>A failed {@code createIndex} step leaves the collection with no
-     * TTL index at all, so every event of this app then stays with no
-     * time limit, and contract rule C8 does not apply until an
+     * <p>A failed {@code createIndex} step can leave the collection with
+     * no TTL index at all, so every event of this app can then stay with
+     * no time limit, and contract rule C8 does not apply until an
      * administrator creates the index. A failed {@code collMod} step
      * leaves the previous TTL index in place, so contract rule C8 still
      * applies, but with the old retention value.
@@ -195,9 +214,9 @@ public final class MongoEventLogStore implements EventLogStore {
                 ? Integer.toString(commandException.getErrorCode())
                 : "unknown";
         String consequence = "createIndex".equals(step)
-                ? "The event collection now has no TTL index. Each event of this app "
-                        + "stays with no time limit. Contract rule C8 does not apply "
-                        + "until an administrator creates the index."
+                ? "The event collection can now have no TTL index. Each event of this "
+                        + "app can then stay with no time limit. Contract rule C8 does "
+                        + "not apply until an administrator creates the index."
                 : "The TTL index on ts keeps its old retention value. Contract rule "
                         + "C8 applies with the old value, not the new value.";
         LOGGER.log(Level.WARNING, "The TTL index step \"" + step + "\" failed with the "
