@@ -1,0 +1,22 @@
+#!/bin/sh
+# The secret scan of a commit.
+#
+# This hook runs before each commit. It scans the staged changes for a
+# secret. It uses gitleaks and the rules of .gitleaks.toml.
+#
+# A developer turns this hook on with one run of scripts/bootstrap.ps1 in
+# a clone. The script sets core.hooksPath to .githooks.
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+	echo "pre-commit: gitleaks is not on the PATH." >&2
+	echo "pre-commit: install it, for example with: winget install gitleaks" >&2
+	exit 1
+fi
+
+# The command "git --staged" scans the staged changes. gitleaks 8.19.0
+# and later hide the older command "protect --staged" from --help, but
+# "git --staged" stays in the list and states the same use: "scan staged
+# commits (good for pre-commit)". Source: `gitleaks git --help` and
+# `gitleaks --help` of gitleaks 8.30.1, and the gitleaks README of the
+# master branch, read on 2026-09-21.
+gitleaks git --staged --redact -v
