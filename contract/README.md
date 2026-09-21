@@ -42,7 +42,8 @@ Collection `octometer_events`, in the database of the app.
 
 - **C1.** The event collection is `octometer_events`, in the database of the app.
 - **C2.** The `_id` field is an ObjectId. The kit creates it inside the insert call. The time
-  bytes of the `_id` hold the insert time. This time is at or after `ts`.
+  bytes of the `_id` hold the insert time, with a resolution of 1 second. In full seconds,
+  this time is at or after `ts` (design section 2.4).
 - **C3.** The `ts` field is a Date. It holds the click time. The app server sets it.
 - **C4.** The `element` field is a string of 1 to 100 characters. It matches the pattern
   `[A-Za-z0-9_.:-]+`.
