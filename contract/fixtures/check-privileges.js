@@ -3,7 +3,11 @@
 // This script proves the privileges of the current mongosh connection.
 // The owner runs it against the read-only database user of section 4.4.
 //
-// Run: mongosh "<uri>" --quiet --file contract/fixtures/check-privileges.js
+// Run: mongosh "mongodb+srv://<host>/<database>" --username <user> \
+//        --quiet --file contract/fixtures/check-privileges.js
+//
+// The password never goes into the URI. mongosh asks for the password
+// after this command. The prompt goes to standard error.
 //
 // The script prints exactly one JSON document to standard output. It prints
 // no other text. It never prints the URI, the password, or the user name of
@@ -15,16 +19,109 @@ const OTHER_COLLECTION = "octometer_probe_other";
 const REDACTED_USER = "REDACTED";
 const PROBE_MARKER = "octometer-check-privileges-probe";
 const ERROR_TEXT_LIMIT = 300;
+const REDACTED_HOST = "<host>";
 
-// Builds one error object from a caught error. The text stops after 300
-// characters. Each probe command of this script takes a constant argument,
-// thus the error text holds no value of a real document.
+// The redaction below cuts a long text to this length first.
+// HOST_PORT_PATTERN holds two nested repeats. Its match time grows with
+// the square of the text length, on a text with no real host and no
+// colon. The security review of #85 measured 719 ms at 25600 characters
+// against the pattern with no bound. A server error text needs at most a
+// few kilobytes. This bound loses no real host name. The script keeps
+// only the first 300 characters of the output. A host beyond this bound
+// never reaches the output.
+//
+// A cut host name at the bound can still reach the output, but only in a
+// text that no server writes. The fourth security review of #85 measured
+// the threshold: each host name in the text needs 93 characters or more,
+// and about 49 of them must stand in a row. A real Atlas host name holds
+// 37 to 45 characters, and one DNS label holds at most 63 characters, so
+// a real error text does not reach this threshold.
+const MAX_REDACT_INPUT_LENGTH = 4000;
+
+// Each pattern below matches one form of a host name or an IP address.
+// Used only on the text of a server error.
+//
+// - IPV6_PATTERN: an IPv6 address inside brackets, with an optional port.
+// - IPV4_PATTERN: an IPv4 address, with an optional port.
+// - HOST_PORT_PATTERN: a host name, together with a port (for example
+//   "mongo1:27017"). The host part must hold a dot, or two letters. This
+//   rule keeps a plain time value out of the match, for example "10:30"
+//   inside a timestamp such as "2026-09-21T10:30:00Z". The letter "T" of
+//   that timestamp is one letter, not two. The timestamp also holds no
+//   dot.
+// - MONGODB_NET_PATTERN: a lone Atlas host name, in the form
+//   "*.mongodb.net". The flag `i` covers each letter case. DNS does not
+//   care about the case of a host name.
+const IPV6_PATTERN = /\[[0-9A-Fa-f:.]+\](?::\d{2,5})?/g;
+const IPV4_PATTERN = /\b\d{1,3}(?:\.\d{1,3}){3}(?::\d{2,5})?\b/g;
+const HOST_PORT_PATTERN =
+  /\b(?=[A-Za-z0-9.-]*\.|[A-Za-z0-9.-]*[A-Za-z][A-Za-z0-9.-]*[A-Za-z])[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?:\d{2,5}\b/g;
+const MONGODB_NET_PATTERN =
+  /\b[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.mongodb\.net\b/gi;
+
+// Removes a host name, an IP address, and a port from a piece of text. A
+// server error text can hold a host name, for example a "not primary"
+// text or a "host unreachable" text. The function covers these forms:
+//
+// - An IPv4 address, with or without a port.
+// - An IPv6 address inside brackets, with or without a port. The brackets
+//   are required. A real server writes an IPv6 host with brackets.
+// - A host name with a dot, or with two letters, together with a port.
+// - An Atlas host name in the form "*.mongodb.net", in any letter case.
+//
+// The function has these known limits:
+//
+// - It cannot know a host name with no port and no "mongodb.net" suffix,
+//   for example "localhost" or "db.example.com". Such a name looks the
+//   same as an ordinary word, thus the function leaves it as it is.
+// - A four-part dotted number can look like an IP address. The function
+//   redacts a version number such as "1.2.3.4" by mistake. This loss is
+//   small. It never removes a code or a code name.
+// - A port can survive next to a redacted host when a word character
+//   follows it directly, for example ":27017tail". This form does not
+//   occur in a real error text.
+//
+// The function also cuts the input to MAX_REDACT_INPUT_LENGTH characters
+// before it looks for a host name. See the comment on that constant.
+function redactHost(text) {
+  const bounded =
+    text.length > MAX_REDACT_INPUT_LENGTH ? text.slice(0, MAX_REDACT_INPUT_LENGTH) : text;
+  return bounded
+    .replace(IPV6_PATTERN, REDACTED_HOST)
+    .replace(IPV4_PATTERN, REDACTED_HOST)
+    .replace(HOST_PORT_PATTERN, REDACTED_HOST)
+    .replace(MONGODB_NET_PATTERN, REDACTED_HOST);
+}
+
+// A server error has a number in `code` and a text in `codeName`. Each
+// other error is a driver error, for example a lost connection, or a Node
+// system error with a text code such as "ECONNREFUSED". A driver error can
+// hold the host name and the port of the cluster in its text.
+function isServerError(e) {
+  return typeof e.code === "number" && typeof e.codeName === "string";
+}
+
+// Builds one error object from a caught error. A server error keeps its
+// code, its code name, and its text. The text stops after 300 characters.
+// The script also removes each host name and each port from the text.
+//
+// A driver error is not a server error. Its `errmsg` stays an empty text,
+// and the error object holds the field driverError: true. Each probe
+// command of this script takes a constant argument, thus a kept error text
+// holds no value of a real document.
 function errorInfo(e) {
-  return {
-    code: e.code || null,
-    codeName: e.codeName || null,
-    errmsg: String(e.errmsg || e.message || "").slice(0, ERROR_TEXT_LIMIT),
+  const server = isServerError(e);
+  const info = {
+    code: server ? e.code : null,
+    codeName: server ? e.codeName : null,
+    errmsg: server
+      ? redactHost(String(e.errmsg || e.message || "")).slice(0, ERROR_TEXT_LIMIT)
+      : "",
   };
+  if (!server) {
+    info.driverError = true;
+  }
+  return info;
 }
 
 const result = {
