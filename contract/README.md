@@ -3,7 +3,8 @@
 This document states the event log contract of Octometer. The contract has four parts: the
 event document, the ingest request, the reader rule, and the database user. The source is
 section 4 of `docs/superpowers/specs/2026-09-21-octometer-design.md`, plus section 1 and the
-last paragraph of section 6 for the definitions below.
+last paragraph of section 6 for the definitions below. Some rules also cite an owner decision
+or a design decision from that document: O4, O5, D4, D5, and D21.
 
 Each rule has an ID, `C1` to `C35`. The table at the end maps each rule ID to its example file.
 
@@ -24,8 +25,8 @@ views: an app view, a user view, and an element view.
   belong to two users. For this reason, the level 2 session counts do not sum to the level 1
   unique-session count (design section 6, last paragraph).
 - **Sessions at level 3.** The level 3 column "sessions" counts the distinct `sessionId`
-  values for one app, one user id, and one element (design section 1; design section 6:
-  level 3 filters with `user_id IS ?` and groups by `element`).
+  values for one app, one user id, and one element. The source is design section 1. Design
+  section 6 says level 3 filters with `user_id IS ?` and groups by `element`.
 - **Unique elements.** The level 2 column "unique elements" counts the distinct `element`
   values that one user has clicked.
 
@@ -108,9 +109,9 @@ application/json`.
   seconds after the creation of its `_id`. The monitor does not read this insert.
 - **C26.** A `$gt` filter on a deleted `_id` is a plain index seek. A TTL delete does not
   break the reader's cursor.
-- **C34.** Without a cursor, the reader starts at the oldest event. The cursor moves to the
-  `_id` of the last document of a committed page. The cursor also moves after a skipped
-  document (design decisions D4 and D5).
+- **C34.** Without a cursor, the reader starts at the oldest event (design section 4.3). The
+  cursor moves to the `_id` of the last document of a committed page. The cursor also moves
+  after a skipped document (design decisions D4 and D5).
 
 ## 4. The database user (design section 4.4)
 
@@ -134,8 +135,8 @@ shell history does not keep it.
 - **C30.** The owner runs these commands. A password must not pass through an agent.
 - **C31.** The owner rotates the password after a laptop loss, after a suspected leak, and
   each 12 months. A rotation deletes the user, then creates the user again.
-- **C35.** The database role holds only the `FIND` privilege. The privilege is limited to
-  the collection `octometer_events` (design decision O4).
+- **C35.** The database role holds only the `FIND` privilege. The role limits the privilege
+  to the collection `octometer_events` (design decision O4).
 
 ## Examples
 
@@ -168,6 +169,6 @@ invalid ingest body is also valid JSON. Its value breaks one rule of the contrac
 | C25 | The accepted loss | No example file. This rule states a timing bound, not a document shape. |
 | C27–C31 | The database user | No example file. These rules state shell commands. |
 | C32 | Unknown-field tolerance in the ingest body, `userId` included | No dedicated example file. The padding field of `examples/ingest-invalid-C18-body-size.json` is such an ignored field. |
-| C33 | Ingest-time check of `element` (C4) and `sessionId` (C5) | `examples/ingest-invalid-C4-element-pattern.json`, `examples/ingest-invalid-C5-session-id.json` |
+| C33 | Ingest-time check of `element` (C4) and `sessionId` (C5) | `examples/ingest-invalid-C4-element-pattern.json`, `examples/ingest-invalid-C4-element-length.json`, `examples/ingest-invalid-C5-session-id.json` |
 | C34 | Cursor start value and advance rule | No example file. This rule states a server-side algorithm. |
 | C35 | Database role limit (`FIND` only, one collection) | No example file. This rule states a database administration fact. |
