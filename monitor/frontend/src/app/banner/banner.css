@@ -1,0 +1,12 @@
+.banner-slot {
+  display: flex;
+  align-items: center;
+}
+
+.banner-text {
+  width: 100%;
+  margin: 0;
+  padding: 0.5rem 1rem;
+  background-color: #7a1913;
+  color: #ffffff;
+}

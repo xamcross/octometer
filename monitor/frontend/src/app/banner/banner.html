@@ -1,0 +1,5 @@
+<div class="banner-slot" [style.min-height.px]="reservedHeight">
+  @if (apiError(); as message) {
+    <p role="alert" class="banner-text">{{ message }}</p>
+  }
+</div>
