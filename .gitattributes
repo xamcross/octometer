@@ -1,7 +1,21 @@
-# Git keeps the LF line end of gradlew. Git keeps the CRLF line end of gradlew.bat.
+# This file sets a stable line end for each text file. Git detects a text
+# file and normalizes it to LF in the repository (`text=auto`). A shell
+# script and gradlew keep LF. A Windows batch file keeps CRLF. A PowerShell
+# script stays text, with the normal `text=auto` conversion. A JAR, a PNG,
+# and an ICO file stay binary, with no conversion.
+* text=auto
+
+*.sh text eol=lf
 /gradlew text eol=lf
 /gradlew.bat text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text
+
+*.jar binary
 /gradle/wrapper/gradle-wrapper.jar binary
+*.png binary
+*.ico binary
 
 # Git keeps the LF line end of the pre-commit hook. The hook is a POSIX
 # shell script and needs LF, also on a Windows clone.
