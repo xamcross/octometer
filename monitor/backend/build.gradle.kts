@@ -12,16 +12,13 @@ kotlin {
     jvmToolchain(21)
 }
 
-repositories {
-    mavenCentral()
-}
-
 dependencies {
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.netty)
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.kotlinx.serialization.json)
+    runtimeOnly(libs.logback.classic)
 
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.kotlin.test.junit5)
@@ -41,9 +38,12 @@ tasks.named<JavaExec>("run") {
     systemProperty("octometer.mode", "dev")
 }
 
-// The Task.project call must not run at execution time (Gradle 10 forbids it).
-val appVersion = version.toString()
+// The version value must sit inside the task block. A value outside it
+// becomes a field of the build script, and the script object cannot
+// serialize for the configuration cache (Task.project at execution time).
 tasks.processResources {
+    val appVersion = project.version.toString()
+    inputs.property("appVersion", appVersion)
     filesMatching("version.properties") {
         expand("version" to appVersion)
     }

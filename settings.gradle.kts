@@ -6,4 +6,13 @@ plugins {
 
 rootProject.name = "octometer"
 
+// A shared repository for each module. A later issue adds a convention plugin
+// for the toolchain and the test setup, when the second JVM module arrives.
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        mavenCentral()
+    }
+}
+
 include(":monitor:backend")
