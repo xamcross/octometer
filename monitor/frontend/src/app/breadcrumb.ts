@@ -1,7 +1,7 @@
 /** One entry of the breadcrumb trail. */
 export interface BreadcrumbItem {
   readonly label: string;
-  /** The link target. Empty for the current page. */
+  /** The link target. Null when the entry is not a link. */
   readonly path: string | null;
 }
 

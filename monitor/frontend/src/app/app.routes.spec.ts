@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { Title } from '@angular/platform-browser';
-import { Router, provideRouter } from '@angular/router';
+import { Router, provideRouter, withComponentInputBinding } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 
 import { buildBreadcrumb } from './breadcrumb';
@@ -12,7 +12,7 @@ describe('routes', () => {
 
   beforeEach(async () => {
     TestBed.configureTestingModule({
-      providers: [provideRouter(routes)],
+      providers: [provideRouter(routes, withComponentInputBinding())],
     });
     harness = await RouterTestingHarness.create();
     router = TestBed.inject(Router);
@@ -30,7 +30,7 @@ describe('routes', () => {
   it('opens the Manage placeholder for /manage', async () => {
     await harness.navigateByUrl('/manage');
     expect(heading()).toContain('Manage');
-    expect(TestBed.inject(Title).getTitle()).toBe('Manage — Octometer');
+    expect(TestBed.inject(Title).getTitle()).toBe('Manage - Octometer');
     expect(buildBreadcrumb(router.routerState.snapshot.root)).toEqual([
       { label: 'Manage', path: null },
     ]);
@@ -39,7 +39,7 @@ describe('routes', () => {
   it('opens the Apps placeholder for /apps', async () => {
     await harness.navigateByUrl('/apps');
     expect(heading()).toContain('Apps');
-    expect(TestBed.inject(Title).getTitle()).toBe('Apps — Octometer');
+    expect(TestBed.inject(Title).getTitle()).toBe('Apps - Octometer');
     expect(buildBreadcrumb(router.routerState.snapshot.root)).toEqual([
       { label: 'Apps', path: null },
     ]);
@@ -48,30 +48,53 @@ describe('routes', () => {
   it('opens the Users placeholder for /apps/:appId/users', async () => {
     await harness.navigateByUrl('/apps/7/users');
     expect(heading()).toContain('Users');
-    expect(TestBed.inject(Title).getTitle()).toBe('Users — Octometer');
+    expect(TestBed.inject(Title).getTitle()).toBe('Users of App 7 - Octometer');
     expect(buildBreadcrumb(router.routerState.snapshot.root)).toEqual([
       { label: 'Apps', path: '/apps' },
       { label: 'App 7', path: null },
+      { label: 'Users', path: null },
     ]);
+  });
+
+  it('gives a different title for a different app, so two tabs read apart', async () => {
+    await harness.navigateByUrl('/apps/9/users');
+    expect(TestBed.inject(Title).getTitle()).toBe('Users of App 9 - Octometer');
   });
 
   it('opens the Elements placeholder for /apps/:appId/elements with a user id', async () => {
     await harness.navigateByUrl('/apps/7/elements?userId=42');
     expect(heading()).toContain('Elements');
-    expect(TestBed.inject(Title).getTitle()).toBe('Elements — Octometer');
+    expect(TestBed.inject(Title).getTitle()).toBe('User 42 of App 7 - Octometer');
     expect(buildBreadcrumb(router.routerState.snapshot.root)).toEqual([
       { label: 'Apps', path: '/apps' },
-      { label: 'App 7', path: '/apps/7/users' },
+      { label: 'App 7', path: null },
+      { label: 'Users', path: '/apps/7/users' },
       { label: 'User 42', path: null },
     ]);
   });
 
   it('opens the Elements placeholder for an anonymous user', async () => {
     await harness.navigateByUrl('/apps/7/elements?anonymous=true');
+    expect(TestBed.inject(Title).getTitle()).toBe('Anonymous of App 7 - Octometer');
     expect(buildBreadcrumb(router.routerState.snapshot.root)).toEqual([
       { label: 'Apps', path: '/apps' },
-      { label: 'App 7', path: '/apps/7/users' },
+      { label: 'App 7', path: null },
+      { label: 'Users', path: '/apps/7/users' },
       { label: 'Anonymous', path: null },
+    ]);
+  });
+
+  it('sends /apps/:appId/elements with no user id and no anonymous flag to the user list', async () => {
+    await harness.navigateByUrl('/apps/7/elements');
+    expect(router.url).toBe('/apps/7/users');
+  });
+
+  it('opens the not-found view for an unknown URL', async () => {
+    await harness.navigateByUrl('/nope');
+    expect(heading()).toContain('Page not found');
+    expect(TestBed.inject(Title).getTitle()).toBe('Page not found - Octometer');
+    expect(buildBreadcrumb(router.routerState.snapshot.root)).toEqual([
+      { label: 'Page not found', path: null },
     ]);
   });
 });

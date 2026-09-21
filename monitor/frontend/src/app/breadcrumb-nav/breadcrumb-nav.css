@@ -1,0 +1,24 @@
+ol {
+  display: flex;
+  flex-wrap: wrap;
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+}
+
+li {
+  overflow-wrap: anywhere;
+}
+
+li:not(:last-child)::after {
+  content: '/';
+  padding: 0 0.5rem;
+  color: #595959;
+}
+
+a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 24px;
+  min-height: 24px;
+}

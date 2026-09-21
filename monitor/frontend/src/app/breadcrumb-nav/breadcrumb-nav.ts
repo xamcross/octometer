@@ -8,6 +8,7 @@ import type { BreadcrumbItem } from '../breadcrumb';
   selector: 'app-breadcrumb-nav',
   imports: [RouterLink],
   templateUrl: './breadcrumb-nav.html',
+  styleUrl: './breadcrumb-nav.css',
 })
 export class BreadcrumbNav {
   /** The breadcrumb trail, root first. The last entry is the current page. */
