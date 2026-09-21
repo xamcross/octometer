@@ -271,10 +271,10 @@ class ConnectionStringValidatorTest {
         assertIs<ConnectionStringCheck.Invalid>(result)
     }
 
-    // BLOCKER 1 of the second security review: a raw "?" in the password
+    // BLOCKER 1 of the second security review. A raw "?" in the password
     // makes the old parser read the password tail and the host as an
-    // option name, and the 400 body then showed that text. NEW DECISION:
-    // no message of this check may carry any part of the checked URI.
+    // option name. The 400 body then showed that text. NEW DECISION: no
+    // message of this check may carry any part of the checked URI.
     @Test
     fun `a raw question mark in the password gets an invalid result, and the message names no part of the URI`() {
         val result = ConnectionStringValidator.check(srvUriWithRawQuestionMarkInPassword())

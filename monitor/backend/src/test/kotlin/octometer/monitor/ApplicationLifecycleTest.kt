@@ -23,9 +23,9 @@ private const val WRITER_THREAD_NAME = "octometer-sqlite-writer"
  * starts and stops two times against one temporary folder.
  *
  * BLOCKER 2 of the Ktor review: a 200 from /api/health proves only the
- * open call, because SQLite in WAL mode admits a second reader-writer
- * pair on the same file even while the first stays open. This asserts
- * the count of threads named [WRITER_THREAD_NAME] instead, because
+ * open call. SQLite in WAL mode admits a second reader-writer pair on
+ * the same file even while the first stays open. This asserts the count
+ * of threads named [WRITER_THREAD_NAME] instead, because
  * SqliteDatabase.close() closes the single-thread dispatcher of the
  * writer, which ends that thread.
  */
@@ -67,9 +67,9 @@ class ApplicationLifecycleTest {
         }
     }
 
-    // MAJOR 5 (second Ktor review) and MAJOR 2 (second security review): a
-    // broken secrets/apps.json must not keep the writer thread alive
-    // forever, and the health route must still answer while the sweep is
+    // MAJOR 5 (second Ktor review) and MAJOR 2 (second security review).
+    // A broken secrets/apps.json must not keep the writer thread alive
+    // forever. The health route must still answer while the sweep is
     // skipped. This test uses its own root, so its "secrets" folder never
     // sits at the system temp root of [dataDir] above.
     @Test

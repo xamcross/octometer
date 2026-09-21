@@ -26,6 +26,7 @@ dependencies {
 
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.kotlin.test.junit5)
+    testImplementation(libs.logback.classic)
 }
 
 application {

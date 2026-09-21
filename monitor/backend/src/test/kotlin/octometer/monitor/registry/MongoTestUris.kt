@@ -3,8 +3,8 @@ package octometer.monitor.registry
 // Rule of the implementer: a test file never holds a fake credential as
 // one literal. Each function here joins the parts at run time. The
 // gitleaks allowlist of .gitleaks.toml names the exact text of
-// ALLOWLISTED_HOST together with the user and the word below, thus a
-// test that also sends the same user and word stays inside the allowlist.
+// ALLOWLISTED_HOST together with the user and the word below. A test
+// that also sends the same user and word stays inside the allowlist.
 
 const val ALLOWLISTED_USER = "octotest"
 const val ALLOWLISTED_WORD = "S3cr3t-Test-Only"

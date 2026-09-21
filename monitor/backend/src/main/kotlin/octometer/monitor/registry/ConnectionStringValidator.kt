@@ -31,10 +31,11 @@ sealed class ConnectionStringCheck {
 // NEW DECISION of the maintainer, second correction round: each rule below
 // has one fixed sentence. A message never carries any text of the checked
 // URI: not an option name, not a value, not a host. A password that holds
-// a raw "?" makes the parser read a part of the password, and the host
-// after it, as an option name; the old messages then leaked that part in
-// the 400 body. A fixed sentence per rule closes this for every rule, not
-// only for the one that a probe happens to find.
+// a raw "?" makes the parser read part of the password as an option name.
+// It also reads the host after that mark as an option name. The old
+// messages then leaked that part in the 400 body. A fixed sentence per
+// rule closes this for every rule, not only for the one that a probe
+// happens to find.
 private const val MESSAGE_SCHEME = "The scheme must be mongodb+srv:// or mongodb://."
 private const val MESSAGE_PUBLIC_HOST = "A mongodb:// connection string needs a loopback host."
 private const val MESSAGE_PERCENT_ENCODING = "An option name must use valid percent-encoding."

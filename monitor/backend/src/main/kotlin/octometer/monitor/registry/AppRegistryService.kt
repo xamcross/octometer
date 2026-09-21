@@ -113,13 +113,12 @@ class AppRegistryService(
         // orphan app row. This removes the row again and reports the
         // failure, instead of leaving a row with no connection string.
         //
-        // MAJOR 2 of the second security review:
-        // kotlinx.coroutines.CancellationException is a type alias of
-        // java.util.concurrent.CancellationException, so a task inside
-        // the secret store can throw that class with no real cancellation
-        // of this call. This catches every exception the same way, and
-        // it runs the cleanup inside withContext(NonCancellable), so a
-        // real cancellation of this call still removes the app row.
+        // MAJOR 2 of the second security review. kotlinx.coroutines.CancellationException
+        // is a type alias of java.util.concurrent.CancellationException. A task inside the
+        // secret store can throw that class with no real cancellation of this call. This
+        // catches every exception the same way. It runs the cleanup inside
+        // withContext(NonCancellable). A real cancellation of this call still removes the
+        // app row.
         try {
             secretStore.put(appId, request.connectionString)
         } catch (secretFailure: Exception) {
@@ -137,7 +136,8 @@ class AppRegistryService(
     /**
      * The update of step 4. The field check runs before the existence
      * check. A request with no usable field gives 400, also for an
-     * unknown id.
+     * unknown id. A request with both fields writes the name first, then
+     * the secret; a failed secret write then leaves the new name in place.
      */
     suspend fun updateApp(appId: Long, request: UpdateAppRequest): UpdateAppResult {
         val name = request.name?.trim()

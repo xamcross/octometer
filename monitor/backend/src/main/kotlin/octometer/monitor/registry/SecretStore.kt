@@ -100,9 +100,9 @@ open class SecretStore(dataDir: String) {
     // SecretStoreUnavailableException. A locked apps.json (a backup tool,
     // an antivirus scan) then threw a raw IOException, and the caller
     // answered 500, not the 503 of the decision. A read failure now maps
-    // to the same exception as a failed write, with no file path or file
-    // text in the message, and this never writes a new file over one it
-    // could not read.
+    // to the same exception as a failed write. The message holds no file
+    // path and no file text. This code never writes a new file over one
+    // it could not read.
     private fun readAll(): Map<String, String> {
         if (!secretsFile.isFile) return emptyMap()
         val text = readTextWithRetry()
@@ -134,9 +134,13 @@ open class SecretStore(dataDir: String) {
         }
     }
 
+    // MINOR 2 (third security review): a plain file at the secrets folder
+    // path made this throw a raw IllegalStateException, thus the caller
+    // answered 500, not the 503 of the decision. This now throws the one
+    // exception that every route maps to 503.
     private fun writeAll(entries: Map<String, String>) {
-        check(secretsDir.mkdirs() || secretsDir.isDirectory) {
-            "The secrets folder is not available."
+        if (!secretsDir.mkdirs() && !secretsDir.isDirectory) {
+            throw SecretStoreUnavailableException("The secrets folder is not available.")
         }
         restrictToOwner(secretsDir)
         val json = JsonObject(entries.mapValues { (_, value) -> JsonPrimitive(value) })

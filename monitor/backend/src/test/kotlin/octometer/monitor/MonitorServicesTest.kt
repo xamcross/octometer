@@ -6,10 +6,15 @@ import kotlinx.coroutines.runBlocking
 import octometer.monitor.registry.SecretStore
 import octometer.monitor.registry.allowlistedSrvUri
 import octometer.monitor.store.SqliteDatabase
+import org.sqlite.SQLiteException
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+
+private const val WRITER_THREAD_NAME = "octometer-sqlite-writer"
 
 /**
  * MAJOR 4 of the security review: a secret whose app id has no app row
@@ -42,10 +47,10 @@ class MonitorServicesTest {
         }
     }
 
-    // MAJOR 5 (second Ktor review) and MAJOR 2 (second security review): a
-    // broken secrets/apps.json must not stop the start, and it must not
-    // leave the database open. open() must also never overwrite a file
-    // that it could not read.
+    // MAJOR 5 (second Ktor review) and MAJOR 2 (second security review).
+    // A broken secrets/apps.json file must not stop the start. The start
+    // must not leave the database open. open() must never overwrite a
+    // file that it could not read.
     @Test
     fun `open skips the sweep and still returns usable services, when the secret file is broken at the start`() =
         runBlocking {
@@ -64,6 +69,46 @@ class MonitorServicesTest {
                 services.close()
             }
         }
+
+    // MAJOR 1 (third security review): the old runCatching caught every
+    // Throwable around the sweep. A database defect then only skipped
+    // the sweep; it never stopped the start. open() must now let a
+    // database defect reach the outer catch, close the store, and throw.
+    @Test
+    fun `open throws and leaves no writer thread, when the app table is missing`() = runBlocking {
+        val baseline = awaitWriterThreadCount(0)
+        val database = SqliteDatabase.open(dataDir)
+        try {
+            database.write { writer ->
+                writer.createStatement().use { statement -> statement.execute("DROP TABLE app") }
+            }
+        } finally {
+            database.close()
+        }
+        val before = awaitWriterThreadCount(baseline)
+
+        assertFailsWith<SQLiteException> {
+            MonitorServices.open(prodConfig(dataDir = dataDir))
+        }
+
+        assertEquals(before, awaitWriterThreadCount(before), "a failed open must leave no writer thread")
+    }
+
+    private fun writerThreadCount(): Int =
+        Thread.getAllStackTraces().keys.count { it.name == WRITER_THREAD_NAME }
+
+    // A closed dispatcher ends its thread a short time after close()
+    // returns, not at once. This polls for up to two seconds, so the
+    // count settles before the test reads it, and the check stays exact.
+    private fun awaitWriterThreadCount(expected: Int, timeoutMillis: Long = 2_000): Int {
+        val deadline = System.nanoTime() + timeoutMillis * 1_000_000
+        var count = writerThreadCount()
+        while (count != expected && System.nanoTime() < deadline) {
+            Thread.sleep(20)
+            count = writerThreadCount()
+        }
+        return count
+    }
 
     private suspend fun seedOneAppRow(): Long {
         val database = SqliteDatabase.open(dataDir)

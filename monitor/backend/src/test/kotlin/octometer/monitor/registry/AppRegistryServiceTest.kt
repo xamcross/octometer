@@ -259,15 +259,19 @@ class AppRegistryServiceTest {
 
     @Test
     fun `createApp removes the app row when the secret write fails, and the failure propagates`() = runBlocking {
-        // MAJOR 3 (both reviews): a broken secrets folder must not leave
-        // an orphan app row. A file at the secrets folder path (instead
-        // of a directory) makes every write to the store fail.
-        File(root, "secrets").let { it.parentFile.mkdirs(); it.writeText("not a directory") }
+        // MAJOR 3 (both reviews): a broken secret store must not leave an
+        // orphan app row. MINOR 2 (third security review) made a plain
+        // file at the secrets folder path give SecretStoreUnavailable, so
+        // this test double throws a different exception, to prove the
+        // cleanup still runs for a failure of any class.
+        val marker = "fake-write-failure-createApp"
+        val failingService = AppRegistryService(database, ThrowingSecretStore(dataDir, marker))
 
-        assertFailsWith<IllegalStateException> {
-            service.createApp(CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"))
+        val failure = assertFailsWith<IllegalStateException> {
+            failingService.createApp(CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"))
         }
 
+        assertEquals(marker, failure.message)
         assertEquals(0, countAppRows())
     }
 
@@ -415,4 +419,12 @@ class AppRegistryServiceTest {
 private class CancellingSecretStore(dataDir: String, private val marker: String) : SecretStore(dataDir) {
     override suspend fun put(appId: Long, connectionString: String): Unit =
         throw java.util.concurrent.CancellationException(marker)
+}
+
+// A test double for MINOR 2 of the third security review: put() throws a
+// plain IllegalStateException, so a test can prove the cleanup of MAJOR 3
+// runs for a failure that is not SecretStoreUnavailableException.
+private class ThrowingSecretStore(dataDir: String, private val marker: String) : SecretStore(dataDir) {
+    override suspend fun put(appId: Long, connectionString: String): Unit =
+        throw IllegalStateException(marker)
 }

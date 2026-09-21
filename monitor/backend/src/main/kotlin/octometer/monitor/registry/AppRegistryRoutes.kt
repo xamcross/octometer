@@ -6,6 +6,7 @@ import io.ktor.serialization.ContentConvertException
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.plugins.BadRequestException
+import io.ktor.server.plugins.ContentTransformationException
 import io.ktor.server.request.receive
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
@@ -91,12 +92,21 @@ fun Route.appRegistryRoutes(registry: AppRegistryService) {
 
 // MINOR 8 (Ktor review): the old catch caught every Exception, thus a
 // defect of the serializer looked like a bad request too. This catches
-// only the two exceptions of a malformed body or a wrong content shape.
+// only the exceptions of a malformed body, a wrong content shape, or a
+// missing body.
+//
+// MAJOR 1 (third Ktor review): a request with no body raises
+// CannotTransformContentToTypeException. That class extends
+// ContentTransformationException, not BadRequestException, thus the
+// two catches above missed it, and the catch-all of StatusPages
+// answered 500 for a plain client mistake.
 private suspend inline fun <reified T : Any> receiveOrNull(call: ApplicationCall): T? =
     try {
         call.receive<T>()
     } catch (malformedBody: BadRequestException) {
         null
     } catch (wrongShape: ContentConvertException) {
+        null
+    } catch (noUsableBody: ContentTransformationException) {
         null
     }

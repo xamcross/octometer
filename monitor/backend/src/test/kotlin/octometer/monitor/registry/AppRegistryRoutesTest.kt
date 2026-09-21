@@ -19,6 +19,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import octometer.monitor.allowedHost
+import octometer.monitor.captureErrorLogEvents
 import octometer.monitor.module
 import octometer.monitor.prodConfig
 import octometer.monitor.testDataDir
@@ -81,6 +82,41 @@ class AppRegistryRoutesTest {
         }
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    // MAJOR 1 (third Ktor review): a request with no body used to raise
+    // CannotTransformContentToTypeException. The catch-all of StatusPages
+    // then answered 500 for a plain client mistake.
+    @Test
+    fun `POST with no body gets 400, not 500, and writes no ERROR log line`() = testApplication {
+        application { module(prodConfig()) }
+
+        val (response, errorEvents) = captureErrorLogEvents {
+            client.post("/api/apps") {
+                allowedHost()
+                header(HttpHeaders.Origin, "http://localhost:7431")
+            }
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertTrue(errorEvents.isEmpty(), "a request with no body must write no ERROR log line")
+    }
+
+    @Test
+    fun `PATCH with no body gets 400, not 500, and writes no ERROR log line`() = testApplication {
+        application { module(prodConfig()) }
+        val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
+        val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
+
+        val (response, errorEvents) = captureErrorLogEvents {
+            client.patch("/api/apps/$appId") {
+                allowedHost()
+                header(HttpHeaders.Origin, "http://localhost:7431")
+            }
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertTrue(errorEvents.isEmpty(), "a request with no body must write no ERROR log line")
     }
 
     @Test
@@ -272,9 +308,9 @@ class AppRegistryRoutesTest {
         assertEquals(0, countAppRows(dataDir))
     }
 
-    // MAJOR 6 (second Ktor review) and MINOR (second security review): a
-    // broken secret file must give 503 on POST, on PATCH, and on DELETE,
-    // and it must never overwrite the file that it could not read.
+    // MAJOR 6 (second Ktor review) and MINOR (second security review).
+    // A broken secret file must give 503 on POST, on PATCH, and on
+    // DELETE. It must never overwrite the file that it could not read.
 
     @Test
     fun `POST gives 503 when the secret file is broken, and the file stays unchanged`() {

@@ -1,9 +1,11 @@
 package octometer.monitor
 
+import java.io.IOException
 import kotlinx.coroutines.runBlocking
 import octometer.monitor.config.MonitorConfig
 import octometer.monitor.registry.AppRegistryService
 import octometer.monitor.registry.SecretStore
+import octometer.monitor.registry.SecretStoreUnavailableException
 import octometer.monitor.store.SqliteDatabase
 import org.slf4j.LoggerFactory
 
@@ -40,23 +42,29 @@ class MonitorServices private constructor(
          * The sweep writes one log line with the removed count. It never
          * writes an app id, and it never writes a connection string.
          *
-         * MAJOR 5 (second Ktor review) and MAJOR 2 (second security
-         * review): a broken or a locked secrets file is a hygiene
+         * The sweep catches only [SecretStoreUnavailableException] and
+         * [IOException]. A broken or a locked secrets file is a hygiene
          * problem, not a start defect. The sweep then skips, with one
-         * warn-level log line, and the start goes on. Each other failure
-         * (for example a database defect) closes the store again and
-         * throws, so a failed start never leaves an open store or a
-         * locked file.
+         * warn-level log line, and the start goes on.
+         *
+         * Each other failure (for example a database defect) reaches the
+         * outer catch. That catch closes the store again, and it throws
+         * the failure again. A failed start then never leaves an open
+         * store or a locked file.
          */
         fun open(config: MonitorConfig): MonitorServices {
             val database = SqliteDatabase.open(config.dataDir)
             try {
                 val secretStore = SecretStore(config.dataDir)
-                val removedOrphans = runCatching { runBlocking { sweepOrphanSecrets(database, secretStore) } }
-                    .onFailure { failure ->
-                        log.warn("The orphan secret sweep did not run. {}", failure.javaClass.simpleName)
-                    }
-                    .getOrDefault(0)
+                val removedOrphans = try {
+                    runBlocking { sweepOrphanSecrets(database, secretStore) }
+                } catch (unavailable: SecretStoreUnavailableException) {
+                    log.warn("The orphan secret sweep did not run. {}", unavailable.javaClass.simpleName)
+                    0
+                } catch (fileFailure: IOException) {
+                    log.warn("The orphan secret sweep did not run. {}", fileFailure.javaClass.simpleName)
+                    0
+                }
                 log.info("The start removed {} orphan secret(s).", removedOrphans)
                 return MonitorServices(config, database, secretStore)
             } catch (startFailure: Throwable) {

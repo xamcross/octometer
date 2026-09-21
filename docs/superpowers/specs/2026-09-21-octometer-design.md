@@ -249,7 +249,7 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   names, not a deny-list. The query splits on `&` and on `;`, because the driver accepts
   both. Each option name is decoded and lower-cased before the compare. The allowed names
   are `retryWrites`, `retryReads`, `w`, `appName`, `authSource`, and `replicaSet`, with any
-  value, plus `tls` and `ssl` with the exact value `true`. Each other name, a repeated name,
+  value, plus `tls` and `ssl` with the value `true`, in any letter case. Each other name, a repeated name,
   and a name with no value are rejected. No allowed name can turn off TLS, change the read
   preference, or send a credential to a different host (source: the MongoDB manual,
   "Connection String Options", read on 2026-09-21; see the pull request text for the exact

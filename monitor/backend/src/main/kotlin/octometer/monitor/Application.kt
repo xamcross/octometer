@@ -102,7 +102,7 @@ fun Application.module(config: MonitorConfig) {
                 ),
             )
         }
-        apiRoutes(config, services)
+        apiRoutes(services)
     }
 }
 

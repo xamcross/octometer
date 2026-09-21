@@ -132,9 +132,9 @@ class SecretStoreTest {
     }
 
     // MAJOR 6 of the second Ktor review, and a MINOR of the second
-    // security review: a read failure of the secret file must map to
-    // SecretStoreUnavailableException too, the same as a write failure,
-    // so every route can give 503 with no file path.
+    // security review. A read failure of the secret file must map to
+    // SecretStoreUnavailableException too, the same as a write failure.
+    // Then every route can give 503 with no file path.
 
     @Test
     fun `contains gives SecretStoreUnavailableException, not a raw exception, when the file is not valid JSON`() =
@@ -165,6 +165,21 @@ class SecretStoreTest {
             "a read failure must never overwrite the file it could not read",
         )
     }
+
+    // MINOR 2 (third security review): a plain file at the secrets folder
+    // path used to make put() throw IllegalStateException, so the caller
+    // answered 500, not the 503 of the decision.
+    @Test
+    fun `put gives SecretStoreUnavailableException, not IllegalStateException, when a plain file blocks the folder`() =
+        runBlocking {
+            File(root, "secrets").writeText("not a folder")
+
+            val failure = assertFailsWith<SecretStoreUnavailableException> {
+                store.put(1L, allowlistedSrvUri())
+            }
+
+            assertFalse(failure.message.orEmpty().contains(allowlistedSrvUri()))
+        }
 
     @Test
     fun `contains retries the read, and gives up with SecretStoreUnavailableException, when a lock blocks it`() =

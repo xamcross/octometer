@@ -1,21 +1,14 @@
 package octometer.monitor
 
 import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
-import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
-import octometer.monitor.registry.allowlistedSrvUri
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -29,28 +22,28 @@ import kotlin.test.assertNotNull
  */
 class ApplicationErrorHandlingTest {
 
+    // The old setup put a plain file at the secrets folder path. MINOR 2
+    // of the third security review closed that hole: writeAll() now
+    // throws SecretStoreUnavailableException there, and the route maps
+    // it to 503. This probe route throws a plain exception instead, so
+    // the test still proves the general catch-all path of StatusPages.
     @Test
     fun `an unhandled exception gives a fixed JSON 500, with the security headers of issue 5`() = testApplication {
-        val dataDir = testDataDir()
-        // A file at the secrets folder path makes every secret write
-        // throw, so the POST handler meets an exception that is not
-        // SecretStoreUnavailableException, and it never catches that one.
-        File(File(dataDir).parentFile, "secrets").writeText("not a directory")
-        application { module(prodConfig(dataDir = dataDir)) }
-
-        val response = client.post("/api/apps") {
-            allowedHost()
-            header(HttpHeaders.Origin, "http://localhost:7431")
-            contentType(ContentType.Application.Json)
-            setBody(
-                """{"name":"demo","connectionString":"${allowlistedSrvUri()}",""" +
-                    """"database":"db","collection":"octometer_events"}""",
-            )
+        val marker = "fake-failure-4b7e21"
+        application {
+            module(prodConfig(dataDir = testDataDir()))
+            routing {
+                get("/api/probe/failure") {
+                    throw IllegalStateException(marker)
+                }
+            }
         }
+
+        val response = client.get("/api/probe/failure") { allowedHost() }
 
         assertEquals(HttpStatusCode.InternalServerError, response.status)
         val bodyText = response.bodyAsText()
-        assertFalse(bodyText.contains(allowlistedSrvUri()))
+        assertFalse(bodyText.contains(marker))
         assertNotNull(Json.parseToJsonElement(bodyText).jsonObject["error"])
         assertEquals("nosniff", response.headers["X-Content-Type-Options"])
         assertEquals("no-store", response.headers[HttpHeaders.CacheControl])
