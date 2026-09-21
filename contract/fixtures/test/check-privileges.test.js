@@ -259,6 +259,29 @@ test("the Atlas allowed-action text stays as it is", () => {
   );
 });
 
+test("a long server errmsg with no host does not make the match slow", () => {
+  // "a." repeated many times holds a word boundary before each "a", and no
+  // colon, so a quadratic-time match must scan the rest of the text at each
+  // boundary. The security review of #85 measured 719 ms at 25600
+  // characters against the unbounded match.
+  const host = "cluster0-shard-00-01.abcde.mongodb.net:27017";
+  const filler = "a.".repeat(30000);
+  const e = {
+    code: 6,
+    codeName: "HostUnreachable",
+    errmsg: "host " + host + " is down, then " + filler,
+  };
+  const start = Date.now();
+  const { printed, result } = runScript({ findEvents: e });
+  const elapsed = Date.now() - start;
+  assert.ok(!printed.includes("cluster0-shard-00-01"), "the output must hold no host name");
+  assert.ok(
+    result.findEvents.error.errmsg.startsWith("host <host> is down"),
+    "the kept text must start with the redacted host"
+  );
+  assert.ok(elapsed < 300, `the match took ${elapsed} ms, a sign of a quadratic-time match`);
+});
+
 test("the two errors of connection-status-m0.json come back byte for byte", () => {
   const insertE = {
     code: FIXTURE.insertEvents.error.code,

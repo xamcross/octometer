@@ -15,37 +15,29 @@ connection.
 ### Run command
 
 ```
-mongosh "mongodb+srv://<host>/<database>" --username <user> --authenticationDatabase admin --quiet --file contract/fixtures/check-privileges.js
+mongosh "mongodb+srv://<host>/<database>" --username <user> --quiet --file contract/fixtures/check-privileges.js
 ```
 
-Replace `<host>` with the cluster host name, `<database>` with the
-database name, and `<user>` with the user name of the database user.
-Never put the password into the URI. A password in the URI enters the
-shell history and the process list.
+Replace `<host>` with the cluster host name. Replace `<database>` with
+the database name. Replace `<user>` with the user name of the database
+user. Never put the password into the URI. A password in the URI enters
+the shell history and the process list.
 
 `mongosh` asks for the password after you run this command. The password
 prompt goes to standard error, not to standard output. Standard output
 holds only the JSON document. Save that document as
 `contract/fixtures/connection-status-m0.json`.
 
-**Confirm: does an Atlas user need `--authenticationDatabase admin`?**
-Source: the MongoDB Shell CLI reference, the `--authenticationDatabase`
-option
-(<https://www.mongodb.com/docs/mongodb-shell/reference/options/>).
-Result: yes. The reference states this rule: "If you do not specify a
-value for `--authenticationDatabase`, the MongoDB Shell uses the database
-specified in the connection string." The command above sets `<database>`
-as the database of the connection string. An Atlas database user
-authenticates against the `admin` database, not against `<database>`.
-Without `--authenticationDatabase admin`, the login fails.
-
 Before a paste into a public issue:
 
 1. Check the exit code. The value 0 is correct.
 2. Check that standard output holds exactly one line.
-3. Check that standard error holds no text.
+3. Check that standard error holds only the password prompt.
 4. Read the one line. It must hold no host name and no port.
 5. Paste only the JSON line.
+
+Add `--authenticationDatabase admin` when the login fails with a plain
+`mongodb://` URI.
 
 See "A failed connection at the start" for the reason of steps 1 to 4.
 
@@ -78,22 +70,29 @@ primary" text. A second example is a "host unreachable" text. The script
 removes the host name before it cuts the text to 300 characters, and
 before it prints the document. The limit of 300 characters gives no
 protection on its own. A host name can stand near the start of such a
-text.
+text. The script also cuts the text to 4000 characters before it looks
+for a host name. This bound keeps the check fast on a long text.
 
 The script covers these forms of a host name or an IP address:
 
 - An IPv4 address, with or without a port, for example `10.20.30.40` or
   `10.20.30.40:27017`.
 - An IPv6 address inside brackets, with or without a port, for example
-  `[::1]` or `[::1]:27017`.
+  `[::1]` or `[::1]:27017`. The script needs the brackets. A real server
+  writes an IPv6 host with brackets.
 - A host name with a dot, or with two letters, together with a port, for
   example `cluster0-shard-00-01.abcde.mongodb.net:27017` or
   `mongo1:27017`.
 - An Atlas host name in the form `*.mongodb.net`, in any letter case.
 
-The script cannot know a bare host name with no port, no dot, and no
-`mongodb.net` suffix, for example `localhost`. Such a name looks the same
-as an ordinary word, thus the script leaves it as it is.
+The script has two known limits:
+
+- It cannot know a host name with no port and no `mongodb.net` suffix,
+  for example `localhost` or `db.example.com`. Such a name looks the
+  same as an ordinary word, thus the script leaves it as it is.
+- A four-part dotted number can look like an IP address. The script
+  redacts a version number such as `1.2.3.4` by mistake. This loss is
+  small, and it never removes a `code` or a `codeName`.
 
 Each other error is a driver error. A driver error has no server code.
 Two examples:
