@@ -2,7 +2,8 @@ package octometer.monitor.registry
 
 import java.sql.Connection
 import java.sql.SQLException
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import octometer.monitor.store.SqliteDatabase
 import org.sqlite.SQLiteErrorCode
@@ -111,12 +112,20 @@ class AppRegistryService(
         // MAJOR 3 (both reviews): a failed secret write must not leave an
         // orphan app row. This removes the row again and reports the
         // failure, instead of leaving a row with no connection string.
+        //
+        // MAJOR 2 of the second security review:
+        // kotlinx.coroutines.CancellationException is a type alias of
+        // java.util.concurrent.CancellationException, so a task inside
+        // the secret store can throw that class with no real cancellation
+        // of this call. This catches every exception the same way, and
+        // it runs the cleanup inside withContext(NonCancellable), so a
+        // real cancellation of this call still removes the app row.
         try {
             secretStore.put(appId, request.connectionString)
-        } catch (cancellation: CancellationException) {
-            throw cancellation
         } catch (secretFailure: Exception) {
-            database.write { writer -> deleteAppRow(writer, appId) }
+            withContext(NonCancellable) {
+                database.write { writer -> deleteAppRow(writer, appId) }
+            }
             if (secretFailure is SecretStoreUnavailableException) {
                 return CreateAppResult.SecretStoreUnavailable
             }
@@ -127,9 +136,8 @@ class AppRegistryService(
 
     /**
      * The update of step 4. The field check runs before the existence
-     * check. An empty body on an unknown id thus gives 400, not 404. A
-     * caller that needs 404 for every bad request sends an empty name
-     * instead.
+     * check. A request with no usable field gives 400, also for an
+     * unknown id.
      */
     suspend fun updateApp(appId: Long, request: UpdateAppRequest): UpdateAppResult {
         val name = request.name?.trim()
@@ -167,8 +175,6 @@ class AppRegistryService(
         if (request.connectionString != null) {
             try {
                 secretStore.put(appId, request.connectionString)
-            } catch (cancellation: CancellationException) {
-                throw cancellation
             } catch (secretFailure: SecretStoreUnavailableException) {
                 return UpdateAppResult.SecretStoreUnavailable
             }

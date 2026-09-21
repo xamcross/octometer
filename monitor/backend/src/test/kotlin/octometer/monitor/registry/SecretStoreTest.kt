@@ -1,8 +1,10 @@
 package octometer.monitor.registry
 
 import java.io.File
+import java.io.RandomAccessFile
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Assumptions
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -128,4 +130,70 @@ class SecretStoreTest {
         assertTrue(elapsedMillis >= 150, "expected at least 4 retry pauses of 50 ms, took $elapsedMillis ms")
         assertFalse(failure.message.orEmpty().contains(allowlistedSrvUri()))
     }
+
+    // MAJOR 6 of the second Ktor review, and a MINOR of the second
+    // security review: a read failure of the secret file must map to
+    // SecretStoreUnavailableException too, the same as a write failure,
+    // so every route can give 503 with no file path.
+
+    @Test
+    fun `contains gives SecretStoreUnavailableException, not a raw exception, when the file is not valid JSON`() =
+        runBlocking {
+            val secretsDir = File(root, "secrets").apply { mkdirs() }
+            File(secretsDir, "apps.json").writeText("{ this is not valid json")
+
+            val failure = assertFailsWith<SecretStoreUnavailableException> {
+                store.contains(1L)
+            }
+
+            assertFalse(failure.message.orEmpty().contains("this is not valid json"))
+        }
+
+    @Test
+    fun `put does not touch a secret file that it could not read`() = runBlocking {
+        val secretsDir = File(root, "secrets").apply { mkdirs() }
+        val secretsFile = File(secretsDir, "apps.json")
+        val brokenBytes = "{ this is not valid json".toByteArray(Charsets.UTF_8)
+        secretsFile.writeBytes(brokenBytes)
+
+        assertFailsWith<SecretStoreUnavailableException> {
+            store.put(1L, allowlistedSrvUri())
+        }
+
+        assertTrue(
+            brokenBytes.contentEquals(secretsFile.readBytes()),
+            "a read failure must never overwrite the file it could not read",
+        )
+    }
+
+    @Test
+    fun `contains retries the read, and gives up with SecretStoreUnavailableException, when a lock blocks it`() =
+        runBlocking {
+            // Windows enforces a byte-range lock against every other
+            // handle, this JVM included. Linux advisory locks do not
+            // block a plain read, so this test would pass by accident
+            // there, and it would prove nothing.
+            Assumptions.assumeTrue(
+                System.getProperty("os.name").orEmpty().startsWith("Windows", ignoreCase = true),
+                "the OS must enforce a byte-range lock against a plain read",
+            )
+            store.put(1L, allowlistedSrvUri())
+            val secretsFile = File(root, "secrets/apps.json")
+
+            RandomAccessFile(secretsFile, "rw").use { handle ->
+                val lock = handle.channel.lock()
+                try {
+                    val started = System.nanoTime()
+                    val failure = assertFailsWith<SecretStoreUnavailableException> {
+                        store.contains(1L)
+                    }
+                    val elapsedMillis = (System.nanoTime() - started) / 1_000_000
+
+                    assertTrue(elapsedMillis >= 150, "expected at least 4 retry pauses of 50 ms, took $elapsedMillis ms")
+                    assertFalse(failure.message.orEmpty().contains(allowlistedSrvUri()))
+                } finally {
+                    lock.release()
+                }
+            }
+        }
 }

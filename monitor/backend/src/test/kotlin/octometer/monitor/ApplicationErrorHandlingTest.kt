@@ -1,5 +1,6 @@
 package octometer.monitor
 
+import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -8,6 +9,8 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.server.routing.get
+import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
 import java.io.File
 import kotlinx.serialization.json.Json
@@ -53,4 +56,30 @@ class ApplicationErrorHandlingTest {
         assertEquals("no-store", response.headers[HttpHeaders.CacheControl])
         assertNotNull(response.headers["Content-Security-Policy"])
     }
+
+    // MAJOR 2 of the second security review, and MAJOR 2 of the second
+    // Ktor review: kotlinx.coroutines.CancellationException is a type
+    // alias of java.util.concurrent.CancellationException. A route that
+    // throws the Java class, with the call still active, must still get
+    // the fixed JSON body, and never the default Ktor error page.
+    @Test
+    fun `a Java cancellation from a route gives the fixed JSON 500, and the marker text is in no answer`() =
+        testApplication {
+            val marker = "fake-cancellation-8f2c1d"
+            application {
+                module(prodConfig(dataDir = testDataDir()))
+                routing {
+                    get("/probe/cancellation") {
+                        throw java.util.concurrent.CancellationException(marker)
+                    }
+                }
+            }
+
+            val response = client.get("/probe/cancellation") { allowedHost() }
+
+            assertEquals(HttpStatusCode.InternalServerError, response.status)
+            val bodyText = response.bodyAsText()
+            assertFalse(bodyText.contains(marker))
+            assertNotNull(Json.parseToJsonElement(bodyText).jsonObject["error"])
+        }
 }

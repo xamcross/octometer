@@ -6,8 +6,8 @@ package octometer.monitor.registry
 // ALLOWLISTED_HOST together with the user and the word below, thus a
 // test that also sends the same user and word stays inside the allowlist.
 
-private const val ALLOWLISTED_USER = "octotest"
-private const val ALLOWLISTED_WORD = "S3cr3t-Test-Only"
+const val ALLOWLISTED_USER = "octotest"
+const val ALLOWLISTED_WORD = "S3cr3t-Test-Only"
 
 /** The host of the one allow-listed fake credential of .gitleaks.toml. */
 const val ALLOWLISTED_HOST = "cluster0.example.mongodb.net"
@@ -27,3 +27,17 @@ fun publicHostUri(): String = "mongodb" + "://" + "example.com" + ":27017"
 
 /** A loopback mongodb:// connection string, with no credential. */
 fun loopbackUri(): String = "mongodb" + "://" + "localhost" + ":27017"
+
+/**
+ * BLOCKER 1 of the second security review: a raw "?" inside the password,
+ * with no percent-escape. The parser then reads the tail of the password,
+ * and the host after it, as the start of the query. A 400 body must never
+ * carry any of those parts. The parts below let a test check for each one
+ * on its own: the password word, a word only in the tail, and the host.
+ */
+fun srvUriWithRawQuestionMarkInPassword(): String =
+    "mongodb" + "+srv://" + ALLOWLISTED_USER + ":" + ALLOWLISTED_WORD + "?" + PASSWORD_TAIL_AFTER_QUESTION_MARK +
+        "@" + ALLOWLISTED_HOST
+
+/** The part of [srvUriWithRawQuestionMarkInPassword] right after the raw "?". */
+const val PASSWORD_TAIL_AFTER_QUESTION_MARK = "tail-of-the-password"

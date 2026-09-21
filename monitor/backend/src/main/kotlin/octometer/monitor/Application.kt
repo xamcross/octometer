@@ -13,6 +13,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.Serializable
 import octometer.monitor.config.InvalidConfigException
 import octometer.monitor.config.Mode
@@ -76,13 +77,16 @@ fun Application.module(config: MonitorConfig) {
     install(ContentNegotiation) {
         json()
     }
-    // MAJOR 6 (Ktor review): a failure that leaves a route handler must
-    // never reach the default Ktor error page. That page can print the
-    // request and the stack trace. This gives a fixed JSON body instead,
-    // and one log line with the exception class name only.
+    // MAJOR 6 (Ktor review) and MAJOR 2 of the second review: a failure
+    // that leaves a route handler must never reach the default Ktor error
+    // page. That page can print the request and the stack trace.
+    // kotlinx.coroutines.CancellationException is a type alias of
+    // java.util.concurrent.CancellationException on the JVM. A task
+    // inside a store can throw that exact class while this call stays
+    // active. Only a real cancellation of this call may skip the response.
     install(StatusPages) {
         exception<Throwable> { call, cause ->
-            if (cause is CancellationException) throw cause
+            if (cause is CancellationException && !call.isActive) throw cause
             log.error("An unhandled exception reached the server. {}", cause.javaClass.simpleName)
             call.respond(HttpStatusCode.InternalServerError, ErrorBody("The server had an internal error."))
         }

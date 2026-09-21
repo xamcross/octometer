@@ -284,6 +284,48 @@ class AppRegistryServiceTest {
             assertEquals(0, countAppRows())
         }
 
+    // MAJOR 2 of the second security review, and MAJOR 2 of the second
+    // Ktor review: kotlinx.coroutines.CancellationException is a type
+    // alias of java.util.concurrent.CancellationException. A store can
+    // throw the Java class with no real cancellation of the call. The old
+    // code caught that class on its own, and skipped the cleanup of
+    // MAJOR 3. These tests use a store double that throws the Java class
+    // directly, with one marker text, built from a constant, never from
+    // a real connection string.
+
+    @Test
+    fun `createApp removes the app row when the secret store throws a Java cancellation, and the failure propagates`() =
+        runBlocking {
+            val marker = "fake-cancellation-createApp"
+            val cancellingService = AppRegistryService(database, CancellingSecretStore(dataDir, marker))
+
+            val thrown = assertFailsWith<java.util.concurrent.CancellationException> {
+                cancellingService.createApp(CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"))
+            }
+
+            assertEquals(marker, thrown.message)
+            assertEquals(0, countAppRows())
+        }
+
+    @Test
+    fun `updateApp propagates a Java cancellation from the secret store, instead of a SecretStoreUnavailable result`() =
+        runBlocking {
+            val created = service.createApp(
+                CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+            ) as CreateAppResult.Created
+            val marker = "fake-cancellation-updateApp"
+            val cancellingService = AppRegistryService(database, CancellingSecretStore(dataDir, marker))
+
+            val thrown = assertFailsWith<java.util.concurrent.CancellationException> {
+                cancellingService.updateApp(
+                    created.summary.appId,
+                    UpdateAppRequest(connectionString = allowlistedSrvUriWithoutCredential()),
+                )
+            }
+
+            assertEquals(marker, thrown.message)
+        }
+
     private suspend fun seedEvent(appId: Long, eventId: String) {
         database.write { writer ->
             writer.prepareStatement(
@@ -364,4 +406,13 @@ class AppRegistryServiceTest {
                 }
             }
         }
+}
+
+// A test double of the second security review: put() always throws the
+// exact class java.util.concurrent.CancellationException, with no real
+// cancellation of the calling coroutine. This is the type that a Future
+// or an executor task inside a real store can throw.
+private class CancellingSecretStore(dataDir: String, private val marker: String) : SecretStore(dataDir) {
+    override suspend fun put(appId: Long, connectionString: String): Unit =
+        throw java.util.concurrent.CancellationException(marker)
 }

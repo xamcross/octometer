@@ -36,14 +36,20 @@ class SecretStoreUnavailableException(message: String, cause: Throwable? = null)
  * guards one process only; issue #58 adds a lock file for two monitor
  * processes on the same folder.
  */
-class SecretStore(dataDir: String) {
+open class SecretStore(dataDir: String) {
 
     private val secretsDir = File(File(dataDir).absoluteFile.parentFile ?: File("."), "secrets")
     private val secretsFile = File(secretsDir, SECRETS_FILE_NAME)
     private val mutex = Mutex()
 
-    /** Writes, or replaces, the connection string of one app id. */
-    suspend fun put(appId: Long, connectionString: String) {
+    /**
+     * Writes, or replaces, the connection string of one app id.
+     *
+     * `open`, so a test of the second security review can subclass this
+     * class, and throw a chosen exception from one call. Production code
+     * never subclasses it.
+     */
+    open suspend fun put(appId: Long, connectionString: String) {
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 writeAll(readAll() + (appId.toString() to connectionString))
@@ -89,16 +95,42 @@ class SecretStore(dataDir: String) {
             }
         }
 
+    // MAJOR 6 (second Ktor review) and MINOR (second security review): the
+    // old code read the file with no retry and with no
+    // SecretStoreUnavailableException. A locked apps.json (a backup tool,
+    // an antivirus scan) then threw a raw IOException, and the caller
+    // answered 500, not the 503 of the decision. A read failure now maps
+    // to the same exception as a failed write, with no file path or file
+    // text in the message, and this never writes a new file over one it
+    // could not read.
     private fun readAll(): Map<String, String> {
         if (!secretsFile.isFile) return emptyMap()
-        val text = secretsFile.readText(Charsets.UTF_8)
+        val text = readTextWithRetry()
         if (text.isBlank()) return emptyMap()
         return try {
             Json.parseToJsonElement(text).jsonObject.mapValues { (_, value) -> value.jsonPrimitive.content }
         } catch (malformed: Exception) {
             // The message never repeats the file text: it holds each
             // connection string of the registry.
-            error("The secret file is not valid JSON.")
+            throw SecretStoreUnavailableException("The secret file is not valid JSON.")
+        }
+    }
+
+    private fun readTextWithRetry(): String {
+        var attempt = 1
+        while (true) {
+            try {
+                return secretsFile.readText(Charsets.UTF_8)
+            } catch (readFailure: IOException) {
+                if (attempt >= MAX_MOVE_ATTEMPTS) {
+                    throw SecretStoreUnavailableException(
+                        "The secret file read failed after $MAX_MOVE_ATTEMPTS attempts.",
+                        readFailure,
+                    )
+                }
+                Thread.sleep(MOVE_RETRY_PAUSE_MILLIS)
+                attempt += 1
+            }
         }
     }
 

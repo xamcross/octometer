@@ -42,6 +42,29 @@ class MonitorServicesTest {
         }
     }
 
+    // MAJOR 5 (second Ktor review) and MAJOR 2 (second security review): a
+    // broken secrets/apps.json must not stop the start, and it must not
+    // leave the database open. open() must also never overwrite a file
+    // that it could not read.
+    @Test
+    fun `open skips the sweep and still returns usable services, when the secret file is broken at the start`() =
+        runBlocking {
+            val secretsDir = File(root, "secrets").apply { mkdirs() }
+            val secretsFile = File(secretsDir, "apps.json")
+            val brokenBytes = "{ this is not valid json".toByteArray(Charsets.UTF_8)
+            secretsFile.writeBytes(brokenBytes)
+
+            val services = MonitorServices.open(prodConfig(dataDir = dataDir))
+            try {
+                assertTrue(
+                    brokenBytes.contentEquals(secretsFile.readBytes()),
+                    "the broken file must stay exactly as it was",
+                )
+            } finally {
+                services.close()
+            }
+        }
+
     private suspend fun seedOneAppRow(): Long {
         val database = SqliteDatabase.open(dataDir)
         val appId = try {

@@ -72,7 +72,15 @@ fun Route.appRegistryRoutes(registry: AppRegistryService) {
             call.respond(HttpStatusCode.BadRequest, ErrorBody("The app id must be a whole number."))
             return@delete
         }
-        val found = registry.deleteApp(appId)
+        // MAJOR 6 (second Ktor review): deleteApp reads and writes the
+        // secret store before it touches the app row. A broken or a
+        // locked secret file must give 503 here too, with no file path.
+        val found = try {
+            registry.deleteApp(appId)
+        } catch (unavailable: SecretStoreUnavailableException) {
+            call.respond(HttpStatusCode.ServiceUnavailable, ErrorBody(SECRET_STORE_UNAVAILABLE_MESSAGE))
+            return@delete
+        }
         if (found) {
             call.respond(HttpStatusCode.NoContent)
         } else {

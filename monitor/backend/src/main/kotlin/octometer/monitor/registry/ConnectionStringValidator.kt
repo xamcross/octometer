@@ -24,9 +24,24 @@ private const val REQUIRED_TRUE_VALUE = "true"
 sealed class ConnectionStringCheck {
     object Valid : ConnectionStringCheck()
 
-    /** [message] names the failed rule. It never repeats the checked text. */
+    /** [message] names the failed rule, as one fixed sentence. It never repeats the checked text. */
     data class Invalid(val message: String) : ConnectionStringCheck()
 }
+
+// NEW DECISION of the maintainer, second correction round: each rule below
+// has one fixed sentence. A message never carries any text of the checked
+// URI: not an option name, not a value, not a host. A password that holds
+// a raw "?" makes the parser read a part of the password, and the host
+// after it, as an option name; the old messages then leaked that part in
+// the 400 body. A fixed sentence per rule closes this for every rule, not
+// only for the one that a probe happens to find.
+private const val MESSAGE_SCHEME = "The scheme must be mongodb+srv:// or mongodb://."
+private const val MESSAGE_PUBLIC_HOST = "A mongodb:// connection string needs a loopback host."
+private const val MESSAGE_PERCENT_ENCODING = "An option name must use valid percent-encoding."
+private const val MESSAGE_NO_VALUE = "Each option of a connection string needs a value."
+private const val MESSAGE_DUPLICATE = "An option name must appear one time only."
+private const val MESSAGE_TLS_VALUE = "The tls and ssl options accept only the value true."
+private const val MESSAGE_OPTION_NOT_ALLOWED = "An option name is not on the allow-list of accepted options."
 
 /**
  * The URI check of D11 and section 4.3 (step 1). It runs on the raw text,
@@ -39,9 +54,10 @@ sealed class ConnectionStringCheck {
  * check splits the query on "&" and on ";", because the MongoDB driver
  * accepts both separators. The check decodes a percent escape in each
  * option name before the compare. A percent-encoded evasion of the
- * allow-list thus fails too. Each error message names the rule and the
- * option name. It never names a value, and it never repeats a part of
- * the checked text.
+ * allow-list thus fails too.
+ *
+ * Each rule has one fixed message (see the constants above). No message
+ * carries an option name, a value, or a host of the checked text.
  */
 object ConnectionStringValidator {
 
@@ -49,32 +65,31 @@ object ConnectionStringValidator {
         val prefix = when {
             connectionString.startsWith(SRV_PREFIX) -> SRV_PREFIX
             connectionString.startsWith(STANDARD_PREFIX) -> STANDARD_PREFIX
-            else -> return invalid("The scheme must be mongodb+srv:// or mongodb://.")
+            else -> return invalid(MESSAGE_SCHEME)
         }
 
         val remainder = connectionString.substring(prefix.length)
 
         if (prefix == STANDARD_PREFIX && !isLoopbackOnly(hostSegmentOf(remainder))) {
-            return invalid("A mongodb:// connection string needs a loopback host.")
+            return invalid(MESSAGE_PUBLIC_HOST)
         }
 
         val seenNames = mutableSetOf<String>()
         for ((rawName, rawValue) in optionsOf(remainder)) {
-            val name = decodedLowerName(rawName)
-                ?: return invalid("An option name must use valid percent-encoding.")
+            val name = decodedLowerName(rawName) ?: return invalid(MESSAGE_PERCENT_ENCODING)
             if (rawValue == null) {
-                return invalid("The option $name needs a value.")
+                return invalid(MESSAGE_NO_VALUE)
             }
             if (!seenNames.add(name)) {
-                return invalid("The option $name must appear one time.")
+                return invalid(MESSAGE_DUPLICATE)
             }
             when (name) {
                 in ALLOWED_TRUE_ONLY_OPTIONS ->
-                    if (rawValue != REQUIRED_TRUE_VALUE) {
-                        return invalid("The option $name accepts only the value true.")
+                    if (!rawValue.equals(REQUIRED_TRUE_VALUE, ignoreCase = true)) {
+                        return invalid(MESSAGE_TLS_VALUE)
                     }
                 in ALLOWED_OPTIONS_ANY_VALUE -> Unit
-                else -> return invalid("The option $name is not on the allow-list of accepted options.")
+                else -> return invalid(MESSAGE_OPTION_NOT_ALLOWED)
             }
         }
 

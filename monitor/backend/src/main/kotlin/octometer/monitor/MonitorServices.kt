@@ -33,18 +33,36 @@ class MonitorServices private constructor(
 
         /**
          * Opens the store and the secret store, then runs the orphan
-         * sweep of MAJOR 4 (security review): a secret whose app id has
-         * no app row stays on the disk after a delete that stopped
-         * between its two steps. The sweep removes each such secret and
-         * writes one log line with the removed count, never an app id
-         * and never a connection string.
+         * sweep of MAJOR 4 (security review). A secret can stay on the
+         * disk with no app row, after a delete that stopped between its
+         * two steps. The sweep removes each such secret.
+         *
+         * The sweep writes one log line with the removed count. It never
+         * writes an app id, and it never writes a connection string.
+         *
+         * MAJOR 5 (second Ktor review) and MAJOR 2 (second security
+         * review): a broken or a locked secrets file is a hygiene
+         * problem, not a start defect. The sweep then skips, with one
+         * warn-level log line, and the start goes on. Each other failure
+         * (for example a database defect) closes the store again and
+         * throws, so a failed start never leaves an open store or a
+         * locked file.
          */
         fun open(config: MonitorConfig): MonitorServices {
             val database = SqliteDatabase.open(config.dataDir)
-            val secretStore = SecretStore(config.dataDir)
-            val removedOrphans = runBlocking { sweepOrphanSecrets(database, secretStore) }
-            log.info("The start removed {} orphan secret(s).", removedOrphans)
-            return MonitorServices(config, database, secretStore)
+            try {
+                val secretStore = SecretStore(config.dataDir)
+                val removedOrphans = runCatching { runBlocking { sweepOrphanSecrets(database, secretStore) } }
+                    .onFailure { failure ->
+                        log.warn("The orphan secret sweep did not run. {}", failure.javaClass.simpleName)
+                    }
+                    .getOrDefault(0)
+                log.info("The start removed {} orphan secret(s).", removedOrphans)
+                return MonitorServices(config, database, secretStore)
+            } catch (startFailure: Throwable) {
+                database.close()
+                throw startFailure
+            }
         }
     }
 }

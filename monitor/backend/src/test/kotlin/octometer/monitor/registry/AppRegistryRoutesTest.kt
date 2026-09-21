@@ -272,6 +272,72 @@ class AppRegistryRoutesTest {
         assertEquals(0, countAppRows(dataDir))
     }
 
+    // MAJOR 6 (second Ktor review) and MINOR (second security review): a
+    // broken secret file must give 503 on POST, on PATCH, and on DELETE,
+    // and it must never overwrite the file that it could not read.
+
+    @Test
+    fun `POST gives 503 when the secret file is broken, and the file stays unchanged`() {
+        val dataDir = testDataDir()
+        val secretsFile = File(File(dataDir).parentFile, "secrets").apply { mkdirs() }.let { File(it, "apps.json") }
+        val brokenBytes = "{ this is not valid json".toByteArray(Charsets.UTF_8)
+        secretsFile.writeBytes(brokenBytes)
+
+        lateinit var status: HttpStatusCode
+        testApplication {
+            application { module(prodConfig(dataDir = dataDir)) }
+            status = createApp(name = "demo", connectionString = allowlistedSrvUri()).status
+        }
+
+        assertEquals(HttpStatusCode.ServiceUnavailable, status)
+        assertTrue(brokenBytes.contentEquals(secretsFile.readBytes()), "the broken file must stay exactly as it was")
+        assertEquals(0, countAppRows(dataDir))
+    }
+
+    @Test
+    fun `PATCH gives 503 when the secret file is broken, and leaves the app row unchanged`() {
+        val dataDir = testDataDir()
+        lateinit var status: HttpStatusCode
+        testApplication {
+            application { module(prodConfig(dataDir = dataDir)) }
+            val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
+            val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
+
+            File(File(dataDir).parentFile, "secrets/apps.json").writeText("{ this is not valid json")
+
+            status = client.patch("/api/apps/$appId") {
+                allowedHost()
+                header(HttpHeaders.Origin, "http://localhost:7431")
+                contentType(ContentType.Application.Json)
+                setBody("""{"connectionString":"${allowlistedSrvUriWithoutCredential()}"}""")
+            }.status
+        }
+
+        assertEquals(HttpStatusCode.ServiceUnavailable, status)
+        assertEquals(1, countAppRows(dataDir), "a 503 must not remove the app row")
+    }
+
+    @Test
+    fun `DELETE gives 503 when the secret file is broken, instead of a raw 500`() {
+        val dataDir = testDataDir()
+        lateinit var status: HttpStatusCode
+        testApplication {
+            application { module(prodConfig(dataDir = dataDir)) }
+            val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
+            val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
+
+            File(File(dataDir).parentFile, "secrets/apps.json").writeText("{ this is not valid json")
+
+            status = client.delete("/api/apps/$appId") {
+                allowedHost()
+                header(HttpHeaders.Origin, "http://localhost:7431")
+            }.status
+        }
+
+        assertEquals(HttpStatusCode.ServiceUnavailable, status)
+        assertEquals(1, countAppRows(dataDir), "a 503 must not remove the app row")
+    }
+
     private suspend fun ApplicationTestBuilder.createApp(
         name: String,
         connectionString: String,

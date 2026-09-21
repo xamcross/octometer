@@ -248,4 +248,59 @@ class ConnectionStringValidatorTest {
         assertTrue(invalid.message.contains("tls"))
         assertFalse(invalid.message.contains("false"))
     }
+
+    @Test
+    fun `tls=TRUE passes, because the compare ignores the letter case`() {
+        // MINOR 3 of the second security review.
+        val result = ConnectionStringValidator.check(allowlistedSrvUriWithoutCredential("tls=TRUE"))
+
+        assertIs<ConnectionStringCheck.Valid>(result)
+    }
+
+    @Test
+    fun `ssl=True passes, because the compare ignores the letter case`() {
+        val result = ConnectionStringValidator.check(allowlistedSrvUriWithoutCredential("ssl=True"))
+
+        assertIs<ConnectionStringCheck.Valid>(result)
+    }
+
+    @Test
+    fun `tls=truely gets an invalid result, because the value must be exactly true`() {
+        val result = ConnectionStringValidator.check(allowlistedSrvUriWithoutCredential("tls=truely"))
+
+        assertIs<ConnectionStringCheck.Invalid>(result)
+    }
+
+    // BLOCKER 1 of the second security review: a raw "?" in the password
+    // makes the old parser read the password tail and the host as an
+    // option name, and the 400 body then showed that text. NEW DECISION:
+    // no message of this check may carry any part of the checked URI.
+    @Test
+    fun `a raw question mark in the password gets an invalid result, and the message names no part of the URI`() {
+        val result = ConnectionStringValidator.check(srvUriWithRawQuestionMarkInPassword())
+
+        val invalid = assertIs<ConnectionStringCheck.Invalid>(result)
+        assertFalse(invalid.message.contains(ALLOWLISTED_USER))
+        assertFalse(invalid.message.contains(ALLOWLISTED_WORD))
+        assertFalse(invalid.message.contains(PASSWORD_TAIL_AFTER_QUESTION_MARK))
+        assertFalse(invalid.message.contains(ALLOWLISTED_HOST))
+    }
+
+    @Test
+    fun `an unknown option name gets a fixed message, with no part of the option name`() {
+        val result = ConnectionStringValidator.check(allowlistedSrvUriWithoutCredential("aVeryUnusualOptionName=1"))
+
+        val invalid = assertIs<ConnectionStringCheck.Invalid>(result)
+        assertFalse(invalid.message.contains("aVeryUnusualOptionName", ignoreCase = true))
+    }
+
+    @Test
+    fun `an option with no value gets a fixed message with no double space`() {
+        // MINOR 4 of the second security review: an empty option name used
+        // to give a message with two spaces in a row.
+        val result = ConnectionStringValidator.check(allowlistedSrvUriWithoutCredential("=x"))
+
+        val invalid = assertIs<ConnectionStringCheck.Invalid>(result)
+        assertFalse(invalid.message.contains("  "))
+    }
 }
