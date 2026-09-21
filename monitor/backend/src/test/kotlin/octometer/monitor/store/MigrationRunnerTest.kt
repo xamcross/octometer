@@ -21,7 +21,7 @@ class MigrationRunnerTest {
         try {
             val database = SqliteDatabase.open(tempDir.absolutePath)
             try {
-                assertEquals(1, database.write { userVersion(it) })
+                assertEquals(2, database.write { userVersion(it) })
             } finally {
                 database.close()
             }
@@ -40,7 +40,7 @@ class MigrationRunnerTest {
             // throws here. The DDL of section 6 has no IF NOT EXISTS.
             val secondStart = SqliteDatabase.open(tempDir.absolutePath)
             try {
-                assertEquals(1, secondStart.write { userVersion(it) })
+                assertEquals(2, secondStart.write { userVersion(it) })
                 assertTrue(secondStart.write { MigrationRunner.run(it) }.isEmpty())
             } finally {
                 secondStart.close()
