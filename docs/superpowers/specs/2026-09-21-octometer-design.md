@@ -345,7 +345,8 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   query parameter `userId=<id>` or `anonymous=true`, the same as the API). Each view is
   one flat `<table>` with a `<caption>` and `<th scope>`. The name cell is
   `<th scope="row"><a routerLink>`, and a click on a row cell opens that link. The breadcrumb is `<nav aria-label="Breadcrumb"><ol>` with
-  `aria-current="page"`. After a navigation the focus moves to `<h1 tabindex="-1">`.
+  `aria-current="page"`. After each navigation that follows the first load, the focus moves to
+  `<h1 tabindex="-1">`; the first load and a change of only a query parameter keep the focus.
 - **D29. Poll store.** `timer(0, ms)` plus `exhaustMap`, with `catchError` inside. Signals
   `data`, `lastSuccessAt`, `error`. No `httpResource`. `@for` tracks the stable key. A refresh
   keeps the old rows until the new rows arrive. A button "Pause refresh" with `aria-pressed`
