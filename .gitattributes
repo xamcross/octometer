@@ -1,0 +1,4 @@
+# The wrapper script needs the LF line ending on each platform.
+/gradlew text eol=lf
+/gradlew.bat text eol=crlf
+/gradle/wrapper/gradle-wrapper.jar binary
