@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTracker, type Tracker } from './index.js';
+import * as pathMatch from './path-match.js';
 
 const ENDPOINT = 'https://app.example/api/octometer/v1/clicks';
 
@@ -739,5 +740,156 @@ describe('createTracker', () => {
 
     const clicks = at(parseCalls(fetchMock), 0).body.clicks;
     expect(at(clicks, 0).path).toBe('/articles/first');
+  });
+
+  it('drops a click on a data-octo value that starts with octo: in each letter case', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const upper = document.createElement('div');
+    upper.setAttribute('data-octo', 'OCTO:foo');
+    document.body.appendChild(upper);
+    const lower = document.createElement('div');
+    lower.setAttribute('data-octo', 'octo:anything');
+    document.body.appendChild(lower);
+
+    tracker = createTracker({ endpoint: ENDPOINT });
+    tracker.start();
+    clickElement(upper);
+    clickElement(lower);
+    vi.advanceTimersByTime(5000);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('drops a click on the exact text octo:session-start too (rule C38, before issue #107)', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'octo:session-start');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('writes one console warning for the first dropped octo: value, and no more for a second one', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const first = document.createElement('div');
+    first.setAttribute('data-octo', 'OCTO:foo');
+    document.body.appendChild(first);
+    const second = document.createElement('div');
+    second.setAttribute('data-octo', 'octo:bar');
+    document.body.appendChild(second);
+
+    tracker = createTracker({ endpoint: ENDPOINT });
+    tracker.start();
+    clickElement(first);
+    clickElement(second);
+    vi.advanceTimersByTime(5000);
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('stop() resets the octo: warning, so a later start() warns again', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'octo:foo');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT });
+    tracker.start();
+    clickElement(host);
+    tracker.stop();
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('still records a normal click when a routes list holds no octo: value', () => {
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a bad entry of the routes option, with one console warning that names its index', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    window.history.pushState({}, '', '/history/42');
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({
+      endpoint: ENDPOINT,
+      routes: ['/history/:id', 42 as unknown as string],
+    });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0).path).toBe('/history/:id');
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0]?.[0])).toContain('entry 1');
+  });
+
+  it('sends no path field when every entry of the routes option is bad, with one console warning', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT, routes: ['not-a-route'] });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0)).not.toHaveProperty('path');
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('sends no path field for an empty routes list, with one console warning', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT, routes: [] });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0)).not.toHaveProperty('path');
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('falls back to /other and throws nothing when the matcher itself throws', () => {
+    const matchSpy = vi.spyOn(pathMatch, 'matchPreparedPath').mockImplementation(() => {
+      throw new Error('a broken matcher');
+    });
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT, routes: ['/articles/*'] });
+    tracker.start();
+    expect(() => clickElement(host)).not.toThrow();
+    expect(() => vi.advanceTimersByTime(5000)).not.toThrow();
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0).path).toBe('/other');
+    matchSpy.mockRestore();
   });
 });

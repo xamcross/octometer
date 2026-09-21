@@ -9,7 +9,7 @@
  * server-side rendering, where `document` is absent.
  */
 
-import { matchPath } from './path-match.js';
+import { matchPreparedPath, prepareRoutes, type PreparedRoute } from './path-match.js';
 
 /** An option of the tracker. `endpoint` is mandatory; the rest have a default. */
 export interface TrackerOptions {
@@ -46,6 +46,13 @@ export interface Tracker {
 const SESSION_STORAGE_KEY = 'octo_session_id';
 /** The `element` rule of the contract, rule C4: 1 to 100 characters, this pattern. */
 const ELEMENT_PATTERN = /^[A-Za-z0-9_.:-]{1,100}$/;
+/**
+ * The reserved element prefix of the contract, rule C38, in each letter
+ * case. A click on a `data-octo` value with this prefix records no click,
+ * with no exception: issue #107 sends `octo:session-start` through its
+ * own call, never through a click on a page element.
+ */
+const RESERVED_ELEMENT_PREFIX = /^octo:/i;
 /** The queue holds a maximum of 200 entries (design decision D24). */
 const MAX_QUEUE_SIZE = 200;
 /** One request holds a maximum of 50 clicks (contract rule C17). */
@@ -69,13 +76,18 @@ export function createTracker(options: TrackerOptions): Tracker {
   const credentials = options.credentials ?? DEFAULT_CREDENTIALS;
   const getExtraHeaders = options.headers;
   const flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
-  const routes = options.routes;
+  // The routes option is checked and split one time here, not at each
+  // click: a bad entry is dropped with one console warning that names its
+  // index, and an empty or an all-bad list counts as no routes option at
+  // all (contract rule C42 gives the same rule to the server).
+  const preparedRoutes = prepareRoutesOption(options.routes);
 
   let queue: QueueEntry[] = [];
   let timerId: ReturnType<typeof setTimeout> | null = null;
   let sessionId: string | null = null;
   let started = false;
   let everStarted = false;
+  let droppedOctoPrefix = false;
   let clickListener: ((event: Event) => void) | null = null;
 
   function start(): void {
@@ -104,6 +116,7 @@ export function createTracker(options: TrackerOptions): Tracker {
     }
     clickListener = null;
     sessionId = null;
+    droppedOctoPrefix = false;
     if (everStarted) {
       // A started tracker always removes the key, also with no flush before.
       // A tracker that never started still touches no storage.
@@ -122,11 +135,36 @@ export function createTracker(options: TrackerOptions): Tracker {
     if (name === null || !ELEMENT_PATTERN.test(name)) {
       return;
     }
+    // The prefix octo: belongs to the contract, not to an app page (rule
+    // C38). Issue #107 sends octo:session-start through its own call.
+    if (RESERVED_ELEMENT_PREFIX.test(name)) {
+      if (!droppedOctoPrefix) {
+        droppedOctoPrefix = true;
+        console.warn('octometer: a data-octo value must not start with "octo:". The tracker drops it.');
+      }
+      return;
+    }
     // The path of a click is the page at the time of the click, not the
     // page at the time of the later flush (an app can navigate between the
     // two, because the tracker holds the click in its queue).
-    const path = routes !== undefined ? matchPath(routes, location.pathname) : undefined;
+    const path = computePath(preparedRoutes);
     enqueue(name, path);
+  }
+
+  /**
+   * Matches the current page against the prepared routes list. Gives
+   * `undefined` without a routes option. Gives `/other` when the matcher
+   * itself throws: no throw of the tracker reaches the page, also here.
+   */
+  function computePath(routes: readonly PreparedRoute[] | undefined): string | undefined {
+    if (routes === undefined) {
+      return undefined;
+    }
+    try {
+      return matchPreparedPath(routes, location.pathname);
+    } catch {
+      return '/other';
+    }
   }
 
   function enqueue(element: string, path: string | undefined): void {
@@ -252,6 +290,28 @@ export function createTracker(options: TrackerOptions): Tracker {
   }
 
   return { start, stop };
+}
+
+/**
+ * Checks and splits the `routes` option one time. Gives `undefined` for a
+ * missing option, an empty list, and a list whose entries are all bad:
+ * each of the three cases sends no `path` field (contract rule C42 gives
+ * the server the same rule for a missing route pattern list). A bad entry
+ * writes one console warning that names its index in the given list.
+ */
+function prepareRoutesOption(routes: TrackerOptions['routes']): readonly PreparedRoute[] | undefined {
+  if (routes === undefined) {
+    return undefined;
+  }
+  const { routes: prepared, warnings } = prepareRoutes(routes);
+  for (const warning of warnings) {
+    console.warn(warning);
+  }
+  if (prepared.length === 0) {
+    console.warn('octometer: the routes option holds no valid pattern. The tracker sends no path.');
+    return undefined;
+  }
+  return prepared;
 }
 
 /** A monotonic clock. It ignores a change of the system clock (MAJOR 1 of the review). */

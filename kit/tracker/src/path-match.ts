@@ -13,6 +13,13 @@
  */
 const STAR_SEGMENT_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2}){0,79}$/;
 
+/**
+ * The character set of a route pattern segment (contract rule C39). A
+ * literal segment, a `:name` segment, and the wildcard segment `*` each
+ * pass this set on their own text.
+ */
+const SEGMENT_CHAR_PATTERN = /^[A-Za-z0-9._~!$&'()*+,;=:@-]+$/;
+
 /** The stored path has a maximum of 150 bytes in UTF-8 (contract rule C42). */
 const MAX_PATH_BYTES = 150;
 
@@ -28,6 +35,10 @@ const textEncoder = new TextEncoder();
  * path with an empty segment, a `.` segment, or a `..` segment, for a bad
  * `*` segment of a matching pattern, and for a result above 150 bytes. It
  * never decodes a `%` escape.
+ *
+ * This function assumes a well-formed `routes` list. Call `prepareRoutes`
+ * first for a list that an app builds from its own configuration, and
+ * call `matchPreparedPath` with its result.
  */
 export function matchPath(routes: readonly string[], pathname: string): string {
   const pathSegments = splitPathSegments(pathname);
@@ -35,13 +46,81 @@ export function matchPath(routes: readonly string[], pathname: string): string {
     return OTHER;
   }
   for (const route of routes) {
-    const routeSegments = splitRouteSegments(route);
-    const result = matchOneRoute(routeSegments, pathSegments);
+    const result = matchOneRoute(splitRouteSegments(route), pathSegments);
     if (result !== null) {
       return withinByteLimit(result) ? result : OTHER;
     }
   }
   return OTHER;
+}
+
+/** One route pattern of `routes`, checked and split into segments one time. */
+export interface PreparedRoute {
+  readonly pattern: string;
+  readonly segments: readonly string[];
+}
+
+/** The result of `prepareRoutes`: the good entries, and one warning for each dropped entry. */
+export interface PreparedRoutes {
+  readonly routes: readonly PreparedRoute[];
+  readonly warnings: readonly string[];
+}
+
+/**
+ * Checks and splits each entry of `routes` one time, so a later click
+ * reuses the split form instead of splitting the whole list again.
+ *
+ * An entry that is not a non-empty string, that does not start with `/`,
+ * or that holds a segment with a character outside the set of rule C39,
+ * is dropped. The result holds one warning message for each dropped
+ * entry, with the index of that entry in the given list.
+ */
+export function prepareRoutes(routes: readonly unknown[]): PreparedRoutes {
+  const prepared: PreparedRoute[] = [];
+  const warnings: string[] = [];
+  routes.forEach((route, index) => {
+    if (isValidRoutePattern(route)) {
+      prepared.push({ pattern: route, segments: splitRouteSegments(route) });
+    } else {
+      warnings.push(
+        `octometer: the routes option drops entry ${index}. A route pattern is a string, ` +
+          'it starts with "/", and each segment holds only the character set of rule C39.',
+      );
+    }
+  });
+  return { routes: prepared, warnings };
+}
+
+/**
+ * Matches `pathname` against a `routes` list that `prepareRoutes` already
+ * checked and split. This is the fast form: one click splits `pathname`
+ * only, not the whole route list again.
+ */
+export function matchPreparedPath(routes: readonly PreparedRoute[], pathname: string): string {
+  const pathSegments = splitPathSegments(pathname);
+  if (pathSegments === null) {
+    return OTHER;
+  }
+  for (const route of routes) {
+    const result = matchOneRoute(route.segments, pathSegments);
+    if (result !== null) {
+      return withinByteLimit(result) ? result : OTHER;
+    }
+  }
+  return OTHER;
+}
+
+/**
+ * Checks one route pattern: a non-empty string, starting with `/`, with
+ * each segment inside the character set of rule C39. The segment `*` and
+ * a `:name` segment pass this set on their own text too.
+ */
+function isValidRoutePattern(route: unknown): route is string {
+  if (typeof route !== 'string' || route.length === 0 || !route.startsWith('/')) {
+    return false;
+  }
+  const segments = splitRouteSegments(route);
+  return segments.every((segment) => segment.length > 0 && SEGMENT_CHAR_PATTERN.test(segment));
 }
 
 /**
@@ -81,7 +160,7 @@ function splitRouteSegments(route: string): string[] {
  * or a literal segment that does not equal the path segment. Gives the
  * stored path, or `/other` for a bad `*` segment, when the route matches.
  */
-function matchOneRoute(routeSegments: string[], pathSegments: string[]): string | null {
+function matchOneRoute(routeSegments: readonly string[], pathSegments: readonly string[]): string | null {
   if (routeSegments.length !== pathSegments.length) {
     return null;
   }

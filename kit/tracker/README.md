@@ -30,6 +30,11 @@ tracker.stop();
 Mark an element with `data-octo="<name>"`. The name is 1 to 100 characters,
 with the pattern `[A-Za-z0-9_.:-]+` (contract rule C4).
 
+The prefix `octo:` is reserved for the contract, in each letter case (for
+example `OCTO:foo`). A click on such a value records no click, and the
+tracker writes one console warning for the first dropped value (contract
+rule C38).
+
 ## Options
 
 | Option | Default | Purpose |
@@ -57,13 +62,32 @@ the same count of segments that matches:
   literal `:name`.
 - A `*` segment matches one segment, and it keeps the real segment only
   when the segment holds a plain token: `^[A-Za-z0-9](?:[A-Za-z0-9._~-]|
-  %[0-9A-Fa-f]{2}){0,79}$`. Never use `*` for a segment that can hold an
-  identifier, a token, or a search term; use `:name` for that segment
-  instead.
+  %[0-9A-Fa-f]{2}){0,79}$`.
+
+> **Warning for an app team.** A path can hold an identifier, a token, or a
+> search term. Mark each such segment with `:name` in the route list. Never
+> use `*` for a segment that holds a token, an email address, or a user id.
+>
+> A `*` segment keeps a percent escape. A browser writes an `@` sign as
+> `%40`, a space as `%20`, and a `<` as `%3C`. The segment
+> `user%40example.com` passes the test, thus it leaves the browser. Use
+> `:name` for each such segment.
 
 The tracker sends `/other` for a path with no matching pattern, for a bad
 `*` segment, for an empty segment, a `.` segment, or a `..` segment, and
 for a result above 150 bytes in UTF-8. It never decodes a `%` escape.
+
+The tracker checks each route pattern one time, at the creation of the
+tracker: a pattern is a string, it starts with `/`, and each segment
+holds only the character set of rule C39. A bad entry is dropped, with
+one console warning that names its index in the list. An empty list, or
+a list whose entries are all bad, counts as no `routes` option at all: no
+click entry holds `path`, and the tracker writes one console warning.
+
+The matcher itself, `matchPath` in `src/path-match.ts`, is an internal
+module. The package `exports` list holds no entry for it, thus an app
+cannot import it on its own. Use the `routes` option of `createTracker`
+instead.
 
 ## What leaves the browser
 
