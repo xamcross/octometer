@@ -1,0 +1,41 @@
+/* The target size (WCAG 2.5.8). 24 by 24 CSS px is a minimum, not a goal. */
+button {
+  min-block-size: 24px;
+  min-inline-size: 24px;
+  padding: 4px 12px;
+  border: 1px solid ButtonBorder;
+  border-radius: 4px;
+  background: ButtonFace;
+  color: ButtonText;
+}
+
+/* The check mark holds its space in both states, so the button keeps one size. */
+button::before {
+  content: '\2713\00a0' / '';
+  visibility: hidden;
+}
+
+/* The pressed state (WCAG 1.4.1). A border form and an icon carry the state, not colour alone. */
+button[aria-pressed='true'] {
+  border-style: inset;
+  background: #003366;
+  color: #ffffff;
+}
+
+button[aria-pressed='true']::before {
+  visibility: visible;
+}
+
+/* The forced-colours mode keeps the system pair. The user picks that colour there. */
+@media (forced-colors: active) {
+  button[aria-pressed='true'] {
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+
+/* A visible focus indicator (WCAG 2.4.7). CanvasText contrasts with the page, not the button text. */
+button:focus-visible {
+  outline: 2px solid CanvasText;
+  outline-offset: 2px;
+}
