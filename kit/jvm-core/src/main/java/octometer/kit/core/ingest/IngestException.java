@@ -33,7 +33,9 @@ public final class IngestException extends RuntimeException {
         /** The `ageMs` value is negative (rule C15). */
         NEGATIVE_AGE_MS,
         /** The `userId` value is not 1 to 254 characters (rule C6). */
-        USER_ID_LENGTH
+        USER_ID_LENGTH,
+        /** The `userId` value holds a control character or the delete character. */
+        USER_ID_CHARACTER
     }
 
     private final Reason reason;

@@ -1,5 +1,6 @@
 package octometer.kit.core.store;
 
+import java.util.List;
 import octometer.kit.core.ingest.IngestEvent;
 
 /**
@@ -10,14 +11,36 @@ import octometer.kit.core.ingest.IngestEvent;
 public interface EventLogStore {
 
     /**
-     * Appends one valid event, with the user id from a
+     * Appends each valid event of one batch, with the user id from a
      * {@link octometer.kit.core.user.UserIdResolver}. The value of
-     * {@code userId} can be {@code null} (design decision D19).
+     * {@code userId} can be {@code null} (design decision D19). The
+     * batch is the unit of the write, so a store can drop the whole
+     * batch above the event cap of design decision D21 (contract rule
+     * C19, issue #34).
+     *
+     * <p>A store throws an unchecked exception when the write fails. An
+     * adapter maps that exception to status 500.
      */
-    void append(IngestEvent event, String userId);
+    void append(List<IngestEvent> events, String userId);
 
     /**
-     * Deletes each stored event with the given user id.
+     * Appends one valid event. This default method wraps the event in a
+     * batch of one, then calls {@link #append(List, String)}.
+     */
+    default void append(IngestEvent event, String userId) {
+        append(List.of(event), userId);
+    }
+
+    /**
+     * Deletes each stored event with the given user id. The value of
+     * {@code userId} must not be {@code null}, and it must not be an
+     * empty text. An implementation throws {@link NullPointerException}
+     * for a {@code null} value, and {@link IllegalArgumentException} for
+     * an empty text. An anonymous event has no erasure, because it holds
+     * no user id (contract rule C6).
+     *
+     * <p>A store throws an unchecked exception when the delete fails. An
+     * adapter maps that exception to status 500.
      */
     void deleteByUserId(String userId);
 }

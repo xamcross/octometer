@@ -16,4 +16,15 @@ public record StoredEvent(String sessionId, String element, Instant ts, String u
     public static StoredEvent of(IngestEvent event, String userId) {
         return new StoredEvent(event.sessionId(), event.element(), event.ts(), userId);
     }
+
+    /**
+     * Returns a text with no personal data (design decision D15). The
+     * user id and the session id stay out of this text, because a log
+     * line must never hold them.
+     */
+    @Override
+    public String toString() {
+        return "StoredEvent[element=" + element + ", ts=" + ts
+                + ", userId=" + (userId == null ? "null" : "<redacted>") + "]";
+    }
 }

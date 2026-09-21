@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import octometer.kit.core.store.EventLogStore;
 import octometer.kit.core.user.UserIdResolver;
 
@@ -50,8 +51,8 @@ public final class IngestPipeline {
 
     /**
      * Runs the full ingest flow of design section 4.2 and design
-     * decisions D18 and D19, then gives each valid event to
-     * {@code store}. It resolves the user id with
+     * decisions D18 and D19, then gives the whole batch of valid events
+     * to {@code store} in one call. It resolves the user id with
      * {@code userIdResolver}. The client never sets the user id; a
      * `userId` field of the request body has no effect (contract rules
      * C6, C16, C32).
@@ -60,20 +61,41 @@ public final class IngestPipeline {
      * record an anonymous click, this method appends nothing and
      * returns.
      *
-     * <p>It throws {@link IngestException} for a broken rule of the
-     * contract, the rules of {@link #process} and rule C6 for the
-     * resolved user id.
+     * <p>This method throws {@link IngestException} for a broken rule of
+     * the contract in the request body (the rules of {@link #process}).
+     *
+     * <p>A {@code userId} value from {@code userIdResolver} that breaks
+     * rule C6 is a defect of the app, not of the client. This method
+     * then throws {@link IllegalStateException}; the message names the
+     * broken rule and never holds the user id. This method also lets an
+     * exception of {@code userIdResolver} itself pass to the caller. An
+     * adapter maps each of the two to status 500, never to status 400.
+     *
+     * <p>A store throws an unchecked exception when {@link
+     * EventLogStore#append} fails. This method lets that exception pass
+     * to the caller; an adapter maps it to status 500.
+     *
+     * <p>Each parameter must not be {@code null}.
      */
     public static void ingest(String rawBody, Clock clock, UserIdResolver userIdResolver,
             EventLogStore store, IngestSettings settings) {
+        Objects.requireNonNull(rawBody, "rawBody must not be null");
+        Objects.requireNonNull(clock, "clock must not be null");
+        Objects.requireNonNull(userIdResolver, "userIdResolver must not be null");
+        Objects.requireNonNull(store, "store must not be null");
+        Objects.requireNonNull(settings, "settings must not be null");
+
         List<IngestEvent> events = process(rawBody, clock);
         String userId = userIdResolver.resolve();
-        EventFieldValidator.validateUserId(userId);
+        try {
+            EventFieldValidator.validateUserId(userId);
+        } catch (IngestException cause) {
+            throw new IllegalStateException(
+                    "The UserIdResolver of the app returned a userId that breaks contract rule C6.", cause);
+        }
         if (userId == null && !settings.recordAnonymousClicks()) {
             return;
         }
-        for (IngestEvent event : events) {
-            store.append(event, userId);
-        }
+        store.append(events, userId);
     }
 }
