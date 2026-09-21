@@ -1,0 +1,35 @@
+/*
+ * No table element gets a `display` value in this file, so the table keeps
+ * its native semantics for a screen reader.
+ */
+caption {
+  text-align: left;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+
+th,
+td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+th[scope='row'] a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+.data-from,
+.error-text {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+}
