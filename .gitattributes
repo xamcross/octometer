@@ -16,3 +16,7 @@
 /gradle/wrapper/gradle-wrapper.jar binary
 *.png binary
 *.ico binary
+
+# Git keeps the LF line end of the pre-commit hook. The hook is a POSIX
+# shell script and needs LF, also on a Windows clone.
+/.githooks/pre-commit text eol=lf
