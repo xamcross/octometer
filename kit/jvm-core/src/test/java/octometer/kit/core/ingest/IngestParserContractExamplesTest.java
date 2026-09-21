@@ -9,6 +9,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * Tests with the ingest body examples of `contract/examples/` (issue #8).
  * Each valid file must parse. Each invalid file must fail with the rule
  * that its file name holds (rules C13, C15, C17, C18, C36, C37).
+ *
+ * <p>Version 1.1 adds the fields `path` and `referrerHost` (rules C39 to
+ * C42, issue #101). The present parser does not check these fields, so it
+ * skips each one as an unknown field of a `clicks` entry (rule C32). This
+ * is the forward-compatible behavior of an old kit: it drops a new field
+ * and it does not fail. Issue #103 adds the checks of C39 to C42.
  */
 class IngestParserContractExamplesTest {
 
@@ -115,5 +121,25 @@ class IngestParserContractExamplesTest {
         IngestException error = assertThrows(IngestException.class, () -> IngestParser.parse(body));
 
         assertEquals(IngestException.Reason.WRONG_FIELD_TYPE, error.reason());
+    }
+
+    @Test
+    void parsesAClickWithAPathFieldAsAnUnknownField() {
+        String body = ExampleFiles.read("ingest-valid-C39-path.json");
+
+        ParsedIngestRequest request = IngestParser.parse(body);
+
+        assertEquals(1, request.clicks().size());
+        assertEquals("article.read-more", request.clicks().get(0).element());
+    }
+
+    @Test
+    void parsesAClickWithABadPathAsAnUnknownField() {
+        String body = ExampleFiles.read("ingest-valid-C41-bad-path-dropped.json");
+
+        ParsedIngestRequest request = IngestParser.parse(body);
+
+        assertEquals(1, request.clicks().size());
+        assertEquals("article.read-more", request.clicks().get(0).element());
     }
 }
