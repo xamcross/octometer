@@ -7,9 +7,10 @@ import { Component, model } from '@angular/core';
 @Component({
   selector: 'app-pause-refresh-button',
   templateUrl: './pause-refresh-button.html',
+  styleUrl: './pause-refresh-button.css',
 })
 export class PauseRefreshButton {
-  /** True while the refresh is paused. */
+  /** True while the user pauses the refresh. */
   readonly pressed = model(false);
 
   /** Toggles the paused state. */

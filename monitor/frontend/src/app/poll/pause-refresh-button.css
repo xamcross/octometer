@@ -1,0 +1,27 @@
+/* The target size (WCAG 2.5.8). 24 by 24 CSS px is a minimum, not a goal. */
+button {
+  min-block-size: 24px;
+  min-inline-size: 24px;
+  padding: 4px 12px;
+  border: 1px solid ButtonBorder;
+  border-radius: 4px;
+  background: ButtonFace;
+  color: ButtonText;
+}
+
+/* The pressed state (WCAG 1.4.1). A border form and an icon carry the state, not colour alone. */
+button[aria-pressed='true'] {
+  border-style: inset;
+  background: Highlight;
+  color: HighlightText;
+}
+
+button[aria-pressed='true']::before {
+  content: '\2713\00a0';
+}
+
+/* A visible focus indicator (WCAG 2.4.7). */
+button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}

@@ -47,4 +47,31 @@ describe('PauseRefreshButton', () => {
     const otherButton: HTMLButtonElement = other.nativeElement.querySelector('button');
     expect(otherButton.getAttribute('aria-pressed')).toBe('true');
   });
+
+  it('is a native button element with type="button" and no role override', () => {
+    expect(button().tagName).toBe('BUTTON');
+    expect(button().type).toBe('button');
+    expect(button().getAttribute('role')).toBeNull();
+  });
+
+  it('keeps the accessible name "Pause refresh" in both states', () => {
+    expect(button().textContent?.trim()).toBe('Pause refresh');
+    expect(button().getAttribute('aria-label')).toBeNull();
+    expect(button().getAttribute('aria-labelledby')).toBeNull();
+
+    button().click();
+    fixture.detectChanges();
+    expect(button().getAttribute('aria-pressed')).toBe('true');
+    expect(button().textContent?.trim()).toBe('Pause refresh');
+  });
+
+  it('writes aria-pressed as the text "false" or "true", never an absent attribute', () => {
+    expect(button().hasAttribute('aria-pressed')).toBe(true);
+    expect(button().getAttribute('aria-pressed')).toBe('false');
+
+    button().click();
+    fixture.detectChanges();
+    expect(button().hasAttribute('aria-pressed')).toBe(true);
+    expect(button().getAttribute('aria-pressed')).toBe('true');
+  });
 });
