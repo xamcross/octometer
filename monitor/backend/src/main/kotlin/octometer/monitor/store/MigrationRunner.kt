@@ -11,15 +11,22 @@ private val MIGRATIONS = listOf(
 )
 
 /**
- * The migration runner of step 3 (D3). It compares each migration version
- * with `PRAGMA user_version` and runs only the versions above it, thus a
- * second start of the same file applies no migration again.
+ * The migration runner of step 3 (D3). It reads `PRAGMA user_version`. It
+ * runs only the versions above that number. A second start of the same
+ * file thus applies no migration again.
  */
 object MigrationRunner {
 
     /** Runs each pending migration, in order, and returns the applied versions. */
     fun run(connection: Connection): List<Int> {
         val current = userVersion(connection)
+        val latest = MIGRATIONS.maxOf { it.version }
+        // MAJOR 2 of correction round 1 (SQLite and data engineer): stop a
+        // start on a database that a newer build already migrated.
+        check(current <= latest) {
+            "The database is at user_version $current, and this build knows $latest. " +
+                "Install a newer monitor build, or restore a backup."
+        }
         val applied = mutableListOf<Int>()
         for (migration in MIGRATIONS) {
             if (migration.version > current) {
@@ -45,9 +52,14 @@ object MigrationRunner {
         }
     }
 
+    // MINOR 1 of correction round 1 (both reviewers): call next() first, and
+    // fail when a query gives no row, instead of a silent 0.
     private fun userVersion(connection: Connection): Int =
         connection.createStatement().use { statement ->
-            statement.executeQuery("PRAGMA user_version").use { it.getInt(1) }
+            statement.executeQuery("PRAGMA user_version").use { result ->
+                check(result.next()) { "PRAGMA user_version gave no row." }
+                result.getInt(1)
+            }
         }
 
     private fun readResource(resource: String): String {
