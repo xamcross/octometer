@@ -15,14 +15,32 @@ connection.
 ### Run command
 
 ```
-mongosh "<uri>" --quiet --file contract/fixtures/check-privileges.js
+mongosh "mongodb+srv://<host>/<database>" --username <user> --quiet --file contract/fixtures/check-privileges.js
 ```
 
-Replace `<uri>` with the full connection string of the database user. The
-URI must end with `/<database>`. The Atlas "Connect with mongosh" panel
-gives a URI without a database name, thus add the name by hand before you
-run the script. Save the output as
+Replace `<host>` with the cluster host name. Replace `<database>` with
+the database name. Replace `<user>` with the user name of the database
+user. Never put the password into the URI. A password in the URI enters
+the shell history and the process list.
+
+`mongosh` asks for the password after you run this command. The password
+prompt goes to standard error, not to standard output. Standard output
+holds only the JSON document. Save that document as
 `contract/fixtures/connection-status-m0.json`.
+
+Before a paste into a public issue:
+
+1. Check the exit code. The value 0 is correct.
+2. Check that standard output holds exactly one line.
+3. Check that standard error holds only the password prompt.
+4. Read the one line. It must hold no host name and no port.
+5. Paste only the JSON line.
+
+Add `--authenticationDatabase admin` when the login fails with
+`Authentication failed`. Atlas creates each SCRAM user in the `admin`
+database, and this option names that database.
+
+See "A failed connection at the start" for the reason of steps 1 to 4.
 
 ### Fields of the output
 
@@ -37,10 +55,95 @@ run the script. Save the output as
 | `findEvents` | The result of one `find` with a limit of 1 on `octometer_events`. Holds 1 when the collection holds a document, and 0 when the collection is empty. Holds the field names of the first document, never a value. |
 | `insertEvents` | The result of one `insertOne` on `octometer_events`. Holds `insertWorked`. When the insert fails, it holds the error. When the insert works, it holds `probeMarker`, `probeDeleted`, and `deleteError`. |
 | `findOther` | The result of one `find` on `octometer_probe_other`. Holds the document count on success, or the error on failure. |
+| `driverError` | Present, with the value `true`, inside an error object of a driver error. Absent from a server error. |
 
 An error object holds `code`, `codeName`, and `errmsg`. The `errmsg` field
 stops after 300 characters. Each probe command of this script takes a
 constant argument, thus the error text holds no value of a real document.
+
+The script tests each caught error. `code` must be a number. `codeName`
+must be a text. This test alone marks a server error. A server error keeps
+its `code`, its `codeName`, and its `errmsg`. Decision D8 of the design
+needs the error code 8000, the error code 13, and each text.
+
+A server `errmsg` can still hold a host name. One example is a "not
+primary" text. A second example is a "host unreachable" text. The script
+removes the host name before it cuts the text to 300 characters, and
+before it prints the document. The limit of 300 characters gives no
+protection on its own. A host name can stand near the start of such a
+text. The script also cuts the text to 4000 characters before it looks
+for a host name. This bound keeps the check fast on a long text.
+
+The script covers these forms of a host name or an IP address:
+
+- An IPv4 address, with or without a port, for example `10.20.30.40` or
+  `10.20.30.40:27017`.
+- An IPv6 address inside brackets, with or without a port, for example
+  `[::1]` or `[::1]:27017`. The script needs the brackets. A real server
+  writes an IPv6 host with brackets.
+- A host name with a dot, or with two letters, together with a port, for
+  example `cluster0-shard-00-01.abcde.mongodb.net:27017` or
+  `mongo1:27017`.
+- An Atlas host name in the form `*.mongodb.net`, in any letter case.
+
+The script has three known limits:
+
+- It cannot know a host name with no port and no `mongodb.net` suffix,
+  for example `localhost` or `db.example.com`. Such a name looks the
+  same as an ordinary word, thus the script leaves it as it is.
+- A four-part dotted number can look like an IP address. The script
+  redacts a version number such as `1.2.3.4` by mistake. This loss is
+  small, and it never removes a `code` or a `codeName`.
+- A port can survive next to a redacted host when a word character
+  follows it directly, for example `:27017tail`. This form does not
+  occur in a real error text.
+
+Each other error is a driver error. A driver error has no server code.
+Two examples:
+
+- A lost connection during a probe.
+- A Node system error with a text code, such as `ECONNREFUSED`.
+
+The own text of a driver error can hold the host name and the port of the
+cluster. The script drops this text. The field `errmsg` stays an empty
+text. The error object holds the field `driverError: true`.
+
+### A failed connection at the start
+
+A wrong host name, or an unreachable cluster, makes `mongosh` fail before
+it runs the script. `mongosh` first asks for the password; the prompt
+goes to standard error. `mongosh` then prints its own error text, also on
+standard error. This text can hold the host name and the port of the
+cluster. The script does not run in this case. It cannot change this
+text.
+
+Standard output stays empty in this case. The owner copies only the JSON
+line of standard output, thus the owner never needs the text of standard
+error for a paste.
+
+Acceptance criterion 1 of issue #76 covers a driver error during the run,
+for example a lost connection. It does not cover this earlier failure.
+The checklist above under "Run command" protects the owner from a paste
+of this text.
+
+### Regression test
+
+`contract/fixtures/test/check-privileges.test.js` is a Node test. It needs
+no MongoDB server. It loads the real script, and it gives the script a
+test double for `db`. It covers a server error, a driver error with a
+text code, a driver error with no code, the value `code: 0`, and the two
+errors of `connection-status-m0.json`.
+
+Run:
+
+```
+node --test contract/fixtures/test/*.test.js
+```
+
+The plain form `node --test contract/fixtures/test` did not start the
+test. This was on the Node version of this repository, v24.13.0. The
+command looked for a module named `test`, not for a folder of test
+files. The glob form above works on this version.
 
 ### The probe document
 
