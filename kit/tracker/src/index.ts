@@ -49,6 +49,9 @@ interface QueueEntry {
 
 /** Creates one tracker instance. The tracker holds its own queue and its own session id. */
 export function createTracker(options: TrackerOptions): Tracker {
+  if (typeof options.endpoint !== 'string' || options.endpoint.length === 0) {
+    throw new TypeError('The tracker needs a non-empty endpoint.');
+  }
   const endpoint = options.endpoint;
   const credentials = options.credentials ?? DEFAULT_CREDENTIALS;
   const getExtraHeaders = options.headers;
@@ -84,8 +87,11 @@ export function createTracker(options: TrackerOptions): Tracker {
       document.removeEventListener('click', clickListener, true);
     }
     clickListener = null;
-    sessionId = null;
-    removeStoredSessionId();
+    if (sessionId !== null) {
+      // The tracker removes the key only when this instance made or read it.
+      sessionId = null;
+      removeStoredSessionId();
+    }
   }
 
   function handleClick(event: Event): void {
@@ -103,19 +109,27 @@ export function createTracker(options: TrackerOptions): Tracker {
 
   function enqueue(element: string): void {
     if (queue.length >= MAX_QUEUE_SIZE) {
-      // The queue drops the oldest entry once it is full (design decision D24).
+      // The queue drops the oldest entry when it is full (design decision D24).
       queue.shift();
     }
-    queue.push({ element, queuedAt: Date.now() });
+    queue.push({ element, queuedAt: monotonicNow() });
     if (queue.length === 1) {
       scheduleFlush();
     }
   }
 
   function scheduleFlush(): void {
+    if (timerId !== null) {
+      // One timer at a time. A later click of the same batch joins the queue.
+      return;
+    }
     timerId = setTimeout(() => {
       timerId = null;
-      flush();
+      try {
+        flush();
+      } catch {
+        // The tracker gives no error to the page. It drops the batch instead.
+      }
     }, flushIntervalMs);
   }
 
@@ -126,33 +140,38 @@ export function createTracker(options: TrackerOptions): Tracker {
     const id = getOrCreateSessionId();
     const entries = queue;
     queue = [];
-    if (id === null) {
-      // The tracker drops the batch when it has no session id at all.
-      return;
-    }
     for (let offset = 0; offset < entries.length; offset += MAX_BATCH_SIZE) {
-      sendBatch(id, entries.slice(offset, offset + MAX_BATCH_SIZE));
+      void sendBatch(id, entries.slice(offset, offset + MAX_BATCH_SIZE));
     }
   }
 
-  function sendBatch(id: string, batch: QueueEntry[]): void {
-    const now = Date.now();
+  function sendBatch(id: string, batch: QueueEntry[]): Promise<void> {
+    const now = monotonicNow();
     const clicks = batch.map((entry) => ({
       element: entry.element,
       ageMs: Math.max(0, Math.round(now - entry.queuedAt)),
     }));
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = {};
     if (getExtraHeaders) {
-      Object.assign(headers, getExtraHeaders());
+      try {
+        Object.assign(headers, getExtraHeaders());
+      } catch {
+        // The tracker sends the batch with the default headers only.
+      }
     }
-    void fetch(endpoint, {
+    // The tracker sets Content-Type last, so an app header cannot replace it.
+    headers['Content-Type'] = 'application/json';
+    return fetch(endpoint, {
       method: 'POST',
       credentials,
       headers,
+      referrerPolicy: 'no-referrer',
       body: JSON.stringify({ sessionId: id, clicks }),
-    }).catch(() => {
-      // A later issue adds the retry rule for a network error, a 5xx, and a 429.
-    });
+    })
+      .then(() => undefined)
+      .catch(() => {
+        // Issue #36 adds the retry rule for a network error, a 5xx, and a 429.
+      });
   }
 
   function getOrCreateSessionId(): string {
@@ -194,6 +213,14 @@ export function createTracker(options: TrackerOptions): Tracker {
   return { start, stop };
 }
 
+/** A monotonic clock. It ignores a change of the system clock (MAJOR 1 of the review). */
+function monotonicNow(): number {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now();
+  }
+  return Date.now();
+}
+
 function findOctoElement(path: readonly EventTarget[]): Element | null {
   for (const node of path) {
     if (node instanceof Element && node.hasAttribute('data-octo')) {
@@ -204,12 +231,23 @@ function findOctoElement(path: readonly EventTarget[]): Element | null {
 }
 
 function isDisabled(element: Element): boolean {
+  try {
+    if (typeof element.matches === 'function') {
+      // This also covers a control inside a disabled <fieldset>.
+      return element.matches(':disabled');
+    }
+  } catch {
+    // An old engine can throw on this selector; fall back to the IDL property.
+  }
   return 'disabled' in element && (element as unknown as { disabled: boolean }).disabled === true;
 }
 
 function generateUuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
+  }
+  if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
+    throw new Error('The tracker needs the Web Crypto API to create a session id.');
   }
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);

@@ -124,6 +124,8 @@ jobs:
           cache-dependency-path: kit/tracker/package-lock.json
       - name: Install the tracker dependencies
         run: npm ci
+      - name: Type check the tracker code
+        run: npm run typecheck
       - name: Test the tracker code
         run: npm test
       - name: Build the tracker
