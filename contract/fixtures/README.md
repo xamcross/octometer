@@ -24,6 +24,16 @@ gives a URI without a database name, thus add the name by hand before you
 run the script. Save the output as
 `contract/fixtures/connection-status-m0.json`.
 
+Before a paste into a public issue:
+
+1. Check the exit code. The value 0 is correct.
+2. Check that standard output holds exactly one line.
+3. Check that standard error holds no text.
+4. Read the one line. It must hold no host name and no port.
+5. Paste only the JSON line.
+
+See "A failed connection at the start" for the reason of steps 1 to 4.
+
 ### Fields of the output
 
 | Field | Meaning |
@@ -37,31 +47,65 @@ run the script. Save the output as
 | `findEvents` | The result of one `find` with a limit of 1 on `octometer_events`. Holds 1 when the collection holds a document, and 0 when the collection is empty. Holds the field names of the first document, never a value. |
 | `insertEvents` | The result of one `insertOne` on `octometer_events`. Holds `insertWorked`. When the insert fails, it holds the error. When the insert works, it holds `probeMarker`, `probeDeleted`, and `deleteError`. |
 | `findOther` | The result of one `find` on `octometer_probe_other`. Holds the document count on success, or the error on failure. |
+| `driverError` | Present, with the value `true`, inside an error object of a driver error. Absent from a server error. |
 
 An error object holds `code`, `codeName`, and `errmsg`. The `errmsg` field
 stops after 300 characters. Each probe command of this script takes a
 constant argument, thus the error text holds no value of a real document.
 
-A driver error has no `code`, for example a lost connection during a probe.
-Its text can hold the host name and the port of the cluster. The script
-drops this text: `errmsg` stays an empty text, and the error object holds
-the field `driverError: true`. A server error keeps its `code`, `codeName`,
-and `errmsg`, because decision D8 of the design needs the error code 8000
-and its text.
+The script tests each caught error. `code` must be a number. `codeName`
+must be a text. This test alone marks a server error. A server error keeps
+its `code`, its `codeName`, and its `errmsg`. Decision D8 of the design
+needs the error code 8000, the error code 13, and each text.
+
+A server `errmsg` can still hold a host name. One example is a "not
+primary" text. A second example is a "host unreachable" text. The script
+removes each `host:port` value and each `*.mongodb.net` name from `errmsg`
+before it prints the document. The limit of 300 characters gives no
+protection on its own. A host name can stand near the start of such a
+text.
+
+Each other error is a driver error. A driver error has no server code.
+Two examples:
+
+- A lost connection during a probe.
+- A Node system error with a text code, such as `ECONNREFUSED`.
+
+The own text of a driver error can hold the host name and the port of the
+cluster. The script drops this text. The field `errmsg` stays an empty
+text. The error object holds the field `driverError: true`.
 
 ### A failed connection at the start
 
-When the URI itself is wrong, or the cluster is not reachable, `mongosh`
-fails before it runs the script. `mongosh` then prints its own error text
-on standard error, and this text can hold the host name and the port of
-the cluster. The script does not run in this case, so it cannot change
-this text.
+The run command above passes the URI as an argument. A wrong URI, or an
+unreachable cluster, makes `mongosh` fail before it runs the script.
+`mongosh` then prints its own error text on standard error. This text can
+hold the host name and the port of the cluster. The script does not run
+in this case. It cannot change this text.
 
-Before the owner pastes the output into a public issue, the owner must
-read the full terminal output, not only the JSON line. When the command
-fails (a non-zero exit code, or a line before or after the JSON line), the
-owner removes the host name and the port by hand, or pastes only the JSON
-line and drops the rest.
+Acceptance criterion 1 of issue #76 covers a driver error during the run,
+for example a lost connection. It does not cover this earlier failure.
+The checklist above under "Run command" protects the owner from a paste
+of this text.
+
+### Regression test
+
+`contract/fixtures/test/check-privileges.test.js` is a Node test. It needs
+no MongoDB server. It loads the real script, and it gives the script a
+test double for `db`. It covers a server error, a driver error with a
+text code, a driver error with no code, the value `code: 0`, and the two
+errors of `connection-status-m0.json`.
+
+Run:
+
+```
+node --test contract/fixtures/test/*.test.js
+```
+
+The plain form `node --test contract/fixtures/test` did not start the
+test on the Node version of this repository (v24.13.0): the command
+looked for a module named `test`, not for a folder of test files. The
+glob form above works on this version.
 
 ### The probe document
 

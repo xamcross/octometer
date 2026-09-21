@@ -15,25 +15,49 @@ const OTHER_COLLECTION = "octometer_probe_other";
 const REDACTED_USER = "REDACTED";
 const PROBE_MARKER = "octometer-check-privileges-probe";
 const ERROR_TEXT_LIMIT = 300;
+const REDACTED_HOST = "<host>";
 
-// Builds one error object from a caught error. The text stops after 300
-// characters. Each probe command of this script takes a constant argument,
-// thus the error text holds no value of a real document.
+// Matches a host name or an IP address, together with a port. Also matches
+// a lone Atlas host name (the pattern "*.mongodb.net"). Used only on the
+// text of a server error, so it never touches a database or a collection
+// name (a name never holds a colon or a port).
+const HOST_PORT_PATTERN = /\b[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?:\d{2,5}\b/g;
+const MONGODB_NET_PATTERN =
+  /\b[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.mongodb\.net\b/g;
+
+// Removes a host name, an IP address, and a port from a piece of text. A
+// server error text can hold a host name, for example a "not primary" text
+// or a "host unreachable" text.
+function redactHost(text) {
+  return text.replace(HOST_PORT_PATTERN, REDACTED_HOST).replace(MONGODB_NET_PATTERN, REDACTED_HOST);
+}
+
+// A server error has a number in `code` and a text in `codeName`. Each
+// other error is a driver error, for example a lost connection, or a Node
+// system error with a text code such as "ECONNREFUSED". A driver error can
+// hold the host name and the port of the cluster in its text.
+function isServerError(e) {
+  return typeof e.code === "number" && typeof e.codeName === "string";
+}
+
+// Builds one error object from a caught error. A server error keeps its
+// code, its code name, and its text. The text stops after 300 characters.
+// The script also removes each host name and each port from the text.
 //
-// A driver error has no code. Its text can hold the host name and the port
-// of the cluster. The script never prints the URI, so it also drops this
-// text. It sets driverError: true in this case, so the field errmsg stays
-// empty and the caller still knows that an error happened.
+// A driver error is not a server error. Its `errmsg` stays an empty text,
+// and the error object holds the field driverError: true. Each probe
+// command of this script takes a constant argument, thus a kept error text
+// holds no value of a real document.
 function errorInfo(e) {
-  const hasCode = e.code !== undefined && e.code !== null;
+  const server = isServerError(e);
   const info = {
-    code: e.code || null,
-    codeName: e.codeName || null,
-    errmsg: hasCode
-      ? String(e.errmsg || e.message || "").slice(0, ERROR_TEXT_LIMIT)
+    code: server ? e.code : null,
+    codeName: server ? e.codeName : null,
+    errmsg: server
+      ? redactHost(String(e.errmsg || e.message || "").slice(0, ERROR_TEXT_LIMIT))
       : "",
   };
-  if (!hasCode) {
+  if (!server) {
     info.driverError = true;
   }
   return info;
