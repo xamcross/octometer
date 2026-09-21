@@ -5,8 +5,9 @@ each app.
 
 ## Node version
 
-The app needs Node v22.22.3 or later, or Node v24.15.0 or later, or Node
-v26.0.0 or later. File `.nvmrc` names the exact tested version.
+The app needs Node 22 from v22.22.3, or Node 24 from v24.15.0, or Node 26
+and later. Node 23 and Node 25 do not work. File `.nvmrc` names the exact
+tested version.
 
 ## Scripts
 
@@ -17,6 +18,8 @@ Run each script from this folder.
 - `npm run test:watch` — runs the unit tests, and watches each file change.
 - `npm run lint` — checks the code style with ESLint.
 - `npm run build` — builds the app into `dist/frontend`.
+- `npm run format` — writes each file in the Prettier code style.
+- `npm run format:check` — checks the Prettier code style, and changes no file.
 
 ## Dev proxy
 
