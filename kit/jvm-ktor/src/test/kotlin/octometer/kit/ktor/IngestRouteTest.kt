@@ -1,26 +1,55 @@
 package octometer.kit.ktor
 
+import ch.qos.logback.classic.Logger as LogbackLogger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.AppenderBase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.OutgoingContent
 import io.ktor.http.contentType
+import io.ktor.server.application.createApplicationPlugin
+import io.ktor.server.application.install
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.netty.Netty
 import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
+import io.ktor.utils.io.ByteWriteChannel
+import io.ktor.utils.io.writeFully
+import java.net.Socket
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.system.measureTimeMillis
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.newSingleThreadContext
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import octometer.kit.core.ingest.IngestEvent
+import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestSettings
 import octometer.kit.core.store.EventLogStore
 import octometer.kit.core.store.InMemoryEventLogStore
+import org.slf4j.LoggerFactory
 
 /**
  * Tests of the ingest route against design section 4.2 and contract rules
@@ -32,6 +61,25 @@ class IngestRouteTest {
 
     private val validBody = """{"sessionId":"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11",""" +
         """"clicks":[{"element":"checkout.save","ageMs":1200}]}"""
+
+    // The name of the SLF4J logger of `call.application.log` inside
+    // `testApplication` (confirmed on 2026-09-21 by printing
+    // `call.application.log.name` from inside the route).
+    private val applicationLoggerName = "io.ktor.test"
+    private lateinit var logAppender: CapturingAppender
+
+    @BeforeTest
+    fun attachLogAppender() {
+        logAppender = CapturingAppender()
+        logAppender.start()
+        (LoggerFactory.getLogger(applicationLoggerName) as LogbackLogger).addAppender(logAppender)
+    }
+
+    @AfterTest
+    fun detachLogAppender() {
+        (LoggerFactory.getLogger(applicationLoggerName) as LogbackLogger).detachAppender(logAppender)
+        logAppender.stop()
+    }
 
     @Test
     fun `a valid batch gives 204 and stores the events`() = testApplication {
@@ -105,6 +153,69 @@ class IngestRouteTest {
         assertEquals(HttpStatusCode.UnsupportedMediaType, response.status)
     }
 
+    // The default Ktor test client parses the Content-Type header itself
+    // (through the HttpPlainText client plugin) and refuses to send a
+    // malformed value at all. A malformed value thus needs a real embedded
+    // server and a raw socket, the same method as the security review of
+    // this pull request.
+
+    @Test
+    fun `a malformed Content-Type value gives 415 with an empty body`() {
+        val rawResponse = postRawRequestToRealServer(contentTypeHeaderValue = "@@@")
+        assertTrue(rawResponse.startsWith("HTTP/1.1 415"), "Expected 415, got the answer:\n$rawResponse")
+        assertTrue(rawResponseBody(rawResponse).isEmpty())
+        assertFalse(rawResponse.contains("@@@"))
+    }
+
+    @Test
+    fun `a Content-Type value with no slash gives 415 with an empty body`() {
+        val rawResponse = postRawRequestToRealServer(contentTypeHeaderValue = "json")
+        assertTrue(rawResponse.startsWith("HTTP/1.1 415"), "Expected 415, got the answer:\n$rawResponse")
+        assertTrue(rawResponseBody(rawResponse).isEmpty())
+    }
+
+    /**
+     * Starts one real embedded Netty server on an ephemeral port, sends one
+     * raw HTTP/1.1 request with the given `Content-Type` header value over a
+     * plain socket, then stops the server. Returns the full raw response
+     * text (the status line, the headers, and the body).
+     */
+    private fun postRawRequestToRealServer(contentTypeHeaderValue: String): String {
+        val store = InMemoryEventLogStore()
+        val server = embeddedServer(Netty, port = 0) {
+            routing {
+                octometerIngestRoute(store = store) { null }
+            }
+        }
+        server.start(wait = false)
+        try {
+            val port = runBlocking { server.engine.resolvedConnectors() }
+                .first()
+                .port
+            Socket("127.0.0.1", port).use { socket ->
+                val body = validBody.toByteArray(Charsets.UTF_8)
+                val request = "POST $DEFAULT_INGEST_PATH HTTP/1.1\r\n" +
+                    "Host: 127.0.0.1\r\n" +
+                    "Content-Type: $contentTypeHeaderValue\r\n" +
+                    "Content-Length: ${body.size}\r\n" +
+                    "Connection: close\r\n" +
+                    "\r\n"
+                socket.getOutputStream().write(request.toByteArray(Charsets.UTF_8))
+                socket.getOutputStream().write(body)
+                socket.getOutputStream().flush()
+                socket.soTimeout = 5000
+                return socket.getInputStream().readBytes().toString(Charsets.UTF_8)
+            }
+        } finally {
+            server.stop(0, 0)
+        }
+    }
+
+    private fun rawResponseBody(rawResponse: String): String {
+        val separatorIndex = rawResponse.indexOf("\r\n\r\n")
+        return if (separatorIndex < 0) "" else rawResponse.substring(separatorIndex + 4)
+    }
+
     @Test
     fun `an invalid body gives 400`() = testApplication {
         val store = InMemoryEventLogStore()
@@ -124,7 +235,45 @@ class IngestRouteTest {
     }
 
     @Test
-    fun `a body above 16 KB gives 400 and the route reads no unlimited body`() = testApplication {
+    fun `a body of exactly 16384 bytes gives 204`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+            }
+        }
+
+        val body = exactlySizedBody(16384)
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+
+        assertEquals(16384, body.toByteArray(Charsets.UTF_8).size)
+        assertEquals(HttpStatusCode.NoContent, response.status)
+    }
+
+    @Test
+    fun `a body of exactly 16385 bytes gives 400`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+            }
+        }
+
+        val body = exactlySizedBody(16385)
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+
+        assertEquals(16385, body.toByteArray(Charsets.UTF_8).size)
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `a body above 16 KB with a correct Content-Length gives 400`() = testApplication {
         val store = InMemoryEventLogStore()
         application {
             routing {
@@ -132,10 +281,7 @@ class IngestRouteTest {
             }
         }
 
-        val oversizedElement = "a".repeat(10 * 1024 * 1024)
-        val oversizedBody = """{"sessionId":"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11",""" +
-            """"clicks":[{"element":"$oversizedElement","ageMs":1200}]}"""
-
+        val oversizedBody = oversizedJsonBody()
         val response = client.post(DEFAULT_INGEST_PATH) {
             contentType(ContentType.Application.Json)
             setBody(oversizedBody)
@@ -144,6 +290,33 @@ class IngestRouteTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
         assertTrue(store.events().isEmpty())
     }
+
+    @Test
+    fun `a body above 16 KB with no Content-Length gives 400 and the route reads no unlimited body`() =
+        testApplication {
+            val store = InMemoryEventLogStore()
+            application {
+                routing {
+                    octometerIngestRoute(store = store) { "user-1" }
+                }
+            }
+
+            val oversizedBytes = oversizedJsonBody().toByteArray(Charsets.UTF_8)
+            val response = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                setBody(object : OutgoingContent.WriteChannelContent() {
+                    // No declared length, like a chunked request from a client
+                    // that lies about, or omits, Content-Length.
+                    override val contentLength: Long? = null
+                    override suspend fun writeTo(channel: ByteWriteChannel) {
+                        channel.writeFully(oversizedBytes)
+                    }
+                })
+            }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+            assertTrue(store.events().isEmpty())
+        }
 
     @Test
     fun `no response holds a CORS header`() = testApplication {
@@ -163,7 +336,13 @@ class IngestRouteTest {
     }
 
     @Test
-    fun `the store call runs on Dispatchers IO`() = testApplication {
+    fun `the default store dispatcher is a limited view of Dispatchers IO`() {
+        assertEquals("Dispatchers.IO.limitedParallelism(8)", defaultStoreDispatcher().toString())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class, DelicateCoroutinesApi::class)
+    @Test
+    fun `an injected dispatcher gets the store call`() = testApplication {
         val recordedThreadName = AtomicReference<String>()
         val store = object : EventLogStore {
             override fun append(events: List<IngestEvent>, userId: String?) {
@@ -174,9 +353,105 @@ class IngestRouteTest {
                 // Not used by this test.
             }
         }
+        val testDispatcher = newSingleThreadContext("octo-store-test-thread")
+        try {
+            application {
+                routing {
+                    octometerIngestRoute(
+                        store = store,
+                        settings = IngestSettings(true),
+                        clock = fixedClock,
+                        storeDispatcher = testDispatcher,
+                    ) { "user-1" }
+                }
+            }
+
+            val response = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                setBody(validBody)
+            }
+
+            assertEquals(HttpStatusCode.NoContent, response.status)
+            // kotlinx-coroutines debug mode appends " @coroutine#N" to the
+            // real thread name while a coroutine runs, thus this test checks
+            // the prefix and not the exact name.
+            val threadName = recordedThreadName.get()
+            assertTrue(
+                threadName != null && threadName.startsWith("octo-store-test-thread"),
+                "Expected the store call on \"octo-store-test-thread\", but it ran on \"$threadName\".",
+            )
+        } finally {
+            testDispatcher.close()
+        }
+    }
+
+    @Test
+    fun `64 slow store calls at the same time leave other Dispatchers IO work free`() = testApplication {
+        val store = object : EventLogStore {
+            override fun append(events: List<IngestEvent>, userId: String?) {
+                Thread.sleep(200)
+            }
+
+            override fun deleteByUserId(userId: String) {
+                // Not used by this test.
+            }
+        }
         application {
             routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { "user-1" }
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+            }
+        }
+
+        runBlocking {
+            coroutineScope {
+                val slowCalls = List(64) {
+                    async {
+                        client.post(DEFAULT_INGEST_PATH) {
+                            contentType(ContentType.Application.Json)
+                            setBody(validBody)
+                        }
+                    }
+                }
+
+                // Give the slow calls time to occupy the limited store dispatcher.
+                delay(50)
+
+                val freeWorkMillis = measureTimeMillis {
+                    withContext(Dispatchers.IO) {
+                        // Quick, unrelated Dispatchers.IO work of the app.
+                    }
+                }
+                assertTrue(
+                    freeWorkMillis < 150,
+                    "Expected other Dispatchers.IO work to stay free, but it took $freeWorkMillis ms.",
+                )
+
+                val totalMillis = measureTimeMillis { slowCalls.awaitAll() }
+                assertTrue(
+                    totalMillis >= 900,
+                    "Expected the limited dispatcher to serialize the 64 calls into 8 batches " +
+                        "of about 200 ms each, but the total time was only $totalMillis ms.",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `resolveUserId runs on the coroutine of the call`() = testApplication {
+        val threadLocal = ThreadLocal<String>()
+        val recordedValue = AtomicReference<String?>()
+        val store = InMemoryEventLogStore()
+        val threadLocalPlugin = createApplicationPlugin("ThreadLocalSetterForTest") {
+            onCall { threadLocal.set("victim-42") }
+        }
+        application {
+            this.install(threadLocalPlugin)
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) {
+                    val value = threadLocal.get()
+                    recordedValue.set(value)
+                    value
+                }
             }
         }
 
@@ -186,18 +461,45 @@ class IngestRouteTest {
         }
 
         assertEquals(HttpStatusCode.NoContent, response.status)
-        val threadName = recordedThreadName.get()
-        assertTrue(
-            threadName != null && threadName.contains("DefaultDispatcher-worker"),
-            "Expected the store call on a Dispatchers.IO worker thread, but it ran on \"$threadName\".",
-        )
+        assertEquals("victim-42", recordedValue.get())
+        assertEquals("victim-42", store.events()[0].userId())
     }
 
     @Test
     fun `a store defect gives 500 and never 400`() = testApplication {
         val store = object : EventLogStore {
             override fun append(events: List<IngestEvent>, userId: String?) {
-                throw IllegalStateException("The test store simulates a write failure.")
+                throw IllegalStateException("SENTINEL-store-host-octo-shard-00 user victim-42")
+            }
+
+            override fun deleteByUserId(userId: String) {
+                // Not used by this test.
+            }
+        }
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(validBody)
+        }
+
+        assertEquals(HttpStatusCode.InternalServerError, response.status)
+        assertEquals("", response.bodyAsText())
+        val messages = logAppender.events.map { it.formattedMessage }
+        assertTrue(messages.none { it.contains("SENTINEL-store-host-octo-shard-00") })
+        assertTrue(messages.none { it.contains("victim-42") })
+        assertTrue(messages.any { it.contains(IllegalStateException::class.java.name) })
+    }
+
+    @Test
+    fun `a store defect that throws an IngestException gives 500 and never 400`() = testApplication {
+        val store = object : EventLogStore {
+            override fun append(events: List<IngestEvent>, userId: String?) {
+                throw IngestException(IngestException.Reason.INVALID_JSON, "the store throws this by mistake")
             }
 
             override fun deleteByUserId(userId: String) {
@@ -219,11 +521,52 @@ class IngestRouteTest {
     }
 
     @Test
-    fun `a UserIdResolver defect gives 500 and never 400`() = testApplication {
+    fun `a UserIdResolver that returns an invalid value gives 500 and never 400`() = testApplication {
         val store = InMemoryEventLogStore()
         application {
             routing {
                 octometerIngestRoute(store = store, settings = IngestSettings(true)) { "" }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(validBody)
+        }
+
+        assertEquals(HttpStatusCode.InternalServerError, response.status)
+        assertEquals("", response.bodyAsText())
+        assertTrue(store.events().isEmpty())
+    }
+
+    @Test
+    fun `a resolveUserId that throws gives 500 and never 400`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) {
+                    throw IllegalArgumentException("the app resolver fails")
+                }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(validBody)
+        }
+
+        assertEquals(HttpStatusCode.InternalServerError, response.status)
+        assertTrue(store.events().isEmpty())
+    }
+
+    @Test
+    fun `a resolveUserId that throws an IngestException gives 500 and never 400`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) {
+                    throw IngestException(IngestException.Reason.INVALID_JSON, "the app resolver fails")
+                }
             }
         }
 
@@ -252,5 +595,63 @@ class IngestRouteTest {
 
         assertEquals(HttpStatusCode.NoContent, response.status)
         assertTrue(store.events().isEmpty())
+    }
+
+    @Test
+    fun `an empty ingestPath throws IllegalArgumentException`() = testApplication {
+        val store = InMemoryEventLogStore()
+        var threw = false
+        application {
+            routing {
+                try {
+                    octometerIngestRoute(store = store, ingestPath = "") { null }
+                } catch (expected: IllegalArgumentException) {
+                    threw = true
+                }
+            }
+        }
+        client.post("/") { }
+        assertTrue(threw)
+    }
+
+    @Test
+    fun `an ingestPath with no leading slash throws IllegalArgumentException`() = testApplication {
+        val store = InMemoryEventLogStore()
+        var threw = false
+        application {
+            routing {
+                try {
+                    octometerIngestRoute(store = store, ingestPath = "api/octometer/v1/clicks") { null }
+                } catch (expected: IllegalArgumentException) {
+                    threw = true
+                }
+            }
+        }
+        client.post("/") { }
+        assertTrue(threw)
+    }
+
+    private fun exactlySizedBody(totalBytes: Int): String {
+        val prefix = """{"sessionId":"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11","clicks":[{"element":"""" +
+            """checkout.save","ageMs":1200,"pad":""""
+        val suffix = "\"}]}"
+        val padLength = totalBytes - prefix.toByteArray(Charsets.UTF_8).size - suffix.toByteArray(Charsets.UTF_8).size
+        assertTrue(padLength >= 0, "The prefix and the suffix alone are already $totalBytes bytes or more.")
+        return prefix + "a".repeat(padLength) + suffix
+    }
+
+    private fun oversizedJsonBody(): String {
+        val oversizedElement = "a".repeat(10 * 1024 * 1024)
+        return """{"sessionId":"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11",""" +
+            """"clicks":[{"element":"$oversizedElement","ageMs":1200}]}"""
+    }
+
+    /** Captures each log line of one logger, for a design decision D15 test. */
+    private class CapturingAppender : AppenderBase<ILoggingEvent>() {
+        val events: MutableList<ILoggingEvent> = CopyOnWriteArrayList()
+
+        override fun append(eventObject: ILoggingEvent) {
+            events.add(eventObject)
+        }
     }
 }
