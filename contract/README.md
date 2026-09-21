@@ -1,4 +1,4 @@
-# Event log contract v1
+# Event log contract v1.1
 
 This document states the event log contract of Octometer. The contract has four parts: the
 event document, the ingest request, the reader rule, and the database user. The source is
@@ -6,7 +6,11 @@ section 4 of `docs/superpowers/specs/2026-09-21-octometer-design.md`, plus secti
 last paragraph of section 6 for the definitions below. Some rules also cite an owner decision
 or a design decision from that document: O4, O5, D4, D5, and D21.
 
-Each rule has an ID, `C1` to `C37`. The table at the end maps each rule ID to its example file.
+Version 1.1. It adds the rules C38 to C41: the session-start marker, the `path` field, the
+`referrerHost` field, and the drop rule for an invalid value. Version 1.1 adds no field for a
+campaign parameter, because no advertisement campaign runs.
+
+Each rule has an ID, `C1` to `C41`. The table at the end maps each rule ID to its example file.
 
 ## Purpose
 
@@ -89,13 +93,35 @@ application/json`.
   decision D21).
 - **C32.** The server ignores an unknown field in the ingest request body. A `userId` field
   in the body is such a field. The server ignores it. The stored user id comes only from the
-  authentication context (rule C16).
+  authentication context (rule C16). The server also ignores an unknown field inside an entry
+  of `clicks`.
 - **C33.** The ingest route checks the `element` value with the rule of C4, and the
   `sessionId` value with the rule of C5. A value that breaks one of these rules makes the
   body invalid; the server returns 400.
 - **C36.** A duplicate key in one JSON object makes the body invalid.
 - **C37.** `ageMs` is a JSON integer. A value with a fraction or an exponent, for example
   `1.0` or `1e3`, makes the body invalid.
+- **C38.** The element prefix `octo:` is reserved for the contract. An app must not use it as
+  a `data-octo` value, and the tracker drops such a value. The element `octo:session-start`
+  marks the first event of a session. It is not a click. A reader built before version 1.1
+  counts it as a click.
+- **C39.** The `path` field is optional on an event and on an entry of `clicks`. It has 1 to
+  150 bytes in UTF-8. It starts with `/`, and its second character is not `/`. Each other
+  character is in the set `[A-Za-z0-9._~!$&'()*+,;=:@/-]`, or it is a part of a well-formed
+  escape `%[0-9A-Fa-f]{2}`. It holds no query string and no fragment. The server matches the
+  client value against the route pattern list of the app, and it stores the result of that
+  match. The stored `path` is the result of that match, as rule C16 does for `userId`.
+- **C40.** The `referrerHost` field is optional on `octo:session-start`. It is the literal
+  `other`, or it has 1 to 253 bytes, the pattern `[a-z0-9.-]+`, and at least one dot. The
+  source list has two entries: `google.com` and `bing.com`. The tracker takes the host of
+  `document.referrer` in lower case. A host matches an entry when it equals the entry, or
+  when it ends with `.` plus the entry; the stored value is the entry. A host that matches
+  `(^|\.)google\.(com?\.)?[a-z]{2,3}$` gives `google.com`. Each other host gives the literal
+  `other`. The server checks the value against the same list, and it drops each other value
+  under rule C41. An entry `octo:session-start` without `referrerHost` marks a direct visit.
+- **C41.** An invalid `path` or `referrerHost` value does not make the body invalid. The
+  server drops that field, it keeps the entry, and it writes a maximum of one warning for
+  each batch. No log line holds a raw path or a raw host.
 
 ## 3. The reader rule (design section 4.3)
 
@@ -144,8 +170,9 @@ shell history does not keep it.
 ## Examples
 
 Each example file holds only fake data: a fake user id, a fake UUID, no real name, no email
-address, and no password. Each file in `examples/` parses as JSON. A file that shows an
-invalid ingest body is also valid JSON. Its value breaks one rule of the contract.
+address, no password, and no real host name. Each file in `examples/` parses as JSON. A file
+that shows an invalid ingest body is also valid JSON. Its value breaks one rule of the
+contract.
 
 | Rule ID | Rule | Example file |
 |---|---|---|
@@ -171,9 +198,13 @@ invalid ingest body is also valid JSON. Its value breaks one rule of the contrac
 | C20–C24, C26 | The read window and the delivery model | No example file. These rules state a server-side read algorithm. |
 | C25 | The accepted loss | No example file. This rule states a timing bound, not a document shape. |
 | C27–C31 | The database user | No example file. These rules state shell commands. |
-| C32 | Unknown-field tolerance in the ingest body, `userId` included | No dedicated example file. The padding field of `examples/ingest-invalid-C18-body-size.json` is such an ignored field. |
+| C32 | Unknown-field tolerance in the ingest body, `userId` included, and an unknown field inside a `clicks` entry | No dedicated example file. The padding field of `examples/ingest-invalid-C18-body-size.json` is such an ignored field. The `path` field of `examples/ingest-valid-C41-bad-path-dropped.json` is another one, under the present parser. |
 | C33 | Ingest-time check of `element` (C4) and `sessionId` (C5) | `examples/ingest-invalid-C4-element-pattern.json`, `examples/ingest-invalid-C4-element-length.json`, `examples/ingest-invalid-C5-session-id.json` |
 | C34 | Cursor start value and advance rule | No example file. This rule states a server-side algorithm. |
 | C35 | Database role limit (`FIND` only, one collection) | No example file. This rule states a database administration fact. |
 | C36 | Duplicate-key rejection | `examples/ingest-invalid-C36-duplicate-key.json` — the file repeats the `sessionId` key with the same value, thus the file breaks only the duplicate-key rule. |
 | C37 | `ageMs` as a plain integer, invalid with a fraction or an exponent | `examples/ingest-invalid-C37-agems-fraction.json` |
+| C38 | The `octo:` prefix and the `octo:session-start` marker | `examples/event-valid-C38-session-start.json` |
+| C39 | The `path` field and the route-pattern match | `examples/event-valid-C39-path.json` (stored event), `examples/ingest-valid-C39-path.json` (ingest body) |
+| C40 | The `referrerHost` field and the source list | `examples/event-valid-C40-source.json` |
+| C41 | The drop rule for an invalid `path` or `referrerHost` value | `examples/ingest-valid-C41-bad-path-dropped.json` — the file holds a `path` value that breaks rule C39; the body stays valid, and the present parser ignores the field as an unknown field (rule C32). |
