@@ -24,7 +24,12 @@ import java.net.Socket
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.concurrent.Callable
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.system.measureTimeMillis
 import kotlin.test.AfterTest
@@ -34,6 +39,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -41,9 +48,11 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.newSingleThreadContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestSettings
@@ -335,6 +344,12 @@ class IngestRouteTest {
         assertNull(response.headers[HttpHeaders.AccessControlAllowOrigin])
     }
 
+    // This test reads the toString() text of a kotlinx-coroutines internal
+    // class (Ktor review MINOR A). That text is not a public contract, so
+    // an upgrade of kotlinx-coroutines (this module pins version 1.11.0 in
+    // gradle/libs.versions.toml) can change it and break this test with no
+    // real defect in this module. The failure is loud, so this stays as a
+    // second check next to the run-time test below.
     @Test
     fun `the default store dispatcher is a limited view of Dispatchers IO`() {
         assertEquals("Dispatchers.IO.limitedParallelism(8)", defaultStoreDispatcher().toString())
@@ -404,6 +419,7 @@ class IngestRouteTest {
 
         runBlocking {
             coroutineScope {
+                val slowCallsDone = AtomicBoolean(false)
                 val slowCalls = List(64) {
                     async {
                         client.post(DEFAULT_INGEST_PATH) {
@@ -416,17 +432,40 @@ class IngestRouteTest {
                 // Give the slow calls time to occupy the limited store dispatcher.
                 delay(50)
 
-                val freeWorkMillis = measureTimeMillis {
+                // A latch proves that the free work ran, instead of a wall
+                // clock limit that can flake on a busy machine (Ktor
+                // review MINOR B). The free work reads slowCallsDone
+                // before it counts the latch down, so a true value proves
+                // that the free work ran while the 64 slow calls still
+                // occupied the limited dispatcher.
+                val freeWorkLatch = CountDownLatch(1)
+                val freeWorkRanWhileSlowCallsStillWaited = AtomicBoolean(false)
+                launch {
                     withContext(Dispatchers.IO) {
                         // Quick, unrelated Dispatchers.IO work of the app.
                     }
+                    freeWorkRanWhileSlowCallsStillWaited.set(!slowCallsDone.get())
+                    freeWorkLatch.countDown()
+                }
+
+                // The wait itself runs on Dispatchers.IO, not on this
+                // coroutine's own thread, so the blocking await() call
+                // never starves the launch above of a thread to run on.
+                val freeWorkCompletedInTime = withContext(Dispatchers.IO) {
+                    freeWorkLatch.await(5, TimeUnit.SECONDS)
                 }
                 assertTrue(
-                    freeWorkMillis < 150,
-                    "Expected other Dispatchers.IO work to stay free, but it took $freeWorkMillis ms.",
+                    freeWorkCompletedInTime,
+                    "Expected other Dispatchers.IO work to complete within 5 seconds.",
+                )
+                assertTrue(
+                    freeWorkRanWhileSlowCallsStillWaited.get(),
+                    "Expected other Dispatchers.IO work to stay free while the 64 slow store " +
+                        "calls still ran, but the limited dispatcher blocked it.",
                 )
 
                 val totalMillis = measureTimeMillis { slowCalls.awaitAll() }
+                slowCallsDone.set(true)
                 assertTrue(
                     totalMillis >= 900,
                     "Expected the limited dispatcher to serialize the 64 calls into 8 batches " +
@@ -518,6 +557,139 @@ class IngestRouteTest {
         }
 
         assertEquals(HttpStatusCode.InternalServerError, response.status)
+    }
+
+    // The four tests below check the MAJOR 1 finding of the second security
+    // review: a CancellationException of the store or of resolveUserId
+    // must never reach the Ktor engine, because the engine then writes the
+    // exception message into the answer, or maps a withTimeout into a 504
+    // answer, and the route log holds no line at all.
+
+    @Test
+    fun `a store that throws CancellationException gives 500 with an empty body and no log leak`() =
+        testApplication {
+            val store = object : EventLogStore {
+                override fun append(events: List<IngestEvent>, userId: String?) {
+                    throw CancellationException("SENTINEL-cancel-marker-host-octo-shard-00")
+                }
+
+                override fun deleteByUserId(userId: String) {
+                    // Not used by this test.
+                }
+            }
+            application {
+                routing {
+                    octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+                }
+            }
+
+            val response = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                setBody(validBody)
+            }
+
+            assertEquals(HttpStatusCode.InternalServerError, response.status)
+            assertEquals("", response.bodyAsText())
+            val messages = logAppender.events.map { it.formattedMessage }
+            assertTrue(messages.none { it.contains("SENTINEL-cancel-marker-host-octo-shard-00") })
+            assertTrue(messages.any { it.contains(CancellationException::class.java.name) })
+        }
+
+    @Test
+    fun `a store that uses withTimeout gives 500 with an empty body, and never 504`() = testApplication {
+        val store = object : EventLogStore {
+            override fun append(events: List<IngestEvent>, userId: String?) {
+                runBlocking {
+                    withTimeout(50) {
+                        delay(1000)
+                    }
+                }
+            }
+
+            override fun deleteByUserId(userId: String) {
+                // Not used by this test.
+            }
+        }
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(validBody)
+        }
+
+        assertEquals(HttpStatusCode.InternalServerError, response.status)
+        assertEquals("", response.bodyAsText())
+    }
+
+    @Test
+    fun `a store that reads a cancelled Future gives 500 with one log line naming the class`() =
+        testApplication {
+            val executor = Executors.newSingleThreadExecutor()
+            try {
+                val store = object : EventLogStore {
+                    override fun append(events: List<IngestEvent>, userId: String?) {
+                        val future = executor.submit<Unit>(Callable { Thread.sleep(1000) })
+                        future.cancel(true)
+                        future.get()
+                    }
+
+                    override fun deleteByUserId(userId: String) {
+                        // Not used by this test.
+                    }
+                }
+                application {
+                    routing {
+                        octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+                    }
+                }
+
+                val response = client.post(DEFAULT_INGEST_PATH) {
+                    contentType(ContentType.Application.Json)
+                    setBody(validBody)
+                }
+
+                assertEquals(HttpStatusCode.InternalServerError, response.status)
+                assertEquals("", response.bodyAsText())
+                val messages = logAppender.events.map { it.formattedMessage }
+                assertTrue(
+                    messages.any { it.contains(java.util.concurrent.CancellationException::class.java.name) },
+                )
+            } finally {
+                executor.shutdownNow()
+            }
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `a real cancellation of the call coroutine still cancels, and hides nothing`(): Unit = runBlocking {
+        val slowStoreStarted = CompletableDeferred<Unit>()
+        val sawRealCancellation = CompletableDeferred<Boolean>()
+        val respondedInstead = AtomicBoolean(false)
+
+        val job = launch {
+            try {
+                slowStoreStarted.complete(Unit)
+                delay(5000) // A store that waits, cancelled from the outside.
+            } catch (cause: CancellationException) {
+                sawRealCancellation.complete(isRealCancellationOfTheCall())
+                if (isRealCancellationOfTheCall()) {
+                    throw cause
+                }
+                respondedInstead.set(true)
+            }
+        }
+
+        slowStoreStarted.await()
+        job.cancel()
+        job.join()
+
+        assertTrue(sawRealCancellation.await(), "Expected a real cancellation of the call coroutine.")
+        assertFalse(respondedInstead.get(), "Expected the route to write no answer for a real cancellation.")
+        assertTrue(job.isCancelled)
     }
 
     @Test

@@ -16,6 +16,7 @@ import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.io.readByteArray
 import octometer.kit.core.ingest.IngestEvent
@@ -25,6 +26,7 @@ import octometer.kit.core.ingest.IngestSettings
 import octometer.kit.core.store.EventLogStore
 import octometer.kit.core.user.UserIdResolver
 import java.time.Clock
+import kotlin.coroutines.coroutineContext
 
 /** The default path of the ingest route (design section 4.2, contract rule C12). */
 public const val DEFAULT_INGEST_PATH: String = "/api/octometer/v1/clicks"
@@ -68,6 +70,14 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  * body gives status 400. The route writes no exception text into the
  * answer and into the log; the log holds only the class name of the
  * exception (design decision D15).
+ *
+ * A [CancellationException] of [resolveUserId] or of [store] gives status
+ * 500 too, with the same empty body and the same log line; a timeout of
+ * `withTimeout` inside the store is one example. The route rethrows a
+ * [CancellationException] only when the coroutine of the call is no
+ * longer active, for example after the engine cancels the call. That
+ * check tells a real cancellation of the call apart from a
+ * [CancellationException] that the app throws by itself.
  *
  * @param store the event log store of the app.
  * @param ingestPath the path of the route. The default is the path of
@@ -126,19 +136,48 @@ public fun Route.octometerIngestRoute(
 
             call.respond(HttpStatusCode.NoContent)
         } catch (cause: CancellationException) {
-            throw cause
+            if (isRealCancellationOfTheCall()) {
+                // The engine cancelled the call, for example after the
+                // client closes the connection. There is nobody to
+                // answer, so this rethrow must not become a 500 answer.
+                throw cause
+            }
+            // The store or resolveUserId threw a CancellationException of
+            // its own, for example from a withTimeout inside the store.
+            // The call coroutine is still active, so treat this as a
+            // defect of the app, not as a real cancellation.
+            respondWithDefect(call, cause)
         } catch (cause: Throwable) {
-            // Design decision D15: a log line never holds a user id, a
-            // session id, or a connection string. The message of a store
-            // exception can hold any of the three, thus the log holds only
-            // the class name of the exception.
-            call.application.log.error(
-                "The Octometer ingest route failed. The exception class is {}.",
-                cause::class.java.name,
-            )
-            call.respond(HttpStatusCode.InternalServerError)
+            respondWithDefect(call, cause)
         }
     }
+}
+
+/**
+ * True when a caught [CancellationException] means a real cancellation of
+ * the coroutine of the current call, for example after the engine
+ * cancels the call. False when the coroutine of the call is still
+ * active, so the [CancellationException] came from the store or from
+ * `resolveUserId` itself and not from a real cancellation.
+ *
+ * This function is `internal`, so a test of `kit/jvm-ktor` can check it
+ * on its own, against a coroutine that a test cancels itself (see
+ * `IngestRouteTest.kt`).
+ */
+internal suspend fun isRealCancellationOfTheCall(): Boolean = !coroutineContext.isActive
+
+/**
+ * Writes the 500 answer and the one log line of design decision D15 for a
+ * defect of the app: a log line never holds a user id, a session id, or a
+ * connection string. The message of a store exception can hold any of the
+ * three, thus the log holds only the class name of the exception.
+ */
+private suspend fun respondWithDefect(call: ApplicationCall, cause: Throwable) {
+    call.application.log.error(
+        "The Octometer ingest route failed. The exception class is {}.",
+        cause::class.java.name,
+    )
+    call.respond(HttpStatusCode.InternalServerError)
 }
 
 /**

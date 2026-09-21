@@ -5,6 +5,9 @@ route of design section 4.2 with one function, `octometerIngestRoute`.
 
 ## Minimum versions
 
+- **Java 21.** `kit/jvm-ktor/build.gradle.kts` sets `jvmToolchain(21)`. The
+  compiled class files hold major version 65, the Java 21 class file
+  format (design decision D17). An app needs a JDK 21 runtime or newer.
 - **Kotlin 2.0.** This module compiles with `apiVersion` and
   `languageVersion` pinned to Kotlin 2.0
   (`kit/jvm-ktor/build.gradle.kts`). Kotlin 2.0 is the lowest version that
