@@ -1,0 +1,38 @@
+# The secret scan of this repository.
+#
+# Source: https://github.com/gitleaks/gitleaks (the README of the master
+# branch, section "Configuration"), read on 2026-09-21.
+#
+# [extend] adds this file to the default rule set of gitleaks. useDefault
+# keeps each built-in rule. The default rules cover a token of a common
+# provider, for example a GitHub token, an AWS key, and a private key.
+# The rule below adds one more rule, for a MongoDB URI with a password.
+# A URI of a different service, for example redis:// or postgres://,
+# needs a rule of its own in a later issue.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "mongodb-uri-password"
+description = "A MongoDB connection string that holds a plain user name and a plain password."
+# The prefix (?i) makes the match case-insensitive. Go's regexp package
+# (RE2) accepts this flag; the gitleaks README shows the same flag in an
+# example allowlist regex. Source: the gitleaks README of the master
+# branch, section "Configuration", read on 2026-09-21.
+regex = '''(?i)mongodb(?:\+srv)?://[A-Za-z0-9._%+-]+:[^@\s/]+@[A-Za-z0-9.-]+'''
+keywords = ["mongodb"]
+tags = ["mongodb", "connection-string", "credentials"]
+
+# The angle-bracket placeholder form, for example
+# mongodb+srv://<user>:<password>@<host>/<db>, does not match the regex
+# above. The user-name group excludes "<" and ">". The flag (?i) changes
+# only the letter case of the match; it does not add "<" or ">" to the
+# group, so a document of this repository can still show the placeholder
+# form without a finding.
+
+[[rules.allowlists]]
+description = "One fake URI for a test fixture. This is not a real credential. A future test of the CI job `secrets` (issue #7) or of kit/jvm-mongo can stage this exact string to check the rule and the allowlist together."
+regexes = [
+  '''mongodb\+srv://octotest:S3cr3t-Test-Only@cluster0\.example\.mongodb\.net''',
+]
