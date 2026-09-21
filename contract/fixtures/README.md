@@ -36,8 +36,9 @@ Before a paste into a public issue:
 4. Read the one line. It must hold no host name and no port.
 5. Paste only the JSON line.
 
-Add `--authenticationDatabase admin` when the login fails with a plain
-`mongodb://` URI.
+Add `--authenticationDatabase admin` when the login fails with
+`Authentication failed`. Atlas creates each SCRAM user in the `admin`
+database, and this option names that database.
 
 See "A failed connection at the start" for the reason of steps 1 to 4.
 
@@ -85,7 +86,7 @@ The script covers these forms of a host name or an IP address:
   `mongo1:27017`.
 - An Atlas host name in the form `*.mongodb.net`, in any letter case.
 
-The script has two known limits:
+The script has three known limits:
 
 - It cannot know a host name with no port and no `mongodb.net` suffix,
   for example `localhost` or `db.example.com`. Such a name looks the
@@ -93,6 +94,9 @@ The script has two known limits:
 - A four-part dotted number can look like an IP address. The script
   redacts a version number such as `1.2.3.4` by mistake. This loss is
   small, and it never removes a `code` or a `codeName`.
+- A port can survive next to a redacted host when a word character
+  follows it directly, for example `:27017tail`. This form does not
+  occur in a real error text.
 
 Each other error is a driver error. A driver error has no server code.
 Two examples:

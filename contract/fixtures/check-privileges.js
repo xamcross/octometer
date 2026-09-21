@@ -29,6 +29,13 @@ const REDACTED_HOST = "<host>";
 // few kilobytes. This bound loses no real host name. The script keeps
 // only the first 300 characters of the output. A host beyond this bound
 // never reaches the output.
+//
+// A cut host name at the bound can still reach the output, but only in a
+// text that no server writes. The fourth security review of #85 measured
+// the threshold: each host name in the text needs 93 characters or more,
+// and about 49 of them must stand in a row. A real Atlas host name holds
+// 37 to 45 characters, and one DNS label holds at most 63 characters, so
+// a real error text does not reach this threshold.
 const MAX_REDACT_INPUT_LENGTH = 4000;
 
 // Each pattern below matches one form of a host name or an IP address.
