@@ -3,6 +3,7 @@ import {
   ElementRef,
   Injector,
   afterNextRender,
+  computed,
   effect,
   inject,
   signal,
@@ -17,6 +18,7 @@ import type { BreadcrumbItem } from './breadcrumb';
 import { buildBreadcrumb } from './breadcrumb';
 import { BreadcrumbNav } from './breadcrumb-nav/breadcrumb-nav';
 import { MainNav } from './main-nav/main-nav';
+import { RefreshIntervalState } from './poll/refresh-interval-state';
 
 /**
  * Root shell of the app.
@@ -33,6 +35,7 @@ export class App {
   private readonly router = inject(Router);
   private readonly injector = inject(Injector);
   private readonly hostElement: ElementRef<HTMLElement> = inject(ElementRef);
+  private readonly intervalState = inject(RefreshIntervalState);
 
   /** The status text of the one permanent status region (D33). */
   protected readonly announcer = inject(Announcer);
@@ -40,8 +43,13 @@ export class App {
   /** True once the router outlet activates its first view component. */
   protected readonly appReady = signal(false);
 
-  /** The error text of the monitor API. A later issue reads this from the poll store. */
-  protected readonly monitorApiError = signal<string | null>(null);
+  /**
+   * The error text of the monitor API (D30): a failed `GET /api/health`.
+   * Null while the health route answers. The banner shows this text.
+   */
+  protected readonly monitorApiError = computed(() =>
+    this.intervalState.error() === undefined ? null : 'The app did not get the refresh interval.',
+  );
 
   /** The breadcrumb trail of the active route. */
   protected readonly breadcrumbItems = signal<BreadcrumbItem[]>([]);
