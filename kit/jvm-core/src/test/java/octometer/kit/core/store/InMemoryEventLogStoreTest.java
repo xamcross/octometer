@@ -84,6 +84,21 @@ class InMemoryEventLogStoreTest {
     }
 
     @Test
+    void aRejectedBatchLeavesNoPartOfItselfInTheStore() {
+        InMemoryEventLogStore store = new InMemoryEventLogStore();
+        IngestEvent first = new IngestEvent("3fa85f64-5717-4562-b3fc-2c963f66afa6", "checkout.save", FIXED_INSTANT);
+        IngestEvent second = new IngestEvent("3fa85f64-5717-4562-b3fc-2c963f66afa6", "nav.menu.open", FIXED_INSTANT);
+        List<IngestEvent> batchWithANullElement = new java.util.ArrayList<>();
+        batchWithANullElement.add(first);
+        batchWithANullElement.add(second);
+        batchWithANullElement.add(null);
+
+        assertThrows(NullPointerException.class, () -> store.append(batchWithANullElement, "user-1"));
+
+        assertTrue(store.events().isEmpty());
+    }
+
+    @Test
     void appendTakesTheWholeBatchInOneCall() {
         InMemoryEventLogStore store = new InMemoryEventLogStore();
         IngestEvent first = new IngestEvent("3fa85f64-5717-4562-b3fc-2c963f66afa6", "checkout.save", FIXED_INSTANT);

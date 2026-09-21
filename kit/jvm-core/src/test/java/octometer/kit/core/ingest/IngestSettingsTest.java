@@ -2,6 +2,7 @@ package octometer.kit.core.ingest;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -27,5 +28,28 @@ class IngestSettingsTest {
         assertFalse(IngestSettings.fromValue("1").recordAnonymousClicks());
         assertFalse(IngestSettings.fromValue("yes").recordAnonymousClicks());
         assertFalse(IngestSettings.fromValue(" true ").recordAnonymousClicks());
+    }
+
+    @Test
+    void fromValueWarnsForAValueThatIsNeitherTrueNorFalseWithNoRepeatOfTheValue() {
+        CapturingLoggerFinder.clear();
+
+        IngestSettings.fromValue("TRUE");
+
+        assertEquals(1, CapturingLoggerFinder.messages().size());
+        String message = CapturingLoggerFinder.messages().peek();
+        assertTrue(message.contains("OCTOMETER_RECORD_ANONYMOUS"));
+        assertFalse(message.contains("TRUE"));
+    }
+
+    @Test
+    void fromValueGivesNoWarningForTheExactTextsTrueAndFalseAndForANullValue() {
+        CapturingLoggerFinder.clear();
+
+        IngestSettings.fromValue("true");
+        IngestSettings.fromValue("false");
+        IngestSettings.fromValue(null);
+
+        assertTrue(CapturingLoggerFinder.messages().isEmpty());
     }
 }

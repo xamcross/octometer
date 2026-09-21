@@ -3,6 +3,10 @@ package octometer.kit.core.ingest;
 /**
  * A rejected ingest request. The {@link Reason} names the broken rule of
  * the contract (`contract/README.md`, issue #8).
+ *
+ * <p>The two {@code USER_ID_} reasons come from the app and not from the
+ * client. {@link IngestPipeline#ingest} wraps them in
+ * {@link IllegalStateException}.
  */
 public final class IngestException extends RuntimeException {
 

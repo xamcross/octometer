@@ -18,6 +18,13 @@ public interface EventLogStore {
      * batch above the event cap of design decision D21 (contract rule
      * C19, issue #34).
      *
+     * <p>The list holds one event or more. {@link
+     * octometer.kit.core.ingest.IngestPipeline#ingest} never calls this
+     * method with an empty list.
+     *
+     * <p>A store reads the list. It never changes the list, and it
+     * never keeps a reference to the list after the call.
+     *
      * <p>A store throws an unchecked exception when the write fails. An
      * adapter maps that exception to status 500.
      */
@@ -36,8 +43,8 @@ public interface EventLogStore {
      * {@code userId} must not be {@code null}, and it must not be an
      * empty text. An implementation throws {@link NullPointerException}
      * for a {@code null} value, and {@link IllegalArgumentException} for
-     * an empty text. An anonymous event has no erasure, because it holds
-     * no user id (contract rule C6).
+     * an empty text. A store never erases an anonymous event with this
+     * method, because that event holds no user id (contract rule C6).
      *
      * <p>A store throws an unchecked exception when the delete fails. An
      * adapter maps that exception to status 500.

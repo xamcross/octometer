@@ -10,4 +10,14 @@ import java.time.Instant;
  * This record stays as it was in issue #10.
  */
 public record IngestEvent(String sessionId, String element, Instant ts) {
+
+    /**
+     * Returns a text with no personal data (design decision D15). The
+     * session id stays out of this text, because a log line must never
+     * hold it.
+     */
+    @Override
+    public String toString() {
+        return "IngestEvent[element=" + element + ", ts=" + ts + "]";
+    }
 }

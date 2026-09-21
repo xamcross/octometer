@@ -138,6 +138,31 @@ class IngestPipelineIngestTest {
     }
 
     @Test
+    void anEmptyClicksArrayGivesZeroCallsOfAppend() {
+        String body = """
+                {"sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                 "clicks": []}
+                """;
+        AtomicInteger callCount = new AtomicInteger();
+        EventLogStore store = new EventLogStore() {
+            @Override
+            public void append(List<IngestEvent> events, String userId) {
+                callCount.incrementAndGet();
+            }
+
+            @Override
+            public void deleteByUserId(String userId) {
+                throw new UnsupportedOperationException();
+            }
+        };
+        UserIdResolver resolver = () -> "user-1";
+
+        IngestPipeline.ingest(body, FIXED_CLOCK, resolver, store, new IngestSettings(false));
+
+        assertEquals(0, callCount.get());
+    }
+
+    @Test
     void ingestGivesTheWholeBatchToAppendInOneCall() {
         String body = ExampleFiles.read("ingest-valid-C13.json");
         AtomicInteger callCount = new AtomicInteger();

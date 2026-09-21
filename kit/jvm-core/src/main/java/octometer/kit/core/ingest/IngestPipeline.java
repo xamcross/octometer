@@ -75,6 +75,10 @@ public final class IngestPipeline {
      * EventLogStore#append} fails. This method lets that exception pass
      * to the caller; an adapter maps it to status 500.
      *
+     * <p>Rule C13 sets no minimum for the `clicks` array. When the body
+     * holds zero clicks, this method appends nothing and returns; it
+     * never calls {@code store.append} with an empty list.
+     *
      * <p>Each parameter must not be {@code null}.
      */
     public static void ingest(String rawBody, Clock clock, UserIdResolver userIdResolver,
@@ -86,6 +90,9 @@ public final class IngestPipeline {
         Objects.requireNonNull(settings, "settings must not be null");
 
         List<IngestEvent> events = process(rawBody, clock);
+        if (events.isEmpty()) {
+            return;
+        }
         String userId = userIdResolver.resolve();
         try {
             EventFieldValidator.validateUserId(userId);

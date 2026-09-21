@@ -1,5 +1,6 @@
 package octometer.kit.core.store;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -20,10 +21,16 @@ public final class InMemoryEventLogStore implements EventLogStore {
     @Override
     public void append(List<IngestEvent> events, String userId) {
         Objects.requireNonNull(events, "events must not be null");
+        // Build the whole batch first, so a bad element (for example a
+        // null one) rejects the call before this store changes state.
+        // ConcurrentLinkedQueue.addAll then links the whole batch with
+        // one compare-and-set, so a reader never sees a part of it.
+        List<StoredEvent> batch = new ArrayList<>(events.size());
         for (IngestEvent event : events) {
             Objects.requireNonNull(event, "event must not be null");
-            storedEvents.add(StoredEvent.of(event, userId));
+            batch.add(StoredEvent.of(event, userId));
         }
+        storedEvents.addAll(batch);
     }
 
     @Override
