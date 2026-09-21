@@ -10,6 +10,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
+import octometer.monitor.apps.appTotals
 import octometer.monitor.config.InvalidConfigException
 import octometer.monitor.config.Mode
 import octometer.monitor.config.MonitorConfig
@@ -18,6 +19,7 @@ import octometer.monitor.config.escapeForLog
 import octometer.monitor.config.loadConfig
 import octometer.monitor.security.installRequestGuard
 import octometer.monitor.security.requireLoopbackBindAddress
+import octometer.monitor.store.SqliteDatabase
 import org.slf4j.LoggerFactory
 import java.util.Properties
 import kotlin.system.exitProcess
@@ -51,15 +53,23 @@ fun main(args: Array<String>) {
         exitProcess(2)
     }
     logStart(resolved)
-    embeddedServer(
-        factory = Netty,
-        host = host,
-        port = resolved.config.port,
-        module = { module(resolved.config) },
-    ).start(wait = true)
+    // Issue #18 opens the store here in the smallest way. Issue #15 (the
+    // app registry API) owns this open call and this close call; a merge
+    // of that issue keeps one open call and one close call, not two.
+    val database = SqliteDatabase.open(resolved.config.dataDir)
+    try {
+        embeddedServer(
+            factory = Netty,
+            host = host,
+            port = resolved.config.port,
+            module = { module(resolved.config, database) },
+        ).start(wait = true)
+    } finally {
+        database.close()
+    }
 }
 
-fun Application.module(config: MonitorConfig) {
+fun Application.module(config: MonitorConfig, database: SqliteDatabase? = null) {
     install(ContentNegotiation) {
         json()
     }
@@ -73,6 +83,11 @@ fun Application.module(config: MonitorConfig) {
                     refreshSeconds = refreshSeconds(config.mode),
                 ),
             )
+        }
+        // Null in a test that does not need the store, for example
+        // HealthRouteTest. Issue #15 adds the other methods of /api/apps.
+        if (database != null) {
+            appTotals(database)
         }
     }
 }
