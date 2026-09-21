@@ -1,0 +1,8 @@
+<div class="banner-slot">
+  @if (apiError(); as message) {
+    <p class="banner-text">
+      <span class="banner-icon" aria-hidden="true">⚠</span>
+      {{ message }}
+    </p>
+  }
+</div>

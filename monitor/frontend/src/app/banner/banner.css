@@ -1,0 +1,16 @@
+.banner-slot {
+  min-height: 3rem;
+  overflow-y: auto;
+}
+
+.banner-text {
+  width: 100%;
+  margin: 0;
+  padding: 0.5rem 1rem;
+  background-color: #7a1913;
+  color: #ffffff;
+}
+
+.banner-icon {
+  margin-right: 0.5rem;
+}
