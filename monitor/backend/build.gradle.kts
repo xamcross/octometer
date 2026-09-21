@@ -18,7 +18,9 @@ dependencies {
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.coroutines.core)
     implementation(libs.typesafe.config)
+    implementation(libs.sqlite.jdbc)
     runtimeOnly(libs.logback.classic)
 
     testImplementation(libs.ktor.server.test.host)

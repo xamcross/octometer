@@ -113,4 +113,29 @@ class EventFieldValidatorTest {
 
         assertEquals(IngestException.Reason.USER_ID_LENGTH, error.reason());
     }
+
+    @Test
+    void rejectsAUserIdWithAControlCharacter() {
+        String userId = "user-1\n42";
+
+        IngestException error = assertThrows(IngestException.class, () -> EventFieldValidator.validateUserId(userId));
+
+        assertEquals(IngestException.Reason.USER_ID_CHARACTER, error.reason());
+    }
+
+    @Test
+    void rejectsAUserIdWithTheDeleteCharacter() {
+        String userId = "user-1" + (char) 0x7f;
+
+        IngestException error = assertThrows(IngestException.class, () -> EventFieldValidator.validateUserId(userId));
+
+        assertEquals(IngestException.Reason.USER_ID_CHARACTER, error.reason());
+    }
+
+    @Test
+    void acceptsAUserIdWithThePrintableBoundaryCharacters() {
+        String userId = "user-1 " + (char) 0x20 + (char) 0x7e;
+
+        assertDoesNotThrow(() -> EventFieldValidator.validateUserId(userId));
+    }
 }
