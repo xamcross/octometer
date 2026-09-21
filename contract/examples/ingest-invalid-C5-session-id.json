@@ -1,0 +1,6 @@
+{
+  "sessionId": "not-a-uuid",
+  "clicks": [
+    {"element": "checkout.save", "ageMs": 1200}
+  ]
+}

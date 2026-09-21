@@ -1,0 +1,7 @@
+{
+  "_id": {"$oid": "66ff1a2b3c4d5e6f7a8b9c0e"},
+  "ts": {"$date": "2026-09-21T10:16:05.000Z"},
+  "element": "nav.menu.open",
+  "sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "userId": null
+}
