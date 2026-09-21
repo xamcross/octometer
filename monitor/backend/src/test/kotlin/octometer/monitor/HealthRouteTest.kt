@@ -1,8 +1,10 @@
 package octometer.monitor
 
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
@@ -25,7 +27,7 @@ class HealthRouteTest {
         testApplication {
             application { module(devConfig()) }
 
-            val response = client.get("/api/health")
+            val response = client.get("/api/health") { header(HttpHeaders.Host, "localhost:7431") }
 
             assertEquals(HttpStatusCode.OK, response.status)
             assertEquals(ContentType.Application.Json, response.contentType()?.withoutParameters())
@@ -39,7 +41,7 @@ class HealthRouteTest {
     fun `refreshSeconds is 60 in prod mode`() = testApplication {
         application { module(prodConfig()) }
 
-        val response = client.get("/api/health")
+        val response = client.get("/api/health") { header(HttpHeaders.Host, "localhost:7431") }
 
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals("prod", body["mode"]!!.jsonPrimitive.content)
