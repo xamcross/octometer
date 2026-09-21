@@ -1,7 +1,9 @@
 package octometer.monitor.config
 
 import com.typesafe.config.Config
+import com.typesafe.config.ConfigException
 import com.typesafe.config.ConfigFactory
+import com.typesafe.config.ConfigParseOptions
 import java.io.File
 
 // The argument form of D2: -P:octometer.<key>=<value>.
@@ -16,77 +18,157 @@ private val ENVIRONMENT_VARIABLE_NAMES = mapOf(
     "retentionDays" to "OCTOMETER_STORE_RETENTION_DAYS",
 )
 
+private val KNOWN_KEYS = ENVIRONMENT_VARIABLE_NAMES.keys
+
+// The fallback folder of D2 for an environment with no LOCALAPPDATA
+// variable, for example a Linux or a macOS test runner.
+private const val FALLBACK_DATA_DIR_SUFFIX = ".octometer/data"
+private const val FALLBACK_USER_CONFIG_SUFFIX = ".octometer/octometer.conf"
+
 /**
  * Load the monitor config one time, at the start, with the fixed precedence
  * of D2. The order, high to low: the argument, the environment variable, the
  * user file, the bundled default.
+ *
+ * The user file and the bundled file use the same shape, one `octometer { }`
+ * block, the same prefix as the argument `-P:octometer.<key>=`. Example of
+ * `octometer.conf`:
+ * ```
+ * octometer {
+ *   mode = "dev"
+ *   port = 7999
+ *   dataDir = "D:/octometer-data"
+ * }
+ * ```
+ * A Windows path inside the file needs a forward slash or two backslashes,
+ * because a quoted HOCON string reads one backslash as an escape.
+ *
+ * A value may be a quoted string, a plain number, or a boolean; each becomes
+ * text. A list or an object is not a value, and it gives an invalid-config
+ * error.
  *
  * @param args the program arguments. One argument has the form
  *   `-P:octometer.<key>=<value>`.
  * @param env the environment variables. The default is the real environment.
  * @param userConfigFile the user config file. A test gives its own file, and
  *   never the real file at `%LOCALAPPDATA%\Octometer\octometer.conf`.
- * @throws InvalidConfigException when one value fails validation.
+ * @throws InvalidConfigException when one value fails validation, or when
+ *   the user file has a syntax error, or the process cannot read it.
  */
 fun loadConfig(
     args: Array<String> = emptyArray(),
     env: Map<String, String> = System.getenv(),
-    userConfigFile: File = defaultUserConfigFile(),
+    userConfigFile: File = defaultUserConfigFile(env),
 ): ResolvedConfig {
-    val arguments = parseArguments(args)
-    val bundled = ConfigFactory.parseResources("application.conf").resolve()
-    val userConfig = if (userConfigFile.isFile) {
-        ConfigFactory.parseFile(userConfigFile).resolve()
-    } else {
-        ConfigFactory.empty()
+    try {
+        val arguments = parseArguments(args)
+        val bundled = ConfigFactory.parseResources("octometer-defaults.conf")
+        val userConfig = readUserConfig(userConfigFile)
+
+        val warnings = mutableListOf<String>()
+        warnStrayTopLevelKeys(userConfig, warnings)
+        warnUnknownKeys(arguments.keys, userConfig, warnings)
+
+        val mode = resolveValue("mode", arguments, env, userConfig, bundled.getString("octometer.mode"))
+        validateMode(mode.value)
+        val modeDefaults = bundled.getConfig("octometer.${mode.value}")
+
+        val port = resolveValue("port", arguments, env, userConfig, bundled.getString("octometer.port"))
+        val dataDir = resolveValue(
+            "dataDir",
+            arguments,
+            env,
+            userConfig,
+            bundledDataDirDefault(mode.value, env, modeDefaults),
+        )
+        val settleLagSeconds = resolveValue(
+            "settleLagSeconds",
+            arguments,
+            env,
+            userConfig,
+            modeDefaults.getString("settleLagSeconds"),
+        )
+        val retentionDays = resolveValue(
+            "retentionDays",
+            arguments,
+            env,
+            userConfig,
+            bundled.getString("octometer.retentionDays"),
+        )
+
+        val config = MonitorConfig(
+            mode = mode.value,
+            port = toValidInt("port", port.value, 1..65535, "1 to 65535"),
+            dataDir = validateDataDir(dataDir.value),
+            settleLagSeconds = toValidInt("settleLagSeconds", settleLagSeconds.value, 0..Int.MAX_VALUE, "0 or more"),
+            retentionDays = toValidInt("retentionDays", retentionDays.value, 1..Int.MAX_VALUE, "1 or more"),
+        )
+
+        return ResolvedConfig(
+            config = config,
+            values = listOf(
+                ResolvedValue("mode", config.mode, mode.source),
+                ResolvedValue("port", config.port.toString(), port.source),
+                ResolvedValue("dataDir", File(config.dataDir).absolutePath, dataDir.source),
+                ResolvedValue("settleLagSeconds", config.settleLagSeconds.toString(), settleLagSeconds.source),
+                ResolvedValue("retentionDays", config.retentionDays.toString(), retentionDays.source),
+            ),
+            warnings = warnings,
+        )
+    } catch (configException: ConfigException) {
+        throw InvalidConfigException(describeConfigException(userConfigFile, configException))
     }
-
-    val mode = resolveValue("mode", arguments, env, userConfig, bundled.getString("octometer.mode"))
-    validateMode(mode.value)
-    val modeDefaults = bundled.getConfig("octometer.${mode.value}")
-
-    val port = resolveValue("port", arguments, env, userConfig, bundled.getString("octometer.port"))
-    val dataDir = resolveValue("dataDir", arguments, env, userConfig, modeDefaults.getString("dataDir"))
-    val settleLagSeconds = resolveValue(
-        "settleLagSeconds",
-        arguments,
-        env,
-        userConfig,
-        modeDefaults.getString("settleLagSeconds"),
-    )
-    val retentionDays = resolveValue(
-        "retentionDays",
-        arguments,
-        env,
-        userConfig,
-        bundled.getString("octometer.retentionDays"),
-    )
-
-    val config = MonitorConfig(
-        mode = mode.value,
-        port = toValidInt("port", port.value, 1..65535),
-        dataDir = validateDataDir(dataDir.value),
-        settleLagSeconds = toValidInt("settleLagSeconds", settleLagSeconds.value, 1..Int.MAX_VALUE),
-        retentionDays = toValidInt("retentionDays", retentionDays.value, 1..Int.MAX_VALUE),
-    )
-
-    return ResolvedConfig(
-        config = config,
-        values = listOf(
-            ResolvedValue("mode", mode.value, mode.source),
-            ResolvedValue("port", port.value, port.source),
-            ResolvedValue("dataDir", dataDir.value, dataDir.source),
-            ResolvedValue("settleLagSeconds", settleLagSeconds.value, settleLagSeconds.source),
-            ResolvedValue("retentionDays", retentionDays.value, retentionDays.source),
-        ),
-    )
 }
 
-/** The real user config file, at `%LOCALAPPDATA%\Octometer\octometer.conf`. */
-fun defaultUserConfigFile(): File {
-    val localAppData = System.getenv("LOCALAPPDATA")
-        ?: throw InvalidConfigException("The environment has no LOCALAPPDATA variable.")
-    return File(localAppData, "Octometer${File.separator}octometer.conf")
+/**
+ * The real user config file: `%LOCALAPPDATA%\Octometer\octometer.conf`, or
+ * the fallback path of D2 in the user home folder when the environment has
+ * no `LOCALAPPDATA` variable.
+ */
+fun defaultUserConfigFile(env: Map<String, String> = System.getenv()): File {
+    val localAppData = env["LOCALAPPDATA"]
+    return if (localAppData != null) {
+        File(localAppData, "Octometer${File.separator}octometer.conf")
+    } else {
+        File(System.getProperty("user.home"), FALLBACK_USER_CONFIG_SUFFIX.replace('/', File.separatorChar))
+    }
+}
+
+// D2: dataDir defaults to %LOCALAPPDATA%\Octometer\data in prod mode, and to
+// build/dev-data in dev mode. The prod value comes from the injected env
+// map, never from System.getenv, so a test controls it. With no
+// LOCALAPPDATA variable, prod mode falls back to <user home>/.octometer/data.
+private fun bundledDataDirDefault(mode: String, env: Map<String, String>, modeDefaults: Config): String {
+    if (mode != "prod") {
+        return modeDefaults.getString("dataDir")
+    }
+    val localAppData = env["LOCALAPPDATA"]
+    return if (localAppData != null) {
+        "$localAppData\\Octometer\\data"
+    } else {
+        "${System.getProperty("user.home")}/$FALLBACK_DATA_DIR_SUFFIX"
+    }
+}
+
+private fun readUserConfig(userConfigFile: File): Config {
+    if (!userConfigFile.isFile) {
+        return ConfigFactory.empty()
+    }
+    // allowMissing = false: the file exists, thus a read error or a syntax
+    // error must not fall back to the bundled default in silence.
+    val options = ConfigParseOptions.defaults().setAllowMissing(false)
+    return ConfigFactory.parseFile(userConfigFile, options)
+}
+
+private fun describeConfigException(userConfigFile: File, error: ConfigException): String {
+    val lineNumber = error.origin()?.lineNumber()
+    val location = if (lineNumber != null && lineNumber > 0) " at line $lineNumber" else ""
+    val hint = if (error is ConfigException.Parse) {
+        " Write a Windows path with a forward slash, or with two backslashes."
+    } else {
+        ""
+    }
+    return "The file '${userConfigFile.path}' has an error$location. ${error.message}$hint"
 }
 
 private fun parseArguments(args: Array<String>): Map<String, String> {
@@ -98,6 +180,32 @@ private fun parseArguments(args: Array<String>): Map<String, String> {
     return result
 }
 
+private fun warnStrayTopLevelKeys(userConfig: Config, warnings: MutableList<String>) {
+    for (key in userConfig.root().keys) {
+        if (key != "octometer") {
+            warnings += "The user file has the key '${escapeForLog(key)}' outside the octometer " +
+                "block. Wrap each key in octometer { }."
+        }
+    }
+}
+
+private fun warnUnknownKeys(argumentKeys: Set<String>, userConfig: Config, warnings: MutableList<String>) {
+    for (key in argumentKeys) {
+        if (key !in KNOWN_KEYS) {
+            warnings += "The argument -P:octometer.${escapeForLog(key)} names an unknown key. " +
+                "Octometer ignores it."
+        }
+    }
+    if (userConfig.hasPath("octometer")) {
+        for (key in userConfig.getConfig("octometer").root().keys) {
+            if (key !in KNOWN_KEYS) {
+                warnings += "The user file has the unknown key 'octometer.${escapeForLog(key)}'. " +
+                    "Octometer ignores it."
+            }
+        }
+    }
+}
+
 private data class RawValue(val value: String, val source: ConfigSource)
 
 private fun resolveValue(
@@ -107,19 +215,20 @@ private fun resolveValue(
     userConfig: Config,
     bundledValue: String,
 ): RawValue {
-    arguments[key]?.let { return RawValue(it, ConfigSource.ARGUMENT) }
+    arguments[key]?.let { return RawValue(it.trim(), ConfigSource.ARGUMENT) }
     val environmentVariableName = ENVIRONMENT_VARIABLE_NAMES.getValue(key)
-    env[environmentVariableName]?.let { return RawValue(it, ConfigSource.ENVIRONMENT_VARIABLE) }
-    // The user file octometer.conf holds each key at its top level, with no
-    // wrapping object, because the file name already names the app.
-    if (userConfig.hasPath(key)) {
-        return RawValue(userConfig.getString(key), ConfigSource.USER_FILE)
+    env[environmentVariableName]?.let { return RawValue(it.trim(), ConfigSource.ENVIRONMENT_VARIABLE) }
+    // The user file holds each key inside the octometer block, the same
+    // shape as the bundled file.
+    val path = "octometer.$key"
+    if (userConfig.hasPath(path)) {
+        return RawValue(userConfig.getString(path).trim(), ConfigSource.USER_FILE)
     }
-    return RawValue(bundledValue, ConfigSource.BUNDLED_DEFAULT)
+    return RawValue(bundledValue.trim(), ConfigSource.BUNDLED_DEFAULT)
 }
 
 private fun validateMode(value: String) {
-    if (value != "dev" && value != "prod") {
+    if (Mode.fromValue(value) == null) {
         throw InvalidConfigException("The value of mode is '$value'. Set it to 'dev' or 'prod'.")
     }
 }
@@ -131,10 +240,10 @@ private fun validateDataDir(value: String): String {
     return value
 }
 
-private fun toValidInt(key: String, value: String, range: IntRange): Int {
+private fun toValidInt(key: String, value: String, range: IntRange, rangeText: String): Int {
     val parsed = value.toIntOrNull()
     if (parsed == null || parsed !in range) {
-        throw InvalidConfigException("The value of $key is '$value'. Give a whole number in $range.")
+        throw InvalidConfigException("The value of $key is '$value'. Give a whole number of $rangeText.")
     }
     return parsed
 }

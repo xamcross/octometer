@@ -11,8 +11,10 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
 import octometer.monitor.config.InvalidConfigException
+import octometer.monitor.config.Mode
 import octometer.monitor.config.MonitorConfig
 import octometer.monitor.config.ResolvedConfig
+import octometer.monitor.config.escapeForLog
 import octometer.monitor.config.loadConfig
 import org.slf4j.LoggerFactory
 import java.util.Properties
@@ -63,12 +65,17 @@ fun Application.module(config: MonitorConfig) {
 }
 
 // R2 of the design: the monitor polls each 5 seconds in dev mode and each
-// 1 minute in prod mode. D2 holds no separate key for this value.
-private fun refreshSeconds(mode: String): Int = if (mode == "dev") 5 else 60
+// 1 minute in prod mode. D2 holds no separate key for this value. The
+// loader already validates config.mode, thus the mode always matches one
+// entry of Mode here.
+private fun refreshSeconds(mode: String): Int = Mode.fromValue(mode)!!.refreshSeconds
 
 private fun logStart(resolved: ResolvedConfig) {
     for (value in resolved.values) {
-        log.info("{} = {} ({})", value.key, value.value, value.source.label)
+        log.info("{} = {} ({})", value.key, escapeForLog(value.value), value.source.label)
+    }
+    for (warning in resolved.warnings) {
+        log.warn(escapeForLog(warning))
     }
 }
 

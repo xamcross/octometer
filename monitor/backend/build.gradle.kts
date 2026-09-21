@@ -34,9 +34,12 @@ tasks.test {
 }
 
 // The dev mode of D2 (docs/superpowers/specs/2026-09-21-octometer-design.md).
-// The argument holds the top precedence level of octometer.monitor.config.loadConfig.
+// The environment variable is one level below the argument in the
+// precedence of octometer.monitor.config.loadConfig. An explicit
+// -P:octometer.mode argument on `--args` still wins over this default,
+// and `--args` cannot erase the dev mode this way.
 tasks.named<JavaExec>("run") {
-    args = listOf("-P:octometer.mode=dev")
+    environment("OCTOMETER_MODE", "dev")
 }
 
 // The version value must sit inside the task block. A value outside it
