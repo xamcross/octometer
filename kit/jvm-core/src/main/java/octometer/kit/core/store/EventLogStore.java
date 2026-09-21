@@ -13,10 +13,16 @@ public interface EventLogStore {
     /**
      * Appends each valid event of one batch, with the user id from a
      * {@link octometer.kit.core.user.UserIdResolver}. The value of
-     * {@code userId} can be {@code null} (design decision D19). The
-     * batch is the unit of the write, so a store can drop the whole
-     * batch above the event cap of design decision D21 (contract rule
-     * C19, issue #34).
+     * {@code userId} can be {@code null} (design decision D19).
+     *
+     * <p>A store writes the whole batch as one unit when it can. A store
+     * that cannot do that can write the first part of the batch, and it
+     * then throws. The delivery of an event is at least once (contract
+     * rule C24): a caller can see the same event two times, but a store
+     * never drops an event that it once wrote.
+     *
+     * <p>A store can also drop the whole batch above the event cap of
+     * design decision D21 (contract rule C19, issue #34).
      *
      * <p>The list holds one event or more. {@link
      * octometer.kit.core.ingest.IngestPipeline#ingest} never calls this
