@@ -6,3 +6,4 @@ octometer.conf
 build/
 node_modules/
 dist/
+.angular/
