@@ -1,0 +1,8 @@
+{
+  "_id": {"$oid": "6ab104213c4d5e6f7a8b9c11"},
+  "ts": {"$date": "2026-09-21T10:15:12.000Z"},
+  "element": "article.read-more",
+  "sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "userId": null,
+  "path": "/articles/example-article"
+}
