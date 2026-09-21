@@ -6,11 +6,14 @@ section 4 of `docs/superpowers/specs/2026-09-21-octometer-design.md`, plus secti
 last paragraph of section 6 for the definitions below. Some rules also cite an owner decision
 or a design decision from that document: O4, O5, D4, D5, and D21.
 
-Version 1.1. It adds the rules C38 to C41: the session-start marker, the `path` field, the
-`referrerHost` field, and the drop rule for an invalid value. Version 1.1 adds no field for a
-campaign parameter, because no advertisement campaign runs.
+Version 1.1. It adds the rules C38 to C43: the session-start marker and its transport form, the
+`path` field and its stored form, the `referrerHost` field and its closed set, and the erasure
+rule for an anonymous session. It also adds one sentence to rule C32. Version 1.1 adds no field
+for a campaign parameter, because no advertisement campaign runs. Version 1.1 is a minor change
+under rule C9. The collection name stays `octometer_events`. Version 1.1 reserves one value of
+the field `element`. A reader of version 1.0 counts an event `octo:session-start` as a click.
 
-Each rule has an ID, `C1` to `C41`. The table at the end maps each rule ID to its example file.
+Each rule has an ID, `C1` to `C43`. The table at the end maps each rule ID to its example file.
 
 ## Purpose
 
@@ -43,7 +46,9 @@ in its relaxed form. An ObjectId is `{"$oid": "..."}`. In the relaxed form, a Da
 
 ## 1. The event document (design section 4.1)
 
-Collection `octometer_events`, in the database of the app.
+Collection `octometer_events`, in the database of the app. An event document can also hold two
+optional fields: `path` and `referrerHost`. Section 2 states their exact form: rule C39 for
+`path`, and rule C40 for `referrerHost`.
 
 - **C1.** The event collection is `octometer_events`, in the database of the app.
 - **C2.** The `_id` field is an ObjectId. The kit creates it inside the insert call. The time
@@ -68,6 +73,11 @@ Collection `octometer_events`, in the database of the app.
 - **C11. The `_class` rule.** An app that writes its own event store must not add a `_class`
   field. Spring Data adds this field on its own. A Spring Data app needs a step that removes
   the field before the write. A store that skips the field is also correct.
+- **C43. The erasure rule.** The erasure of a user id also removes each event with `userId:
+  null` whose `sessionId` matches an event of that user id. An event of a second user id in
+  the same session stays. A visitor can sign in during the life of one tab, thus an anonymous
+  event of that session describes the same person. An app with its own event store (rule C11)
+  must follow rule C43 too.
 
 ## 2. The ingest request (design section 4.2)
 
@@ -102,26 +112,61 @@ application/json`.
 - **C37.** `ageMs` is a JSON integer. A value with a fraction or an exponent, for example
   `1.0` or `1e3`, makes the body invalid.
 - **C38.** The element prefix `octo:` is reserved for the contract. An app must not use it as
-  a `data-octo` value, and the tracker drops such a value. The element `octo:session-start`
-  marks the first event of a session. It is not a click. A reader built before version 1.1
-  counts it as a click.
+  a `data-octo` value. The tracker drops such a value, and it writes one console warning for
+  the first dropped value. The element `octo:session-start` marks the first event of a
+  session. It is not a click. A reader of version 1.0 counts it as a click. The tracker sends
+  the session start as one entry of `clicks`, with `element: "octo:session-start"` and
+  `ageMs: 0` (rule C13). This is not a new request form. The server accepts the element
+  `octo:session-start`. It drops each other entry whose `element` starts with `octo:`. It
+  keeps the rest of the batch, and it writes a maximum of one warning for each batch. A
+  session start is a statement of the client. It is not a proof of a visit. The rate limits
+  of the kit control a flood.
 - **C39.** The `path` field is optional on an event and on an entry of `clicks`. It has 1 to
   150 bytes in UTF-8. It starts with `/`, and its second character is not `/`. Each other
   character is in the set `[A-Za-z0-9._~!$&'()*+,;=:@/-]`, or it is a part of a well-formed
   escape `%[0-9A-Fa-f]{2}`. It holds no query string and no fragment. The server matches the
-  client value against the route pattern list of the app, and it stores the result of that
-  match. The stored `path` is the result of that match, as rule C16 does for `userId`.
+  client value against the route pattern list of the app (rule C42). The server stores only
+  the result of that match. The server never stores the raw client value. Rule C16 states
+  the same rule for `userId`.
 - **C40.** The `referrerHost` field is optional on `octo:session-start`. It is the literal
   `other`, or it has 1 to 253 bytes, the pattern `[a-z0-9.-]+`, and at least one dot. The
+  server converts no letter case. A value with an upper-case letter breaks this rule. The
   source list has two entries: `google.com` and `bing.com`. The tracker takes the host of
   `document.referrer` in lower case. A host matches an entry when it equals the entry, or
   when it ends with `.` plus the entry; the stored value is the entry. A host that matches
-  `(^|\.)google\.(com?\.)?[a-z]{2,3}$` gives `google.com`. Each other host gives the literal
-  `other`. The server checks the value against the same list, and it drops each other value
-  under rule C41. An entry `octo:session-start` without `referrerHost` marks a direct visit.
+  `^([a-z0-9-]+\.)*google\.((com|co)\.[a-z]{2}|com|[a-z]{2})$` gives `google.com`. Each other
+  host gives the literal `other`. The stored `referrerHost` value is exactly one of three
+  literals: `google.com`, `bing.com`, or `other`. The server repeats the same match on the
+  client value, and it stores the entry or the literal `other`. For a client value with the
+  form of a host name that matches no entry, the server stores `other`. The server drops a
+  client value with a different form, under rule C41. The server drops a `referrerHost`
+  field on an entry with an element other than `octo:session-start`. A free host name can
+  name an employer, a tenant, or an internal host, thus the source list is fixed. An entry
+  `octo:session-start` without `referrerHost` is a direct visit, or a visit from a source
+  that sends no referrer.
 - **C41.** An invalid `path` or `referrerHost` value does not make the body invalid. The
   server drops that field, it keeps the entry, and it writes a maximum of one warning for
-  each batch. No log line holds a raw path or a raw host.
+  each batch. No log line holds a raw path or a raw host. This rule holds only for a value
+  that breaks the shape rule of C39 or of C40. A `path` that matches no route pattern is not
+  an invalid value; rule C42 states its stored result.
+- **C42. The stored `path`.** The app gives an ordered list of route patterns to the tracker
+  and to the server (`OCTOMETER_PATH_PATTERNS`). Each literal segment of a pattern is ASCII.
+  A pattern holds a literal segment, the segment `*`, or the segment `:name`. A pattern
+  matches only when it has the same count of segments as the path. The segment `*` and the
+  segment `:name` each match exactly one segment. No pattern matches a prefix. The first
+  pattern that matches gives the result. The segment `*` keeps the real segment, and only
+  when that segment matches `^[A-Za-z0-9](?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2}){0,79}$`. Each
+  other value for that segment makes the whole path `/other`. The segment `:name` writes the
+  literal `:name` in place of the real segment. For a literal segment and for a `:name`
+  segment, the stored value uses the text of the pattern, never the text of the input. The
+  match of a literal segment ignores the ASCII letter case. The server removes a trailing
+  slash before the match, but not for the root path. A path with an empty segment, a `.`
+  segment, or a `..` segment gives `/other`. The server decodes no `%` escape before the
+  match. A path that matches no pattern gives `/other`. The server stores `/other` for that
+  path. It does not drop the `path` field. Without a route pattern list, the server stores no
+  `path` field, and it writes one warning at startup. **Warning for an app team.** A path can
+  hold an identifier, a token, or a search term. Mark each such segment with `:name` in the
+  route list. Never use `*` for a segment that holds a token, an email address, or a user id.
 
 ## 3. The reader rule (design section 4.3)
 
@@ -170,9 +215,9 @@ shell history does not keep it.
 ## Examples
 
 Each example file holds only fake data: a fake user id, a fake UUID, no real name, no email
-address, no password, and no real host name. Each file in `examples/` parses as JSON. A file
-that shows an invalid ingest body is also valid JSON. Its value breaks one rule of the
-contract.
+address, no password, and no real host name, except a public search host of the source list
+of rule C40. Each file in `examples/` parses as JSON. A file that shows an invalid ingest body
+is also valid JSON. Its value breaks one rule of the contract.
 
 | Rule ID | Rule | Example file |
 |---|---|---|
@@ -204,7 +249,9 @@ contract.
 | C35 | Database role limit (`FIND` only, one collection) | No example file. This rule states a database administration fact. |
 | C36 | Duplicate-key rejection | `examples/ingest-invalid-C36-duplicate-key.json` — the file repeats the `sessionId` key with the same value, thus the file breaks only the duplicate-key rule. |
 | C37 | `ageMs` as a plain integer, invalid with a fraction or an exponent | `examples/ingest-invalid-C37-agems-fraction.json` |
-| C38 | The `octo:` prefix and the `octo:session-start` marker | `examples/event-valid-C38-session-start.json` |
-| C39 | The `path` field and the route-pattern match | `examples/event-valid-C39-path.json` (stored event), `examples/ingest-valid-C39-path.json` (ingest body) |
-| C40 | The `referrerHost` field and the source list | `examples/event-valid-C40-source.json` |
-| C41 | The drop rule for an invalid `path` or `referrerHost` value | `examples/ingest-valid-C41-bad-path-dropped.json` — the file holds a `path` value that breaks rule C39; the body stays valid, and the present parser ignores the field as an unknown field (rule C32). |
+| C38 | The `octo:` prefix, the `octo:session-start` marker, and its transport form | `examples/event-valid-C38-session-start.json` |
+| C39 | The shape of the `path` field | `examples/event-valid-C39-path.json` (stored event), `examples/ingest-valid-C39-path.json` (ingest body) |
+| C40 | The shape of `referrerHost`, its closed set, and the source list | `examples/event-valid-C40-source.json` |
+| C41 | The rule for an invalid `path` or `referrerHost` value | `examples/ingest-valid-C41-bad-path-dropped.json` — the file holds a `path` value that breaks rule C39; the body stays valid, and the present parser ignores the field as an unknown field (rule C32). |
+| C42 | The route pattern list and the derivation of the stored `path` | `examples/event-valid-C42-masked-path.json` (a masked `:name` segment), `examples/event-valid-C42-other-path.json` (no matching pattern), `examples/event-valid-C39-path.json` (a kept `*` segment) |
+| C43 | The erasure of an anonymous session | No example file. This rule states an app action, not a document shape. |

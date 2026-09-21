@@ -11,10 +11,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * that its file name holds (rules C13, C15, C17, C18, C36, C37).
  *
  * <p>Version 1.1 adds the fields `path` and `referrerHost` (rules C39 to
- * C41, issue #101). The present parser does not check these fields, so it
+ * C42, issue #101). The present parser does not check these fields, so it
  * skips each one as an unknown field of a `clicks` entry (rule C32). This
  * is the forward-compatible behavior of an old kit: it drops a new field
- * and it does not fail. Issue #103 adds the checks of C39 to C41.
+ * and it does not fail. Issue #103 adds the checks of C39 to C42.
  */
 class IngestParserContractExamplesTest {
 
@@ -124,7 +124,7 @@ class IngestParserContractExamplesTest {
     }
 
     @Test
-    void parsesAClickWithAPathField() {
+    void parsesAClickWithAPathFieldAsAnUnknownField() {
         String body = ExampleFiles.read("ingest-valid-C39-path.json");
 
         ParsedIngestRequest request = IngestParser.parse(body);
