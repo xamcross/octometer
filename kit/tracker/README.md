@@ -45,6 +45,42 @@ rule C38).
 | `flushIntervalMs` | `5000` | The delay before the tracker sends a filled queue. |
 | `routes` | none | The ordered route pattern list of the app. With this option, each click entry holds `path`. |
 
+## The page lifecycle flush
+
+The tracker sends the queue at once in two cases, so a click reaches the
+app before the browser hides or unloads the page:
+
+- The event `pagehide`.
+- The event `visibilitychange`, only when `document.visibilityState`
+  becomes `hidden`.
+
+Each of these two requests uses `fetch` with `keepalive: true`. A
+`keepalive` request stays below 64 KB, well under the browser limit,
+because the tracker also holds each request body below the limit of the
+next section.
+
+## The retry rule
+
+The tracker sends a batch again one time after a network error, a 5xx
+response, or a 429 response. It drops the batch after each other 4xx
+response, and it never sends a batch a third time. A batch that the
+`pagehide` listener sends goes out one time only, with no retry, because
+the page can close before a retry request completes.
+
+**What a retry can cause.** The MongoDB store of the app writes a batch
+with one ordered `insertMany` call, without a transaction. When a
+document in the middle of a batch fails, the first part of the batch
+stays in the collection, and the app answers 500. A retry of the same
+batch then writes the first part again, with new `_id` values, and the
+monitor cannot drop those copies (contract rule C24 drops a copy only for
+the same `_id`). Such a failure is rare, but a retry after a 5xx response
+can count some clicks two times. Issue #36 does not add a client-side id
+to the event; a fix for this needs a contract change.
+
+A failed request throws no error into the page, and it writes no console
+line. No console line holds a path, a pattern, a `data-octo` value, or a
+session id.
+
 ## The path of a click
 
 Give the option `routes` to add `path` to each click entry: an ordered
@@ -109,8 +145,21 @@ authentication context (owner decision O5).
 The session id is a UUID. The tracker keeps it under the `sessionStorage` key
 `octo_session_id`, for the life of one browser tab.
 
+## The queue and the request size
+
+The queue holds a maximum of 200 entries. It drops the oldest entry when
+a click enters a full queue.
+
+The tracker measures each request body as its encoded UTF-8 byte count,
+not as a string length. One request holds a maximum of 50 clicks
+(contract rule C17). The tracker also splits a batch whose encoded body
+passes 15 000 bytes into two or more requests, so each request body stays
+below that limit, with a safety margin under the 16 KB body limit of
+contract rule C18.
+
 ## Out of scope
 
-This package holds the tracker core only. Issue #36 owns the page lifecycle
-flush (`pagehide`, `visibilitychange`), the `keepalive` request option, and
-the retry rule after a failed request.
+This package holds the tracker core, the page lifecycle flush, and the
+retry rule. Issue #107 owns the session start call (`start()` sending the
+entry `octo:session-start`) and the consent-gated wait rules of design
+decision D41.

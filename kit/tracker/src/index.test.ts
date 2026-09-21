@@ -1,8 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTracker, type Tracker } from './index.js';
 import * as pathMatch from './path-match.js';
+import * as batchModule from './batch.js';
 
 const ENDPOINT = 'https://app.example/api/octometer/v1/clicks';
+
+/**
+ * Sets `document.visibilityState` and `document.hidden` to fixed values,
+ * for one test. jsdom shares one `document` between test files, so a test
+ * that calls this must restore the two properties in its own cleanup
+ * (rule: restore each global that a test changes).
+ */
+function setVisibilityState(value: 'visible' | 'hidden'): void {
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => value,
+  });
+  Object.defineProperty(document, 'hidden', {
+    configurable: true,
+    get: () => value === 'hidden',
+  });
+}
+
+function restoreVisibilityState(): void {
+  delete (document as { visibilityState?: unknown }).visibilityState;
+  delete (document as { hidden?: unknown }).hidden;
+}
 
 interface FetchCall {
   url: string;
@@ -52,6 +75,7 @@ describe('createTracker', () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    restoreVisibilityState();
   });
 
   it('records a click on a child of a data-octo element', () => {
@@ -948,5 +972,326 @@ describe('createTracker', () => {
     const clicks = at(parseCalls(fetchMock), 0).body.clicks;
     expect(at(clicks, 0).path).toBe('/other');
     matchSpy.mockRestore();
+  });
+
+  // Issue #36, step 1: a pagehide listener flushes the queue with fetch
+  // and keepalive true, without a wait for the flush timer.
+  describe('the pagehide flush', () => {
+    it('sends the queue on pagehide, with fetch and keepalive true', () => {
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT, flushIntervalMs: 100000 });
+      tracker.start();
+      clickElement(host);
+      window.dispatchEvent(new Event('pagehide'));
+
+      const calls = parseCalls(fetchMock);
+      expect(calls).toHaveLength(1);
+      expect(at(calls, 0).init.keepalive).toBe(true);
+      expect(at(calls, 0).body.clicks).toEqual([{ element: 'save', ageMs: 0 }]);
+    });
+
+    it('sends nothing on pagehide with an empty queue', () => {
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      window.dispatchEvent(new Event('pagehide'));
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('adds only one pagehide listener, also with a second start() call', () => {
+      const addSpy = vi.spyOn(window, 'addEventListener');
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      tracker.start();
+
+      const pagehideCalls = addSpy.mock.calls.filter((call) => call[0] === 'pagehide');
+      expect(pagehideCalls).toHaveLength(1);
+    });
+
+    it('removes the pagehide listener on stop()', () => {
+      const removeSpy = vi.spyOn(window, 'removeEventListener');
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      tracker.stop();
+
+      expect(removeSpy.mock.calls.some((call) => call[0] === 'pagehide')).toBe(true);
+    });
+  });
+
+  // Issue #36, step 2: a visibilitychange listener flushes the queue in
+  // the same way, only when the document becomes hidden.
+  describe('the visibilitychange flush', () => {
+    it('sends the queue on visibilitychange to hidden, with fetch and keepalive true', () => {
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT, flushIntervalMs: 100000 });
+      tracker.start();
+      clickElement(host);
+      setVisibilityState('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      const calls = parseCalls(fetchMock);
+      expect(calls).toHaveLength(1);
+      expect(at(calls, 0).init.keepalive).toBe(true);
+    });
+
+    it('does not flush on visibilitychange to visible', () => {
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT, flushIntervalMs: 100000 });
+      tracker.start();
+      clickElement(host);
+      setVisibilityState('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('adds only one visibilitychange listener, also with a second start() call', () => {
+      const addSpy = vi.spyOn(document, 'addEventListener');
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      tracker.start();
+
+      const calls = addSpy.mock.calls.filter((call) => call[0] === 'visibilitychange');
+      expect(calls).toHaveLength(1);
+    });
+
+    it('removes the visibilitychange listener on stop()', () => {
+      const removeSpy = vi.spyOn(document, 'removeEventListener');
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      tracker.stop();
+
+      expect(removeSpy.mock.calls.some((call) => call[0] === 'visibilitychange')).toBe(true);
+    });
+  });
+
+  // Issue #36, step 3: the retry rule. One retry after a network error, a
+  // 5xx response, or a 429 response. A drop after each other 4xx
+  // response, with no third send of the same batch.
+  describe('the retry rule', () => {
+    it('retries a batch one time after a network error', async () => {
+      fetchMock
+        .mockRejectedValueOnce(new Error('network error'))
+        .mockResolvedValueOnce({ ok: true, status: 204 });
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      clickElement(host);
+      await expect(vi.advanceTimersByTimeAsync(5000)).resolves.not.toThrow();
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('drops a batch after a second network error, and never sends it a third time', async () => {
+      fetchMock.mockRejectedValue(new Error('network error'));
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      clickElement(host);
+      await expect(vi.advanceTimersByTimeAsync(5000)).resolves.not.toThrow();
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries a batch one time after a 5xx response', async () => {
+      fetchMock
+        .mockResolvedValueOnce({ ok: false, status: 503 })
+        .mockResolvedValueOnce({ ok: true, status: 204 });
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      clickElement(host);
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('drops a batch after a second 5xx response, and never sends it a third time', async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 500 });
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      clickElement(host);
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries a batch one time after a 429 response', async () => {
+      fetchMock
+        .mockResolvedValueOnce({ ok: false, status: 429 })
+        .mockResolvedValueOnce({ ok: true, status: 204 });
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      clickElement(host);
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('drops a batch after one other 4xx response, with no retry', async () => {
+      fetchMock.mockResolvedValueOnce({ ok: false, status: 400 });
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      clickElement(host);
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // Issue #36, step 4: a batch from the pagehide listener goes out one
+  // time only, with no retry, because the page can close before a retry
+  // completes.
+  describe('the single send of the pagehide flush', () => {
+    it('sends a batch only one time from pagehide, also after a network error', async () => {
+      fetchMock.mockRejectedValueOnce(new Error('network error'));
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT, flushIntervalMs: 100000 });
+      tracker.start();
+      clickElement(host);
+      window.dispatchEvent(new Event('pagehide'));
+      // A wrong retry count would send a second request from a promise
+      // callback. Flush pending microtasks before the count check.
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends a batch only one time from pagehide, also after a 503 response', async () => {
+      fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT, flushIntervalMs: 100000 });
+      tracker.start();
+      clickElement(host);
+      window.dispatchEvent(new Event('pagehide'));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries a batch from the visibilitychange listener, unlike pagehide', async () => {
+      fetchMock
+        .mockRejectedValueOnce(new Error('network error'))
+        .mockResolvedValueOnce({ ok: true, status: 204 });
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT, flushIntervalMs: 100000 });
+      tracker.start();
+      clickElement(host);
+      setVisibilityState('hidden');
+      expect(() => document.dispatchEvent(new Event('visibilitychange'))).not.toThrow();
+      // The retry runs inside a promise callback. Advancing fake time by
+      // zero still lets vitest run each pending microtask in order.
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // Issue #36, step 6: the tracker measures the encoded body as UTF-8
+  // bytes, and it splits a batch whose body passes 15 000 bytes.
+  describe('the byte-based request split', () => {
+    it('keeps 50 entries with a 150-byte path each in one request, below the 16 KB limit of C18', () => {
+      const longSegment = 'a'.repeat(149);
+      window.history.pushState({}, '', `/${longSegment}`);
+      tracker = createTracker({
+        endpoint: ENDPOINT,
+        routes: [`/${longSegment}`],
+        flushIntervalMs: 100000,
+      });
+      tracker.start();
+      for (let i = 0; i < 50; i += 1) {
+        const host = document.createElement('div');
+        host.setAttribute('data-octo', `e${i}`);
+        document.body.appendChild(host);
+        clickElement(host);
+      }
+      vi.advanceTimersByTime(100000);
+
+      const calls = parseCalls(fetchMock);
+      expect(calls).toHaveLength(1);
+      expect(at(calls, 0).body.clicks).toHaveLength(50);
+      const bodyBytes = new TextEncoder().encode(String(at(calls, 0).init.body)).length;
+      expect(bodyBytes).toBeLessThan(16 * 1024);
+      expect(bodyBytes).toBeLessThan(64 * 1024);
+    });
+
+    it('gives the session id and the computed clicks to splitIntoRequestBatches', () => {
+      const splitSpy = vi.spyOn(batchModule, 'splitIntoRequestBatches');
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      clickElement(host);
+      vi.advanceTimersByTime(5000);
+
+      expect(splitSpy).toHaveBeenCalledTimes(1);
+      const [sessionIdArg, clicksArg] = splitSpy.mock.calls[0] as [string, unknown[]];
+      expect(typeof sessionIdArg).toBe('string');
+      expect(clicksArg).toEqual([{ element: 'save', ageMs: 5000 }]);
+    });
+
+    it('sends one request for each batch that the splitter gives, each request below 15 000 bytes', () => {
+      const clickA = { element: 'a', ageMs: 0 };
+      const clickB = { element: 'b', ageMs: 0 };
+      vi.spyOn(batchModule, 'splitIntoRequestBatches').mockReturnValue([[clickA], [clickB]]);
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      clickElement(host);
+      vi.advanceTimersByTime(5000);
+
+      const calls = parseCalls(fetchMock);
+      expect(calls).toHaveLength(2);
+      expect(at(calls, 0).body.clicks).toEqual([clickA]);
+      expect(at(calls, 1).body.clicks).toEqual([clickB]);
+      for (const call of calls) {
+        const bodyBytes = new TextEncoder().encode(String(call.init.body)).length;
+        expect(bodyBytes).toBeLessThan(15000);
+      }
+    });
   });
 });

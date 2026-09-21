@@ -10,6 +10,7 @@
  */
 
 import { matchPreparedPath, prepareRoutes, type PreparedRoute } from './path-match.js';
+import { splitIntoRequestBatches, type ClickPayload } from './batch.js';
 
 /** An option of the tracker. `endpoint` is mandatory; the rest have a default. */
 export interface TrackerOptions {
@@ -56,10 +57,19 @@ const ELEMENT_PATTERN = /^[A-Za-z0-9_.:-]{1,100}$/;
 const RESERVED_ELEMENT_PREFIX = /^octo:/i;
 /** The queue holds a maximum of 200 entries (design decision D24). */
 const MAX_QUEUE_SIZE = 200;
-/** One request holds a maximum of 50 clicks (contract rule C17). */
-const MAX_BATCH_SIZE = 50;
 const DEFAULT_FLUSH_INTERVAL_MS = 5000;
 const DEFAULT_CREDENTIALS: RequestCredentials = 'same-origin';
+/**
+ * The retry rule of issue #36: a batch of the normal flush, or of the
+ * visibilitychange flush, goes out one more time after a network error, a
+ * 5xx response, or a 429 response.
+ */
+const NORMAL_RETRY_COUNT = 1;
+/**
+ * A batch of the pagehide flush goes out one time only, with no retry.
+ * The page can close before a retry request completes.
+ */
+const PAGEHIDE_RETRY_COUNT = 0;
 
 interface QueueEntry {
   element: string;
@@ -89,6 +99,8 @@ export function createTracker(options: TrackerOptions): Tracker {
   let everStarted = false;
   let droppedOctoPrefix = false;
   let clickListener: ((event: Event) => void) | null = null;
+  let pageHideListener: (() => void) | null = null;
+  let visibilityChangeListener: (() => void) | null = null;
 
   function start(): void {
     if (started) {
@@ -102,6 +114,18 @@ export function createTracker(options: TrackerOptions): Tracker {
     everStarted = true;
     clickListener = (event: Event) => handleClick(event);
     document.addEventListener('click', clickListener, true);
+    // Issue #36, steps 1 and 2: the tracker sends the queue before the
+    // browser hides or unloads the page.
+    pageHideListener = () => safeFlush({ keepalive: true, retryCount: PAGEHIDE_RETRY_COUNT });
+    visibilityChangeListener = () => {
+      if (document.visibilityState === 'hidden') {
+        safeFlush({ keepalive: true, retryCount: NORMAL_RETRY_COUNT });
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', pageHideListener);
+    }
+    document.addEventListener('visibilitychange', visibilityChangeListener);
   }
 
   function stop(): void {
@@ -115,6 +139,14 @@ export function createTracker(options: TrackerOptions): Tracker {
       document.removeEventListener('click', clickListener, true);
     }
     clickListener = null;
+    if (pageHideListener !== null && typeof window !== 'undefined') {
+      window.removeEventListener('pagehide', pageHideListener);
+    }
+    pageHideListener = null;
+    if (visibilityChangeListener !== null && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', visibilityChangeListener);
+    }
+    visibilityChangeListener = null;
     sessionId = null;
     droppedOctoPrefix = false;
     if (everStarted) {
@@ -189,15 +221,27 @@ export function createTracker(options: TrackerOptions): Tracker {
     }
     timerId = setTimeout(() => {
       timerId = null;
-      try {
-        flush();
-      } catch {
-        // The tracker gives no error to the page. It drops the batch instead.
-      }
+      safeFlush({ keepalive: false, retryCount: NORMAL_RETRY_COUNT });
     }, flushIntervalMs);
   }
 
-  function flush(): void {
+  interface FlushOptions {
+    /** True on the pagehide flush and the visibilitychange flush (design decision D24). */
+    keepalive: boolean;
+    /** The count of extra sends that the retry rule of issue #36 allows for this flush. */
+    retryCount: number;
+  }
+
+  /** Runs `flush()` inside a try/catch, so a throw of it never reaches the page. */
+  function safeFlush(options: FlushOptions): void {
+    try {
+      flush(options);
+    } catch {
+      // The tracker gives no error to the page. It drops the batch instead.
+    }
+  }
+
+  function flush(options: FlushOptions): void {
     if (queue.length === 0) {
       return;
     }
@@ -206,23 +250,69 @@ export function createTracker(options: TrackerOptions): Tracker {
     const entries = queue;
     queue = [];
     const id = getOrCreateSessionId();
-    for (let offset = 0; offset < entries.length; offset += MAX_BATCH_SIZE) {
-      void sendBatch(id, entries.slice(offset, offset + MAX_BATCH_SIZE));
+    const now = monotonicNow();
+    const clicks = entries.map((entry) => toClickPayload(entry, now));
+    // Issue #36, step 6: the tracker measures the encoded body as UTF-8
+    // bytes. It splits a batch whose body passes 15 000 bytes, also below
+    // 50 entries (contract rule C17).
+    const batches = splitIntoRequestBatches(id, clicks);
+    for (const batch of batches) {
+      void sendBatch(id, batch, options.keepalive, options.retryCount);
     }
   }
 
-  function sendBatch(id: string, batch: QueueEntry[]): Promise<void> {
-    const now = monotonicNow();
-    const clicks = batch.map((entry) => {
-      const click: { element: string; ageMs: number; path?: string } = {
-        element: entry.element,
-        ageMs: Math.max(0, Math.round(now - entry.queuedAt)),
-      };
-      if (entry.path !== undefined) {
-        click.path = entry.path;
-      }
-      return click;
-    });
+  function toClickPayload(entry: QueueEntry, now: number): ClickPayload {
+    const click: { element: string; ageMs: number; path?: string } = {
+      element: entry.element,
+      ageMs: Math.max(0, Math.round(now - entry.queuedAt)),
+    };
+    if (entry.path !== undefined) {
+      click.path = entry.path;
+    }
+    return click;
+  }
+
+  /**
+   * Sends one request. The retry rule of issue #36: it sends the same
+   * batch again, up to `retriesLeft` more times, after a network error, a
+   * 5xx response, or a 429 response. It drops the batch after each other
+   * 4xx response.
+   *
+   * A maintainer comment on issue #36 states a limit of this rule: the
+   * MongoDB store of the app writes a batch without a transaction, thus a
+   * retry after a mid-batch failure can count some clicks two times (see
+   * the README section "The retry rule").
+   */
+  function sendBatch(id: string, batch: ClickPayload[], keepalive: boolean, retriesLeft: number): Promise<void> {
+    return fetch(endpoint, {
+      method: 'POST',
+      credentials,
+      headers: buildHeaders(),
+      referrerPolicy: 'no-referrer',
+      keepalive,
+      body: JSON.stringify({ sessionId: id, clicks: batch }),
+    })
+      .then((response) => {
+        if (response.ok) {
+          return;
+        }
+        const isRetryableStatus = response.status === 429 || response.status >= 500;
+        if (retriesLeft > 0 && isRetryableStatus) {
+          return sendBatch(id, batch, keepalive, retriesLeft - 1);
+        }
+        // Each other 4xx response drops the batch. No error reaches the page.
+      })
+      .catch(() => {
+        if (retriesLeft > 0) {
+          return sendBatch(id, batch, keepalive, retriesLeft - 1).catch(() => {
+            // A second network error drops the batch too.
+          });
+        }
+        // The tracker gives no error to the page. It drops the batch instead.
+      });
+  }
+
+  function buildHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
     if (getExtraHeaders) {
       try {
@@ -240,17 +330,7 @@ export function createTracker(options: TrackerOptions): Tracker {
       }
     }
     headers['Content-Type'] = 'application/json';
-    return fetch(endpoint, {
-      method: 'POST',
-      credentials,
-      headers,
-      referrerPolicy: 'no-referrer',
-      body: JSON.stringify({ sessionId: id, clicks }),
-    })
-      .then(() => undefined)
-      .catch(() => {
-        // Issue #36 adds the retry rule for a network error, a 5xx, and a 429.
-      });
+    return headers;
   }
 
   function getOrCreateSessionId(): string {

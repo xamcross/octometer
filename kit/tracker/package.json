@@ -16,6 +16,7 @@
     "dist",
     "src/index.ts",
     "src/path-match.ts",
+    "src/batch.ts",
     "README.md"
   ],
   "private": true,
