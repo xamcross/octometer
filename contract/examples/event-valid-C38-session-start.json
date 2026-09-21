@@ -1,0 +1,7 @@
+{
+  "_id": {"$oid": "6ab104003c4d5e6f7a8b9c10"},
+  "ts": {"$date": "2026-09-21T10:14:00.000Z"},
+  "element": "octo:session-start",
+  "sessionId": "c56a4180-65aa-42ec-a945-5fd21dec0538",
+  "userId": null
+}
