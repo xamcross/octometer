@@ -68,8 +68,13 @@ A click on a level 1 row opens level 2. A click on a level 2 row opens level 3.
 
 - The Atlas CLI role format is `roleName[@dbName[.collection]]`. A custom role takes a
   privilege such as `FIND@<database>.<collection>`.
-- MongoDB engineers wrote in 2022 that an M0 cluster returns no privileges in the
-  `connectionStatus` response (Compass PR 2959). Issue A01 checks this on a real cluster.
+- Observed on 2026-09-21 on a real Atlas M0 cluster (issue #1): `connectionStatus` with
+  `showPrivileges: true` returns the full privilege list for a user with the custom role of
+  section 4.4: one resource, the one collection, the one action `find`. A statement of 2022
+  (Compass PR 2959) said that M0 returns no privileges; it is out of date. `listCollections`
+  with `authorizedCollections: true, nameOnly: true` returns an empty list when the collection
+  does not exist. An authorization failure on Atlas has the code 8000 (`AtlasError`) with the
+  text "user is not allowed to do action [...]".
 - An ObjectId is not monotonic across processes. The time part has a resolution of 1 second,
   and the clock of the client sets it.
 - Measured on `mongo:8.0`: one event costs 185 bytes with its two indexes. 200 000 events use
@@ -213,13 +218,15 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   A timeout, a socket error, or a DNS error gives `UNREACHABLE`, shown after 2 failed cycles
   in sequence; the first failed cycle keeps the old status. Each other error gives `ERROR`.
 - **D9. Privilege check.** At the first poll and each 24 hours. Check 1: `listCollections`
-  with `authorizedCollections: true, nameOnly: true` must return exactly the configured
-  collection. Check 2: `connectionStatus` with `showPrivileges: true`, compared with an
-  allow-list (resource = the one collection, action = `find`). A failed check gives
-  `OVERPRIVILEGED` and stops the poll of that app. When the privilege list is empty (reported for
-  M0 in section 2.4), check 1 alone decides; a write action on the one collection is then not
-  visible, and section 8 lists this risk. While the status is `OVERPRIVILEGED`, each cycle
-  runs the checks again before a read, thus a corrected role ends the stop.
+  with `authorizedCollections: true, nameOnly: true`. An empty list passes, because the
+  collection does not exist before the first event of an app. A list that holds a name other
+  than the configured collection fails. Check 2, the main check: `connectionStatus` with
+  `showPrivileges: true`, compared with an allow-list (resource = the one collection, action =
+  `find`). Section 2.4 shows that M0 returns this list. A failed check gives `OVERPRIVILEGED`
+  and stops the poll of that app. When the privilege list is absent or empty, check 1 alone
+  decides; a write action on the one collection is then not visible, and section 8 lists this
+  risk. While the status is `OVERPRIVILEGED`, each cycle runs the checks again before a read,
+  thus a corrected role ends the stop.
 - **D10. MongoDB client.** One client for each app, created at the first poll cycle, not at
   the start of the monitor. The monitor keeps it for the next cycles and closes it after a
   PATCH of the connection string or a delete of the app. `maxPoolSize=2`, `serverSelectionTimeoutMS=10000`, `maxIdleTimeMS=120000`,
