@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -179,5 +180,89 @@ class IngestSettingsTest {
         IngestSettings settings = IngestSettings.fromEnvironment();
 
         assertNull(settings.pathPatternMatcher());
+    }
+
+    // The tests below cover the two daily anonymous caps of design
+    // decision D43 and issue #117.
+
+    @Test
+    void theOneArgumentConstructorGivesTheDefaultDailyCaps() {
+        IngestSettings settings = new IngestSettings(true);
+
+        assertEquals(20_000, settings.anonMaxEventsPerDay());
+        assertEquals(2_000, settings.anonEventsPerKeyPerDay());
+    }
+
+    @Test
+    void theTwoArgumentConstructorGivesTheDefaultDailyCaps() {
+        IngestSettings settings = new IngestSettings(true, null);
+
+        assertEquals(20_000, settings.anonMaxEventsPerDay());
+        assertEquals(2_000, settings.anonEventsPerKeyPerDay());
+    }
+
+    @Test
+    void theFourArgumentConstructorHoldsEachDailyCap() {
+        IngestSettings settings = new IngestSettings(true, null, 500, 50);
+
+        assertEquals(500, settings.anonMaxEventsPerDay());
+        assertEquals(50, settings.anonEventsPerKeyPerDay());
+    }
+
+    @Test
+    void positiveWholeNumberFromValueGivesTheDefaultForANullValue() {
+        assertEquals(20_000,
+                IngestSettings.positiveWholeNumberFromValue(null, "OCTOMETER_MAX_ANON_EVENTS_PER_DAY", 20_000));
+    }
+
+    @Test
+    void positiveWholeNumberFromValueGivesItsOwnValueForAPositiveWholeNumber() {
+        assertEquals(500,
+                IngestSettings.positiveWholeNumberFromValue("500", "OCTOMETER_MAX_ANON_EVENTS_PER_DAY", 20_000));
+    }
+
+    @Test
+    void positiveWholeNumberFromValueTrimsALeadingOrATrailingSpace() {
+        assertEquals(500,
+                IngestSettings.positiveWholeNumberFromValue(" 500 ", "OCTOMETER_MAX_ANON_EVENTS_PER_DAY", 20_000));
+    }
+
+    @Test
+    void positiveWholeNumberFromValueStopsTheAppStartForAZeroValueWithNoRepeatOfTheValue() {
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> IngestSettings.positiveWholeNumberFromValue("0", "OCTOMETER_MAX_ANON_EVENTS_PER_DAY", 20_000));
+
+        assertTrue(exception.getMessage().contains("OCTOMETER_MAX_ANON_EVENTS_PER_DAY"));
+        // Security review M6: a check for "0" in quotation marks missed a
+        // message that adds the raw value with no quotation marks. This
+        // check now reads the digit itself, with no quotation marks.
+        assertFalse(exception.getMessage().contains("0"));
+    }
+
+    @Test
+    void positiveWholeNumberFromValueStopsTheAppStartForANegativeValue() {
+        assertThrows(IllegalStateException.class,
+                () -> IngestSettings.positiveWholeNumberFromValue("-5", "OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY",
+                        2_000));
+    }
+
+    @Test
+    void positiveWholeNumberFromValueStopsTheAppStartForATextValue() {
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> IngestSettings.positiveWholeNumberFromValue("abc", "OCTOMETER_MAX_ANON_EVENTS_PER_DAY",
+                        20_000));
+
+        assertFalse(exception.getMessage().contains("abc"));
+    }
+
+    @Test
+    void fromEnvironmentGivesTheDefaultDailyCapsWithNoEnvironmentVariable() {
+        // The process environment of the test run holds no
+        // OCTOMETER_MAX_ANON_EVENTS_PER_DAY entry and no
+        // OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY entry.
+        IngestSettings settings = IngestSettings.fromEnvironment();
+
+        assertEquals(20_000, settings.anonMaxEventsPerDay());
+        assertEquals(2_000, settings.anonEventsPerKeyPerDay());
     }
 }

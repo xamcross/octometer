@@ -1,6 +1,7 @@
 package octometer.monitor
 
 import io.ktor.client.request.get
+import io.ktor.client.request.head
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -69,5 +70,18 @@ class HealthRouteTest {
 
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals(7, body["refreshSeconds"]!!.jsonPrimitive.int)
+    }
+
+    // Correction round 1 of issue #38 (MINOR 2, security review): D12
+    // names HEAD a safe method, the same as GET. AutoHeadResponse builds
+    // the HEAD answer from the GET route.
+    @Test
+    fun `HEAD on the health route answers 200 with no body`() = testApplication {
+        application { module(prodConfig()) }
+
+        val response = client.head("/api/health") { allowedHost() }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("", response.bodyAsText())
     }
 }

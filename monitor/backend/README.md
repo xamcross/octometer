@@ -25,6 +25,12 @@ success and on a failure alike.
 `pollIntervalSeconds` takes a whole number of 1 or more. A tick of the loop is 1 second
 (the floor), so a value of 1 polls the app at every tick.
 
+## The release zip (issue #38)
+
+Plain `assemble` and `build` skip the distribution zip, so the JVM job of CI stays free of
+Node. Run `./gradlew :monitor:backend:distZip` to build the zip, with the Angular app of
+`monitor/frontend` inside it.
+
 ## The daily backup (issue #55)
 
 The monitor writes one backup file each day, and one backup file before a
