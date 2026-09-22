@@ -231,10 +231,10 @@ class MongoEventLogStoreDeleteErrorTest {
     }
 
     /**
-     * Proves the other side of the same fix: a throw before the user
-     * delete of a pass never removes the anonymous events that the
-     * anonymous delete of the same pass already removed, and a second,
-     * separate call finishes the user delete that the throw stopped.
+     * Proves the other side of the same fix. A throw before the user
+     * delete of a pass never removes the anonymous events of that
+     * pass. A second, separate call then finishes the user delete
+     * that the throw stopped.
      */
     @Test
     void aThrowInTheUserDeleteLeavesTheAnonymousDeleteInPlaceForASecondCall() {

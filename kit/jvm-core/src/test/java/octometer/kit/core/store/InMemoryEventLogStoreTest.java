@@ -1,5 +1,6 @@
 package octometer.kit.core.store;
 
+import octometer.kit.core.ingest.CapturingLoggerFinder;
 import octometer.kit.core.ingest.IngestEvent;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -7,20 +8,16 @@ import org.junit.jupiter.api.Timeout;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Handler;
-import java.util.logging.Level;
-import java.util.logging.LogRecord;
-import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -203,42 +200,29 @@ class InMemoryEventLogStoreTest {
      * Confirms MAJOR 1 of the privacy review of pull request #157
      * (design decision D15): {@link InMemoryEventLogStore#deleteByUserId}
      * puts no user id and no session id into a log line.
+     *
+     * <p>A test-only service file of this module names {@link
+     * CapturingLoggerFinder} as the {@link System.LoggerFinder}. Every
+     * {@link System#getLogger(String)} call of this JVM then returns
+     * its logger, and no message reaches {@code java.util.logging}.
+     * This test reads {@link CapturingLoggerFinder#messages()}. It
+     * also checks the finder in place first. A wrong capture point
+     * can then never give a silent pass again (MAJOR 1 of the second
+     * privacy review of pull request #157).
      */
     @Test
     void deleteByUserIdLogsNoUserIdAndNoSessionId() {
+        assertSame(CapturingLoggerFinder.class, System.LoggerFinder.getLoggerFinder().getClass(),
+                "The test module must register CapturingLoggerFinder as the System.LoggerFinder.");
         InMemoryEventLogStore store = new InMemoryEventLogStore();
         String sentinelUserId = "sentinel-user-98f3c1";
         String sentinelSessionId = "sentinel-session-71ae2b";
         store.append(new IngestEvent(sentinelSessionId, "checkout.save", FIXED_INSTANT), sentinelUserId);
+        CapturingLoggerFinder.clear();
 
-        Logger rootLogger = Logger.getLogger("");
-        List<String> capturedMessages = new CopyOnWriteArrayList<>();
-        Handler handler = new Handler() {
-            @Override
-            public void publish(LogRecord record) {
-                capturedMessages.add(String.valueOf(record.getMessage()));
-            }
+        store.deleteByUserId(sentinelUserId);
 
-            @Override
-            public void flush() {
-            }
-
-            @Override
-            public void close() {
-            }
-        };
-        handler.setLevel(Level.ALL);
-        Level originalLevel = rootLogger.getLevel();
-        rootLogger.setLevel(Level.ALL);
-        rootLogger.addHandler(handler);
-        try {
-            store.deleteByUserId(sentinelUserId);
-        } finally {
-            rootLogger.removeHandler(handler);
-            rootLogger.setLevel(originalLevel);
-        }
-
-        for (String message : capturedMessages) {
+        for (String message : CapturingLoggerFinder.messages()) {
             assertFalse(message.contains(sentinelUserId), "A log line must not hold the user id.");
             assertFalse(message.contains(sentinelSessionId), "A log line must not hold the session id.");
         }

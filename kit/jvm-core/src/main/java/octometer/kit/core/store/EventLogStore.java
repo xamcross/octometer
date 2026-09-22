@@ -59,10 +59,14 @@ public interface EventLogStore {
      * correction round 1). An event of a second user id in the same
      * session stays.
      *
-     * <p>An implementation runs these steps in order: (a) it reads the
-     * session ids of the given user id; (b) it deletes each anonymous
-     * event of those sessions; (c) it deletes each event with the given
-     * user id of those sessions; (d) it reads the session ids again.
+     * <p>An implementation runs these steps in order:
+     * <ul>
+     * <li>Step (a): it reads the session ids of the given user id.</li>
+     * <li>Step (b): it deletes each anonymous event of those sessions.</li>
+     * <li>Step (c): it deletes each event with the given user id of
+     * those sessions.</li>
+     * <li>Step (d): it reads the session ids again.</li>
+     * </ul>
      * When a new session id appears at step (d), the implementation
      * repeats steps (b) to (d), up to 3 passes in total. The anonymous
      * delete of a pass always runs before the user delete of the same
@@ -70,10 +74,9 @@ public interface EventLogStore {
      *
      * <p>This order protects the anonymous events. A user event is the
      * only link from a session id to the given user id. A pass never
-     * deletes that link before it deletes the anonymous events that the
-     * link finds. A failed delete, or a new session of this user that
-     * starts during the call, can therefore never strand an anonymous
-     * event beyond the reach of a retry.
+     * deletes that link before it deletes the anonymous events. A
+     * failed delete, or a new session that starts during the call, can
+     * therefore never strand an anonymous event beyond a retry's reach.
      *
      * <p>A MongoDB store must not run these steps as one transaction;
      * its constructor takes only a {@code MongoDatabase}, with no client

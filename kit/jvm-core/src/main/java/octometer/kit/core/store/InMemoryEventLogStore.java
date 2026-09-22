@@ -37,14 +37,21 @@ public final class InMemoryEventLogStore implements EventLogStore {
     /**
      * A hook for a test, run right after step (a) of {@link
      * #deleteByUserId} and before step (b). The default body does
-     * nothing. {@link #setAfterFirstSessionReadHookForTest} replaces it.
+     * nothing. {@link #setAfterFirstSessionReadHookForTest} replaces
+     * it. This field stays in the production class, not in a test
+     * subclass. The class is {@code final}. One lock must guard the
+     * whole body of {@link #deleteByUserId}. A subclass cannot add a
+     * step inside that lock. MINOR 7 of the second privacy review of
+     * pull request #157 raises this point.
      */
     private Runnable afterFirstSessionReadHook = () -> { };
 
     /**
      * A hook for a test, run right before step (c) of one pass of
      * {@link #deleteByUserId}. The default body does nothing. {@link
-     * #setBeforeUserEventsRemovedHookForTest} replaces it.
+     * #setBeforeUserEventsRemovedHookForTest} replaces it. See the
+     * Javadoc of {@link #afterFirstSessionReadHook} for the reason
+     * that this field stays in the production class.
      */
     private IntConsumer beforeUserEventsRemovedHook = pass -> { };
 
@@ -113,6 +120,9 @@ public final class InMemoryEventLogStore implements EventLogStore {
      * #deleteByUserId}. A test uses this hook to insert a new session's
      * events between the session read and the two deletes, and to prove
      * that the pass loop finds the new session on a later pass.
+     * Production code must never call this method. Each app builds
+     * its store with the no-argument constructor. The default no-op
+     * hook then stays in place.
      */
     void setAfterFirstSessionReadHookForTest(Runnable hook) {
         this.afterFirstSessionReadHook = Objects.requireNonNull(hook);
@@ -123,7 +133,9 @@ public final class InMemoryEventLogStore implements EventLogStore {
      * #deleteByUserId}. A test uses this hook to throw once, and to
      * prove that the anonymous events of step (b) stay removed, and
      * that a second call finishes the user delete that the throw
-     * stopped.
+     * stopped. Production code must never call this method. Each app
+     * builds its store with the no-argument constructor. The default
+     * no-op hook then stays in place.
      */
     void setBeforeUserEventsRemovedHookForTest(IntConsumer hook) {
         this.beforeUserEventsRemovedHook = Objects.requireNonNull(hook);

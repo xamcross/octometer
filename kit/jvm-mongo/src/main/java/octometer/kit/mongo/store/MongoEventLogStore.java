@@ -77,16 +77,16 @@ import org.bson.conversions.Bson;
  * sessions, then deletes each event of the given user id of those
  * sessions. It reads the session ids again, and it repeats the two
  * deletes for a new session id, up to 3 passes in total. The anonymous
- * delete of a pass always runs before the user delete of the same pass:
- * a user event is the only link from a session id to the user id, so a
- * pass never deletes that link before it deletes the anonymous events
- * that the link finds. Each command of a pass is a separate MongoDB
- * command, not one transaction; the class comment above states why this
- * store opens no transaction. The Javadoc of {@link
- * EventLogStore#deleteByUserId} states the pass loop and the retry
- * rule in full. A session id list of more than 1 000 entries goes to
- * {@code deleteMany} in batches of 1 000, to keep each command well
- * under the 16 MB command limit of the server.
+ * delete of a pass always runs before the user delete of the same
+ * pass. A user event is the only link from a session id to the user
+ * id. So a pass never deletes that link before it deletes the
+ * anonymous events that the link finds. Each command of a pass is a
+ * separate MongoDB command, not one transaction; the class comment
+ * above states why this store opens no transaction. The Javadoc of
+ * {@link EventLogStore#deleteByUserId} states the pass loop and the
+ * retry rule in full. A session id list of more than 1 000 entries
+ * goes to {@code deleteMany} in batches of 1 000, to keep each command
+ * well under the 16 MB command limit of the server.
  *
  * <p>Each {@code deleteMany} result passes through {@link
  * #deletedCount}, which reads {@link DeleteResult#getDeletedCount()}

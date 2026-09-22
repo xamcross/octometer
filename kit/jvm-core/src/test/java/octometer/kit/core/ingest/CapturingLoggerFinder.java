@@ -10,7 +10,9 @@ import java.util.ResourceBundle;
  * `META-INF/services` names this class, so the JVM gives its
  * {@link Logger} for each call of {@link System#getLogger(String)}. A
  * test then reads {@link #messages()} with no new dependency: {@code
- * System.Logger} is a part of `java.base`.
+ * System.Logger} is a part of `java.base`. {@link #messages()} and
+ * {@link #clear()} are public, so a test of another package of this
+ * module reads them too, for example {@code octometer.kit.core.store}.
  */
 public final class CapturingLoggerFinder extends System.LoggerFinder {
 
@@ -20,12 +22,12 @@ public final class CapturingLoggerFinder extends System.LoggerFinder {
      * Returns each message that a test recorded since the last call of
      * {@link #clear()}, oldest first.
      */
-    static Deque<String> messages() {
+    public static Deque<String> messages() {
         return MESSAGES;
     }
 
     /** Empties the recorded messages, before one test runs. */
-    static void clear() {
+    public static void clear() {
         MESSAGES.clear();
     }
 
