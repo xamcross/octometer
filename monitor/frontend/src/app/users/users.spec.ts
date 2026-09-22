@@ -798,7 +798,9 @@ describe('Users', () => {
       expect(staleRequest.cancelled).toBe(true);
 
       const freshRequest = httpMock.expectOne('/api/apps/7/users?page=2');
-      freshRequest.flush(buildPage({ page: 2, pageCount: 5, rows: [buildRow({ userId: 'page-2-user' })] }));
+      freshRequest.flush(
+        buildPage({ page: 2, pageCount: 5, rows: [buildRow({ userId: 'page-2-user' })] }),
+      );
       fixture.detectChanges();
 
       expect(root().textContent).toContain('page-2-user');
