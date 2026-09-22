@@ -38,16 +38,16 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * The end-to-end test of issue #21: one HTTP click travels through the
- * ingest route, into MongoDB, through one poll cycle of the real monitor,
- * and into the level 1 totals of `GET /api/apps`. It also proves the
- * criterion of decision 5: a PATCH of the connection string moves the
- * next poll cycle to a second MongoDB deployment.
+ * The end-to-end test of issue #21. One HTTP click travels through the
+ * ingest route, into MongoDB, through one poll cycle of the real
+ * monitor, and into the level 1 totals of `GET /api/apps`. It also
+ * proves the criterion of decision 5: a PATCH of the connection string
+ * moves the next poll cycle to a second MongoDB deployment.
  *
- * The class needs Docker; a machine with no Docker skips it
+ * The class needs Docker. A machine with no Docker skips it
  * (`@Testcontainers(disabledWithoutDocker = true)`). The job "JVM
- * modules" on Ubuntu always has Docker and runs it; the job "Monitor
- * backend on Windows" has none, and the CI guard of
+ * modules" on Ubuntu always has Docker and runs it. The job "Monitor
+ * backend on Windows" has none. The CI guard of
  * `monitor/backend/build.gradle.kts` fails the build on a skip there,
  * keyed on `OCTOMETER_REQUIRE_DOCKER` (issue #16).
  *
@@ -63,35 +63,43 @@ import kotlin.test.assertTrue
  *
  * **The counted click.** `MongoAppReader` and `EventStore` store every
  * element with the SQLite column default `kind = 0` (issue #17 and
- * earlier; no code of this module sets `kind = 1` for the element
- * `octo:session-start` yet). The level 1 clicks statement
- * (`CLICKS_SQL` of `AppTotalsRoute.kt`) filters on `kind = 0`, so one
- * `octo:session-start` entry of each session currently counts toward
- * the clicks total too. `EXPECTED_FIRST_CLICKS` and
- * `EXPECTED_FINAL_CLICKS` add the one session-start entry of each
- * session to the real click count, so the assertions of this test
- * match the real behavior of the store today. A later issue that adds
- * the `kind` mark of the session-start element changes this total; fix
- * the two constants then.
+ * earlier). No code of this module sets `kind = 1` for the element
+ * `octo:session-start` yet; issue #110 owns that gap. The level 1
+ * clicks statement (`CLICKS_SQL` of `AppTotalsRoute.kt`) filters on
+ * `kind = 0`. One `octo:session-start` entry of each session therefore
+ * counts toward the clicks total too, today. `EXPECTED_FIRST_CLICKS`
+ * and `EXPECTED_FINAL_CLICKS` add that one entry of each session to the
+ * real click count. The assertions then match the real behavior of the
+ * store today. Issue #110 changes this total when it adds the `kind`
+ * mark of the session-start element; fix the two constants then.
  *
  * **The PATCH criterion.** `MongoAppReader` kept its MongoDB client of
- * one app id for ever, keyed on the app id alone, with no check of the
- * connection string (design decision D10 asks for a close "after a
- * PATCH of the connection string"). This test found that gap: a PATCH
- * had no effect on the next poll cycle. `MongoAppReader.clientFor` now
- * compares the connection string on each cycle, by its SHA-256 hex only
- * (design decision D11 forbids a connection string in a field), and it
- * closes the old client and opens a fresh one when the hash changed.
- * This class proved the gap once (a manual, temporary revert of that
- * change, with the assertion of the PATCH criterion failing with a
- * clear message), then proved the fix (the same assertion passing),
- * before this file reached the pull request. `MongoAppReaderUnitTest`
- * holds the matching Docker-free unit tests of the cache itself.
+ * one app id for ever. It keyed the client on the app id alone. It
+ * checked no connection string. Design decision D10 asks for a close
+ * "after a PATCH of the connection string". This test found that gap:
+ * a PATCH had no effect on the next poll cycle.
+ *
+ * `MongoAppReader.clientFor` now compares the connection string on
+ * each cycle, by its SHA-256 hex only (design decision D11 forbids a
+ * connection string in a field). It closes the old client and opens a
+ * fresh one when the hash changed. This class proved the gap once,
+ * with a manual, temporary revert of that change. The assertion of
+ * the PATCH criterion failed with a clear message. It then proved the
+ * fix: the same assertion passed. Both checks ran before this file
+ * reached the pull request. `MongoAppReaderUnitTest` holds the
+ * matching Docker-free unit tests of the cache itself.
  */
 @Testcontainers(disabledWithoutDocker = true)
 class EndToEndContainerTest {
 
     companion object {
+        // Kotlin review MINOR 4 of pull request #185: the class time
+        // budget must cover the container start too. A companion
+        // object field initializes at class load, before any JUnit 5
+        // extension callback, and before the @Container fields below
+        // build or start their containers.
+        private val classLoadNanos = System.nanoTime()
+
         @Container
         @JvmStatic
         private val FIRST_SOURCE = MongoDBContainer(DockerImageName.parse("mongo:8.0"))
@@ -112,15 +120,15 @@ class EndToEndContainerTest {
         private const val CLICKS_PER_SESSION = 3
         private const val SENT_CLICKS = SENT_SESSIONS * CLICKS_PER_SESSION
 
-        // The one session-start entry of each session counts as a click
-        // today (see the class comment). EXPECTED_FIRST_CLICKS is the
-        // total that GET /api/apps must show after the first source
-        // settles.
+        // The one session-start entry of each session counts as a
+        // click today (see the class comment, and issue #110).
+        // EXPECTED_FIRST_CLICKS is the total that GET /api/apps must
+        // show after the first source settles.
         private const val EXPECTED_FIRST_CLICKS = SENT_CLICKS + SENT_SESSIONS
 
         // The batch of the second source (decision 5, the PATCH
-        // criterion): two new user ids, two new sessions, three real
-        // clicks in each session.
+        // criterion). It holds two new user ids, two new sessions,
+        // and three real clicks in each session.
         private const val SECOND_SOURCE_USERS = 2
         private const val SECOND_SOURCE_SESSIONS = 2
         private const val SECOND_SOURCE_CLICKS_PER_SESSION = 3
@@ -151,7 +159,11 @@ class EndToEndContainerTest {
 
     private val root = Files.createTempDirectory("octometer-e2e-container-test-").toFile().also { registerTempRoot(it) }
     private val httpClient: HttpClient = HttpClient.newHttpClient()
-    private val startNanos = System.nanoTime()
+
+    // classLoadNanos, not a fresh System.nanoTime() here, so the class
+    // time budget below also covers the start of the two containers
+    // (Kotlin review MINOR 4 of pull request #185).
+    private val startNanos = classLoadNanos
 
     @AfterTest
     fun tearDown() {
@@ -168,11 +180,18 @@ class EndToEndContainerTest {
             val firstUserIds = (1..SENT_USERS).map { index -> "e2e-user-$index-${UUID.randomUUID()}" }
             val secondUserIds =
                 (1..SECOND_SOURCE_USERS).map { index -> "e2e-second-user-$index-${UUID.randomUUID()}" }
+            // Security review MAJOR 2 of pull request #185: the host
+            // and the port of each container join the marker list too,
+            // not only the full connection string. A log line can leak
+            // just the host and the port, in the plain "host:port" form
+            // of a driver address, with no "mongodb://" text beside it.
             val sensitiveMarkers = mutableListOf<String>().apply {
                 addAll(firstUserIds)
                 addAll(secondUserIds)
                 add(FIRST_SOURCE.connectionString)
                 add(SECOND_SOURCE.connectionString)
+                add("${FIRST_SOURCE.host}:${FIRST_SOURCE.getMappedPort(27017)}")
+                add("${SECOND_SOURCE.host}:${SECOND_SOURCE.getMappedPort(27017)}")
             }
 
             val firstMongoClient = MongoClients.create(FIRST_SOURCE.connectionString)
@@ -248,6 +267,27 @@ class EndToEndContainerTest {
 
                     sensitiveMarkers.addAll(firstSessionIds)
                     sensitiveMarkers.addAll(secondSessionIds)
+
+                    // Security review MAJOR 2: the marker list also
+                    // needs a user name and a password. This test's
+                    // real containers hold neither, so this probe
+                    // connects with a marker user name and password of
+                    // its own, against the first container. The
+                    // container holds no such user, so the driver
+                    // fails to authenticate; the same pattern already
+                    // proves this in MongoAppReaderContainerTest.kt.
+                    val markerUser = "octoe2emarkeruser6f1c"
+                    val markerPassword = "octoe2emarkerpass8d3a"
+                    val authProbeUri = "mongodb://$markerUser:$markerPassword@" +
+                        "${FIRST_SOURCE.host}:${FIRST_SOURCE.getMappedPort(27017)}/" +
+                        "$EXAMPLE_DATABASE?authSource=admin&serverSelectionTimeoutMS=3000"
+                    kotlin.runCatching {
+                        MongoClients.create(authProbeUri).use { probeClient ->
+                            probeClient.listDatabaseNames().first()
+                        }
+                    }
+                    sensitiveMarkers.add(markerUser)
+                    sensitiveMarkers.add(markerPassword)
                 }
 
                 assertNoSensitiveText(logEvents, sensitiveMarkers)
@@ -269,10 +309,10 @@ class EndToEndContainerTest {
 
     /**
      * Starts one small Ktor server with the ingest route of
-     * `kit/jvm-ktor`, the same route and the same [MongoEventLogStore]
-     * as the demo app, backed by [database]. The user id resolver reads
-     * the cookie [USER_COOKIE_NAME], the same rule as
-     * `octometer.demo.demoUserId`, so a request with no cookie stores
+     * `kit/jvm-ktor`, backed by [database]. It uses the same route and
+     * the same [MongoEventLogStore] as the demo app. The user id
+     * resolver reads the cookie [USER_COOKIE_NAME], the same rule as
+     * `octometer.demo.demoUserId`. A request with no cookie then stores
      * nothing (design decision D19, off by default).
      */
     private fun startIngestServer(database: MongoDatabase, port: Int) =
@@ -288,11 +328,11 @@ class EndToEndContainerTest {
 
     /**
      * Sends one session-start request, then one click batch, for each
-     * session of each user id of [userIds]. [sessionsPerExtraUser] gives
-     * the session count of each user id, in order, so one user id can
-     * open more than one session ("several user ids and sessions" of
-     * step 3 of the issue). It returns each sent session id, for the
-     * log check at the end of the test.
+     * session of each user id of [userIds]. [sessionsPerExtraUser]
+     * gives the session count of each user id, in order. One user id
+     * can then open more than one session ("several user ids and
+     * sessions" of step 3 of the issue). This function returns each
+     * sent session id, for the log check at the end of the test.
      */
     private fun sendSessionBatches(
         ingestPort: Int,
@@ -387,8 +427,8 @@ class EndToEndContainerTest {
      * [WAIT_BOUND_MILLIS] (decision 4 of the brief: a condition with a
      * bound, never a fixed sleep). It returns the first row that
      * [holds] accepts. The failure message names [description] and the
-     * last seen row; [AppRow] holds no user id, no session id, and no
-     * connection string, so this message stays safe to print.
+     * last seen row. [AppRow] holds no user id, no session id, and no
+     * connection string. This message therefore stays safe to print.
      */
     private suspend fun waitForRow(
         monitorPort: Int,
@@ -410,15 +450,34 @@ class EndToEndContainerTest {
         )
     }
 
+    /**
+     * Security review MAJOR 2 of pull request #185: the earlier form
+     * of this check read [ILoggingEvent.formattedMessage] only. A
+     * marker inside an attached exception passed unseen, because
+     * Logback prints a stack trace with the message, not inside it.
+     * This check now also reads [ILoggingEvent.throwableProxy] and
+     * each `cause`, for the class name and the message of each one.
+     */
     private fun assertNoSensitiveText(logEvents: List<ILoggingEvent>, markers: List<String>) {
-        assertTrue(logEvents.isNotEmpty(), "The flow must write at least one log line, or this check proves nothing.")
+        assertTrue(logEvents.isNotEmpty(), "The flow must write one log line or more, or this check proves nothing.")
         for (event in logEvents) {
-            for (marker in markers) {
-                assertFalse(
-                    event.formattedMessage.contains(marker),
-                    "A log line must hold no connection string, user id, or session id: ${event.loggerName}",
-                )
+            assertNoMarkerInText(event.loggerName, event.formattedMessage, markers)
+            var throwableProxy = event.throwableProxy
+            while (throwableProxy != null) {
+                assertNoMarkerInText(event.loggerName, throwableProxy.className, markers)
+                assertNoMarkerInText(event.loggerName, throwableProxy.message ?: "", markers)
+                throwableProxy = throwableProxy.cause
             }
+        }
+    }
+
+    private fun assertNoMarkerInText(loggerName: String, text: String, markers: List<String>) {
+        for (marker in markers) {
+            assertFalse(
+                text.contains(marker),
+                "A log line, or its exception, must hold no connection string, user id, session id, " +
+                    "user name, password, host, or port: $loggerName",
+            )
         }
     }
 

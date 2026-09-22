@@ -2,9 +2,14 @@ package octometer.monitor.mongo
 
 import ch.qos.logback.classic.Level
 import com.mongodb.kotlin.client.coroutine.MongoClient
+import com.mongodb.reactivestreams.client.MongoClient as ReactiveMongoClient
+import com.mongodb.reactivestreams.client.MongoClients as ReactiveMongoClients
 import java.io.File
 import java.nio.file.Files
+import java.security.MessageDigest
+import java.util.Collections
 import java.util.Date
+import java.util.IdentityHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -15,13 +20,11 @@ import octometer.monitor.store.EventStore
 import octometer.monitor.store.SqliteDatabase
 import org.bson.Document
 import org.bson.types.ObjectId
-import org.mockito.Mockito.mock
-import org.mockito.Mockito.never
-import org.mockito.Mockito.verify
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -420,11 +423,11 @@ class MongoAppReaderUnitTest {
     fun `a raw slash in the SRV password gives the fixed sentence, with no marker in the message, the cause chain, or a log line`() = runBlocking {
         val markerUser = "octomarkeruserb3f1"
         val markerSecondValue = "octomarkerpassword9d2e"
-        // The unescaped "/" of the password breaks the driver's own parse
-        // of the URI (BLOCKER 1 of the security review of pull request
-        // #160). ConnectionStringValidator.check lets this text through,
-        // because a raw "/" inside the user-info part is a gap of that
-        // allow-list check, not of this test.
+        // The unescaped "/" of the password breaks the driver's own
+        // parse of the URI (BLOCKER 1 of the security review of pull
+        // request #160). ConnectionStringValidator.check lets this
+        // text through. A raw "/" inside the user-info part is a gap
+        // of that allow-list check, not of this test.
         val connectionString = "mongodb+srv://$markerUser:$markerSecondValue/withslash@cluster0.example.mongodb.net/exampledb"
         val target = PollTarget(appId, "db", "octometer_events", cursor = null)
 
@@ -464,21 +467,19 @@ class MongoAppReaderUnitTest {
     //
     // These tests call clientFor directly, marked internal for this
     // purpose (the same rule as runCycle, idFilter, and boundObjectId
-    // above). pollOnce also calls the hello command and the find
-    // command of a real MongoDatabase; a Mockito double of that chain
-    // would prove nothing beyond what clientFor already proves on its
-    // own, at the cost of a large, fragile stub of the driver. Mockito
-    // mocks MongoClient directly: it is a final class, but Mockito 5
-    // mocks a final class with no extra mock maker file (its inline
-    // mock maker is the default since 5.0.0).
+    // above). [StubMongoClient] replaces the Mockito double of correction
+    // round 1 (Kotlin review MINOR 8 of pull request #185). MongoClient
+    // is final, but its public constructor takes the reactive-streams
+    // MongoClient, an interface. Kotlin delegation (`by`) gives a small
+    // double with no Mockito.
 
     @Test
     fun `clientFor gives the same client back when the connection string is unchanged`() {
-        val client = mock(MongoClient::class.java)
         var factoryCalls = 0
+        val stub = StubMongoClient("mongodb://127.0.0.1:41001/exampledb")
         val cachingReader = MongoAppReader(eventStore, settleLagSeconds = 1, clientFactory = { _ ->
             factoryCalls += 1
-            client
+            stub.client
         })
 
         val first = cachingReader.clientFor(appId, "mongodb://host-a:27017/exampledb")
@@ -486,7 +487,7 @@ class MongoAppReaderUnitTest {
 
         assertEquals(1, factoryCalls, "The same connection string must build the client only one time.")
         assertTrue(first === second, "clientFor must give the kept client back, not a fresh one.")
-        verify(client, never()).close()
+        assertEquals(0, stub.closeCount, "An unchanged connection string must never close the client.")
         cachingReader.close()
     }
 
@@ -496,12 +497,12 @@ class MongoAppReaderUnitTest {
     // gives no new client (design decision D10).
     @Test
     fun `clientFor closes the old client on a changed connection string, and builds one client for each distinct string`() {
-        val firstClient = mock(MongoClient::class.java)
-        val secondClient = mock(MongoClient::class.java)
-        val builtClients = listOf(firstClient, secondClient)
+        val firstStub = StubMongoClient("mongodb://127.0.0.1:41002/exampledb")
+        val secondStub = StubMongoClient("mongodb://127.0.0.1:41003/exampledb")
+        val stubs = listOf(firstStub, secondStub)
         var factoryCalls = 0
         val cachingReader = MongoAppReader(eventStore, settleLagSeconds = 1, clientFactory = { _ ->
-            builtClients[factoryCalls].also { factoryCalls += 1 }
+            stubs[factoryCalls].client.also { factoryCalls += 1 }
         })
 
         cachingReader.clientFor(appId, "mongodb://host-a:27017/exampledb")
@@ -513,54 +514,154 @@ class MongoAppReaderUnitTest {
             factoryCalls,
             "A changed connection string must build one fresh client; the repeat of the second string must reuse it.",
         )
-        verify(firstClient).close()
-        verify(secondClient, never()).close()
+        assertEquals(1, firstStub.closeCount, "A changed connection string must close the old client.")
+        assertEquals(0, secondStub.closeCount, "A repeat of the current string must never close the current client.")
         cachingReader.close()
     }
 
-    // Design decision D11 (BLOCKER 1 of the security review of issue
-    // #16): a connection string never sits in a field. This reads every
-    // declared field of the reader, and of each cached client entry,
-    // through reflection, and it asserts that no string field holds the
-    // marker of the connection string that clientFor just built a
-    // client from.
+    // MAJOR 1, security review of pull request #185: a failed client
+    // build must leave the old, working client in place. The old form
+    // of clientFor closed the old client, then it called the factory.
+    // A failed build then left a closed client in the cache, with no
+    // fix but a restart of the monitor. This test breaks the second
+    // string on purpose, then proves the old client still works.
     @Test
-    fun `no field of the reader or of a cached client entry holds the connection string after clientFor runs`() {
-        val marker = "octomarkerconnstringc9a2"
-        val markedConnectionString = "mongodb://$marker-host:27017/exampledb?tls=true"
-        val client = mock(MongoClient::class.java)
-        val reflectingReader = MongoAppReader(eventStore, settleLagSeconds = 1, clientFactory = { client })
+    fun `a failed client build leaves the old client open, and a later working string closes it`() {
+        val firstStub = StubMongoClient("mongodb://127.0.0.1:41004/exampledb")
+        val fourthStub = StubMongoClient("mongodb://127.0.0.1:41005/exampledb")
+        var factoryCalls = 0
+        val breakingReader = MongoAppReader(eventStore, settleLagSeconds = 1, clientFactory = { _ ->
+            factoryCalls += 1
+            when (factoryCalls) {
+                1 -> firstStub.client
+                2 -> throw IllegalStateException("The second connection string always fails to build in this test.")
+                else -> fourthStub.client
+            }
+        })
+
+        val first = breakingReader.clientFor(appId, "mongodb://host-a:27017/exampledb")
+        assertFailsWith<IllegalStateException>("The second connection string must fail to build in this test.") {
+            breakingReader.clientFor(appId, "mongodb://host-b:27017/exampledb")
+        }
+
+        val third = breakingReader.clientFor(appId, "mongodb://host-a:27017/exampledb")
+        assertTrue(third === first, "The third call must reuse the first, still-open client.")
+        assertEquals(2, factoryCalls, "The failed build must add no factory call for the reused string.")
+        assertEquals(0, firstStub.closeCount, "A failed build of a different string must never close the current client.")
+
+        val fourth = breakingReader.clientFor(appId, "mongodb://host-b:27017/exampledb")
+        assertTrue(fourth === fourthStub.client, "A later working string must build a fresh client.")
+        assertEquals(1, firstStub.closeCount, "The working fourth call must close the client it replaced.")
+        breakingReader.close()
+    }
+
+    // Kotlin review MINOR 3 of pull request #185: CachedClient is no
+    // longer a data class, and it overrides toString() with fixed
+    // text. A data class would print the hash and the client text
+    // instead, for example inside a future log line of the whole map.
+    @Test
+    fun `toString of the cached client entry holds neither the hash nor the client text`() {
+        val connectionString = "mongodb://host-tostring:27017/exampledb"
+        val stub = StubMongoClient("mongodb://127.0.0.1:41006/exampledb")
+        val stringReader = MongoAppReader(eventStore, settleLagSeconds = 1, clientFactory = { stub.client })
+
+        stringReader.clientFor(appId, connectionString)
+
+        val entry = singleCachedClient(stringReader)
+        val text = entry.toString()
+        assertEquals("CachedClient", text, "The entry must print the fixed text \"CachedClient\".")
+        assertFalse(text.contains(sha256HexForTest(connectionString)), "toString() must hold no hash: $text")
+        assertFalse(text.contains(stub.client.toString()), "toString() must hold no client text: $text")
+        stringReader.close()
+    }
+
+    // Security MINOR 1 of pull request #185: the earlier reflection
+    // test read one level of the map, with a Mockito double, and
+    // marked the host only. StubMongoClient now wraps a real driver
+    // client (Kotlin review MINOR 8), so this test can walk into the
+    // client's own settings too. It marks the user name, the
+    // password, the host, and the port of the connection string.
+    //
+    // The whole connection string never sits in one field, even
+    // there: the security review's own probe found that the driver
+    // settings hold the user name, the password, and each host as
+    // separate fields, never the one text of the URI. This test
+    // therefore checks for the one combined marker text below, not
+    // for each of its four parts alone.
+    @Test
+    fun `no field of the reader, of a cached client entry, or of the client's own settings holds the connection string`() {
+        val markerUser = "octomarkeruserc9a2"
+        val markerPassword = "octomarkerpassc9a2"
+        val markerHost = "octomarkerhostc9a2.invalid"
+        val markerPort = 48213
+        val markedConnectionString = "mongodb://$markerUser:$markerPassword@$markerHost:$markerPort/exampledb"
+        val reflectingReader = MongoAppReader(
+            eventStore,
+            settleLagSeconds = 1,
+            clientFactory = { connectionString -> StubMongoClient(connectionString).client },
+        )
 
         reflectingReader.clientFor(appId, markedConnectionString)
 
-        assertNoMarkerField(reflectingReader, marker)
+        assertNoMarkerInGraph(reflectingReader, markedConnectionString)
         reflectingReader.close()
     }
 
-    private fun assertNoMarkerField(reader: MongoAppReader, marker: String) {
-        for (field in reader.javaClass.declaredFields) {
-            field.isAccessible = true
-            val value = field.get(reader)
-            assertFieldHoldsNoMarker(field.name, value, marker)
-            if (value is Map<*, *>) {
-                for (entry in value.values) {
-                    if (entry == null) continue
-                    for (entryField in entry.javaClass.declaredFields) {
-                        entryField.isAccessible = true
-                        assertFieldHoldsNoMarker(
-                            "${field.name}.${entryField.name}",
-                            entryField.get(entry),
-                            marker,
-                        )
-                    }
-                }
-            }
-        }
+    private fun singleCachedClient(reader: MongoAppReader): Any {
+        val field = reader.javaClass.getDeclaredField("clients")
+        field.isAccessible = true
+        val map = field.get(reader) as Map<*, *>
+        return map.values.single()!!
     }
 
-    private fun assertFieldHoldsNoMarker(fieldName: String, value: Any?, marker: String) {
+    private fun sha256HexForTest(text: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val hash = digest.digest(text.toByteArray(Charsets.UTF_8))
+        return hash.joinToString("") { byte -> "%02x".format(byte) }
+    }
+
+    /**
+     * Walks the whole object graph from [root], through every
+     * declared field, and fails when a `String` or `char[]` field
+     * holds [marker]. It stops at the boundary of this module and of
+     * the MongoDB driver (a package name that starts with neither
+     * `octometer.monitor.mongo` nor `com.mongodb`), so it never walks
+     * into the JVM, Netty, or SQLite. An [IdentityHashMap]-backed set
+     * guards against a cycle in the driver's own object graph.
+     */
+    private fun assertNoMarkerInGraph(root: Any, marker: String) {
+        val visited: MutableSet<Any> = Collections.newSetFromMap(IdentityHashMap())
+        walkForMarker(root, marker, visited, depth = 0)
+    }
+
+    private fun walkForMarker(value: Any?, marker: String, visited: MutableSet<Any>, depth: Int) {
+        if (value == null || depth > 24) return
         if (value is String) {
-            assertFalse(value.contains(marker), "The field $fieldName must hold no connection string.")
+            assertFalse(value.contains(marker), "A String field must hold no connection string: $value")
+            return
+        }
+        if (value is CharArray) {
+            assertFalse(String(value).contains(marker), "A char[] field must hold no connection string.")
+            return
+        }
+        if (value is Number || value is Boolean || value is Char) return
+        if (!visited.add(value)) return
+        when (value) {
+            is Map<*, *> -> value.values.forEach { walkForMarker(it, marker, visited, depth + 1) }
+            is Collection<*> -> value.forEach { walkForMarker(it, marker, visited, depth + 1) }
+            is Array<*> -> value.forEach { walkForMarker(it, marker, visited, depth + 1) }
+        }
+        val packageName = value.javaClass.`package`?.name ?: ""
+        if (!packageName.startsWith("octometer.monitor.mongo") && !packageName.startsWith("com.mongodb")) return
+        var currentClass: Class<*>? = value.javaClass
+        while (currentClass != null && currentClass != Any::class.java) {
+            for (field in currentClass.declaredFields) {
+                if (field.isSynthetic) continue
+                field.isAccessible = true
+                val fieldValue = runCatching { field.get(value) }.getOrNull()
+                walkForMarker(fieldValue, marker, visited, depth + 1)
+            }
+            currentClass = currentClass.superclass
         }
     }
 
@@ -596,6 +697,30 @@ class MongoAppReaderUnitTest {
             assertFalse(text.contains(marker), "The text must hold no marker ($marker): $text")
         }
     }
+}
+
+/**
+ * A small double of [MongoClient] (Kotlin review MINOR 8 of pull
+ * request #185, in place of Mockito). [MongoClient] is a final class,
+ * but its public constructor takes [ReactiveMongoClient], an
+ * interface. Kotlin delegation (`by`) gives a double with no Mockito.
+ * The [real] client below never opens a socket at construction; the
+ * driver connects only when a caller runs a command.
+ */
+private class StubMongoClient(connectionString: String) {
+    private val real = ReactiveMongoClients.create(connectionString)
+
+    var closeCount = 0
+        private set
+
+    val client: MongoClient = MongoClient(
+        object : ReactiveMongoClient by real {
+            override fun close() {
+                closeCount += 1
+                real.close()
+            }
+        },
+    )
 }
 
 private fun shortTimeoutClient(connectionString: String): com.mongodb.kotlin.client.coroutine.MongoClient {
