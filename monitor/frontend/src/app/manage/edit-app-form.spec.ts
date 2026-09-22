@@ -105,14 +105,14 @@ describe('EditAppForm', () => {
     const connectionString = root().querySelector<HTMLInputElement>(
       'input[id^="edit-app-connection-string-"]',
     )!;
-    connectionString.value = 'mongodb+srv://user:password@cluster0.example.invalid/exampledb';
+    connectionString.value = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
     connectionString.dispatchEvent(new Event('input'));
     root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
 
     const req = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
     expect(req.request.body).toEqual({
       name: 'traficio',
-      connectionString: 'mongodb+srv://user:password@cluster0.example.invalid/exampledb',
+      connectionString: 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net',
     });
     req.flush(null, { status: 204, statusText: 'No Content' });
   });
@@ -177,7 +177,7 @@ describe('EditAppForm', () => {
   });
 
   it('never writes the typed connection string to the console after a save', () => {
-    const secret = 'mongodb+srv://user:password@cluster0.example.invalid/exampledb';
+    const secret = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);

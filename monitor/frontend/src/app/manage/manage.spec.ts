@@ -200,7 +200,7 @@ describe('Manage', () => {
       const databaseField = root().querySelector<HTMLInputElement>('#add-app-database')!;
       nameField.value = 'traficio';
       nameField.dispatchEvent(new Event('input'));
-      connectionStringField.value = 'mongodb+srv://user:password@cluster0.example.invalid/exampledb';
+      connectionStringField.value = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
       connectionStringField.dispatchEvent(new Event('input'));
       databaseField.value = 'exampledb';
       databaseField.dispatchEvent(new Event('input'));
@@ -281,7 +281,7 @@ describe('Manage', () => {
   });
 
   it('never writes the connection string of the add form to the console, or to the URL', () => {
-    const secret = 'mongodb+srv://user:password@cluster0.example.invalid/exampledb';
+    const secret = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);

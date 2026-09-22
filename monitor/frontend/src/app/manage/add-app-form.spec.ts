@@ -48,7 +48,7 @@ describe('AddAppForm', () => {
     name.value = overrides.name ?? 'traficio';
     name.dispatchEvent(new Event('input'));
     connectionString.value =
-      overrides.connectionString ?? 'mongodb+srv://user:password@cluster0.example.invalid/exampledb';
+      overrides.connectionString ?? 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
     connectionString.dispatchEvent(new Event('input'));
     database.value = overrides.database ?? 'exampledb';
     database.dispatchEvent(new Event('input'));
@@ -97,7 +97,7 @@ describe('AddAppForm', () => {
     const req = httpMock.expectOne({ url: '/api/apps', method: 'POST' });
     expect(req.request.body).toEqual({
       name: 'traficio',
-      connectionString: 'mongodb+srv://user:password@cluster0.example.invalid/exampledb',
+      connectionString: 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net',
       database: 'exampledb',
       collection: 'octometer_events',
     });
@@ -200,7 +200,7 @@ describe('AddAppForm', () => {
   });
 
   it('never writes the connection string to the console, or to the URL, after a save', () => {
-    const secret = 'mongodb+srv://user:password@cluster0.example.invalid/exampledb';
+    const secret = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
