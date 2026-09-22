@@ -55,6 +55,13 @@ dependencies {
     testImplementation("org.mongodb:mongodb-driver-sync:$mongoDriverSyncVersion")
     testImplementation(project(":kit:jvm-mongo"))
     testImplementation(project(":kit:jvm-core"))
+    // Issue #21: the end-to-end test starts the ingest route of
+    // kit/jvm-ktor in this same process. It does not start the demo
+    // app itself. A dependency on tools:demo-app would pull its
+    // npm-based tracker build into this module's test task. The
+    // Windows CI job sets up no Node for that build. kit/jvm-ktor has
+    // no such build step.
+    testImplementation(project(":kit:jvm-ktor"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
