@@ -471,11 +471,12 @@ export function createTracker(options: TrackerOptions): Tracker {
  *
  * This function gives `undefined` in four cases. The option is missing.
  * The option is not an array. The option is an empty array. The option
- * holds one bad entry or more. Each case sends no `path` field. A bad
- * entry, and a value that is not an array, each write one console
- * warning. The warning never holds the text of a pattern.
+ * holds one bad entry or more. Each case sends no `path` field. A value
+ * that is not an array writes one console warning. A list with one bad
+ * entry or more writes exactly one console warning, and it names the
+ * index of each bad entry. No warning holds the text of a pattern.
  */
-function prepareRoutesOption(routes: TrackerOptions['routes']): readonly PreparedRoute[] | undefined {
+function prepareRoutesOption(routes: unknown): readonly PreparedRoute[] | undefined {
   if (routes === undefined) {
     return undefined;
   }
@@ -483,12 +484,15 @@ function prepareRoutesOption(routes: TrackerOptions['routes']): readonly Prepare
     console.warn('octometer: the routes option must be an array. The tracker sends no path.');
     return undefined;
   }
-  const { routes: prepared, warnings } = prepareRoutes(routes);
-  for (const warning of warnings) {
-    console.warn(warning);
-  }
-  if (warnings.length > 0) {
-    // One bad entry stops the whole list, so the match order stays fixed.
+  const { routes: prepared, invalidIndexes } = prepareRoutes(routes);
+  if (invalidIndexes.length > 0) {
+    // One warning for the whole list, not one warning for each bad entry
+    // (issue #140). One bad entry stops the whole list, so the match
+    // order stays fixed.
+    console.warn(
+      `octometer: the routes option holds an invalid entry at ${formatIndexList(invalidIndexes)}. ` +
+        'The tracker sends no path field.',
+    );
     return undefined;
   }
   if (prepared.length === 0) {
@@ -496,6 +500,23 @@ function prepareRoutesOption(routes: TrackerOptions['routes']): readonly Prepare
     return undefined;
   }
   return prepared;
+}
+
+/**
+ * Builds the index list text of the routes warning, for example
+ * `index 0`, `index 0 and index 2`, or `index 0, index 2, and index 4`.
+ * The text never holds a pattern, only a plain index number.
+ */
+function formatIndexList(indexes: readonly number[]): string {
+  const labels = indexes.map((index) => `index ${index}`);
+  if (labels.length === 1) {
+    return labels[0] as string;
+  }
+  if (labels.length === 2) {
+    return `${labels[0]} and ${labels[1]}`;
+  }
+  const lastLabel = labels[labels.length - 1];
+  return `${labels.slice(0, -1).join(', ')}, and ${lastLabel}`;
 }
 
 /**
