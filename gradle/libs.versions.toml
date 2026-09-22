@@ -14,6 +14,12 @@ mongodb-driver-sync = "5.0.1"
 # maven-metadata.xml). kit/jvm-mongo runs its test suite against this
 # version too (issue #11, step 6).
 mongodb-sync-newest = "5.12.0"
+# The monitor reader of design decision D1 and D22 (issue #16). The same
+# version as mongodb-driver-sync above, so both driver artifacts of the
+# monorepo stay in step. Confirmed on Maven Central on 2026-09-22
+# (repo1.maven.org/maven2/org/mongodb/mongodb-driver-kotlin-coroutine/):
+# version 5.0.1 exists for this artifact too.
+mongodb-driver-kotlin-coroutine = "5.0.1"
 sqlite-jdbc = "3.53.4.0"
 # Test-only versions of kit/jvm-mongo. Each one is the current release on
 # Maven Central, confirmed on 2026-09-21.
@@ -34,6 +40,7 @@ kotlin-test-junit5 = { module = "org.jetbrains.kotlin:kotlin-test-junit5", versi
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 typesafe-config = { module = "com.typesafe:config", version.ref = "typesafe-config" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
+mongodb-driver-kotlin-coroutine = { module = "org.mongodb:mongodb-driver-kotlin-coroutine", version.ref = "mongodb-driver-kotlin-coroutine" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

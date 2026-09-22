@@ -12,6 +12,13 @@ kotlin {
     jvmToolchain(21)
 }
 
+// The Testcontainers version of the container test of issue #16, the same
+// version that kit/jvm-mongo confirms on Maven Central (see
+// gradle/libs.versions.toml). The test also links kit/jvm-mongo, so it can
+// write a test event with the store of the app side of the contract.
+val testcontainersVersion = libs.versions.testcontainers.get()
+val mongoDriverSyncVersion = libs.versions.mongodb.driver.sync.get()
+
 dependencies {
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.netty)
@@ -22,11 +29,23 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.typesafe.config)
     implementation(libs.sqlite.jdbc)
+    implementation(libs.mongodb.driver.kotlin.coroutine)
     runtimeOnly(libs.logback.classic)
 
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.logback.classic)
+
+    // Issue #16: the container test of MongoAppReader needs the full
+    // JUnit Jupiter engine and the Testcontainers MongoDB module.
+    testImplementation(platform("org.testcontainers:testcontainers-bom:$testcontainersVersion"))
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-mongodb")
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation("org.mongodb:mongodb-driver-sync:$mongoDriverSyncVersion")
+    testImplementation(project(":kit:jvm-mongo"))
+    testImplementation(project(":kit:jvm-core"))
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 application {
