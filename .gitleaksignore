@@ -11,3 +11,9 @@
 # later commit renamed the identifier to markerSecondValue.
 a8657fbde1d0613c503022741f5542e6f5eb94de:monitor/backend/src/test/kotlin/octometer/monitor/mongo/MongoAppReaderContainerTest.kt:generic-api-key:197
 a8657fbde1d0613c503022741f5542e6f5eb94de:monitor/backend/src/test/kotlin/octometer/monitor/mongo/MongoAppReaderUnitTest.kt:generic-api-key:274
+
+# The finding below is a test fixture of pull request #185, the
+# security MAJOR 2 correction. The value is a fake, fixed marker user
+# name and password for a short auth probe of EndToEndContainerTest,
+# never a real credential.
+a035b1e9d410e6a123aa897931ea9dfaf20608f5:monitor/backend/src/test/kotlin/octometer/monitor/EndToEndContainerTest.kt:generic-api-key:280
