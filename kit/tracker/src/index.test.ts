@@ -613,7 +613,7 @@ describe('createTracker', () => {
   });
 
   it('keeps a sessionId already stored under the session storage key', () => {
-    window.sessionStorage.setItem('octo_session_id', 'fixed-session-id');
+    window.sessionStorage.setItem('octo_session_id', '3fa85f64-5717-4562-b3fc-2c963f66afa6');
     const host = document.createElement('div');
     host.setAttribute('data-octo', 'save');
     document.body.appendChild(host);
@@ -624,7 +624,26 @@ describe('createTracker', () => {
     vi.advanceTimersByTime(5000);
 
     const calls = parseCalls(fetchMock);
-    expect(at(calls, 0).body.sessionId).toBe('fixed-session-id');
+    expect(at(calls, 0).body.sessionId).toBe('3fa85f64-5717-4562-b3fc-2c963f66afa6');
+  });
+
+  // MINOR 5 of the TypeScript review: a stored sessionId must pass the
+  // C5 rule of the contract, a UUID, before the tracker sends it.
+  it('creates a new sessionId when the stored value breaks the UUID rule of rule C5', () => {
+    window.sessionStorage.setItem('octo_session_id', 'not-a-uuid');
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const sentId = at(parseCalls(fetchMock), 0).body.sessionId;
+    expect(sentId).not.toBe('not-a-uuid');
+    expect(sentId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    expect(window.sessionStorage.getItem('octo_session_id')).toBe(sentId);
   });
 
   it('falls back to an in-memory sessionId when sessionStorage.getItem throws', () => {
@@ -1075,10 +1094,11 @@ describe('createTracker', () => {
   });
 
   // Issue #36, step 3: the retry rule. One retry after a network error, a
-  // 5xx response, or a 429 response. A drop after each other 4xx
-  // response, with no third send of the same batch.
+  // 5xx response, or a 429 response, after a wait. A drop after each
+  // other 4xx response, with no third send of the same batch.
   describe('the retry rule', () => {
-    it('retries a batch one time after a network error', async () => {
+    it('retries a batch one time after a network error, after a wait', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
       fetchMock
         .mockRejectedValueOnce(new Error('network error'))
         .mockResolvedValueOnce({ ok: true, status: 204 });
@@ -1090,11 +1110,15 @@ describe('createTracker', () => {
       tracker.start();
       clickElement(host);
       await expect(vi.advanceTimersByTimeAsync(5000)).resolves.not.toThrow();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await expect(vi.advanceTimersByTimeAsync(500)).resolves.not.toThrow();
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
     it('drops a batch after a second network error, and never sends it a third time', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
       fetchMock.mockRejectedValue(new Error('network error'));
       const host = document.createElement('div');
       host.setAttribute('data-octo', 'save');
@@ -1103,12 +1127,16 @@ describe('createTracker', () => {
       tracker = createTracker({ endpoint: ENDPOINT });
       tracker.start();
       clickElement(host);
-      await expect(vi.advanceTimersByTimeAsync(5000)).resolves.not.toThrow();
+      await expect(vi.advanceTimersByTimeAsync(5500)).resolves.not.toThrow();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(3000);
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
-    it('retries a batch one time after a 5xx response', async () => {
+    it('retries a batch one time after a 5xx response, after a wait', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
       fetchMock
         .mockResolvedValueOnce({ ok: false, status: 503 })
         .mockResolvedValueOnce({ ok: true, status: 204 });
@@ -1120,11 +1148,15 @@ describe('createTracker', () => {
       tracker.start();
       clickElement(host);
       await vi.advanceTimersByTimeAsync(5000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(500);
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
     it('drops a batch after a second 5xx response, and never sends it a third time', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
       fetchMock.mockResolvedValue({ ok: false, status: 500 });
       const host = document.createElement('div');
       host.setAttribute('data-octo', 'save');
@@ -1133,12 +1165,13 @@ describe('createTracker', () => {
       tracker = createTracker({ endpoint: ENDPOINT });
       tracker.start();
       clickElement(host);
-      await vi.advanceTimersByTimeAsync(5000);
+      await vi.advanceTimersByTimeAsync(5500);
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
-    it('retries a batch one time after a 429 response', async () => {
+    it('retries a batch one time after a 429 response, after a longer wait', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
       fetchMock
         .mockResolvedValueOnce({ ok: false, status: 429 })
         .mockResolvedValueOnce({ ok: true, status: 204 });
@@ -1150,8 +1183,107 @@ describe('createTracker', () => {
       tracker.start();
       clickElement(host);
       await vi.advanceTimersByTimeAsync(5000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(2000);
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    // Reliability review MAJOR 1: the second send must wait, and not fire
+    // at once. This test proves the exact boundary, with no jitter.
+    it('waits the full delay before it sends a batch again after a network error', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      fetchMock
+        .mockRejectedValueOnce(new Error('network error'))
+        .mockResolvedValueOnce({ ok: true, status: 204 });
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      clickElement(host);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(499);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('waits the full delay before it sends a batch again after a 429 response', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      fetchMock
+        .mockResolvedValueOnce({ ok: false, status: 429 })
+        .mockResolvedValueOnce({ ok: true, status: 204 });
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      clickElement(host);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    // TypeScript review MAJOR 1: a run token stops a retry after stop().
+    it('sends no retry after stop(), also when the first request settles after stop()', async () => {
+      let rejectFetch: (reason: unknown) => void = () => {
+        throw new Error('rejectFetch was not set');
+      };
+      fetchMock.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectFetch = reject;
+          }),
+      );
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      clickElement(host);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      tracker.stop();
+      rejectFetch(new Error('network error'));
+      await vi.advanceTimersByTimeAsync(3000);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    // The run token check must also hold during the retry wait, not only
+    // at the failed response. stop() runs here between the failure and
+    // the delayed second send.
+    it('sends no retry after stop() runs during the wait before the retry', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      fetchMock.mockRejectedValueOnce(new Error('network error'));
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      clickElement(host);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      tracker.stop();
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it('drops a batch after one other 4xx response, with no retry', async () => {
@@ -1169,10 +1301,13 @@ describe('createTracker', () => {
     });
   });
 
-  // Issue #36, step 4: a batch from the pagehide listener goes out one
-  // time only, with no retry, because the page can close before a retry
-  // completes.
-  describe('the single send of the pagehide flush', () => {
+  // Issue #36, step 4 (maintainer decision of 2026-09-22, reliability
+  // review MAJOR 3): a batch from the pagehide listener, or from the
+  // visibilitychange listener, goes out one time only, with no retry. A
+  // browser can freeze the page after the hidden state and drop the
+  // connection, so a retry there gives the largest risk of a double
+  // count. Only the timer flush sends a batch a second time.
+  describe('the single send of the lifecycle flush', () => {
     it('sends a batch only one time from pagehide, also after a network error', async () => {
       fetchMock.mockRejectedValueOnce(new Error('network error'));
       const host = document.createElement('div');
@@ -1185,7 +1320,7 @@ describe('createTracker', () => {
       window.dispatchEvent(new Event('pagehide'));
       // A wrong retry count would send a second request from a promise
       // callback. Flush pending microtasks before the count check.
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(3000);
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
@@ -1200,15 +1335,13 @@ describe('createTracker', () => {
       tracker.start();
       clickElement(host);
       window.dispatchEvent(new Event('pagehide'));
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(3000);
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it('retries a batch from the visibilitychange listener, unlike pagehide', async () => {
-      fetchMock
-        .mockRejectedValueOnce(new Error('network error'))
-        .mockResolvedValueOnce({ ok: true, status: 204 });
+    it('sends a batch only one time from visibilitychange too, also after a network error', async () => {
+      fetchMock.mockRejectedValueOnce(new Error('network error'));
       const host = document.createElement('div');
       host.setAttribute('data-octo', 'save');
       document.body.appendChild(host);
@@ -1218,11 +1351,78 @@ describe('createTracker', () => {
       clickElement(host);
       setVisibilityState('hidden');
       expect(() => document.dispatchEvent(new Event('visibilitychange'))).not.toThrow();
-      // The retry runs inside a promise callback. Advancing fake time by
-      // zero still lets vitest run each pending microtask in order.
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(3000);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the retry of the timer flush, unlike the lifecycle flush', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      fetchMock
+        .mockRejectedValueOnce(new Error('network error'))
+        .mockResolvedValueOnce({ ok: true, status: 204 });
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      // No lifecycle event runs here. The queue waits for the timer flush.
+      tracker = createTracker({ endpoint: ENDPOINT, flushIntervalMs: 5000 });
+      tracker.start();
+      clickElement(host);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1000);
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // Reliability review MINOR 2: a lifecycle flush must clear the pending
+  // timer, so a later click gets its own full flushIntervalMs wait.
+  describe('the pending timer of a lifecycle flush', () => {
+    it('clears the pending timer, so a later click waits its own flushIntervalMs', () => {
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT, flushIntervalMs: 5000 });
+      tracker.start();
+      clickElement(host); // t = 0, the timer would fire at t = 5000.
+      vi.advanceTimersByTime(1000); // t = 1000.
+      window.dispatchEvent(new Event('pagehide')); // Sends the batch, clears the timer.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      clickElement(host); // t = 1000, a fresh timer must fire at t = 6000.
+      vi.advanceTimersByTime(4000); // t = 5000: the old, stale deadline.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(1000); // t = 6000: the fresh deadline.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // Reliability review MINOR 4: a synchronous throw of fetch, for one
+  // split batch, must not stop the send of a later batch.
+  describe('a synchronous throw of one split batch', () => {
+    it('still sends a later batch when an earlier batch throws at the fetch call', () => {
+      const clickA = { element: 'a', ageMs: 0 };
+      const clickB = { element: 'b', ageMs: 0 };
+      vi.spyOn(batchModule, 'splitIntoRequestBatches').mockReturnValue([[clickA], [clickB]]);
+      fetchMock.mockImplementationOnce(() => {
+        throw new Error('fetch is not defined');
+      });
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'save');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      expect(() => clickElement(host)).not.toThrow();
+      expect(() => vi.advanceTimersByTime(5000)).not.toThrow();
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(at(parseCalls(fetchMock), 1).body.clicks).toEqual([clickB]);
     });
   });
 
@@ -1271,7 +1471,11 @@ describe('createTracker', () => {
       expect(clicksArg).toEqual([{ element: 'save', ageMs: 5000 }]);
     });
 
-    it('sends one request for each batch that the splitter gives, each request below 15 000 bytes', () => {
+    it('sends one request for each batch that the splitter gives', () => {
+      // This test proves the loop only: it mocks the splitter, so its
+      // batches hold no real byte count. See the next test for the byte
+      // limit, with no mock and 200 entries at the contract maximum
+      // (TypeScript review MAJOR 2, reliability review MAJOR 2).
       const clickA = { element: 'a', ageMs: 0 };
       const clickB = { element: 'b', ageMs: 0 };
       vi.spyOn(batchModule, 'splitIntoRequestBatches').mockReturnValue([[clickA], [clickB]]);
@@ -1288,9 +1492,43 @@ describe('createTracker', () => {
       expect(calls).toHaveLength(2);
       expect(at(calls, 0).body.clicks).toEqual([clickA]);
       expect(at(calls, 1).body.clicks).toEqual([clickB]);
+    });
+
+    // TypeScript review MAJOR 2 and reliability review MAJOR 2: a full
+    // queue of 200 entries, at the contract maximum sizes, through one
+    // real pagehide flush, with no spy on the splitter.
+    it('holds each request and the whole keepalive flush below the limits, with 200 entries at the contract maximum', () => {
+      const longSegment = 'a'.repeat(149);
+      window.history.pushState({}, '', `/${longSegment}`);
+      const element = 'b'.repeat(100);
+      tracker = createTracker({
+        endpoint: ENDPOINT,
+        routes: [`/${longSegment}`],
+        flushIntervalMs: 1000000,
+      });
+      tracker.start();
+      for (let i = 0; i < 200; i += 1) {
+        const host = document.createElement('div');
+        host.setAttribute('data-octo', element);
+        document.body.appendChild(host);
+        clickElement(host);
+      }
+      // The largest possible ageMs before the server clamp of rule C14.
+      vi.advanceTimersByTime(600000);
+      window.dispatchEvent(new Event('pagehide'));
+
+      const calls = parseCalls(fetchMock);
+      const totalClicks = calls.reduce((sum, call) => sum + call.body.clicks.length, 0);
+      expect(totalClicks).toBe(200);
+
+      const sizes = calls.map((call) => new TextEncoder().encode(String(call.init.body)).length);
+      for (const size of sizes) {
+        expect(size).toBeLessThan(15000);
+      }
+      const totalBytes = sizes.reduce((sum, size) => sum + size, 0);
+      expect(totalBytes).toBeLessThan(64 * 1024);
       for (const call of calls) {
-        const bodyBytes = new TextEncoder().encode(String(call.init.body)).length;
-        expect(bodyBytes).toBeLessThan(15000);
+        expect(call.init.keepalive).toBe(true);
       }
     });
   });

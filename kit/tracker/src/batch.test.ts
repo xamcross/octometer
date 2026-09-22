@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { encodedBodyBytes, MAX_BATCH_ENTRIES, MAX_BODY_BYTES, splitIntoRequestBatches, type ClickPayload } from './batch.js';
 
 const SESSION_ID = '0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11';
@@ -8,6 +8,11 @@ function clickOfSize(element: string, pathBytes: number): ClickPayload {
 }
 
 describe('splitIntoRequestBatches', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+
   it('gives one batch with every click for a small queue', () => {
     const clicks: ClickPayload[] = [
       { element: 'save', ageMs: 100 },
@@ -67,14 +72,30 @@ describe('splitIntoRequestBatches', () => {
     expect(encodedBodyBytes(SESSION_ID, batches[0] ?? [])).toBeLessThan(16 * 1024);
   });
 
-  it('never drops a click, also when one click alone passes the byte limit', () => {
+  it('drops one click that alone passes the byte limit, with one console warning', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const hugeClick = clickOfSize('e0', MAX_BODY_BYTES + 500);
     const clicks: ClickPayload[] = [hugeClick, { element: 'e1', ageMs: 50 }];
 
     const batches = splitIntoRequestBatches(SESSION_ID, clicks);
 
-    expect(batches.flat()).toEqual(clicks);
-    expect(batches[0]).toEqual([hugeClick]);
+    expect(batches.flat()).toEqual([{ element: 'e1', ageMs: 50 }]);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0]?.[0])).not.toContain('e0');
+  });
+
+  it('writes only one warning for one call, also with two oversized clicks', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const clicks: ClickPayload[] = [
+      clickOfSize('e0', MAX_BODY_BYTES + 500),
+      clickOfSize('e1', MAX_BODY_BYTES + 500),
+      { element: 'e2', ageMs: 50 },
+    ];
+
+    const batches = splitIntoRequestBatches(SESSION_ID, clicks);
+
+    expect(batches.flat()).toEqual([{ element: 'e2', ageMs: 50 }]);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the order of the clicks across the batches', () => {
