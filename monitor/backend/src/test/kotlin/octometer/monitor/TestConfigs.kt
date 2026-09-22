@@ -52,8 +52,14 @@ fun testDataDir(): String {
     return File(root, "data").absolutePath
 }
 
+// Correction round 1 of issue #59 (MAJOR 3, SQLite review): MonitorServices
+// now runs a retention purge at each open call, on the real clock. A large
+// default keeps each fixed test fixture. A test of the purge itself passes
+// its own small retentionDays.
+private const val LARGE_TEST_RETENTION_DAYS = 3_650_000
+
 /** The dev mode config of the tests, with the configured port 7431. */
-fun devConfig(dataDir: String = testDataDir(), retentionDays: Int = 395) = MonitorConfig(
+fun devConfig(dataDir: String = testDataDir(), retentionDays: Int = LARGE_TEST_RETENTION_DAYS) = MonitorConfig(
     mode = "dev",
     port = 7431,
     dataDir = dataDir,
@@ -62,7 +68,7 @@ fun devConfig(dataDir: String = testDataDir(), retentionDays: Int = 395) = Monit
 )
 
 /** The prod mode config of the tests, with the configured port 7431. */
-fun prodConfig(dataDir: String = testDataDir(), retentionDays: Int = 395) = MonitorConfig(
+fun prodConfig(dataDir: String = testDataDir(), retentionDays: Int = LARGE_TEST_RETENTION_DAYS) = MonitorConfig(
     mode = "prod",
     port = 7431,
     dataDir = dataDir,
