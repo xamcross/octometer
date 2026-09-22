@@ -58,6 +58,20 @@ class HealthRouteTest {
         assertEquals(30, body["retentionDays"]!!.jsonPrimitive.int)
     }
 
+    // Issue #17, decision 6: refreshSeconds now comes from the one
+    // config key pollIntervalSeconds, not from a second, duplicate value
+    // of Mode. A config with pollIntervalSeconds = 7 must give
+    // refreshSeconds = 7, in each mode.
+    @Test
+    fun `refreshSeconds follows the configured pollIntervalSeconds, for example 7`() = testApplication {
+        application { module(devConfig(pollIntervalSeconds = 7)) }
+
+        val response = client.get("/api/health") { allowedHost() }
+
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals(7, body["refreshSeconds"]!!.jsonPrimitive.int)
+    }
+
     // Correction round 1 of issue #38 (MINOR 2, security review): D12
     // names HEAD a safe method, the same as GET. AutoHeadResponse builds
     // the HEAD answer from the GET route.

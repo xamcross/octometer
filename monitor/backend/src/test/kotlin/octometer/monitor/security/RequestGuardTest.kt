@@ -126,6 +126,7 @@ class RequestGuardTest {
             dataDir = testDataDir(),
             settleLagSeconds = 60,
             retentionDays = 395,
+            pollIntervalSeconds = 60,
         )
         application { module(port80Config) }
 
@@ -146,6 +147,7 @@ class RequestGuardTest {
             dataDir = testDataDir(),
             settleLagSeconds = 60,
             retentionDays = 395,
+            pollIntervalSeconds = 60,
         )
         application {
             module(port80Config)

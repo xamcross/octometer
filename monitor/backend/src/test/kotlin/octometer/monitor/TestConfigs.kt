@@ -81,6 +81,7 @@ fun devConfig(
     dataDir: String = testDataDir(),
     backupDir: String = backupsDir(dataDir).absolutePath,
     retentionDays: Int = LARGE_TEST_RETENTION_DAYS,
+    pollIntervalSeconds: Int = 5,
 ) = MonitorConfig(
     mode = "dev",
     port = 7431,
@@ -88,6 +89,7 @@ fun devConfig(
     settleLagSeconds = 2,
     retentionDays = retentionDays,
     backupDir = backupDir,
+    pollIntervalSeconds = pollIntervalSeconds,
 )
 
 /** The prod mode config of the tests, with the configured port 7431. */
@@ -95,6 +97,7 @@ fun prodConfig(
     dataDir: String = testDataDir(),
     backupDir: String = backupsDir(dataDir).absolutePath,
     retentionDays: Int = LARGE_TEST_RETENTION_DAYS,
+    pollIntervalSeconds: Int = 60,
 ) = MonitorConfig(
     mode = "prod",
     port = 7431,
@@ -102,6 +105,7 @@ fun prodConfig(
     settleLagSeconds = 60,
     retentionDays = retentionDays,
     backupDir = backupDir,
+    pollIntervalSeconds = pollIntervalSeconds,
 )
 
 /**

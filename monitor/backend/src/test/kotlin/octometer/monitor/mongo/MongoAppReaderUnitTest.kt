@@ -401,10 +401,13 @@ class MongoAppReaderUnitTest {
         }
 
         assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
-        val warnLine = logEvents.single { it.loggerName.contains("MongoAppReader") && it.level == Level.WARN }
+        // Issue #17, decision 4: the scheduler now owns the one WARN of a
+        // failed cycle. This line moved to DEBUG, so it never doubles
+        // the scheduler's own line.
+        val debugLine = logEvents.single { it.loggerName.contains("MongoAppReader") && it.level == Level.DEBUG }
         assertEquals(
             "The MongoDB read failed. IllegalArgumentException",
-            warnLine.formattedMessage,
+            debugLine.formattedMessage,
             "The registry check, not a driver connect failure, must reject this string.",
         )
     }

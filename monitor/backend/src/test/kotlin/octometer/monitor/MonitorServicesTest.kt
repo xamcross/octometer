@@ -5,8 +5,13 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.sql.DriverManager
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.mongo.PollOutcome
+import octometer.monitor.poll.PollCycle
 import octometer.monitor.registry.SecretStore
 import octometer.monitor.registry.allowlistedSrvUri
 import octometer.monitor.store.SqliteDatabase
@@ -50,7 +55,11 @@ class MonitorServicesTest {
         secretStore.put(appId, allowlistedSrvUri())
         secretStore.put(999_999L, allowlistedSrvUri())
 
-        val services = MonitorServices.open(prodConfig(dataDir = dataDir))
+        // appId has no next_poll_at, so it is due at once. A stub
+        // PollCycle gives this test no outbound MongoDB connection
+        // (issue #17, decision 5; MAJOR 4 of the Kotlin review).
+        val stubCycle = PollCycle { _, _ -> PollOutcome(eventsStored = 0, pagesRead = 0, cursor = null) }
+        val services = MonitorServices.open(prodConfig(dataDir = dataDir), pollCycle = stubCycle)
         try {
             assertTrue(services.secretStore.contains(appId), "the secret of an existing app row must stay")
             assertFalse(services.secretStore.contains(999_999L), "the orphan secret must be gone")
@@ -208,6 +217,54 @@ class MonitorServicesTest {
             baseline,
             awaitThreadCount(PURGE_THREAD_NAME, baseline),
             "close() stops the purge thread",
+        )
+    }
+
+    // Issue #17, decision 5 (MAJOR 4 and MAJOR 5 of the Kotlin review):
+    // open() binds the poll scheduler to the application lifecycle. A
+    // stub PollCycle proves the wire-up, with no outbound MongoDB
+    // connection. Since the stub never runs, the real MongoAppReader
+    // that open() still builds keeps no client, so close() has nothing
+    // of it to close.
+    //
+    // BLOCKER 1 of the second Kotlin review: the count must come from a
+    // real event, not from a fixed sleep. pollIntervalSeconds is 1, so
+    // the first tick is due at once, and a second tick is due one
+    // second later. Each latch counts down inside the stub call itself.
+    // The wait then ends on the real event, with a bound, never on a
+    // guess of the clock.
+    @Test
+    fun `open runs a stub poll cycle for a due app, and close stops it with no further call`() = runBlocking {
+        val appId = seedOneAppRow()
+        val secretStore = SecretStore(dataDir)
+        secretStore.put(appId, allowlistedSrvUri())
+        val calls = AtomicInteger(0)
+        val firstCallLatch = CountDownLatch(1)
+        val secondCallLatch = CountDownLatch(1)
+        val stubCycle = PollCycle { _, _ ->
+            val count = calls.incrementAndGet()
+            if (count == 1) firstCallLatch.countDown()
+            if (count == 2) secondCallLatch.countDown()
+            PollOutcome(eventsStored = 0, pagesRead = 0, cursor = null)
+        }
+
+        val (services, events) = captureLogEvents {
+            MonitorServices.open(prodConfig(dataDir = dataDir, pollIntervalSeconds = 1), pollCycle = stubCycle)
+        }
+        val startedInTime = firstCallLatch.await(2, TimeUnit.SECONDS)
+        assertTrue(startedInTime, "open() must start the scheduler within the wait bound")
+        assertEquals(1, calls.get(), "open() starts the scheduler: the stub cycle ran one time")
+
+        services.close()
+        // A running scheduler would poll a due app again one second
+        // later. This waits, with a bound, for that second call. It
+        // must never arrive, because close() already stopped the loop.
+        val secondCallArrived = secondCallLatch.await(2_500, TimeUnit.MILLISECONDS)
+        assertFalse(secondCallArrived, "close() stops the scheduler; the stub runs no more")
+        assertEquals(1, calls.get(), "close() stops the scheduler; the stub runs no more")
+        assertTrue(
+            events.none { event -> event.loggerName.contains("mongo", ignoreCase = true) },
+            "the stub never runs the real reader, so no Mongo log line appears",
         )
     }
 

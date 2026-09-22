@@ -3,6 +3,28 @@
 The Ktor server of the monitor. See `docs/superpowers/specs/2026-09-21-octometer-design.md`
 for the full design, and `contract/README.md` for the event log contract.
 
+## Config (design decision D2)
+
+Each key has an order of precedence: the argument `-P:octometer.<key>=`, the environment
+variable, the user file, the bundled default. See `octometer.monitor.config.loadConfig`.
+
+| Key | Environment variable | Bundled default |
+| --- | --- | --- |
+| `mode` | `OCTOMETER_MODE` | `prod` |
+| `port` | `OCTOMETER_PORT` | `7431` |
+| `dataDir` | `OCTOMETER_DATA_DIR` | `%LOCALAPPDATA%\Octometer\data` in prod, `build/dev-data` in dev |
+| `settleLagSeconds` | `OCTOMETER_SETTLE_LAG_SECONDS` | `60` in prod, `2` in dev |
+| `retentionDays` | `OCTOMETER_STORE_RETENTION_DAYS` | `395` |
+| `backupDir` | `OCTOMETER_BACKUP_DIR` | the sibling folder `backups` of `dataDir` |
+| `pollIntervalSeconds` | `OCTOMETER_POLL_INTERVAL_SECONDS` | `60` in prod, `5` in dev |
+
+`pollIntervalSeconds` sets the gap between two poll cycles of one app (issue #17, design
+decision D6). The poll scheduler adds this gap to the clock time after each cycle, on a
+success and on a failure alike.
+
+`pollIntervalSeconds` takes a whole number of 1 or more. A tick of the loop is 1 second
+(the floor), so a value of 1 polls the app at every tick.
+
 ## The release zip (issue #38)
 
 Plain `assemble` and `build` skip the distribution zip, so the JVM job of CI stays free of

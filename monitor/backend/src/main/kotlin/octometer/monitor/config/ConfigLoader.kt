@@ -18,6 +18,7 @@ private val ENVIRONMENT_VARIABLE_NAMES = mapOf(
     "settleLagSeconds" to "OCTOMETER_SETTLE_LAG_SECONDS",
     "retentionDays" to "OCTOMETER_STORE_RETENTION_DAYS",
     "backupDir" to "OCTOMETER_BACKUP_DIR",
+    "pollIntervalSeconds" to "OCTOMETER_POLL_INTERVAL_SECONDS",
 )
 
 private val KNOWN_KEYS = ENVIRONMENT_VARIABLE_NAMES.keys
@@ -97,6 +98,15 @@ fun loadConfig(
             userConfig,
             bundled.getString("octometer.retentionDays"),
         )
+        // Issue #17: pollIntervalSeconds follows the mode, the same rule
+        // as settleLagSeconds (5 s dev, 60 s prod, design decision D6).
+        val pollIntervalSeconds = resolveValue(
+            "pollIntervalSeconds",
+            arguments,
+            env,
+            userConfig,
+            modeDefaults.getString("pollIntervalSeconds"),
+        )
         val validatedDataDir = validateDataDir(dataDir.value)
         // Issue #55: the bundled default is the folder "backups" beside
         // dataDir. The value depends on the resolved dataDir, so this
@@ -116,6 +126,13 @@ fun loadConfig(
             settleLagSeconds = toValidInt("settleLagSeconds", settleLagSeconds.value, 0..Int.MAX_VALUE, "0 or more"),
             retentionDays = toValidInt("retentionDays", retentionDays.value, 1..Int.MAX_VALUE, "1 or more"),
             backupDir = validateBackupDir(backupDir.value),
+            pollIntervalSeconds = toValidInt(
+                "pollIntervalSeconds",
+                pollIntervalSeconds.value,
+                1..Int.MAX_VALUE,
+                "1 or more",
+                includeValueInMessage = false,
+            ),
         )
 
         return ResolvedConfig(
@@ -127,6 +144,7 @@ fun loadConfig(
                 ResolvedValue("settleLagSeconds", config.settleLagSeconds.toString(), settleLagSeconds.source),
                 ResolvedValue("retentionDays", config.retentionDays.toString(), retentionDays.source),
                 ResolvedValue("backupDir", File(config.backupDir).absolutePath, backupDir.source),
+                ResolvedValue("pollIntervalSeconds", config.pollIntervalSeconds.toString(), pollIntervalSeconds.source),
             ),
             warnings = warnings,
         )
@@ -244,7 +262,7 @@ private fun resolveValue(
 
 private fun validateMode(value: String) {
     if (Mode.fromValue(value) == null) {
-        throw InvalidConfigException("The value of mode is '$value'. Set it to 'dev' or 'prod'.")
+        throw InvalidConfigException("The value of mode is '${escapeForLog(value)}'. Set it to 'dev' or 'prod'.")
     }
 }
 
@@ -262,10 +280,33 @@ private fun validateBackupDir(value: String): String {
     return value
 }
 
-private fun toValidInt(key: String, value: String, range: IntRange, rangeText: String): Int {
+/**
+ * Validates one integer config value. A bad value throws
+ * [InvalidConfigException].
+ *
+ * [includeValueInMessage] controls the message form. The default form
+ * repeats the value, escaped through [escapeForLog] (MINOR 1 of the
+ * security review). A newline in the value can then not forge a line
+ * of the start log.
+ *
+ * `pollIntervalSeconds` uses `false` instead (issue #17, decision 8).
+ * Its message never holds the value at all, only the key and the rule.
+ */
+private fun toValidInt(
+    key: String,
+    value: String,
+    range: IntRange,
+    rangeText: String,
+    includeValueInMessage: Boolean = true,
+): Int {
     val parsed = value.toIntOrNull()
     if (parsed == null || parsed !in range) {
-        throw InvalidConfigException("The value of $key is '$value'. Give a whole number of $rangeText.")
+        val message = if (includeValueInMessage) {
+            "The value of $key is '${escapeForLog(value)}'. Give a whole number of $rangeText."
+        } else {
+            "The value of $key is not valid. Give a whole number of $rangeText."
+        }
+        throw InvalidConfigException(message)
     }
     return parsed
 }
