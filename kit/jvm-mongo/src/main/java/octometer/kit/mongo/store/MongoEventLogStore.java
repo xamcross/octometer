@@ -4,9 +4,11 @@ import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 import com.mongodb.client.model.InsertManyOptions;
+import com.mongodb.client.result.DeleteResult;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.ArrayList;
@@ -16,8 +18,10 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import octometer.kit.core.ingest.IngestEvent;
+import octometer.kit.core.store.DeletionResult;
 import octometer.kit.core.store.EventLogStore;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 
 /**
  * The MongoDB {@link EventLogStore} of design decision D22 and contract
@@ -63,8 +67,31 @@ import org.bson.Document;
  * socket read timeout plus a write concern with a {@code wtimeout} with
  * driver 5.0.
  *
- * <p>{@link #deleteByUserId} does not yet delete an event; issue #35 adds
- * that behavior.
+ * <p>{@link #deleteByUserId} implements contract rule C43 (issue #35). A
+ * call reads the distinct {@code sessionId} values of the given user id
+ * first, then it runs two {@code deleteMany} calls: one for each event
+ * of that user id, and one for each anonymous event of those sessions.
+ * The read and the two deletes are three separate MongoDB commands, not
+ * one transaction; the class comment above states why this store opens
+ * no transaction. The Javadoc of {@link EventLogStore#deleteByUserId}
+ * states the risk of a write between the steps.
+ *
+ * <p>Contract rule C8 gives the collection only two indexes: one on
+ * {@code _id}, and the TTL index on {@code ts}. Issue #35 adds no new
+ * index, because the erasure is a rare, owner-triggered action. Each of
+ * the three MongoDB commands of {@code deleteByUserId} is therefore a
+ * full collection scan, never an index seek. Design decision D21 caps
+ * the collection at 200 000 documents, so the scan cost stays bounded.
+ * {@code MongoEventLogStoreDeleteByUserIdTest} runs {@code explain} on
+ * the two filter shapes and asserts the {@code COLLSCAN} stage.
+ *
+ * <p><strong>The erasure order for an app team (design decision
+ * D15).</strong> Call this method first, in the app. Wait for one full
+ * poll cycle of the monitor (the refresh time of its mode). Then call
+ * the erasure route of the monitor, {@code DELETE
+ * /api/apps/{appId}/events?userId=<id>} (issue #61). A call to the
+ * monitor route before that wait lets the poll cycle read the erased
+ * events again from this store.
  */
 public final class MongoEventLogStore implements EventLogStore {
 
@@ -152,12 +179,39 @@ public final class MongoEventLogStore implements EventLogStore {
                 : exception.getWriteConcernError().getCode();
     }
 
+    /**
+     * Implements {@link EventLogStore#deleteByUserId} (contract rule
+     * C43). See the class comment above for the three-command shape,
+     * the collection-scan cost, and the erasure order of design decision
+     * D15.
+     */
     @Override
-    public void deleteByUserId(String userId) {
-        throw new UnsupportedOperationException(
-                "The store does not delete an event by user id yet. No event was deleted. "
-                        + "Each event of this user stays until the TTL index removes it. "
-                        + "Issue #35 adds the delete.");
+    public DeletionResult deleteByUserId(String userId) {
+        Objects.requireNonNull(userId, "userId must not be null");
+        if (userId.isEmpty()) {
+            throw new IllegalArgumentException("userId must not be an empty text");
+        }
+        try {
+            List<String> sessionIds = collection.distinct("sessionId", Filters.eq("userId", userId), String.class)
+                    .into(new ArrayList<>());
+            long userEventCount = collection.deleteMany(Filters.eq("userId", userId)).getDeletedCount();
+            long anonymousEventCount = sessionIds.isEmpty() ? 0L : deleteAnonymousEvents(sessionIds);
+            return new DeletionResult(userEventCount, anonymousEventCount);
+        } catch (MongoCommandException e) {
+            throw new EventLogDeleteException(e.getErrorCode());
+        } catch (RuntimeException e) {
+            throw new EventLogDeleteException(-1);
+        }
+    }
+
+    /**
+     * Deletes each event with {@code userId: null} whose {@code
+     * sessionId} is one of {@code sessionIds} (contract rule C43).
+     */
+    private long deleteAnonymousEvents(List<String> sessionIds) {
+        Bson filter = Filters.and(Filters.eq("userId", null), Filters.in("sessionId", sessionIds));
+        DeleteResult result = collection.deleteMany(filter);
+        return result.getDeletedCount();
     }
 
     private static Document toDocument(IngestEvent event, String userId) {
@@ -284,6 +338,29 @@ public final class MongoEventLogStore implements EventLogStore {
 
         EventLogWriteException(int errorCode) {
             super("The store could not write the event batch to the event collection. "
+                    + "The MongoDB error code is " + errorCode + ".");
+            this.errorCode = errorCode;
+        }
+
+        /** The numeric MongoDB error code, or -1 when the driver gives no code. */
+        public int errorCode() {
+            return errorCode;
+        }
+    }
+
+    /**
+     * A failed {@link #deleteByUserId} call. The message holds only a
+     * fixed text and the numeric MongoDB error code. It holds no host,
+     * no port, no database name, no user id, and no session id, and it
+     * holds no cause (design decision D15). The error code is -1 when
+     * the driver gives no code.
+     */
+    public static final class EventLogDeleteException extends RuntimeException {
+
+        private final int errorCode;
+
+        EventLogDeleteException(int errorCode) {
+            super("The store could not delete the events of one user id. "
                     + "The MongoDB error code is " + errorCode + ".");
             this.errorCode = errorCode;
         }
