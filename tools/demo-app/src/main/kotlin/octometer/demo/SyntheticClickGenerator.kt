@@ -24,6 +24,17 @@ object SyntheticClickGenerator {
     private const val CLICKS_PER_SESSION = 5
     private const val SECONDS_IN_A_DAY = 24L * 60 * 60
 
+    /** The exclusive upper bound of one click offset (Ktor review MAJOR 1). */
+    private const val CLICK_OFFSET_UPPER_BOUND_SECONDS = 120L
+
+    /**
+     * The largest possible sum of the click offsets of one session (Ktor
+     * review MAJOR 1). [writeOneSession] draws the session start from a
+     * range that ends this many seconds before `now`, so the last click
+     * of a session can never land after `now`.
+     */
+    private const val MAX_SESSION_OFFSET_SECONDS = CLICKS_PER_SESSION * (CLICK_OFFSET_UPPER_BOUND_SECONDS - 1)
+
     /**
      * Writes the synthetic events to [store], and returns the count of
      * written events. [random] and [now] let a test give a fixed source,
@@ -41,12 +52,16 @@ object SyntheticClickGenerator {
 
     private fun writeOneSession(store: EventLogStore, userId: String, random: Random, now: Instant): Int {
         val sessionId = UUID.randomUUID().toString()
-        val sessionStart = now.minusSeconds(random.nextLong(0, SECONDS_IN_A_DAY))
+        // The session start comes from a range that ends MAX_SESSION_OFFSET_SECONDS
+        // before now (Ktor review MAJOR 1). Each of the 5 clicks then adds at
+        // most CLICK_OFFSET_UPPER_BOUND_SECONDS - 1 seconds, so the last click
+        // time can never sit after now.
+        val sessionStart = now.minusSeconds(random.nextLong(MAX_SESSION_OFFSET_SECONDS, SECONDS_IN_A_DAY))
         val events = ArrayList<IngestEvent>(CLICKS_PER_SESSION + 1)
         events.add(IngestEvent(sessionId, "octo:session-start", sessionStart, PATH, null))
         var clickTime = sessionStart
         repeat(CLICKS_PER_SESSION) {
-            clickTime = clickTime.plusSeconds(random.nextLong(5, 120))
+            clickTime = clickTime.plusSeconds(random.nextLong(5, CLICK_OFFSET_UPPER_BOUND_SECONDS))
             val element = CLICK_ELEMENTS[random.nextInt(CLICK_ELEMENTS.size)]
             events.add(IngestEvent(sessionId, element, clickTime, PATH, null))
         }

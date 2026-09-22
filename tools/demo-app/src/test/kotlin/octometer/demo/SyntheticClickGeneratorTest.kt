@@ -40,16 +40,20 @@ class SyntheticClickGeneratorTest {
     }
 
     @Test
-    fun `each event timestamp sits inside the last 24 hours`() {
-        val store = InMemoryEventLogStore()
+    fun `each event timestamp sits inside the last 24 hours, over the seeds 1 to 200`() {
         val now = Instant.parse("2026-09-22T12:00:00Z")
 
-        SyntheticClickGenerator.generate(store, Random(3), now)
-
-        for (storedEvent in store.events()) {
-            val ts = storedEvent.ts()
-            assertTrue(!ts.isAfter(now), "An event timestamp must not sit after now.")
-            assertTrue(!ts.isBefore(now.minusSeconds(24L * 60 * 60 + 600)), "An event timestamp must sit inside the last day.")
+        for (seed in 1..200) {
+            val store = InMemoryEventLogStore()
+            SyntheticClickGenerator.generate(store, Random(seed), now)
+            for (storedEvent in store.events()) {
+                val ts = storedEvent.ts()
+                assertTrue(!ts.isAfter(now), "Seed $seed gave an event timestamp after now (Ktor review MAJOR 1).")
+                assertTrue(
+                    !ts.isBefore(now.minusSeconds(24L * 60 * 60 + 600)),
+                    "Seed $seed gave an event timestamp before the last day.",
+                )
+            }
         }
     }
 }
