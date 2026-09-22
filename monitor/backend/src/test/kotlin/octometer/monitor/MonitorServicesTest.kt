@@ -1,6 +1,8 @@
 package octometer.monitor
 
+import ch.qos.logback.classic.Level
 import java.io.File
+import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.sql.DriverManager
 import kotlinx.coroutines.delay
@@ -8,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import octometer.monitor.registry.SecretStore
 import octometer.monitor.registry.allowlistedSrvUri
 import octometer.monitor.store.SqliteDatabase
+import org.junit.jupiter.api.Assumptions
 import org.sqlite.SQLiteException
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -55,6 +58,74 @@ class MonitorServicesTest {
             services.close()
         }
     }
+
+    // Issue #141: a kill of the process between the temporary write and
+    // the atomic move can leave a leftover apps-<random>.json.tmp file in
+    // the secrets folder. open() removes it at the start, before the
+    // first write.
+    @Test
+    fun `open removes a leftover apps-123_json_tmp file from the secrets folder, and leaves apps json unchanged`() =
+        runBlocking {
+            val secretsDir = File(root, "secrets").apply { mkdirs() }
+            val secretsFile = File(secretsDir, "apps.json")
+            val originalBytes = "{}".toByteArray(Charsets.UTF_8)
+            secretsFile.writeBytes(originalBytes)
+            val leftoverFile = File(secretsDir, "apps-123.json.tmp")
+            leftoverFile.writeText("stray")
+            val otherFile = File(secretsDir, "apps-backup.json")
+            otherFile.writeText("keep me")
+
+            val services = MonitorServices.open(prodConfig(dataDir = dataDir))
+            try {
+                assertFalse(leftoverFile.exists(), "the leftover temporary file must be gone after the start")
+                assertTrue(otherFile.exists(), "a file with a different name must stay")
+                assertTrue(
+                    originalBytes.contentEquals(secretsFile.readBytes()),
+                    "apps.json must stay unchanged byte for byte",
+                )
+            } finally {
+                services.close()
+            }
+        }
+
+    // Acceptance criterion of issue #141: a locked leftover file gives one
+    // warning, and the monitor still starts. No log line, at any level,
+    // holds a part of a connection string.
+    @Test
+    fun `open starts, and gives one warning with no connection string, when a leftover temporary file is locked`() =
+        runBlocking {
+            // Windows refuses to delete a file while a FileChannel lock
+            // holds it open. A Linux advisory lock does not block a
+            // delete, so this test would pass by accident there.
+            Assumptions.assumeTrue(
+                System.getProperty("os.name").orEmpty().startsWith("Windows", ignoreCase = true),
+                "the OS must refuse to delete a locked file",
+            )
+            val secretsDir = File(root, "secrets").apply { mkdirs() }
+            val leftoverFile = File(secretsDir, "apps-456.json.tmp")
+            leftoverFile.writeText(allowlistedSrvUri())
+
+            RandomAccessFile(leftoverFile, "rw").use { handle ->
+                val lock = handle.channel.lock()
+                try {
+                    val (services, events) = captureLogEvents { MonitorServices.open(prodConfig(dataDir = dataDir)) }
+                    try {
+                        assertTrue(leftoverFile.exists(), "a locked leftover file must stay")
+                        val warnings = events.filter { event -> event.level == Level.WARN }
+                        assertTrue(warnings.isNotEmpty(), "expected at least one warning")
+                        val combinedText = events.joinToString(" ") { event -> event.formattedMessage }
+                        assertFalse(
+                            combinedText.contains(allowlistedSrvUri()),
+                            "no log line may hold a connection string",
+                        )
+                    } finally {
+                        services.close()
+                    }
+                } finally {
+                    lock.release()
+                }
+            }
+        }
 
     // MAJOR 5 (second Ktor review) and MAJOR 2 (second security review).
     // A broken secrets/apps.json file must not stop the start. The start
