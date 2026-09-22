@@ -11,6 +11,8 @@
 // The task npmCiTracker checks the PATH first, and it fails with a clear
 // message when npm is absent.
 import org.gradle.internal.os.OperatingSystem
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -53,6 +55,30 @@ application {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+// Issue #177, step 3 (release review MAJOR 5). A container test skips
+// with no failure when Docker is absent. The build cache must not
+// store that skipped run as a cached pass. This probe runs at
+// execution time, not at configuration time, so each build reads the
+// Docker state of that run.
+//
+// This module has no Testcontainers class on the build script
+// classpath (only on the test classpath), so the probe below starts
+// a plain "docker info" process, with a 10 second timeout, instead
+// of DockerClientFactory.instance().isDockerAvailable().
+val dockerAvailable = providers.provider {
+    try {
+        val process = ProcessBuilder("docker", "info").redirectErrorStream(true).start()
+        val finished = process.waitFor(10, TimeUnit.SECONDS)
+        if (finished) process.exitValue() == 0 else { process.destroyForcibly(); false }
+    } catch (error: IOException) {
+        false
+    }
+}
+
+tasks.withType<Test>().configureEach {
+    outputs.doNotCacheIf("Docker is absent") { !dockerAvailable.get() }
 }
 
 val npmExecutable: String = if (OperatingSystem.current().isWindows) "npm.cmd" else "npm"
