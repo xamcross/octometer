@@ -48,19 +48,37 @@ class InMemoryEventLogStoreTest {
         assertNull(store.events().get(0).userId());
     }
 
+    /**
+     * Covers each acceptance criterion of issue #35 for one store: the
+     * user's own events are gone, the anonymous event of the same
+     * session is gone (contract rule C43), a second user of that session
+     * stays, and an anonymous event of another session stays.
+     */
     @Test
-    void deleteByUserIdRemovesOnlyTheMatchingEvents() {
+    void deleteByUserIdRemovesTheUsersEventsAndTheAnonymousEventsOfTheSameSession() {
         InMemoryEventLogStore store = new InMemoryEventLogStore();
-        IngestEvent event = new IngestEvent("3fa85f64-5717-4562-b3fc-2c963f66afa6", "checkout.save", FIXED_INSTANT);
-        store.append(event, "user-1");
-        store.append(event, "user-2");
-        store.append(event, null);
+        IngestEvent sessionAEvent = new IngestEvent("session-a", "checkout.save", FIXED_INSTANT);
+        IngestEvent sessionBEvent = new IngestEvent("session-b", "checkout.save", FIXED_INSTANT);
+        IngestEvent sessionCEvent = new IngestEvent("session-c", "checkout.save", FIXED_INSTANT);
+        store.append(sessionAEvent, "user-1");
+        store.append(sessionAEvent, "user-2");
+        store.append(sessionAEvent, null);
+        store.append(sessionBEvent, "user-1");
+        store.append(sessionCEvent, null);
 
-        store.deleteByUserId("user-1");
+        DeletionResult result = store.deleteByUserId("user-1");
 
+        assertEquals(2, result.userEventCount());
+        assertEquals(1, result.anonymousEventCount());
+        assertEquals(3, result.totalCount());
         List<StoredEvent> events = store.events();
         assertEquals(2, events.size());
-        assertTrue(events.stream().noneMatch(storedEvent -> "user-1".equals(storedEvent.userId())));
+        assertTrue(events.stream().anyMatch(
+                storedEvent -> "session-a".equals(storedEvent.sessionId()) && "user-2".equals(storedEvent.userId())),
+                "The event of the second user in session-a must stay.");
+        assertTrue(events.stream().anyMatch(
+                storedEvent -> "session-c".equals(storedEvent.sessionId()) && storedEvent.userId() == null),
+                "The anonymous event of session-c must stay.");
     }
 
     @Test

@@ -1,9 +1,13 @@
 package octometer.kit.core.store;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 import octometer.kit.core.ingest.IngestEvent;
 
 /**
@@ -33,13 +37,47 @@ public final class InMemoryEventLogStore implements EventLogStore {
         storedEvents.addAll(batch);
     }
 
+    /**
+     * Implements the rule of {@link EventLogStore#deleteByUserId}
+     * (contract rule C43). The call reads the session ids of this user
+     * first, then removes the two groups of events. The two steps are
+     * not one atomic step: a concurrent {@link #append} for a new
+     * session of this user, between the read and the removals, keeps
+     * its anonymous events in the store.
+     */
     @Override
-    public void deleteByUserId(String userId) {
+    public DeletionResult deleteByUserId(String userId) {
         Objects.requireNonNull(userId, "userId must not be null");
         if (userId.isEmpty()) {
             throw new IllegalArgumentException("userId must not be an empty text");
         }
-        storedEvents.removeIf(storedEvent -> userId.equals(storedEvent.userId()));
+        Set<String> sessionIds = new HashSet<>();
+        for (StoredEvent storedEvent : storedEvents) {
+            if (userId.equals(storedEvent.userId())) {
+                sessionIds.add(storedEvent.sessionId());
+            }
+        }
+        long userEventCount = removeMatching(storedEvent -> userId.equals(storedEvent.userId()));
+        long anonymousEventCount = removeMatching(
+                storedEvent -> storedEvent.userId() == null && sessionIds.contains(storedEvent.sessionId()));
+        return new DeletionResult(userEventCount, anonymousEventCount);
+    }
+
+    /**
+     * Removes each stored event that matches {@code predicate}, and
+     * returns the removed count. A store never logs the removed events
+     * (design decision D15).
+     */
+    private long removeMatching(Predicate<StoredEvent> predicate) {
+        AtomicLong removedCount = new AtomicLong();
+        storedEvents.removeIf(storedEvent -> {
+            if (predicate.test(storedEvent)) {
+                removedCount.incrementAndGet();
+                return true;
+            }
+            return false;
+        });
+        return removedCount.get();
     }
 
     /**

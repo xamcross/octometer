@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import octometer.kit.core.store.DeletionResult;
 import octometer.kit.core.store.EventLogStore;
 import octometer.kit.core.user.UserIdResolver;
 
@@ -314,7 +315,7 @@ class IngestPipelinePathAndSourceTest {
             }
 
             @Override
-            public void deleteByUserId(String userId) {
+            public DeletionResult deleteByUserId(String userId) {
                 throw new UnsupportedOperationException();
             }
         };

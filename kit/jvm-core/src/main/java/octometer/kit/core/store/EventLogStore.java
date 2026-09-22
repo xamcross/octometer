@@ -5,8 +5,7 @@ import octometer.kit.core.ingest.IngestEvent;
 
 /**
  * The event log store of design decision D18. An app gives one
- * implementation. This module adds only an in-memory implementation;
- * issue #35 adds {@code deleteByUserId} to the other stores.
+ * implementation. This module adds only an in-memory implementation.
  */
 public interface EventLogStore {
 
@@ -54,15 +53,40 @@ public interface EventLogStore {
     }
 
     /**
-     * Deletes each stored event with the given user id. The value of
-     * {@code userId} must not be {@code null}, and it must not be an
-     * empty text. An implementation throws {@link NullPointerException}
-     * for a {@code null} value, and {@link IllegalArgumentException} for
-     * an empty text. A store never erases an anonymous event with this
-     * method, because that event holds no user id (contract rule C6).
+     * Deletes each stored event with the given user id, and each stored
+     * event with {@code userId: null} of a session of that user
+     * (contract rule C43, the design change of 2026-09-21 for issue
+     * #35). An event of a second user id in the same session stays.
+     *
+     * <p>An implementation reads the distinct session ids of the given
+     * user id first, then deletes the two groups of events: each event
+     * with that user id, and each anonymous event of one of those
+     * sessions. A MongoDB store must not run these steps as one
+     * transaction; its constructor takes only a {@code MongoDatabase},
+     * with no client session (design decision D22). A write for this
+     * user id, between the session read and the two deletes, can leave
+     * an event behind: a new session of this user, started during the
+     * call, keeps its anonymous events, because the call never reads
+     * that new session id. A caller runs this method again to catch
+     * that case.
+     *
+     * <p>The value of {@code userId} must not be {@code null}, and it
+     * must not be an empty text. An implementation throws {@link
+     * NullPointerException} for a {@code null} value, and {@link
+     * IllegalArgumentException} for an empty text.
+     *
+     * <p>The return value holds only the two counts of {@link
+     * DeletionResult}. A store must never put a user id or a session id
+     * into a log line, an exception message, or the return value.
      *
      * <p>A store throws an unchecked exception when the delete fails. An
      * adapter maps that exception to status 500.
+     *
+     * <p>For an app team: run this call before the erasure route of the
+     * monitor. Wait for one full poll cycle of the monitor after this
+     * call, then call the monitor route. Design decision D15 states this
+     * order; a call to the monitor route before that wait can read the
+     * erased events again from this store.
      */
-    void deleteByUserId(String userId);
+    DeletionResult deleteByUserId(String userId);
 }
