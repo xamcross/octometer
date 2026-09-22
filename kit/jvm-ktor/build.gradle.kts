@@ -5,9 +5,10 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinVersion as KotlinLanguageVersion
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    `maven-publish`
 }
 
-group = "octometer"
+group = "com.github.xamcross.octometer"
 version = "0.1.0"
 
 kotlin {
@@ -50,4 +51,36 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+// The publication for JitPack (design decision D25, issue #37). The
+// artifact id "octometer-kit-ktor" comes from D25.
+//
+// The Gradle Kotlin/Java component omits a compileOnly dependency from
+// a published POM. This is the Gradle default, and this build keeps
+// it: the published POM has no entry for io.ktor:ktor-server-core or
+// org.jetbrains.kotlinx:kotlinx-coroutines-core. The app gives Ktor
+// itself (see the file header of this module).
+//
+// See kit/jvm-core/build.gradle.kts for the note on the missing
+// license.
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+            artifactId = "octometer-kit-ktor"
+
+            pom {
+                name.set("Octometer Kit Ktor")
+                description.set("The Ktor adapter of the Octometer JVM kit. The app gives Ktor and the Kotlin coroutines library.")
+                url.set("https://github.com/xamcross/octometer")
+
+                scm {
+                    connection.set("scm:git:https://github.com/xamcross/octometer.git")
+                    developerConnection.set("scm:git:https://github.com/xamcross/octometer.git")
+                    url.set("https://github.com/xamcross/octometer")
+                }
+            }
+        }
+    }
 }
