@@ -72,6 +72,11 @@ const SESSION_START_ELEMENT = 'octo:session-start';
  * below the 64 KB keepalive quota of one page:
  *
  * MAX_QUEUE_SIZE / MAX_BATCH_ENTRIES * MAX_BODY_BYTES < 65536
+ *
+ * The session start of issue #107 adds one more keepalive request. Its
+ * body holds 266 bytes at most: a 36-byte session id, plus a path of
+ * 150 bytes under contract rule C39. The worst case sum is then
+ * 4 * 15000 + 266 = 60266 bytes. This stays below the 65536-byte quota.
  */
 const MAX_QUEUE_SIZE = 200;
 const DEFAULT_FLUSH_INTERVAL_MS = 5000;
@@ -174,16 +179,17 @@ export function createTracker(options: TrackerOptions): Tracker {
     runId += 1;
     everStarted = true;
     // Issue #107, step 1: the tracker resolves the session id here, in
-    // start(), not at the first flush. This early resolve tells a new
-    // session from an existing one. Only a new session sends the session
-    // start, at once, before any click.
+    // start(), not at the first flush. This early resolve gives the
+    // answer: the session is new, or the session already exists. Only a
+    // new session sends the session start, at once, before any click.
     let isNewSession = false;
     try {
       isNewSession = resolveSessionId().isNew;
     } catch {
       // generateUuid() found no Web Crypto API. sessionId stays null.
-      // This start() call sends no session start. A later flush() retries
-      // through getOrCreateSessionId().
+      // This start() call sends no session start. A later flush() still
+      // creates the session id, through getOrCreateSessionId(). This
+      // document then sends no session start.
     }
     clickListener = (event: Event) => handleClick(event);
     document.addEventListener('click', clickListener, true);
@@ -340,6 +346,12 @@ export function createTracker(options: TrackerOptions): Tracker {
       // A later stop() ran first, or generateUuid() found no session id.
       return;
     }
+    // Maintainer decision (2026-09-22, MAJOR 1 of the reliability review):
+    // a new id enters sessionStorage only now, at the moment the session
+    // start request goes out. A hidden or a prerendering document that
+    // ends before this point stores no id, so the next document of the
+    // same tab starts a fresh session instead of a silent, lost one.
+    writeStoredSessionId(sessionId);
     const path = computePath(preparedRoutes);
     const click: { element: string; ageMs: number; path?: string } = {
       element: SESSION_START_ELEMENT,
@@ -548,7 +560,15 @@ export function createTracker(options: TrackerOptions): Tracker {
     if (sessionId !== null) {
       return sessionId;
     }
-    return resolveSessionId().id;
+    const resolved = resolveSessionId();
+    if (resolved.isNew) {
+      // start() found no session id here (for example, no Web Crypto API
+      // yet). No trySendSessionStart() wait applies to this path, thus
+      // the write happens at once, so a later flush of this document
+      // reuses the same id.
+      writeStoredSessionId(resolved.id);
+    }
+    return resolved.id;
   }
 
   /**
@@ -559,6 +579,12 @@ export function createTracker(options: TrackerOptions): Tracker {
    * once, to send the session start at once. `getOrCreateSessionId()`
    * calls it again only when `start()` found no session id, for example
    * with no Web Crypto API yet.
+   *
+   * A new id does not enter `sessionStorage` here (maintainer decision of
+   * 2026-09-22, MAJOR 1 of the reliability review). `sendSessionStart()`
+   * writes it at the moment the request goes out. A click that is queued
+   * before that moment still carries this id: it lives in the closure
+   * variable `sessionId` right away.
    */
   function resolveSessionId(): { id: string; isNew: boolean } {
     const stored = readStoredSessionId();
@@ -568,16 +594,18 @@ export function createTracker(options: TrackerOptions): Tracker {
     const isValidStored = stored !== null && SESSION_ID_PATTERN.test(stored);
     const id = isValidStored ? (stored as string) : generateUuid();
     sessionId = id;
-    if (!isValidStored) {
-      // A reused, valid id needs no rewrite: the value does not change.
-      writeStoredSessionId(id);
-    }
     return { id, isNew: !isValidStored };
   }
 
   function readStoredSessionId(): string | null {
     try {
-      return window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+      const stored = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+      // MINOR 1 of the reliability review: a store that reads null but
+      // fails each write (a full quota, an old private window) must
+      // still give the module fallback id. The old code returned the
+      // real `null` here, thus a second start() made a second, different
+      // id, and sent a second session start.
+      return stored ?? moduleFallbackSessionId;
     } catch {
       // A private window or a blocked store keeps the id in a module
       // variable, for the life of the document (issue #107, step 4).
