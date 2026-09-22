@@ -60,6 +60,18 @@ application {
 
 tasks.test {
     useJUnitPlatform()
+    // Correction round 2 of issue #38 (MAJOR, second security review):
+    // FrontendCspTest and WindowsStartScriptTest read these two files
+    // directly, with no Gradle input link to them. Gradle could then
+    // restore a skipped, cached result even after a later build adds
+    // the files. Both paths are now real task inputs, so a build that
+    // adds either file always reruns this task.
+    inputs.files(layout.buildDirectory.file("frontend-dist/browser/index.html"))
+        .withPropertyName("frontendIndexHtml")
+        .optional()
+    inputs.files(layout.buildDirectory.file("install/backend/bin/backend.bat"))
+        .withPropertyName("windowsStartScript")
+        .optional()
 }
 
 // MAJOR 3, Kotlin review of pull request #160. A container test needs
@@ -100,6 +112,40 @@ tasks.withType<Test>().configureEach {
                             "${result.skippedTestCount} test(s) on CI. A container " +
                             "test needs Docker. Add Docker to this job, or find why " +
                             "it is absent."
+                    )
+                }
+            }
+        })
+    }
+}
+
+// Correction round 2 of issue #38 (MAJOR, release review): FrontendCspTest
+// and WindowsStartScriptTest each skip through Assumptions.assumeTrue until
+// a build artifact exists (the frontend build, or installDist). The job
+// "Monitor backend on Windows" now runs the test task after installDist
+// (ci.yml), so a skip there hides a real problem. The guard below reads
+// OCTOMETER_REQUIRE_DIST, a variable that ci.yml sets on that test step
+// only, following the pattern of the OCTOMETER_REQUIRE_DOCKER guard above.
+tasks.withType<Test>().configureEach {
+    if (System.getenv("OCTOMETER_REQUIRE_DIST") == "true") {
+        addTestListener(object : TestListener {
+            override fun beforeSuite(suite: TestDescriptor) {}
+
+            override fun beforeTest(testDescriptor: TestDescriptor) {}
+
+            override fun afterTest(testDescriptor: TestDescriptor, result: TestResult) {}
+
+            override fun afterSuite(suite: TestDescriptor, result: TestResult) {
+                val className = suite.className
+                val distTestClassNames = setOf(
+                    "octometer.monitor.frontend.FrontendCspTest",
+                    "octometer.monitor.windows.WindowsStartScriptTest",
+                )
+                if (className in distTestClassNames && result.skippedTestCount > 0) {
+                    throw GradleException(
+                        "The class \"$className\" of monitor:backend skipped " +
+                            "${result.skippedTestCount} test(s) on CI. Run " +
+                            "installDist before this test task."
                     )
                 }
             }

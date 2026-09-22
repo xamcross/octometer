@@ -76,7 +76,16 @@ jobs:
           node-version-file: monitor/frontend/.nvmrc
           cache: npm
           cache-dependency-path: monitor/frontend/package-lock.json
+      - name: Build the distribution, with the Angular app inside it
+        run: ./gradlew :monitor:backend:installDist
       - name: Test the monitor backend
+        # Correction round 2 of issue #38 (MAJOR, release review): this
+        # step ran before installDist, so FrontendCspTest and
+        # WindowsStartScriptTest always skipped. The step now runs
+        # after the build, and the variable below fails the build on a
+        # skip of either class.
+        env:
+          OCTOMETER_REQUIRE_DIST: 'true'
         run: ./gradlew :monitor:backend:test
       - name: Keep the test report
         if: failure()
@@ -84,8 +93,6 @@ jobs:
         with:
           name: test-report-monitor-windows
           path: monitor/backend/build/reports/tests/test
-      - name: Build the distribution, with the Angular app inside it
-        run: ./gradlew :monitor:backend:installDist
       - name: Start the distribution and open its routes
         # This step runs the Unix start script
         # "monitor/backend/build/install/backend/bin/backend", not
@@ -97,9 +104,9 @@ jobs:
         # java itself, and "kill" reaches it.
         #
         # Correction round 1 (MAJOR 2, release review): the job shell
-        # runs with "-e", so a failed curl used to stop this step before
-        # the kill line ran, and the java process stayed alive until the
-        # job timeout. The trap now runs on every exit path of this
+        # runs with "-e". A failed curl used to stop this step before
+        # the kill line ran. The java process then stayed alive until
+        # the job timeout. The trap now runs on every exit path of this
         # step, a normal end and a failure alike.
         run: |
           ./monitor/backend/build/install/backend/bin/backend &
