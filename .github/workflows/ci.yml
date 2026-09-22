@@ -43,6 +43,12 @@ jobs:
       # app is a project of the root build (Ktor review MINOR 7). A
       # separate step here would repeat that work.
       - name: Build each JVM module
+        # MAJOR 3, Kotlin review of pull request #160. This job always
+        # has Docker, so a skipped container test here is a real
+        # problem. monitor/backend/build.gradle.kts reads this
+        # variable and fails the build on a skip.
+        env:
+          OCTOMETER_REQUIRE_DOCKER: 'true'
         run: ./gradlew build
       - name: Keep the test report
         if: failure()

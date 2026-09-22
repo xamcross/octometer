@@ -116,6 +116,39 @@ class IngestRouteTest {
         assertEquals("user-1", stored[0].userId())
     }
 
+    @Test
+    fun `a batch that the store drops above the event cap still gives 204 and an empty body`() = testApplication {
+        // Issue #34: the store of design decision D21 drops a batch above
+        // OCTOMETER_MAX_EVENTS with no exception; the route then answers
+        // 204, the same answer as a stored batch (contract rule C19). This
+        // test stands in for that store with a fake that always drops, so
+        // this module needs no MongoDB dependency for the check.
+        val store = object : EventLogStore {
+            override fun append(events: List<IngestEvent>, userId: String?) {
+                // The event cap of design decision D21: the store drops the
+                // whole batch and writes no event.
+            }
+
+            override fun deleteByUserId(userId: String): DeletionResult {
+                // Not used by this test.
+                return DeletionResult(0, 0, true)
+            }
+        }
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(validBody)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertEquals("", response.bodyAsText(), "The answer must hold no body, so a client learns nothing.")
+    }
+
     // The two tests below prove the route seam of contract rule C42
     // (issue #104): octometerIngestRoute passes settings, and so the
     // path pattern matcher, straight to IngestPipeline.ingest. The Java

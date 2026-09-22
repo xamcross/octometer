@@ -8,7 +8,11 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import octometer.kit.core.ingest.IngestEvent;
 import org.bson.Document;
@@ -21,21 +25,20 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Confirms MAJOR 3 of the two first reviews of pull request #126: a
- * database user that holds only {@code insert}, and no {@code
- * createIndex} right, on the app database. The store must still log
- * exactly one warn-level line, the line must name the step and the
- * numeric error code, the collection must end with no TTL index, and
- * {@link MongoEventLogStore#append} must still write the event. Each test
- * needs Docker; a machine with no Docker skips the whole class.
+ * Confirms BLOCKER 2 of the security review and MAJOR 1 of the MongoDB
+ * review of pull request #165: the documented minimum role of the app
+ * database user ({@code insert}, {@code createIndex}, {@code collMod},
+ * and {@code find} on {@code octometer_events}) lets the event cap of
+ * design decision D21 work. Each test needs Docker; a machine with no
+ * Docker skips the whole class.
  */
 @Testcontainers(disabledWithoutDocker = true)
-class MongoEventLogStoreInsertOnlyUserTest {
+class MongoEventLogStoreRestrictedRoleEventCapTest {
 
+    private static final Instant START = Instant.parse("2026-09-22T10:00:00.000Z");
     private static final String ROOT_USER = "root";
     private static final String ROOT_PASSWORD = "test-root-pass";
     private static final String APP_DATABASE = "octometer_app_test";
@@ -53,18 +56,18 @@ class MongoEventLogStoreInsertOnlyUserTest {
     private MongoClient appClient;
 
     @BeforeEach
-    void createTheInsertOnlyUser() {
+    void createTheDocumentedMinimumRoleUser() {
         rootClient = connectWithRetry(ROOT_USER, ROOT_PASSWORD, "admin");
         MongoDatabase appDatabaseAsRoot = rootClient.getDatabase(APP_DATABASE);
-        appDatabaseAsRoot.runCommand(new Document("createRole", "insertOnly")
+        appDatabaseAsRoot.runCommand(new Document("createRole", "octometerApp")
                 .append("privileges", List.of(new Document("resource",
                                 new Document("db", APP_DATABASE)
                                         .append("collection", MongoEventLogStore.COLLECTION_NAME))
-                        .append("actions", List.of("insert"))))
+                        .append("actions", List.of("insert", "createIndex", "collMod", "find"))))
                 .append("roles", List.of()));
         appDatabaseAsRoot.runCommand(new Document("createUser", APP_USER)
                 .append("pwd", APP_PASSWORD)
-                .append("roles", List.of(new Document("role", "insertOnly").append("db", APP_DATABASE))));
+                .append("roles", List.of(new Document("role", "octometerApp").append("db", APP_DATABASE))));
 
         appClient = clientFor(APP_USER, APP_PASSWORD, APP_DATABASE);
     }
@@ -76,52 +79,32 @@ class MongoEventLogStoreInsertOnlyUserTest {
     }
 
     @Test
-    void aUserWithOnlyInsertGetsOneWarningNoTtlIndexAndAWorkingAppend() {
+    void theDocumentedMinimumRoleLetsTheCapStopTheIngest() {
         CapturingLoggerFinder.clear();
         MongoDatabase appDatabase = appClient.getDatabase(APP_DATABASE);
+        MutableClock clock = new MutableClock(START);
+        // maxEvents 1: the first batch fills the cap.
+        MongoEventLogStore store = new MongoEventLogStore(appDatabase, 30, 1, clock);
 
-        MongoEventLogStore store = new MongoEventLogStore(appDatabase, 30);
-
-        assertEquals(1, CapturingLoggerFinder.records().size());
-        CapturingLoggerFinder.Record record = CapturingLoggerFinder.records().peek();
-        assertEquals(java.lang.System.Logger.Level.WARNING, record.level());
-        assertTrue(record.message().contains("\"createIndex\""), "The line must name the step.");
-        assertTrue(record.message().contains("no TTL index"), "The line must state the plain result.");
-        assertFalse(record.message().toLowerCase().contains("not authorized"),
-                "The line must never hold the server text.");
-
+        store.append(List.of(new IngestEvent("s1", "e1", Instant.now())), "user-1");
         MongoCollection<Document> rawCollectionAsRoot = rootClient.getDatabase(APP_DATABASE)
                 .getCollection(MongoEventLogStore.COLLECTION_NAME);
-        boolean hasTtlIndex = false;
-        for (Document index : rawCollectionAsRoot.listIndexes()) {
-            if (index.containsKey("expireAfterSeconds")) {
-                hasTtlIndex = true;
-            }
-        }
-        assertFalse(hasTtlIndex, "No TTL index must exist for a user with no createIndex right.");
-
-        store.append(new IngestEvent("11111111-1111-1111-1111-111111111111", "checkout.save", Instant.now()),
-                "user-1");
-
         assertEquals(1, rawCollectionAsRoot.countDocuments());
 
-        // MongoDB review of pull request #165: the append above also
-        // exercises the event cap guard, and estimatedDocumentCount()
-        // needs the find action that this role does not hold. The guard
-        // must still fail open for this one call, with a second warning
-        // that holds the numeric MongoDB error code 13 (Unauthorized).
-        assertEquals(2, CapturingLoggerFinder.records().size(),
-                "The append must add the guard's own fail-open warning, next to the createIndex warning.");
-        CapturingLoggerFinder.Record capWarning = null;
-        for (CapturingLoggerFinder.Record eachRecord : CapturingLoggerFinder.records()) {
-            if (eachRecord.message().contains("could not read its event count")) {
-                capWarning = eachRecord;
+        clock.advance(Duration.ofSeconds(60));
+        store.append(List.of(new IngestEvent("s1", "e2", Instant.now())), "user-1");
+
+        assertEquals(1, rawCollectionAsRoot.countDocuments(),
+                "With find granted, estimatedDocumentCount() succeeds, and the cap stops the second batch.");
+        // The cap works because the count succeeded; the guard never
+        // falls back to its own failure warning.
+        boolean sawAFailureWarning = false;
+        for (CapturingLoggerFinder.Record record : CapturingLoggerFinder.records()) {
+            if (record.message().contains("could not read its event count")) {
+                sawAFailureWarning = true;
             }
         }
-        assertEquals(java.lang.System.Logger.Level.WARNING, capWarning.level());
-        assertTrue(capWarning.message().contains("MongoDB error code 13"), "The line must name the error code.");
-        assertFalse(capWarning.message().toLowerCase().contains("not authorized"),
-                "The line must never hold the server text.");
+        assertTrue(!sawAFailureWarning, "The find action must let the count succeed, with no failure warning.");
     }
 
     private static MongoClient connectWithRetry(String user, String password, String authDatabase) {
@@ -160,5 +143,33 @@ class MongoEventLogStoreInsertOnlyUserTest {
                 .credential(MongoCredential.createCredential(user, authDatabase, password.toCharArray()))
                 .build();
         return MongoClients.create(settings);
+    }
+
+    /** A {@link Clock} that a test can move forward. */
+    private static final class MutableClock extends Clock {
+        private volatile Instant instant;
+
+        MutableClock(Instant instant) {
+            this.instant = instant;
+        }
+
+        void advance(Duration duration) {
+            instant = instant.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            throw new UnsupportedOperationException("This test clock always uses UTC.");
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
+        }
     }
 }
