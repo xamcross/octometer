@@ -22,7 +22,9 @@ import kotlinx.io.readByteArray
 import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestPipeline
+import octometer.kit.core.ingest.IngestRateLimiter
 import octometer.kit.core.ingest.IngestSettings
+import octometer.kit.core.ingest.RateLimitResult
 import octometer.kit.core.store.EventLogStore
 import octometer.kit.core.user.UserIdResolver
 import java.time.Clock
@@ -33,6 +35,45 @@ public const val DEFAULT_INGEST_PATH: String = "/api/octometer/v1/clicks"
 
 /** The maximum size of one request body, in bytes (contract rule C18). */
 private const val MAX_BODY_BYTES: Long = 16 * 1024
+
+/**
+ * The maximum length of one client address value, in characters (issue
+ * #33). A value above this length falls back to the remote address; see
+ * [clientAddress]. The text of an IPv6 address needs at most 45
+ * characters, so this cap stays well above every normal address text.
+ */
+private const val MAX_CLIENT_ADDRESS_LENGTH = 64
+
+/**
+ * A text form of one IPv4 address (four dot-separated numbers, each 0 to
+ * 255).
+ */
+private val IPV4_ADDRESS_PATTERN = Regex(
+    "^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}$",
+)
+
+/**
+ * A text form of one IPv6 address, with the standard compressed ("::")
+ * form and an embedded IPv4 tail.
+ */
+private val IPV6_ADDRESS_PATTERN = Regex(
+    """
+    ^(
+    ([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|
+    ([0-9a-fA-F]{1,4}:){1,7}:|
+    ([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|
+    ([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|
+    ([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|
+    ([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|
+    ([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|
+    [0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|
+    :((:[0-9a-fA-F]{1,4}){1,7}|:)|
+    ::(ffff(:0{1,4})?:)?((25[0-5]|(2[0-4]|1?[0-9])?[0-9])\.){3}(25[0-5]|(2[0-4]|1?[0-9])?[0-9])|
+    ([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1?[0-9])?[0-9])\.){3}(25[0-5]|(2[0-4]|1?[0-9])?[0-9])
+    )$
+    """,
+    RegexOption.COMMENTS,
+)
 
 /**
  * The default store dispatcher of [octometerIngestRoute] (design decision
@@ -90,8 +131,25 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  *   default is the system clock.
  * @param storeDispatcher the dispatcher of the store call. The default is
  *   [defaultStoreDispatcher].
+ * @param rateLimiter the ingest rate limiter of design decision D20 (issue
+ *   #33). The default builds one [IngestRateLimiter] with [clock], held for
+ *   the life of this route, so its window state is shared across each
+ *   request. The route answers 429 for a rejected request, before it reads
+ *   the request body (contract rule C19).
+ * @param clientIpHeaderName the name of the header that holds the client
+ *   address (issue #33, step 3). The default reads
+ *   `OCTOMETER_CLIENT_IP_HEADER` once, when this function installs the
+ *   route. The route reads the last element of the last header line (the
+ *   default trusted proxy count of one of design decision D20). A `null`
+ *   value, a request with no such header, a value above 64 characters, and
+ *   a value with no IPv4 or IPv6 address form, each fall back to the
+ *   remote address of the connection. Set this option only behind a
+ *   proxy that appends the real client address this way; see
+ *   `kit/jvm-ktor/README.md`.
  * @param resolveUserId reads the user id from the current call, or `null`
- *   when no user is signed in (contract rule C6).
+ *   when no user is signed in (contract rule C6). This function runs
+ *   before the rate limit check, so a rejected request still pays its
+ *   cost; keep it short.
  */
 public fun Route.octometerIngestRoute(
     store: EventLogStore,
@@ -99,6 +157,8 @@ public fun Route.octometerIngestRoute(
     settings: IngestSettings = IngestSettings.fromEnvironment(),
     clock: Clock = Clock.systemUTC(),
     storeDispatcher: CoroutineDispatcher = defaultStoreDispatcher(),
+    rateLimiter: IngestRateLimiter = IngestRateLimiter(clock),
+    clientIpHeaderName: String? = System.getenv("OCTOMETER_CLIENT_IP_HEADER"),
     resolveUserId: (ApplicationCall) -> String?,
 ) {
     require(ingestPath.startsWith("/")) {
@@ -107,8 +167,36 @@ public fun Route.octometerIngestRoute(
 
     post(ingestPath) {
         try {
+            // The content type check runs before the rate limit check, so
+            // a request with a wrong content type never counts against a
+            // key of the rate limiter (design decision D20). The route
+            // reads no body for that request either way, so the cost of
+            // one such request stays small.
             if (!hasJsonContentType(call)) {
                 call.respond(HttpStatusCode.UnsupportedMediaType)
+                return@post
+            }
+
+            // resolveUserId runs here, on the coroutine of the call,
+            // before the store call moves to storeDispatcher (rule of the
+            // app documentation above). It also runs before the rate
+            // limit check and before the route reads the request body
+            // (design decision D20, issue #33), so a rejected request
+            // never reads the body. A rejected request still pays the
+            // cost of resolveUserId itself; keep that function short, as
+            // its own KDoc already asks.
+            val userId = resolveUserId(call)
+            // The route reads the client address header only for a
+            // request with no user id; check() never reads it for a
+            // signed-in user, so this call would waste one header lookup
+            // on every request otherwise.
+            val rateLimitResult = if (userId != null) {
+                rateLimiter.check(userId, "")
+            } else {
+                rateLimiter.check(null, clientAddress(call, clientIpHeaderName))
+            }
+            if (rateLimitResult == RateLimitResult.LIMITED) {
+                call.respond(HttpStatusCode.TooManyRequests)
                 return@post
             }
 
@@ -118,10 +206,6 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
-            // Rule of the app documentation above: resolveUserId runs here,
-            // on the coroutine of the call, before the store call moves to
-            // storeDispatcher.
-            val userId = resolveUserId(call)
             val userIdResolver = UserIdResolver { userId }
             val defectSafeStore = DefectSafeEventLogStore(store)
 
@@ -209,6 +293,48 @@ private class DefectSafeEventLogStore(private val delegate: EventLogStore) : Eve
         }
     }
 }
+
+/**
+ * Reads the client address of one call for the rate limiter (design
+ * decision D20, issue #33, step 3).
+ *
+ * It reads the header that [headerName] names, when [headerName] is not
+ * `null` and the request holds that header. A request can repeat one
+ * header name as more than one header line; this function reads the
+ * *last* line ([io.ktor.http.Headers.getAll]), because a trusted proxy
+ * that adds its own line appends it after the lines of the client. Inside
+ * that last line, this function reads the *last* comma-separated element,
+ * the default trusted proxy count of one of design decision D20: the
+ * nearest proxy appends its peer address as the last element, so the
+ * last element is the address that the nearest proxy itself observed.
+ * Issue #116 adds `OCTOMETER_TRUSTED_PROXY_COUNT`, a position other than
+ * the last element, for an app behind more than one trusted proxy.
+ *
+ * A value above [MAX_CLIENT_ADDRESS_LENGTH] characters, and a value with
+ * no IPv4 or IPv6 address form, and a request with no such header, and a
+ * `null` [headerName], each fall back to the remote address of the
+ * connection ([io.ktor.server.request.ApplicationRequest.local]).
+ *
+ * An app must set [headerName] only behind a proxy that appends the real
+ * client address this way. See `kit/jvm-ktor/README.md`.
+ */
+private fun clientAddress(call: ApplicationCall, headerName: String?): String {
+    val headerValue = headerName
+        ?.let { call.request.headers.getAll(it)?.lastOrNull() }
+        ?.substringAfterLast(',')
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() && it.length <= MAX_CLIENT_ADDRESS_LENGTH && looksLikeAnIpAddress(it) }
+    return headerValue ?: call.request.local.remoteAddress
+}
+
+/**
+ * True when [value] has the text form of an IPv4 address or an IPv6
+ * address (issue #33, the header rule of design decision D20). This
+ * function checks the text form only; it makes no network call and it
+ * resolves no name.
+ */
+private fun looksLikeAnIpAddress(value: String): Boolean =
+    IPV4_ADDRESS_PATTERN.matches(value) || IPV6_ADDRESS_PATTERN.matches(value)
 
 /**
  * Checks the `Content-Type` header against contract rule C12. The type
