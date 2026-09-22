@@ -17,13 +17,13 @@ Run each script from this folder.
 - `npm test` — runs the unit tests one time, then stops.
 - `npm run test:watch` — runs the unit tests, and watches each file change.
 - `npm run lint` — checks the code style with ESLint.
+- `npm run build` — builds the app into `dist/frontend`.
+- `npm run format` — writes each file in the Prettier code style.
+- `npm run format:check` — checks the Prettier code style, and changes no file.
 
 This module has no changed-only test script. The Angular unit-test
 builder runs one spec for one changed file. It skips a template
 change and a style change. `npm test` runs the whole suite here.
-- `npm run build` — builds the app into `dist/frontend`.
-- `npm run format` — writes each file in the Prettier code style.
-- `npm run format:check` — checks the Prettier code style, and changes no file.
 
 ## Dev proxy
 
