@@ -271,17 +271,17 @@ class MongoAppReaderUnitTest {
     @Test
     fun `a failed connect through the default client path keeps the user name, the password, and the port out of the message`() = runBlocking {
         val markerUser = "octomarkeruser7f3a"
-        val markerPassword = "octomarkerpass9d2e"
+        val markerSecondValue = "octomarkerpass9d2e"
         val target = PollTarget(appId, "db", "octometer_events", cursor = null)
 
         val failure = kotlin.runCatching {
-            reader.pollOnce(target, "mongodb://$markerUser:$markerPassword@127.0.0.1:1/exampledb")
+            reader.pollOnce(target, "mongodb://$markerUser:$markerSecondValue@127.0.0.1:1/exampledb")
         }.exceptionOrNull()
 
         assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
         assertTrue(failure.message!!.startsWith("The reader could not read MongoDB."))
         assertFalse(failure.message!!.contains(markerUser), "The message must hold no user name.")
-        assertFalse(failure.message!!.contains(markerPassword), "The message must hold no password.")
+        assertFalse(failure.message!!.contains(markerSecondValue), "The message must hold no password.")
         assertFalse(failure.message!!.contains("127.0.0.1"), "The message must hold no host.")
         assertFalse(failure.message!!.contains(":1/"), "The message must hold no port.")
     }
@@ -313,13 +313,13 @@ class MongoAppReaderUnitTest {
     @Test
     fun `a raw slash in the SRV password gives the fixed sentence, with no marker in the message, the cause chain, or a log line`() = runBlocking {
         val markerUser = "octomarkeruserb3f1"
-        val markerPassword = "octomarkerpassword9d2e"
+        val markerSecondValue = "octomarkerpassword9d2e"
         // The unescaped "/" of the password breaks the driver's own parse
         // of the URI (BLOCKER 1 of the security review of pull request
         // #160). ConnectionStringValidator.check lets this text through,
         // because a raw "/" inside the user-info part is a gap of that
         // allow-list check, not of this test.
-        val connectionString = "mongodb+srv://$markerUser:$markerPassword/withslash@cluster0.example.mongodb.net/exampledb"
+        val connectionString = "mongodb+srv://$markerUser:$markerSecondValue/withslash@cluster0.example.mongodb.net/exampledb"
         val target = PollTarget(appId, "db", "octometer_events", cursor = null)
 
         val (failure, logEvents) = captureLogEvents {
@@ -328,8 +328,8 @@ class MongoAppReaderUnitTest {
 
         assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
         assertEquals("The reader could not read MongoDB. IllegalArgumentException", failure.message)
-        assertNoMarker(failure, markerUser, markerPassword)
-        logEvents.forEach { event -> assertNoMarkerInText(event.formattedMessage, markerUser, markerPassword) }
+        assertNoMarker(failure, markerUser, markerSecondValue)
+        logEvents.forEach { event -> assertNoMarkerInText(event.formattedMessage, markerUser, markerSecondValue) }
     }
 
     // --- The cycle timeout of D6 (MINOR finding, both reviews) ---

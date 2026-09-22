@@ -73,6 +73,14 @@ tasks.test {
 // sets on the Ubuntu job only (see kit/jvm-mongo/build.gradle.kts for
 // the same pattern, keyed on CI there, because its test task never
 // runs on the Windows job).
+//
+// Correction: monitor/backend also holds two tests that skip by design
+// on Ubuntu, through Assumptions.assumeTrue for a Windows-only path
+// (SecretStoreTest, DatabaseBackupTest). A guard on the whole task, as
+// kit/jvm-mongo's guard reads, would fail on that skip too, with no
+// tie to Docker. The listener below checks only a class suite whose
+// name ends with "ContainerTest", the naming of each Testcontainers
+// class of this module.
 tasks.withType<Test>().configureEach {
     if (System.getenv("OCTOMETER_REQUIRE_DOCKER") == "true") {
         addTestListener(object : TestListener {
@@ -83,9 +91,10 @@ tasks.withType<Test>().configureEach {
             override fun afterTest(testDescriptor: TestDescriptor, result: TestResult) {}
 
             override fun afterSuite(suite: TestDescriptor, result: TestResult) {
-                if (suite.parent == null && result.skippedTestCount > 0) {
+                val className = suite.className
+                if (className != null && className.endsWith("ContainerTest") && result.skippedTestCount > 0) {
                     throw GradleException(
-                        "The task \"${suite.name}\" of monitor:backend skipped " +
+                        "The class \"$className\" of monitor:backend skipped " +
                             "${result.skippedTestCount} test(s) on CI. A container " +
                             "test needs Docker. Add Docker to this job, or find why " +
                             "it is absent."

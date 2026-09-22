@@ -194,10 +194,10 @@ class MongoAppReaderContainerTest {
     @Test
     fun `a marker user name and password in the connection string stay out of every log line at the shipped level`() = runBlocking {
         val markerUser = "octomarkerloguser4c2b"
-        val markerPassword = "octomarkerlogpass7e91"
+        val markerSecondValue = "octomarkerlogpass7e91"
         val host = MONGO.host
         val port = MONGO.getMappedPort(27017)
-        val markedConnectionString = "mongodb://$markerUser:$markerPassword@$host:$port/exampledb?authSource=admin"
+        val markedConnectionString = "mongodb://$markerUser:$markerSecondValue@$host:$port/exampledb?authSource=admin"
 
         val (_, logEvents) = captureLogEvents {
             kotlin.runCatching { reader.pollOnce(target(cursor = null), markedConnectionString) }
@@ -206,7 +206,7 @@ class MongoAppReaderContainerTest {
         assertTrue(logEvents.isNotEmpty(), "The cycle must write at least one log line, or this test proves nothing.")
         logEvents.forEach { event ->
             assertFalse(event.formattedMessage.contains(markerUser), "A log line must hold no user name: ${event.formattedMessage}")
-            assertFalse(event.formattedMessage.contains(markerPassword), "A log line must hold no password: ${event.formattedMessage}")
+            assertFalse(event.formattedMessage.contains(markerSecondValue), "A log line must hold no password: ${event.formattedMessage}")
         }
     }
 
