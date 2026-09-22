@@ -6,8 +6,10 @@
 // The static page loads the built tracker of kit/tracker. This build runs
 // npm ci and npm run build inside kit/tracker, then copies the built
 // files into the resources of this module (see the three tasks below).
-// Node 24 and npm are already installed on the build machine, so this
-// build calls them directly; it needs no portable Node copy.
+// The build needs Node 24 and npm on the PATH; read
+// tools/demo-app/README.md for the setup steps (Ktor review MAJOR 3).
+// The task npmCiTracker checks the PATH first, and it fails with a clear
+// message when npm is absent.
 import org.gradle.internal.os.OperatingSystem
 
 plugins {
@@ -29,10 +31,6 @@ dependencies {
 
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.netty)
-    implementation(libs.ktor.server.content.negotiation)
-    implementation(libs.ktor.server.status.pages)
-    implementation(libs.ktor.serialization.kotlinx.json)
-    implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.mongodb.driver.sync)
     runtimeOnly(libs.logback.classic)
@@ -60,17 +58,43 @@ tasks.test {
 val npmExecutable: String = if (OperatingSystem.current().isWindows) "npm.cmd" else "npm"
 val trackerDir = rootProject.layout.projectDirectory.dir("kit/tracker")
 
+// Ktor review MAJOR 3: checks the PATH for npmExecutable, the same
+// executable name that the Exec tasks below run. A build with no match
+// must fail fast, with a message that names Node 24, npm, and the setup
+// document.
+fun npmIsOnPath(): Boolean {
+    val pathValue = System.getenv("PATH") ?: return false
+    return pathValue.split(File.pathSeparator).any { directory ->
+        directory.isNotBlank() && File(directory, npmExecutable).isFile
+    }
+}
+
+val npmNotOnPathMessage =
+    "The demo app build needs Node 24 and npm on the PATH. Install Node 24. Read tools/demo-app/README.md for the setup steps."
+
 // Step 4 of issue #14: the static page loads the built tracker. This
 // task installs the tracker dependencies with a clean, reproducible
 // install. It skips each npm lifecycle script, because the tracker
 // needs none at install time.
+//
+// The two Exec tasks of this file write into kit/tracker/node_modules
+// and kit/tracker/dist, outside this module (Ktor review MINOR 6). Run
+// no other build of kit/tracker at the same time as this module builds,
+// or the two builds can write the same folder.
 val npmCiTracker = tasks.register<Exec>("npmCiTracker") {
     description = "Installs the npm dependencies of kit/tracker (issue #14, step 4)."
     workingDir = trackerDir.asFile
+    doFirst {
+        if (!npmIsOnPath()) {
+            throw GradleException(npmNotOnPathMessage)
+        }
+    }
     commandLine(npmExecutable, "ci", "--ignore-scripts")
     inputs.file(trackerDir.file("package-lock.json"))
     inputs.file(trackerDir.file("package.json"))
-    outputs.dir(trackerDir.dir("node_modules"))
+    // Security review MINOR 4: a file output, not a directory output, so
+    // Gradle fingerprints one file instead of the whole node_modules tree.
+    outputs.file(trackerDir.file("node_modules/.package-lock.json"))
 }
 
 // This task builds the tracker with its own npm script, so the demo app
@@ -90,16 +114,17 @@ val buildTracker = tasks.register<Exec>("buildTracker") {
     outputs.dir(trackerDir.dir("dist"))
 }
 
-// This task copies each built JavaScript file of the tracker into the
-// resources of this module, at "static/tracker/". The route of
-// Application.kt serves each file of that folder under the URL path
-// "/tracker/". This task copies no ".d.ts" file and no ".map" file,
-// because the browser needs neither one.
+// This task copies each built JavaScript file of the tracker, and each
+// source map, into the resources of this module, at "static/tracker/".
+// The route of Application.kt serves each file of that folder under the
+// URL path "/tracker/". A source map lets the browser devtools show the
+// original tracker source (Ktor review MINOR 5). This task copies no
+// ".d.ts" file, because the browser needs none.
 val copyTrackerDist = tasks.register<Copy>("copyTrackerDist") {
     description = "Copies the built tracker into the static resources of the demo app (issue #14, step 4)."
     dependsOn(buildTracker)
     from(trackerDir.dir("dist")) {
-        include("*.js")
+        include("*.js", "*.js.map")
     }
     into(layout.buildDirectory.dir("resources/main/static/tracker"))
 }
