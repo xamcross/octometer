@@ -60,6 +60,14 @@ tasks.test {
     useJUnitPlatform()
 }
 
+// Issue #177, step 1. The test listener below reads OCTOMETER_REQUIRE_DOCKER
+// from the environment, so its value changes the task result. This input
+// declaration tells the Gradle build cache about that value. Without it, a
+// cached PASS from one value can hide a real failure of the other value.
+tasks.withType<Test>().configureEach {
+    inputs.property("octometerRequireDocker", providers.environmentVariable("OCTOMETER_REQUIRE_DOCKER").orElse(""))
+}
+
 // MAJOR 3, Kotlin review of pull request #160. A container test needs
 // Docker (@Testcontainers(disabledWithoutDocker = true)); with no
 // Docker, the whole class skips with no failure. The job "JVM modules"
