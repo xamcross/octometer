@@ -1,6 +1,7 @@
 package octometer.monitor.store
 
 import java.io.File
+import java.io.RandomAccessFile
 import java.sql.Connection
 import java.sql.DriverManager
 import java.time.Clock
@@ -15,17 +16,72 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import octometer.monitor.backup.backupsDir
+import org.slf4j.LoggerFactory
 import org.sqlite.SQLiteConfig
 
 private const val DATABASE_FILE_NAME = "octometer.db"
 private const val WRITER_SHUTDOWN_TIMEOUT_SECONDS = 5L
 
+// The two header bytes of a SQLite file at offset 18 and 19: the write
+// version and the read version. The value 1 names the legacy rollback
+// journal; the value 2 names WAL. Source: the SQLite file format spec.
+private const val HEADER_VERSION_OFFSET = 18
+private const val HEADER_VERSION_LENGTH = 2
+private const val ROLLBACK_JOURNAL_VERSION: Byte = 1
+
+private val log = LoggerFactory.getLogger("octometer.monitor.store.SqliteDatabase")
+
+/**
+ * BLOCKER 1 of correction round 1 for issue #55 (the reliability review).
+ * A person who copies a backup file over `octometer.db` by hand, but
+ * keeps the old `octometer.db-wal` file, gets the old data back with no
+ * warning: `PRAGMA journal_mode=WAL` replays the stale log over the
+ * restored file. [SqliteDatabase.open] throws this instead of opening.
+ */
+class RestoredDatabaseNeedsCleanupException(message: String) : Exception(message)
+
 // Issue #55: a plain ExecutorCoroutineDispatcher.close() only asks the
 // executor to shut down; it does not wait for the thread to end. This
 // waits, so the writer thread never outlives close(), on a success or
 // on a failed open().
+//
+// SQLite MINOR 5 of the SQLite and file system review: a timeout must not
+// stay silent. The caller learns nothing else, because a write of the
+// stalled task can still finish and lock a file after this returns.
 private fun awaitWriterShutdown(executor: ExecutorService) {
-    runCatching { executor.awaitTermination(WRITER_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+    val terminated = runCatching {
+        executor.awaitTermination(WRITER_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+    }.getOrDefault(false)
+    if (!terminated) {
+        log.warn("The writer thread did not end within {} seconds.", WRITER_SHUTDOWN_TIMEOUT_SECONDS)
+    }
+}
+
+// BLOCKER 1 of correction round 1: refuse a start on a restored database
+// with a stale write-ahead log beside it. The code never deletes the two
+// side files itself; only a person, following the README, does that.
+private fun refuseIfRestoredWithStaleWal(folder: File) {
+    val databaseFile = File(folder, DATABASE_FILE_NAME)
+    if (!databaseFile.isFile || databaseFile.length() < HEADER_VERSION_OFFSET + HEADER_VERSION_LENGTH) return
+    val walFile = File(folder, "$DATABASE_FILE_NAME-wal")
+    if (!walFile.isFile || walFile.length() <= 0L) return
+
+    val versionBytes = ByteArray(HEADER_VERSION_LENGTH)
+    RandomAccessFile(databaseFile, "r").use { file ->
+        file.seek(HEADER_VERSION_OFFSET.toLong())
+        file.readFully(versionBytes)
+    }
+    val isRollbackJournalFile = versionBytes[0] == ROLLBACK_JOURNAL_VERSION && versionBytes[1] == ROLLBACK_JOURNAL_VERSION
+    if (isRollbackJournalFile) {
+        log.error(
+            "A stale write-ahead log file lies beside a restored database. " +
+                "Delete octometer.db-wal and octometer.db-shm, then start again.",
+        )
+        throw RestoredDatabaseNeedsCleanupException(
+            "A stale write-ahead log file lies beside a restored database. " +
+                "Delete octometer.db-wal and octometer.db-shm, then start again.",
+        )
+    }
 }
 
 /**
@@ -97,11 +153,15 @@ class SqliteDatabase private constructor(
         }
     }
 
+    // SQLite MINOR 4 of correction round 1: the dispatcher closes first,
+    // so it accepts no new write task. The wait for the writer thread
+    // then follows, before the two connections close. A write in flight
+    // used to reach a closed connection; now it always finishes first.
     override fun close() {
-        runCatching { writer.close() }
-        runCatching { reader.close() }
         writerDispatcher.close()
         awaitWriterShutdown(writerExecutor)
+        runCatching { writer.close() }
+        runCatching { reader.close() }
     }
 
     companion object {
@@ -111,15 +171,28 @@ class SqliteDatabase private constructor(
          * step 4 to each connection. It runs each pending migration on the
          * writer thread. A failure closes each part that it already opened.
          *
-         * [clock] names the time of a pre-migration backup file of issue
-         * #55. Production code uses the default, the system clock; a test
-         * gives a fixed clock.
+         * [backupDir] names the folder of a pre-migration backup file of
+         * issue #55. It defaults to the sibling folder `backups` of
+         * [dataDir]; [octometer.monitor.MonitorServices] gives the
+         * resolved value of the config key `backupDir`.
+         *
+         * [clock] names the time of that file. Production code uses the
+         * default, the system clock; a test gives a fixed clock.
+         *
+         * BLOCKER 1 of correction round 1: this refuses the start when
+         * `octometer.db` is a restored rollback-journal file and a
+         * write-ahead log file with content still lies beside it.
          */
-        fun open(dataDir: String, clock: Clock = Clock.systemDefaultZone()): SqliteDatabase {
+        fun open(
+            dataDir: String,
+            backupDir: String = backupsDir(dataDir).absolutePath,
+            clock: Clock = Clock.systemDefaultZone(),
+        ): SqliteDatabase {
             val folder = File(dataDir)
             check(folder.mkdirs() || folder.isDirectory) {
                 "The data folder '$dataDir' is not available."
             }
+            refuseIfRestoredWithStaleWal(folder)
             val url = "jdbc:sqlite:" + File(folder, DATABASE_FILE_NAME).absolutePath
 
             val writer = openConnection(url, readOnly = false)
@@ -131,7 +204,7 @@ class SqliteDatabase private constructor(
                     try {
                         // MAJOR 2 (Kotlin backend engineer): the migration
                         // runs on the writer thread, not on the caller.
-                        runBlocking(writerDispatcher) { MigrationRunner.run(writer, backupsDir(dataDir), clock) }
+                        runBlocking(writerDispatcher) { MigrationRunner.run(writer, File(backupDir), clock) }
                     } catch (error: Throwable) {
                         writerDispatcher.close()
                         awaitWriterShutdown(writerExecutor)
