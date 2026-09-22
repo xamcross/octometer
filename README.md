@@ -28,10 +28,10 @@ run one module or one changed file, not the whole suite.
 
 - A JVM module: `./gradlew :monitor:backend:test` or `./gradlew
   :kit:jvm-core:test`.
-- The frontend, only the specs that a changed file touches: `npm run
-  test:changed` inside `monitor/frontend`. It compares the working tree
+- The frontend has no changed-only script. Run `npm test` inside
+  `monitor/frontend`; it always runs the whole suite.
+- The tracker, only the specs that a changed file touches: `npm run
+  test:changed` inside `kit/tracker`. It compares the working tree
   against `origin/main` by default.
-- The tracker, the same idea: `npm run test:changed` inside
-  `kit/tracker`.
 
 CI still runs the whole suite of each changed module.

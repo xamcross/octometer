@@ -8,7 +8,6 @@
     "watch": "ng build --watch --configuration development",
     "test": "ng test --watch=false",
     "test:watch": "ng test --watch",
-    "test:changed": "node scripts/test-changed.mjs",
     "lint": "ng lint",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
