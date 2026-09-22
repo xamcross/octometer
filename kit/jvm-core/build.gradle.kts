@@ -1,5 +1,6 @@
 // The ingest core of the kit. Java 21, no run-time dependency.
 // Issue #26 adds the store interface. Issue #33 adds the rate limit.
+// Issue #177 checks that this module joins the "jvm" filter of CI.
 // Issue #37 adds the maven-publish plugin. JitPack serves a module of a
 // multi-module Gradle build under the group "com.github.<user>.<repo>"
 // (confirmed on docs.jitpack.io, page "Guide to publishing libraries",
