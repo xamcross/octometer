@@ -10,6 +10,6 @@ public enum RateLimitResult {
     /** The request stays inside the window limit. */
     ALLOWED,
 
-    /** The request breaks the window limit, or the key map is full. */
+    /** The request breaks the window limit of its key. */
     LIMITED
 }

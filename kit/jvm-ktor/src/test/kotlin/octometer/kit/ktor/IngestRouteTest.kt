@@ -32,6 +32,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.system.measureTimeMillis
 import kotlin.test.AfterTest
@@ -417,7 +418,7 @@ class IngestRouteTest {
         // 64 calls under one user id would break the 30-request window
         // limit and turn most of them into a fast 429, never a slow store
         // call, which this test does not want to check.
-        val userIdCounter = java.util.concurrent.atomic.AtomicInteger()
+        val userIdCounter = AtomicInteger()
         application {
             routing {
                 octometerIngestRoute(store = store, settings = IngestSettings(true)) {
@@ -830,7 +831,7 @@ class IngestRouteTest {
         val store = InMemoryEventLogStore()
         application {
             routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true)) { null }
+                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
             }
         }
 
@@ -858,7 +859,7 @@ class IngestRouteTest {
         val store = InMemoryEventLogStore()
         application {
             routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { "user-1" }
             }
         }
 
@@ -888,6 +889,7 @@ class IngestRouteTest {
                 octometerIngestRoute(
                     store = store,
                     settings = IngestSettings(true),
+                    clock = fixedClock,
                     clientIpHeaderName = "X-Client-Ip",
                 ) { null }
             }
@@ -919,7 +921,7 @@ class IngestRouteTest {
         val store = InMemoryEventLogStore()
         application {
             routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true)) { null }
+                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
             }
         }
 
@@ -952,6 +954,7 @@ class IngestRouteTest {
                     octometerIngestRoute(
                         store = store,
                         settings = IngestSettings(true),
+                        clock = fixedClock,
                         clientIpHeaderName = "X-Client-Ip",
                     ) { null }
                 }
@@ -979,24 +982,171 @@ class IngestRouteTest {
         // checks that line holds no key). This test checks a different
         // rule: the route itself, like its 400 and 415 answers, calls
         // respondWithDefect for no 429 answer, so it writes no defect
-        // line of its own (design decision D15).
+        // line of its own (design decision D15), and that line never
+        // holds the client address or the user id of the request.
         val store = InMemoryEventLogStore()
+        val knownClientAddress = "203.0.113.55"
         application {
             routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true)) { null }
+                octometerIngestRoute(
+                    store = store,
+                    settings = IngestSettings(true),
+                    clock = fixedClock,
+                    clientIpHeaderName = "X-Client-Ip",
+                ) { null }
             }
         }
 
         repeat(121) {
             client.post(DEFAULT_INGEST_PATH) {
                 contentType(ContentType.Application.Json)
+                header("X-Client-Ip", knownClientAddress)
                 setBody(validBody)
             }
         }
 
         val messages = logAppender.events.map { it.formattedMessage }
         assertTrue(messages.none { it.contains("The Octometer ingest route failed") })
+        assertTrue(
+            messages.none { it.contains(knownClientAddress) },
+            "No log line of the route must hold the client address.",
+        )
     }
+
+    @Test
+    fun `a client already limited gets 429 for a body above the maximum size, never 400`() = testApplication {
+        // Security review MINOR 2 and concurrency review MINOR 7 of pull
+        // request #158: no test held the order of the rate limit check
+        // and the body read. An oversized body gives 400 only when the
+        // route reads the body; it must never reach that step once a
+        // client is already limited (issue #33, step 4).
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
+            }
+        }
+
+        repeat(120) { requestIndex ->
+            val response = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
+        }
+
+        val oversizedBody = """{"sessionId":"${"a".repeat(20_000)}"}"""
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(oversizedBody)
+        }
+        assertEquals(HttpStatusCode.TooManyRequests, response.status)
+    }
+
+    @Test
+    fun `with OCTOMETER_CLIENT_IP_HEADER set, a forged left element never changes the key`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(
+                    store = store,
+                    settings = IngestSettings(true),
+                    clock = fixedClock,
+                    clientIpHeaderName = "X-Forwarded-For",
+                ) { null }
+            }
+        }
+
+        repeat(120) { requestIndex ->
+            val response = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                // The left element changes on every request; the nearest
+                // proxy appends the real address as the last element
+                // (design decision D20, the default trusted proxy count
+                // of one), so the key must stay the same for all 120
+                // requests.
+                header("X-Forwarded-For", "203.0.113.$requestIndex, 198.51.100.9")
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            header("X-Forwarded-For", "203.0.113.999, 198.51.100.9")
+            setBody(validBody)
+        }
+        assertEquals(HttpStatusCode.TooManyRequests, response.status)
+    }
+
+    @Test
+    fun `with OCTOMETER_CLIENT_IP_HEADER set, a header value above 64 characters gives the remote address`() =
+        testApplication {
+            val store = InMemoryEventLogStore()
+            application {
+                routing {
+                    octometerIngestRoute(
+                        store = store,
+                        settings = IngestSettings(true),
+                        clock = fixedClock,
+                        clientIpHeaderName = "X-Client-Ip",
+                    ) { null }
+                }
+            }
+
+            val longValue = "9".repeat(65)
+            repeat(120) { requestIndex ->
+                val response = client.post(DEFAULT_INGEST_PATH) {
+                    contentType(ContentType.Application.Json)
+                    // Each value is 65 characters or more, above the
+                    // 64-character cap, so every request falls back to
+                    // the one remote address key of the test client
+                    // (design decision D20, issue #33).
+                    header("X-Client-Ip", "$longValue-$requestIndex")
+                    setBody(validBody)
+                }
+                assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
+            }
+
+            val response = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                header("X-Client-Ip", "$longValue-another")
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.TooManyRequests, response.status)
+        }
+
+    @Test
+    fun `with OCTOMETER_CLIENT_IP_HEADER set, a value with no IP address form gives the remote address`() =
+        testApplication {
+            val store = InMemoryEventLogStore()
+            application {
+                routing {
+                    octometerIngestRoute(
+                        store = store,
+                        settings = IngestSettings(true),
+                        clock = fixedClock,
+                        clientIpHeaderName = "X-Client-Ip",
+                    ) { null }
+                }
+            }
+
+            repeat(120) { requestIndex ->
+                val response = client.post(DEFAULT_INGEST_PATH) {
+                    contentType(ContentType.Application.Json)
+                    header("X-Client-Ip", "not-an-ip-address-$requestIndex")
+                    setBody(validBody)
+                }
+                assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
+            }
+
+            val response = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                header("X-Client-Ip", "still-not-an-ip-address")
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.TooManyRequests, response.status)
+        }
 
     /** A [Clock] that a test can move forward, for a rate-limit window test. */
     private class MutableClock(startInstant: Instant) : Clock() {

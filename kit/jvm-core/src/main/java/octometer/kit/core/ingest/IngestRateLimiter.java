@@ -2,11 +2,14 @@ package octometer.kit.core.ingest;
 
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -16,24 +19,34 @@ import java.util.concurrent.atomic.AtomicLong;
  * start of each 60-second slot of the clock, and it never looks back at
  * an older request.
  *
- * <p>A user id gives the key {@code "user:" + userId}, with a limit of
+ * <p>A user id gives a key of the user map, with a limit of
  * {@value #USER_LIMIT_PER_WINDOW} requests. A {@code null} user id gives
- * the key {@code "ip:" + clientAddress}, with a limit of
- * {@value #CLIENT_ADDRESS_LIMIT_PER_WINDOW} requests. The two kinds of
- * key never collide, also when the raw text is the same.
+ * a key of the client address map, with a limit of
+ * {@value #CLIENT_ADDRESS_LIMIT_PER_WINDOW} requests. The two maps are
+ * separate objects, so a user key and a client address key of the same
+ * text never share one counter.
  *
- * <p><strong>The map of this class.</strong> This class holds each key of
- * the current window in one map. The whole map clears at the start of
- * each window, so the acceptance criteria of issue #33 that name "the
- * window" also bound the size of the map. The map holds a maximum of
- * {@value #MAX_TRACKED_KEYS} distinct keys at one time (a limit on the
- * memory of this class: {@value #MAX_TRACKED_KEYS} keys of about 60
- * characters each, plus one small counter each, stay near 2 MB). Once the
- * map is full, a key that the map has not tracked yet in this window gets
- * {@link RateLimitResult#LIMITED} until the window ends; the map never
- * evicts an existing key to make room for a new one. Issue #118 replaces
- * this one map with two separate maps, each with its own LRU eviction
- * (design decision D20, the Related section of issue #33).
+ * <p><strong>The two maps of this class.</strong> Design decision D20
+ * holds two maps, each with its own cap and its own LRU eviction: a
+ * maximum of {@value #MAX_USER_KEYS} user keys, and a maximum of
+ * {@value #MAX_CLIENT_ADDRESS_KEYS} client address keys. Both maps are
+ * empty at the start of each window. When a map is already at its cap, a
+ * new key evicts the oldest key of that map first; a new key thus always
+ * gets a fresh counter, and it never waits for the window to end. This
+ * class chooses a {@link LinkedHashMap} in access order, under one lock
+ * for each map, over a lock-free map such as
+ * {@link java.util.concurrent.ConcurrentHashMap}. The access order of an
+ * eviction needs a write on each read, and a lock-free map cannot give an
+ * exact eviction order under contention; the acceptance criterion of an
+ * exact count under contention (1 000 requests, 8 threads, 20 runs) needs
+ * that exact order. The lock adds a small, bounded cost to one call of
+ * {@link #check}.
+ *
+ * <p><strong>The key text.</strong> A user id or a client address above
+ * {@value #MAX_KEY_LENGTH} characters is replaced by its SHA-256 hex text
+ * before it becomes a map key (issue #33). A long header value or a long
+ * user id can then never fill the memory of one map with one huge key,
+ * and it can never make two different long values collide by truncation.
  *
  * <p><strong>Cost of a rejection.</strong> A rejected request allocates
  * no object beyond one short key text; {@link RateLimitResult#LIMITED} is
@@ -53,24 +66,32 @@ public final class IngestRateLimiter {
     /** The limit of one client address key in one window (design decision D20). */
     static final int CLIENT_ADDRESS_LIMIT_PER_WINDOW = 120;
 
+    /** The cap of the user key map, with an LRU eviction (design decision D20). */
+    static final int MAX_USER_KEYS = 5_000;
+
+    /** The cap of the client address key map, with an LRU eviction (design decision D20). */
+    static final int MAX_CLIENT_ADDRESS_KEYS = 20_000;
+
     /**
-     * The size cap of the key map (issue #33, acceptance criterion "With
-     * 10 000 keys in the map"). This value also bounds the memory of one
-     * {@link IngestRateLimiter} instance; see the class comment.
+     * The maximum length of one key text before this class replaces it
+     * with its SHA-256 hex text (issue #33). The text form of an IPv6
+     * address needs at most 45 characters, so this cap stays well above
+     * every normal address text.
      */
-    static final int MAX_TRACKED_KEYS = 10_000;
+    static final int MAX_KEY_LENGTH = 64;
 
     private static final long WINDOW_MILLIS = Duration.ofSeconds(60).toMillis();
+
+    private static final String SHA_256 = "SHA-256";
 
     private static final Logger LOGGER = System.getLogger("octometer.kit.core");
 
     private final Clock clock;
 
-    /** Guards a change of {@link #counters} and of {@link #currentWindowStart} together. */
+    /** Guards a change of {@link #window} from one window to the next. */
     private final Object windowLock = new Object();
 
-    private volatile ConcurrentHashMap<String, AtomicInteger> counters = new ConcurrentHashMap<>();
-    private volatile long currentWindowStart = Long.MIN_VALUE;
+    private volatile Window window = new Window(Long.MIN_VALUE, new KeyMap(MAX_USER_KEYS), new KeyMap(MAX_CLIENT_ADDRESS_KEYS));
     private final AtomicLong lastWarnedWindowStart = new AtomicLong(Long.MIN_VALUE);
 
     public IngestRateLimiter(Clock clock) {
@@ -91,58 +112,60 @@ public final class IngestRateLimiter {
      */
     public RateLimitResult check(String userId, String clientAddress) {
         boolean anonymous = userId == null;
-        String key;
+        String rawKey;
         int limit;
         if (anonymous) {
             Objects.requireNonNull(clientAddress, "clientAddress must not be null when userId is null");
-            key = "ip:" + clientAddress;
+            rawKey = clientAddress;
             limit = CLIENT_ADDRESS_LIMIT_PER_WINDOW;
         } else {
-            key = "user:" + userId;
+            rawKey = userId;
             limit = USER_LIMIT_PER_WINDOW;
         }
+        String key = shortenKey(rawKey);
 
         long now = clock.millis();
-        long windowStart = now - Math.floorMod(now, WINDOW_MILLIS);
-        ConcurrentHashMap<String, AtomicInteger> currentCounters = counters(windowStart);
+        long requestedWindowStart = now - Math.floorMod(now, WINDOW_MILLIS);
+        Window current = windowFor(requestedWindowStart);
+        KeyMap map = anonymous ? current.addressCounters() : current.userCounters();
 
-        AtomicInteger counter = currentCounters.get(key);
-        if (counter == null) {
-            // A soft cap: two threads can each pass this check at the
-            // same instant and both add one key, so the map can hold a
-            // small number of keys above MAX_TRACKED_KEYS for a moment.
-            // The cap still bounds the memory of this class, because
-            // the map clears in full at the next window.
-            if (currentCounters.size() >= MAX_TRACKED_KEYS) {
-                warnOncePerWindow(windowStart);
-                return RateLimitResult.LIMITED;
-            }
-            counter = currentCounters.computeIfAbsent(key, ignoredKey -> new AtomicInteger());
-        }
-
-        int count = counter.incrementAndGet();
+        int count = map.incrementAndGet(key);
         if (count > limit) {
-            warnOncePerWindow(windowStart);
+            // current.start() is the window that this request actually
+            // counted in. A late caller can compute an older
+            // requestedWindowStart than current.start() (see windowFor);
+            // the warning must still name the real window, so that two
+            // late callers of the same real window write one warning
+            // together, not two.
+            warnOncePerWindow(current.start());
             return RateLimitResult.LIMITED;
         }
         return RateLimitResult.ALLOWED;
     }
 
     /**
-     * Returns the key map of {@code windowStart}. It clears the map once,
-     * the first time a caller reaches a new window; every other caller of
-     * the same window reads the same map.
+     * Returns the window of {@code requestedWindowStart}, moving
+     * {@link #window} forward once, the first time a caller reaches a
+     * new window. This method never moves the window backwards: a caller
+     * whose {@code requestedWindowStart} is older than the live window
+     * (a stalled thread, or a clock that steps backwards) still gets the
+     * live window, not a fresh, empty one. Concurrency review BLOCKER 1
+     * of pull request #158 named the earlier, two-field version of this
+     * method, where a stalled thread could move the window backwards and
+     * reset every count of the live window.
      */
-    private ConcurrentHashMap<String, AtomicInteger> counters(long windowStart) {
-        if (currentWindowStart == windowStart) {
-            return counters;
+    private Window windowFor(long requestedWindowStart) {
+        Window current = window;
+        if (current.start() == requestedWindowStart) {
+            return current;
         }
         synchronized (windowLock) {
-            if (currentWindowStart != windowStart) {
-                counters = new ConcurrentHashMap<>();
-                currentWindowStart = windowStart;
+            current = window;
+            if (requestedWindowStart > current.start()) {
+                current = new Window(requestedWindowStart, new KeyMap(MAX_USER_KEYS), new KeyMap(MAX_CLIENT_ADDRESS_KEYS));
+                window = current;
             }
-            return counters;
+            return current;
         }
     }
 
@@ -160,6 +183,90 @@ public final class IngestRateLimiter {
             LOGGER.log(Level.WARNING, "The ingest rate limiter rejects one or more requests in "
                     + "this 60-second window (design decision D20). The log holds no key, no "
                     + "user id, and no client address.");
+        }
+    }
+
+    /**
+     * Returns {@code rawKey} when it holds {@value #MAX_KEY_LENGTH}
+     * characters or fewer. Above that length, this method returns the
+     * SHA-256 hex text of {@code rawKey} instead (issue #33), so a key
+     * map key always stays short, and two different long values almost
+     * never collide.
+     */
+    private static String shortenKey(String rawKey) {
+        if (rawKey.length() <= MAX_KEY_LENGTH) {
+            return rawKey;
+        }
+        return sha256Hex(rawKey);
+    }
+
+    private static String sha256Hex(String text) {
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance(SHA_256);
+        } catch (NoSuchAlgorithmException cause) {
+            // Every JDK 21 runtime provides SHA-256 (the Java Cryptography
+            // Architecture standard algorithm list). This branch never
+            // runs in practice.
+            throw new IllegalStateException(SHA_256 + " must be available in a JDK 21 runtime.", cause);
+        }
+        byte[] hash = digest.digest(text.getBytes(StandardCharsets.UTF_8));
+        StringBuilder hex = new StringBuilder(hash.length * 2);
+        for (byte b : hash) {
+            hex.append(Character.forDigit((b >> 4) & 0xF, 16));
+            hex.append(Character.forDigit(b & 0xF, 16));
+        }
+        return hex.toString();
+    }
+
+    /**
+     * One fixed window: its start instant, and its own user map and
+     * client address map. This class holds the whole triple in one
+     * {@code volatile} field ({@link #window}), so a reader of that field
+     * always sees one matching start and one matching pair of maps
+     * together, never a start of one window paired with the maps of a
+     * different window.
+     */
+    private record Window(long start, KeyMap userCounters, KeyMap addressCounters) {
+    }
+
+    /**
+     * One key map of one window, with a fixed cap and an LRU eviction
+     * (design decision D20, issue #33). See the class comment of
+     * {@link IngestRateLimiter} for the reason this class uses a
+     * {@link LinkedHashMap} under one lock, and not a lock-free map.
+     */
+    private static final class KeyMap {
+
+        private final Object lock = new Object();
+        private final LinkedHashMap<String, Integer> counters;
+
+        KeyMap(int maxKeys) {
+            this.counters = new LinkedHashMap<>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Integer> eldest) {
+                    return size() > maxKeys;
+                }
+            };
+        }
+
+        /**
+         * Increments the counter of {@code key} and returns the new
+         * count. A key that this map has not tracked yet in this window
+         * starts at one. When this map already holds its cap of keys,
+         * the insert of a new key evicts the oldest key of this map
+         * first (the {@code accessOrder} constructor argument makes each
+         * read move a key to the newest end); the new key thus always
+         * gets a fresh counter, never a rejection for the reason that
+         * this map is full.
+         */
+        int incrementAndGet(String key) {
+            synchronized (lock) {
+                Integer count = counters.get(key);
+                int newCount = (count == null ? 0 : count) + 1;
+                counters.put(key, newCount);
+                return newCount;
+            }
         }
     }
 }
