@@ -315,7 +315,7 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
     `lastInteractionAt`. First pages: `page`, `pageCount`, `rows` with `path`, `sessions`.
     Anonymous sessions: `page`, `pageCount`, `rows` with `sessionId`, `firstPath`, `source`,
     `startTime`, `clicks`, `userId`. A gap
-    holds `from` and `to`. The erasure returns `deleted`. Each time field is UTC ISO 8601
+    holds `from` and `to`. The erasure returns `deleted` and `checkpointed`. Each time field is UTC ISO 8601
     with milliseconds.
   - Each route of D44 keeps the Host check of D12, sends `Cache-Control: no-store`, and adds
     no CORS header.
@@ -391,8 +391,12 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   keepalive body stays below 64 KB. One `setTimeout` starts when a click enters an
   empty queue (no interval). On `pagehide` and on `visibilitychange` to hidden it sends with
   `fetch` and `keepalive: true`. It retries a batch one time after a network error, a 5xx, or
-  a 429. The UUID falls back to `crypto.getRandomValues`. Each `sessionStorage` access has a
-  try/catch.
+  a 429, after a wait. The wait is 500 ms plus a random value below 500 ms for a network
+  error or a 5xx. The wait is 2000 ms plus a random value below 2000 ms for a 429, because
+  the rate limit uses a fixed 60-second window (D20, D43). Only the timer flush retries. The
+  `pagehide` flush and the `visibilitychange` flush send a batch one time only. A browser can
+  freeze the page after the hidden state and drop the connection. The UUID falls back to
+  `crypto.getRandomValues`. Each `sessionStorage` access has a try/catch.
 - **D25. Distribution.** JVM: JitPack with a `jitpack.yml` (`jdk: openjdk21`, an `install`
   command that publishes only the kit modules, `-x test`). Artifact IDs `octometer-kit-core`,
   `octometer-kit-mongo`, `octometer-kit-ktor`, `octometer-kit-spring`. An app depends only on

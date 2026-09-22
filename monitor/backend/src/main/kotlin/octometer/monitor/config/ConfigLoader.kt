@@ -5,6 +5,7 @@ import com.typesafe.config.ConfigException
 import com.typesafe.config.ConfigFactory
 import com.typesafe.config.ConfigParseOptions
 import java.io.File
+import octometer.monitor.backup.backupsDir
 
 // The argument form of D2: -P:octometer.<key>=<value>.
 private val ARGUMENT_PATTERN = Regex("""^-P:octometer\.([a-zA-Z]+)=(.*)$""")
@@ -16,6 +17,7 @@ private val ENVIRONMENT_VARIABLE_NAMES = mapOf(
     "dataDir" to "OCTOMETER_DATA_DIR",
     "settleLagSeconds" to "OCTOMETER_SETTLE_LAG_SECONDS",
     "retentionDays" to "OCTOMETER_STORE_RETENTION_DAYS",
+    "backupDir" to "OCTOMETER_BACKUP_DIR",
 )
 
 private val KNOWN_KEYS = ENVIRONMENT_VARIABLE_NAMES.keys
@@ -95,13 +97,25 @@ fun loadConfig(
             userConfig,
             bundled.getString("octometer.retentionDays"),
         )
+        val validatedDataDir = validateDataDir(dataDir.value)
+        // Issue #55: the bundled default is the folder "backups" beside
+        // dataDir. The value depends on the resolved dataDir, so this
+        // computes it in code, the same pattern as the prod dataDir default.
+        val backupDir = resolveValue(
+            "backupDir",
+            arguments,
+            env,
+            userConfig,
+            backupsDir(validatedDataDir).absolutePath,
+        )
 
         val config = MonitorConfig(
             mode = mode.value,
             port = toValidInt("port", port.value, 1..65535, "1 to 65535"),
-            dataDir = validateDataDir(dataDir.value),
+            dataDir = validatedDataDir,
             settleLagSeconds = toValidInt("settleLagSeconds", settleLagSeconds.value, 0..Int.MAX_VALUE, "0 or more"),
             retentionDays = toValidInt("retentionDays", retentionDays.value, 1..Int.MAX_VALUE, "1 or more"),
+            backupDir = validateBackupDir(backupDir.value),
         )
 
         return ResolvedConfig(
@@ -112,6 +126,7 @@ fun loadConfig(
                 ResolvedValue("dataDir", File(config.dataDir).absolutePath, dataDir.source),
                 ResolvedValue("settleLagSeconds", config.settleLagSeconds.toString(), settleLagSeconds.source),
                 ResolvedValue("retentionDays", config.retentionDays.toString(), retentionDays.source),
+                ResolvedValue("backupDir", File(config.backupDir).absolutePath, backupDir.source),
             ),
             warnings = warnings,
         )
@@ -236,6 +251,13 @@ private fun validateMode(value: String) {
 private fun validateDataDir(value: String): String {
     if (value.isBlank()) {
         throw InvalidConfigException("The value of dataDir is blank. Give a folder path.")
+    }
+    return value
+}
+
+private fun validateBackupDir(value: String): String {
+    if (value.isBlank()) {
+        throw InvalidConfigException("The value of backupDir is blank. Give a folder path.")
     }
     return value
 }

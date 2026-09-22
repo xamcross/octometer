@@ -5,7 +5,11 @@ import io.ktor.server.application.call
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
+import octometer.monitor.apps.appTotals
+import octometer.monitor.elements.elementsRoute
+import octometer.monitor.erasure.userErasureRoutes
 import octometer.monitor.registry.appRegistryRoutes
+import octometer.monitor.users.userTotalsRoute
 
 private const val UNKNOWN_API_ROUTE_MESSAGE = "The route does not exist."
 
@@ -21,6 +25,10 @@ private const val UNKNOWN_API_ROUTE_MESSAGE = "The route does not exist."
  */
 fun Route.apiRoutes(services: MonitorServices) {
     appRegistryRoutes(services.appRegistryService)
+    appTotals(services.database)
+    userTotalsRoute(services.database)
+    elementsRoute(services.database)
+    userErasureRoutes(services.database)
     // Issue #38, step 4: a request below "/api/" never gets index.html.
     // Ktor tries a constant path segment before this wildcard segment,
     // so this route matches only after each specific "/api/" route

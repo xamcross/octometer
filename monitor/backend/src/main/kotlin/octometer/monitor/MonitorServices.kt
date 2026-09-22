@@ -1,11 +1,15 @@
 package octometer.monitor
 
 import java.io.IOException
+import java.time.Clock
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.backup.DailyBackupJob
 import octometer.monitor.config.MonitorConfig
 import octometer.monitor.registry.AppRegistryService
 import octometer.monitor.registry.SecretStore
 import octometer.monitor.registry.SecretStoreUnavailableException
+import octometer.monitor.retention.RetentionPurge
+import octometer.monitor.retention.RetentionPurgeJob
 import octometer.monitor.store.SqliteDatabase
 import org.slf4j.LoggerFactory
 
@@ -23,11 +27,18 @@ class MonitorServices private constructor(
     val config: MonitorConfig,
     val database: SqliteDatabase,
     val secretStore: SecretStore,
+    private val dailyBackupJob: DailyBackupJob,
+    private val retentionPurgeJob: RetentionPurgeJob,
 ) : AutoCloseable {
 
     val appRegistryService: AppRegistryService = AppRegistryService(database, secretStore)
 
+    // Issue #55: close() waits for a backup that runs, so the caller
+    // never sees a half-written backup file. Issue #59: close() also
+    // stops the retention purge job.
     override fun close() {
+        runBlocking { dailyBackupJob.stop() }
+        retentionPurgeJob.stop()
         database.close()
     }
 
@@ -51,11 +62,20 @@ class MonitorServices private constructor(
          * outer catch. That catch closes the store again, and it throws
          * the failure again. A failed start then never leaves an open
          * store or a locked file.
+         *
+         * The purge job of issue #59 starts here too, before the sweep.
+         * The daily backup job of issue #55 starts after the sweep. A
+         * later failure of this method stops each started job, in the
+         * same catch block that closes the store.
          */
-        fun open(config: MonitorConfig): MonitorServices {
-            val database = SqliteDatabase.open(config.dataDir)
+        fun open(config: MonitorConfig, clock: Clock = Clock.systemDefaultZone()): MonitorServices {
+            val database = SqliteDatabase.open(config.dataDir, backupDir = config.backupDir, clock = clock)
+            var dailyBackupJob: DailyBackupJob? = null
+            var retentionPurgeJob: RetentionPurgeJob? = null
             try {
                 val secretStore = SecretStore(config.dataDir)
+                retentionPurgeJob = newRetentionPurgeJob(database, config.retentionDays)
+                retentionPurgeJob.start()
                 val removedOrphans = try {
                     runBlocking { sweepOrphanSecrets(database, secretStore) }
                 } catch (unavailable: SecretStoreUnavailableException) {
@@ -66,13 +86,29 @@ class MonitorServices private constructor(
                     0
                 }
                 log.info("The start removed {} orphan secret(s).", removedOrphans)
-                return MonitorServices(config, database, secretStore)
+                // Issue #55: the daily backup job of D36. A throw after
+                // this line stops each started job in the catch block
+                // below.
+                dailyBackupJob = DailyBackupJob(database, config.dataDir, clock, backupDir = config.backupDir)
+                    .also { it.start() }
+                return MonitorServices(config, database, secretStore, dailyBackupJob, retentionPurgeJob)
             } catch (startFailure: Throwable) {
+                dailyBackupJob?.let { runBlocking { it.stop() } }
+                retentionPurgeJob?.stop()
                 database.close()
                 throw startFailure
             }
         }
     }
+}
+
+// Issue #59, step 4: the purge job of D15 runs at the start. It runs again
+// each 24 hours, for the life of the application. The production code
+// uses the real system clock. A RetentionPurgeJobTest gives its own wait
+// function instead, so a test of the job needs no real wait of 24 hours.
+private fun newRetentionPurgeJob(database: SqliteDatabase, retentionDays: Int): RetentionPurgeJob {
+    val purge = RetentionPurge(database, Clock.systemUTC())
+    return RetentionPurgeJob(action = { purge.purgeOnce(retentionDays) })
 }
 
 private suspend fun sweepOrphanSecrets(database: SqliteDatabase, secretStore: SecretStore): Int {
