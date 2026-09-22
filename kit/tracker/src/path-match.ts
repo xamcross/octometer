@@ -61,36 +61,34 @@ export interface PreparedRoute {
   readonly segments: readonly string[];
 }
 
-/** The result of `prepareRoutes`: the good entries, and one warning for each dropped entry. */
+/** The result of `prepareRoutes`: the good entries, and the index of each invalid entry. */
 export interface PreparedRoutes {
   readonly routes: readonly PreparedRoute[];
-  readonly warnings: readonly string[];
+  readonly invalidIndexes: readonly number[];
 }
 
 /**
  * Checks and splits each entry of `routes` one time, so a later click
  * reuses the split form instead of splitting the whole list again.
  *
- * This function drops an entry in three cases. The entry is not a
- * string, or it is an empty string. The entry does not start with `/`.
- * A segment of the entry holds a character outside the set of rule C39.
- * The result holds one warning message for each dropped entry, with
- * the index of that entry in the given list.
+ * This function marks an entry as invalid in three cases. The entry is
+ * not a string, or it is an empty string. The entry does not start with
+ * `/`. A segment of the entry holds a character outside the set of rule
+ * C39. The result holds the index of each invalid entry, in list order.
+ * This function writes no console warning. The caller builds the
+ * warning text and applies the fail-closed rule.
  */
 export function prepareRoutes(routes: readonly unknown[]): PreparedRoutes {
   const prepared: PreparedRoute[] = [];
-  const warnings: string[] = [];
+  const invalidIndexes: number[] = [];
   routes.forEach((route, index) => {
     if (isValidRoutePattern(route)) {
       prepared.push({ pattern: route, segments: splitRouteSegments(route) });
     } else {
-      warnings.push(
-        `octometer: the routes option drops entry ${index}. A route pattern is a string, ` +
-          'it starts with "/", and each segment holds only the character set of rule C39.',
-      );
+      invalidIndexes.push(index);
     }
   });
-  return { routes: prepared, warnings };
+  return { routes: prepared, invalidIndexes };
 }
 
 /**

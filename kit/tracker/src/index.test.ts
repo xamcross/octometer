@@ -900,7 +900,78 @@ describe('createTracker', () => {
     const clicks = at(parseCalls(fetchMock), 0).body.clicks;
     expect(at(clicks, 0)).not.toHaveProperty('path');
     expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(String(warnSpy.mock.calls[0]?.[0])).toContain('entry 1');
+    expect(String(warnSpy.mock.calls[0]?.[0])).toContain('index 1');
+  });
+
+  it('writes exactly one console warning for a list with three invalid entries, and it names each index', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({
+      endpoint: ENDPOINT,
+      routes: [
+        42 as unknown as string,
+        '/articles',
+        'no-leading-slash',
+        '/history/:id',
+        { bad: true } as unknown as string,
+      ],
+    });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0)).not.toHaveProperty('path');
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const message = String(warnSpy.mock.calls[0]?.[0]);
+    expect(message).toContain('index 0');
+    expect(message).toContain('index 2');
+    expect(message).toContain('index 4');
+    expect(message).toContain('path');
+  });
+
+  it('holds no text of a pattern, a path, or a data-octo value in the routes warning', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    window.history.pushState({}, '', '/history/42');
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'a-secret-element-name');
+    document.body.appendChild(host);
+
+    tracker = createTracker({
+      endpoint: ENDPOINT,
+      routes: ['/history/:id', 'a-secret-bad-pattern'],
+    });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const message = String(warnSpy.mock.calls[0]?.[0]);
+    expect(message).not.toContain('a-secret-bad-pattern');
+    expect(message).not.toContain('a-secret-element-name');
+    expect(message).not.toContain('/history/42');
+  });
+
+  it('accepts an unknown routes value at the type level, and sends no path field for a non-array value', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    const routesValue: unknown = 12345;
+    expect(() => {
+      tracker = createTracker({ endpoint: ENDPOINT, routes: routesValue as string[] });
+    }).not.toThrow();
+    tracker?.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0)).not.toHaveProperty('path');
+    expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 
   it('sends no path field when a missing leading slash reorders the match (MAJOR 1, privacy review)', () => {
