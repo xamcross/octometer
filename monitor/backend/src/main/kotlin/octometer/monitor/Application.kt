@@ -17,7 +17,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.isActive
 import kotlinx.serialization.Serializable
 import octometer.monitor.config.InvalidConfigException
-import octometer.monitor.config.Mode
 import octometer.monitor.config.MonitorConfig
 import octometer.monitor.config.ResolvedConfig
 import octometer.monitor.config.escapeForLog
@@ -33,6 +32,10 @@ private const val HOST = "127.0.0.1"
 // The fixed 400 sentence of issue #148. It names no part of the request.
 private const val REQUEST_NOT_VALID_MESSAGE = "The request is not valid."
 
+// refreshSeconds is config.pollIntervalSeconds (issue #17, decision 6).
+// One value now sets both the poll rate and the UI refresh rate. An
+// earlier form read a separate, duplicate value of Mode; that field is
+// gone.
 @Serializable
 data class HealthResponse(
     val version: String,
@@ -122,7 +125,7 @@ fun Application.module(config: MonitorConfig) {
                 HealthResponse(
                     version = VERSION,
                     mode = config.mode,
-                    refreshSeconds = refreshSeconds(config.mode),
+                    refreshSeconds = config.pollIntervalSeconds,
                     retentionDays = config.retentionDays,
                 ),
             )
@@ -130,12 +133,6 @@ fun Application.module(config: MonitorConfig) {
         apiRoutes(services)
     }
 }
-
-// R2 of the design: the monitor polls each 5 seconds in dev mode and each
-// 1 minute in prod mode. D2 holds no separate key for this value. The
-// loader already validates config.mode, thus the mode always matches one
-// entry of Mode here.
-private fun refreshSeconds(mode: String): Int = Mode.fromValue(mode)!!.refreshSeconds
 
 private fun logStart(resolved: ResolvedConfig) {
     for (value in resolved.values) {
