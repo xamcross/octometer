@@ -99,23 +99,30 @@ data class PollOutcome(
 )
 
 /**
- * The kept client of one app id, with the SHA-256 hex of the connection
- * string that built it (design decision D10, issue #21). This class never
- * holds the connection string itself: design decision D11 forbids a
- * connection string in a field of the reader (BLOCKER 1, security review
- * of issue #16). [MongoAppReader.clientFor] compares [connectionStringHash]
- * on each cycle, so a changed value closes the old client and builds a
- * fresh one, and a PATCH of the connection string takes effect at the
- * next poll cycle.
+ * The kept client of one app id (design decision D10, issue #21).
+ * [connectionStringHash] is the SHA-256 hex of the connection string
+ * that built [client]. This class never holds the raw connection
+ * string (design decision D11, BLOCKER 1 of the security review of
+ * issue #16). [MongoAppReader.clientFor] compares the hash on each
+ * cycle. A changed hash closes the old client. A changed hash also
+ * builds a fresh client. A PATCH of the connection string then takes
+ * effect at the next poll cycle.
+ *
+ * `toString()` prints the fixed text "CachedClient" (Kotlin review
+ * MINOR 3 of pull request #185). A data class would print the hash
+ * and the client text instead, for example inside a future log line
+ * of the whole map.
  */
-private data class CachedClient(val connectionStringHash: String, val client: MongoClient)
+private class CachedClient(val connectionStringHash: String, val client: MongoClient) {
+    override fun toString() = "CachedClient"
+}
 
 /**
- * The SHA-256 hex text of [text] (the form of [octometer.monitor.mongo]'s
- * client cache key, the same rule as the long-key hash of the ingest rate
- * limiter, issue #33). Every JDK 21 runtime provides SHA-256 (the Java
- * Cryptography Architecture standard algorithm list), so this never
- * throws in practice.
+ * Gives the SHA-256 hex text of [text]. This is the client-cache key
+ * of [MongoAppReader], the same rule as the long-key hash of the
+ * ingest rate limiter (issue #33). Every JDK 21 runtime provides
+ * SHA-256 (the Java Cryptography Architecture standard algorithm
+ * list). This function never throws in practice.
  */
 private fun sha256Hex(text: String): String {
     val digest = MessageDigest.getInstance("SHA-256")
@@ -245,35 +252,36 @@ class MongoAppReader(
     /**
      * Gives the kept client of [appId], or builds a fresh one (design
      * decision D10, issue #21). A kept client of the same connection
-     * string stays; each cycle then pays no new connect cost. A kept
-     * client of a different connection string closes at once, and a
-     * fresh client of the new string takes its place, so the next cycle
-     * after a PATCH of the connection string reads the new source.
+     * string stays. Each cycle then pays no new connect cost. A
+     * changed connection string builds a fresh client first. The map
+     * then holds the fresh client. The close of the old client runs
+     * last.
+     *
+     * This order fixes MAJOR 1 of the security review of pull request
+     * #185. The old form closed the old client first, then it built
+     * the fresh one. A failed build then left a closed client in the
+     * map, with no working client for the app until a restart of the
+     * monitor.
      *
      * This method compares [connectionString] by its SHA-256 hex only
      * ([sha256Hex]), never by the string itself (design decision D11,
-     * BLOCKER 1 of the security review of issue #16). [connectionString]
-     * sits in one local variable, and in the closure of the one
-     * [ConcurrentHashMap.compute] call below; the JVM garbage collector
-     * reclaims that closure once this method returns, so no string of
-     * this call survives inside a field of [MongoAppReader] or of
-     * [CachedClient] afterward.
+     * BLOCKER 1 of the security review of issue #16). The garbage
+     * collector reclaims [connectionString] once this method returns.
+     * No field of [MongoAppReader] or of [CachedClient] keeps the
+     * string.
      *
-     * [PollScheduler] never starts two polls of the same app id at the
-     * same time (its own `activePolls` guard), so this method never
-     * runs twice for one [appId] at once; the plain read-and-replace of
-     * [ConcurrentHashMap.compute] needs no further lock.
+     * [PollScheduler] never starts two polls of one app id at the same
+     * time (its own `activePolls` guard). This method then never runs
+     * twice for one [appId] at once. The plain read, build, and put
+     * below need no further lock.
      */
     internal fun clientFor(appId: Long, connectionString: String): MongoClient {
         val hash = sha256Hex(connectionString)
-        return clients.compute(appId) { _, cached ->
-            if (cached != null && cached.connectionStringHash == hash) {
-                cached
-            } else {
-                cached?.client?.close()
-                CachedClient(hash, clientFactory(connectionString))
-            }
-        }!!.client
+        val cached = clients[appId]
+        if (cached != null && cached.connectionStringHash == hash) return cached.client
+        val fresh = clientFactory(connectionString)
+        clients.put(appId, CachedClient(hash, fresh))?.client?.close()
+        return fresh
     }
 
     private suspend fun readBound(database: MongoDatabase): ObjectId =

@@ -45,11 +45,6 @@ dependencies {
     testImplementation(libs.logback.classic)
     // Issue #17: the virtual-time tests of the poll scheduler.
     testImplementation(libs.kotlinx.coroutines.test)
-    // Issue #21: a Docker-free unit test of the reader's client cache
-    // needs a double of the final class MongoClient. Mockito 5 mocks a
-    // final class with no extra mock maker file (the inline mock maker
-    // is its default since 5.0.0).
-    testImplementation(libs.mockito.core)
 
     // Issue #16: the container test of MongoAppReader needs the full
     // JUnit Jupiter engine and the Testcontainers MongoDB module.
@@ -61,10 +56,11 @@ dependencies {
     testImplementation(project(":kit:jvm-mongo"))
     testImplementation(project(":kit:jvm-core"))
     // Issue #21: the end-to-end test starts the ingest route of
-    // kit/jvm-ktor in this same process, not the demo app itself. A
-    // dependency on tools:demo-app would pull its npm-based tracker
-    // build into this module's test task, and the Windows CI job sets
-    // up no Node for that build. kit/jvm-ktor has no such build step.
+    // kit/jvm-ktor in this same process. It does not start the demo
+    // app itself. A dependency on tools:demo-app would pull its
+    // npm-based tracker build into this module's test task. The
+    // Windows CI job sets up no Node for that build. kit/jvm-ktor has
+    // no such build step.
     testImplementation(project(":kit:jvm-ktor"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
