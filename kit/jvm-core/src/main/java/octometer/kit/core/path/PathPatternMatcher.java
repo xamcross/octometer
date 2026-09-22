@@ -18,6 +18,11 @@ import java.util.regex.Pattern;
  * list, then calls {@link #match} for each client path. The class does
  * not read `OCTOMETER_PATH_PATTERNS` on its own; {@code IngestSettings}
  * owns that read.
+ *
+ * <p><strong>Warning for an app team.</strong> A path can hold an
+ * identifier, a token, or a search term. Mark each such segment with
+ * `:name` in the route list. Never use `*` for a segment that holds a
+ * token, an email address, or a user id.
  */
 public final class PathPatternMatcher {
 
@@ -82,9 +87,9 @@ public final class PathPatternMatcher {
 
     /**
      * Builds a matcher from an ordered pattern list. The caller must
-     * check {@link #findInvalidIndices} first: rule C42 treats a list
-     * with one invalid entry as no list at all, so this method throws
-     * for the whole list and not only for the bad entry.
+     * check {@link #findInvalidIndices} first. Rule C42 treats a list
+     * with one invalid entry as no list at all. This method then throws
+     * for the whole list, not only for the bad entry.
      *
      * @throws IllegalArgumentException when {@code rawPatterns} holds an
      *     entry that breaks {@link #isValidPattern}.
@@ -103,16 +108,29 @@ public final class PathPatternMatcher {
 
     /**
      * Matches {@code path} against the pattern list, and gives the
-     * stored path form of rule C42: the text of the first matching
-     * pattern, with each `:name` segment kept literally and each `*`
-     * segment replaced by the real segment. It gives {@link #OTHER} for
-     * a path with no match, an empty segment, a `.` segment, a `..`
-     * segment, a `*` segment with a bad shape, or a result above 150
-     * bytes. This method never decodes a `%` escape, and it removes one
+     * stored path form of rule C42. The result is the text of the first
+     * matching pattern. A `:name` segment stays as literal text. A `*`
+     * segment keeps the real segment.
+     *
+     * <p>A {@code null} value and an empty text each give {@link
+     * #OTHER}, the same answer as the tracker. The method also gives
+     * {@link #OTHER} for each of these cases:
+     *
+     * <ul>
+     *   <li>a path with no matching pattern;</li>
+     *   <li>an empty segment, a `.` segment, or a `..` segment;</li>
+     *   <li>a `*` segment with a bad shape;</li>
+     *   <li>a result above 150 bytes.</li>
+     * </ul>
+     *
+     * <p>This method never decodes a `%` escape. It removes one
      * trailing slash from {@code path} before the match, but never from
      * the root path.
      */
     public String match(String path) {
+        if (path == null || path.isEmpty()) {
+            return OTHER;
+        }
         String[] pathSegments = splitPathSegments(path);
         if (pathSegments == null) {
             return OTHER;
@@ -129,10 +147,12 @@ public final class PathPatternMatcher {
     /**
      * Tries one route pattern against the path segments. Gives {@code
      * null} when the route does not match: a different segment count,
-     * or a literal segment that does not equal the path segment. Gives
-     * the stored path, or {@link #OTHER} for a bad `*` segment, when
-     * the route matches; a bad `*` segment stops the whole search, and
-     * {@link #match} tries no later pattern (rule C42, first match).
+     * or a literal segment that does not equal the path segment.
+     *
+     * <p>Gives the stored path when the route matches. Gives {@link
+     * #OTHER} for a bad `*` segment of a matching route. A bad `*`
+     * segment stops the whole search; {@link #match} then tries no
+     * later pattern (rule C42, first match).
      */
     private static String matchOneRoute(String[] routeSegments, String[] pathSegments) {
         if (routeSegments.length != pathSegments.length) {
@@ -191,7 +211,7 @@ public final class PathPatternMatcher {
         return pathOrPattern.equals("/") ? new String[0] : pathOrPattern.substring(1).split("/", -1);
     }
 
-    /** Compares two strings, ignoring the case of an ASCII letter only (rule C42). */
+    /** Compares two strings. The comparison ignores the case of an ASCII letter only (rule C42). */
     private static boolean equalsIgnoreAsciiCase(String first, String second) {
         if (first.length() != second.length()) {
             return false;

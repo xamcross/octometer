@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Reads `contract/examples/C42-path-match-cases.json` (27 cases, issue
@@ -21,6 +22,7 @@ class PathPatternMatcherContractCasesTest {
     List<DynamicTest> matchesEachSharedCase() {
         String json = ContractExampleFile.read("C42-path-match-cases.json");
         List<Object> rawCases = MiniJson.parseArray(json);
+        assertTrue(rawCases.size() >= 27, "The shared case file must hold the 27 cases of rule C42.");
         List<DynamicTest> tests = new ArrayList<>();
         for (Object rawCase : rawCases) {
             Map<?, ?> testCase = (Map<?, ?>) rawCase;

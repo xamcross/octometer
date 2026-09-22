@@ -34,12 +34,12 @@ import octometer.kit.core.user.UserIdResolver;
  * Each drop rule writes a maximum of one warning for the whole batch, and
  * no warning holds a raw path or a raw host (rule C41).
  *
- * <p>Issue #104 adds the route pattern match of rule C42. When a shape-
- * valid `path` value passes rule C39, and {@link IngestSettings} carries
- * a {@link PathPatternMatcher}, {@link IngestEvent#path()} holds the
- * match result of that matcher, never the raw client value. Without a
- * matcher, {@link IngestEvent#path()} is {@code null}, also for a
- * shape-valid client value.
+ * <p>Issue #104 adds the route pattern match of rule C42. A shape-valid
+ * `path` value must pass rule C39 first, and {@link IngestSettings} must
+ * carry a {@link PathPatternMatcher}. Only then does {@link
+ * IngestEvent#path()} hold the match result of that matcher, never the
+ * raw client value. Without a matcher, {@link IngestEvent#path()} is
+ * {@code null}, also for a shape-valid client value.
  */
 public final class IngestPipeline {
 

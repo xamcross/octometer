@@ -72,25 +72,32 @@ public record IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher p
     /**
      * Turns the raw text of {@code OCTOMETER_PATH_PATTERNS} into one
      * {@link PathPatternMatcher}, or into {@code null} (contract rule
-     * C42, design decision D40). The text is a comma-separated list; one
-     * entry is one route pattern, in order.
+     * C42, design decision D40).
      *
-     * <p>This method gives {@code null} for a {@code null} value and for
-     * an empty text, and it writes one warning: the app gave no route
-     * pattern list, so the kit stores no {@code path} field. It also
-     * gives {@code null} when one entry breaks {@link
-     * PathPatternMatcher#isValidPattern}; rule C42 treats such a list as
-     * no list at all, because a dropped entry would change the match
-     * order. That warning names the index of each bad entry, and it
-     * never repeats the text of a pattern.
+     * <p>A run of whitespace separates each entry: a space, a tab, or a
+     * line break. One entry is one route pattern, in order. This method
+     * trims the leading and the trailing whitespace of the whole text,
+     * and it trims nothing else; a comma inside an entry stays a part of
+     * that one pattern.
+     *
+     * <p>This method gives {@code null} for a {@code null} value, for an
+     * empty text, and for a text of whitespace only. It writes one
+     * warning: the app gave no route pattern list, so the kit stores no
+     * {@code path} field.
+     *
+     * <p>This method also gives {@code null} when one entry breaks
+     * {@link PathPatternMatcher#isValidPattern}. Rule C42 treats such a
+     * list as no list at all, because a dropped entry would change the
+     * match order. That warning names the index of each bad entry, and
+     * it never repeats the text of a pattern.
      */
     static PathPatternMatcher pathPatternMatcherFromValue(String rawValue) {
-        if (rawValue == null || rawValue.isEmpty()) {
+        if (rawValue == null || rawValue.isBlank()) {
             LOGGER.log(Level.WARNING, "OCTOMETER_PATH_PATTERNS is absent. The kit stores no "
                     + "path field for a click (contract rule C42).");
             return null;
         }
-        List<String> patterns = List.of(rawValue.split(",", -1));
+        List<String> patterns = List.of(rawValue.trim().split("\\s+"));
         List<Integer> invalidIndices = PathPatternMatcher.findInvalidIndices(patterns);
         if (!invalidIndices.isEmpty()) {
             LOGGER.log(Level.WARNING, "OCTOMETER_PATH_PATTERNS holds an invalid pattern at "

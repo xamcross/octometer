@@ -94,7 +94,7 @@ class IngestSettingsTest {
     @Test
     void pathPatternMatcherFromValueBuildsAMatcherForAWellFormedList() {
         PathPatternMatcher matcher =
-                IngestSettings.pathPatternMatcherFromValue("/,/articles,/articles/*,/history/:id,/ovdp/rates");
+                IngestSettings.pathPatternMatcherFromValue("/ /articles /articles/* /history/:id /ovdp/rates");
 
         assertEquals("/history/:id", matcher.match("/history/42"));
     }
@@ -103,7 +103,7 @@ class IngestSettingsTest {
     void pathPatternMatcherFromValueGivesNoWarningForAWellFormedList() {
         CapturingLoggerFinder.clear();
 
-        IngestSettings.pathPatternMatcherFromValue("/articles,/history/:id");
+        IngestSettings.pathPatternMatcherFromValue("/articles /history/:id");
 
         assertTrue(CapturingLoggerFinder.messages().isEmpty());
     }
@@ -112,13 +112,13 @@ class IngestSettingsTest {
     void pathPatternMatcherFromValueGivesNoMatcherForOneInvalidEntryAndWarnsWithItsIndex() {
         CapturingLoggerFinder.clear();
 
-        PathPatternMatcher matcher = IngestSettings.pathPatternMatcherFromValue("/articles,no-slash,/history/:id");
+        PathPatternMatcher matcher = IngestSettings.pathPatternMatcherFromValue("/articles no-slash /history/:id");
 
         assertNull(matcher);
         assertEquals(1, CapturingLoggerFinder.messages().size());
         String message = CapturingLoggerFinder.messages().peek();
         assertTrue(message.contains("OCTOMETER_PATH_PATTERNS"));
-        assertTrue(message.contains("1"));
+        assertTrue(message.contains("index 1"));
         assertFalse(message.contains("no-slash"));
     }
 
@@ -127,22 +127,55 @@ class IngestSettingsTest {
         CapturingLoggerFinder.clear();
 
         PathPatternMatcher matcher =
-                IngestSettings.pathPatternMatcherFromValue("no-slash,/articles,also-bad");
+                IngestSettings.pathPatternMatcherFromValue("no-slash /articles also-bad");
 
         assertNull(matcher);
         assertEquals(1, CapturingLoggerFinder.messages().size());
         String message = CapturingLoggerFinder.messages().peek();
-        assertTrue(message.contains("0"));
-        assertTrue(message.contains("2"));
+        assertTrue(message.contains("index 0, 2"));
         assertFalse(message.contains("also-bad"));
+    }
+
+    @Test
+    void pathPatternMatcherFromValueSplitsOnARunOfWhitespaceAndKeepsAnEntryWithSpacesAroundIt() {
+        PathPatternMatcher matcher =
+                IngestSettings.pathPatternMatcherFromValue("   /articles     /history/:id   ");
+
+        assertEquals("/history/:id", matcher.match("/history/42"));
+        assertEquals("/articles", matcher.match("/articles"));
+    }
+
+    @Test
+    void pathPatternMatcherFromValueTreatsAnEntryWithACommaAsOnePattern() {
+        PathPatternMatcher matcher = IngestSettings.pathPatternMatcherFromValue("/a,b /articles");
+
+        assertEquals("/a,b", matcher.match("/a,b"));
+    }
+
+    @Test
+    void pathPatternMatcherFromValueSplitsOnALineBreakBetweenTwoEntries() {
+        PathPatternMatcher matcher = IngestSettings.pathPatternMatcherFromValue("/articles\n/history/:id");
+
+        assertEquals("/history/:id", matcher.match("/history/42"));
+    }
+
+    @Test
+    void pathPatternMatcherFromValueGivesNoMatcherForAWhitespaceOnlyValueAndWarnsOnce() {
+        CapturingLoggerFinder.clear();
+
+        PathPatternMatcher matcher = IngestSettings.pathPatternMatcherFromValue("   \t  ");
+
+        assertNull(matcher);
+        assertEquals(1, CapturingLoggerFinder.messages().size());
     }
 
     @Test
     void fromEnvironmentReadsBothVariablesWithNoFailure() {
         // The process environment of the test run holds no
         // OCTOMETER_PATH_PATTERNS entry. This test proves only that
-        // fromEnvironment reads it through System.getenv with no failure;
-        // IngestRouteTest of kit/jvm-ktor covers the wiring end to end.
+        // fromEnvironment reads it through System.getenv with no
+        // failure. IngestRouteTest of kit/jvm-ktor covers the route
+        // seam.
         IngestSettings settings = IngestSettings.fromEnvironment();
 
         assertNull(settings.pathPatternMatcher());

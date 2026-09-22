@@ -157,4 +157,38 @@ class PathPatternMatcherTest {
 
         assertEquals("/other", result);
     }
+
+    @Test
+    void matchGivesOtherForANullPath() {
+        PathPatternMatcher matcher = PathPatternMatcher.of(SAMPLE_PATTERNS);
+
+        assertEquals("/other", matcher.match(null));
+    }
+
+    @Test
+    void matchGivesOtherForAnEmptyPath() {
+        PathPatternMatcher matcher = PathPatternMatcher.of(SAMPLE_PATTERNS);
+
+        assertEquals("/other", matcher.match(""));
+    }
+
+    @Test
+    void aBadStarSegmentStopsTheSearchAndNoLaterPatternMatches() {
+        PathPatternMatcher matcher = PathPatternMatcher.of(List.of("/a/*", "/a/:id"));
+
+        assertEquals("/other", matcher.match("/a/x y"));
+    }
+
+    @Test
+    void isValidPatternRejectsEachInvalidCaseOfRuleC42() {
+        assertFalse(PathPatternMatcher.isValidPattern(null));
+        assertFalse(PathPatternMatcher.isValidPattern(""));
+        assertFalse(PathPatternMatcher.isValidPattern("articles"));
+        assertFalse(PathPatternMatcher.isValidPattern("/a/"));
+        assertFalse(PathPatternMatcher.isValidPattern("/a//b"));
+        assertFalse(PathPatternMatcher.isValidPattern("//"));
+        assertFalse(PathPatternMatcher.isValidPattern("/a b"));
+        assertFalse(PathPatternMatcher.isValidPattern("/%zz"));
+        assertTrue(PathPatternMatcher.isValidPattern("/caf%C3%A9"));
+    }
 }
