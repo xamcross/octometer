@@ -192,6 +192,11 @@ public final class IngestPipeline {
      * {@link #process(String, Clock, IngestSettings)}, so it fills each
      * event's `path` with the route pattern match of rule C42 before it
      * calls {@code store.append} (issue #104).
+     *
+     * <p>This method stays the public entry point of the kit for an app
+     * with no Ktor route. Such an app must apply the bot filter and the
+     * daily caps of design decision D43 itself, the way
+     * `octometerIngestRoute` of `kit/jvm-ktor` shows (issue #117).
      */
     public static void ingest(String rawBody, Clock clock, UserIdResolver userIdResolver,
             EventLogStore store, IngestSettings settings) {
