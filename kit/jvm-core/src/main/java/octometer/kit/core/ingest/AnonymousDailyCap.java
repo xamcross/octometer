@@ -138,9 +138,9 @@ public final class AnonymousDailyCap {
                 dueForWarning = dueForWarning(now);
             }
         }
-        // The log call runs after the lock ends, so a slow log write
-        // never stalls a check of a different request (Java review
-        // MINOR 1, security review M2).
+        // The log call runs after the lock ends (Java review MINOR 1,
+        // security review M2). A slow log write then never stalls a
+        // check of a different request.
         if (dueForWarning) {
             logWarning(overGlobal);
         }
@@ -193,10 +193,10 @@ public final class AnonymousDailyCap {
 
         /**
          * Resets this counter to zero, with no window, when {@code now}
-         * is at or after the end of the live window, or before the
-         * start of the live window. The second case guards a clock
-         * that steps backwards, for example after an NTP correction
-         * (Java review MINOR 2): with no guard, such a step would hold
+         * is at or after the end of the live window. It also resets
+         * when {@code now} sits before the start of the live window,
+         * the guard for a clock that steps backwards (Java review
+         * MINOR 2). With no such guard, a backward step would hold
          * this counter past its 24-hour window forever. This counter
          * never resets while {@code now} still sits inside its window.
          */

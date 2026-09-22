@@ -69,9 +69,9 @@ public final class AnonymousKey {
      * Returns the plain IPv4 text of an IPv4-mapped IPv6 address
      * (`::ffff:a.b.c.d`, any letter case). Returns {@code null} for
      * each other text. The first 64 bits of a mapped address are zero
-     * for every client, so this method returns the IPv4 text instead;
-     * one shared key from an all-zero prefix would drop each mapped
-     * client together.
+     * for every client. This method returns the IPv4 text instead,
+     * because one shared, all-zero key would drop each mapped client
+     * together.
      */
     private static String ipv4MappedAddressText(String address) {
         Matcher prefixMatch = IPV4_MAPPED_PREFIX.matcher(address);
@@ -103,12 +103,12 @@ public final class AnonymousKey {
         String[] rightGroups = right.isEmpty() ? new String[0] : right.split(":");
 
         // An embedded IPv4 tail is always the last group of the whole
-        // address; it sits in rightGroups when a "::" run is present,
-        // and in leftGroups otherwise. This expansion turns it into two
-        // plain hex groups before the group count and the /64 cut
-        // below, so an address such as 2001:db8::1.2.3.4 and
-        // 2001:db8::1.2.3.5 share one 64-bit prefix (Java review MAJOR
-        // 2, security review M1).
+        // address. It sits in rightGroups when a "::" run is present,
+        // and in leftGroups otherwise. This expansion turns it into
+        // two plain hex groups before the group count and the /64 cut
+        // below. An address such as 2001:db8::1.2.3.4 and
+        // 2001:db8::1.2.3.5 then share one 64-bit prefix (Java review
+        // MAJOR 2, security review M1).
         if (rightGroups.length > 0) {
             rightGroups = expandEmbeddedIpv4Tail(rightGroups);
         } else {
@@ -155,10 +155,10 @@ public final class AnonymousKey {
     /**
      * Returns {@code groups} unchanged when its last element holds no
      * dot. Otherwise, it treats the last element as an embedded IPv4
-     * tail, and it returns a new array where that one element becomes
-     * two hex groups (the high 16 bits and the low 16 bits of the four
-     * octets). Returns {@code null} when the last element holds a dot
-     * but has no valid IPv4 text form.
+     * tail. It splits that tail into two hex groups. Each group holds
+     * 16 bits: the high two octets, then the low two octets. It
+     * returns {@code null} when the last element holds a dot but has
+     * no valid IPv4 text form.
      */
     private static String[] expandEmbeddedIpv4Tail(String[] groups) {
         if (groups.length == 0) {
@@ -185,9 +185,10 @@ public final class AnonymousKey {
      * Returns the lowercase hex text of one IPv6 group, with no leading
      * zero. Returns {@code null} for a group with no hex digit, above 4
      * hex digits, or with a character that is not an ASCII hex digit.
-     * This method checks each character itself, so a leading sign
-     * (`+1` or `-1`), which {@link Integer#parseInt(String, int)} would
-     * otherwise accept, gives {@code null} too (Java review MINOR 3).
+     * This method checks each character itself. A leading sign (`+1`
+     * or `-1`) thus also gives {@code null}, although
+     * {@link Integer#parseInt(String, int)} alone would accept it
+     * (Java review MINOR 3).
      */
     private static String normalizeGroup(String group) {
         if (group.isEmpty() || group.length() > 4) {

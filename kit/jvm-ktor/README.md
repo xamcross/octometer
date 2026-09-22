@@ -78,8 +78,8 @@ pays this check (`OCTOMETER_RECORD_ANONYMOUS=true`). A batch above
 either cap drops in full and answers 204.
 
 The route also drops a batch when the first 512 characters of the
-`User-Agent` header value match a fixed pattern, in any letter case
-(design decision D43). The pattern is
+`User-Agent` header value match a fixed pattern (design decision
+D43). The match ignores the letter case. The pattern is
 `bot|crawl|spider|slurp|headless|preview|monitor|Go-http-client|python-requests|curl`.
 This check applies to each request, signed in or not. It answers 204,
 and it never stores the header value. An absent header passes. A drop

@@ -137,11 +137,11 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  * That check separates a real cancellation of the call from a
  * [CancellationException] that the app throws by itself.
  *
- * **The order of the checks (design decision D43, issue #117; corrected
- * 2026-09-22, so the rate limiter runs before the bot filter and any
- * real body read too, the original rule of issue #33).** The route runs
- * each check of one request in this order, and it stops at the first
- * one that answers:
+ * **The order of the checks (design decision D43, issue #117).** The
+ * route corrected this order on 2026-09-22. The rate limiter now runs
+ * before the bot filter and any real body read too, the original rule
+ * of issue #33. The route runs each check of one request in this
+ * order, and it stops at the first one that answers:
  *
  * 1. the `Content-Type` header (415, contract rule C12);
  * 2. the rate limiter of design decision D20 (429, issue #33) — a
