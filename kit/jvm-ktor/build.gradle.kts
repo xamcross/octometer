@@ -5,10 +5,11 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinVersion as KotlinLanguageVersion
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    `maven-publish`
 }
 
-group = "octometer"
-version = "0.1.0"
+group = "com.github.xamcross.octometer"
+version = libs.versions.octometer.kit.get()
 
 kotlin {
     jvmToolchain(21)
@@ -22,6 +23,18 @@ kotlin {
         apiVersion.set(KotlinLanguageVersion.KOTLIN_2_0)
         languageVersion.set(KotlinLanguageVersion.KOTLIN_2_0)
     }
+    // The published POM must name the lowest stdlib that this module
+    // needs (finding MAJOR 1, PR #155). The api version above is 2.0,
+    // thus 2.0.0 is enough. Without this line, the POM names the
+    // compiler's own stdlib (2.4.20) and forces it on each app; an app
+    // on an older Kotlin then fails with a metadata version error. An
+    // app on a newer Kotlin raises the stdlib itself.
+    coreLibrariesVersion = "2.0.0"
+}
+
+java {
+    // A source jar for the JitPack publication (finding MINOR 2, PR #155).
+    withSourcesJar()
 }
 
 // JUnit Jupiter: gradle/libs.versions.toml holds the version, the same
@@ -49,4 +62,36 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+// The publication for JitPack (design decision D25, issue #37). The
+// artifact id "octometer-kit-ktor" comes from D25.
+//
+// The Gradle Kotlin/Java component omits a compileOnly dependency from
+// a published POM. This is the Gradle default, and this build keeps
+// it: the published POM has no entry for io.ktor:ktor-server-core or
+// org.jetbrains.kotlinx:kotlinx-coroutines-core. The app gives Ktor
+// itself (see the file header of this module).
+//
+// See kit/jvm-core/build.gradle.kts for the note on the missing
+// license.
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+            artifactId = "octometer-kit-ktor"
+
+            pom {
+                name.set("Octometer Kit Ktor")
+                description.set("The Ktor adapter of the Octometer JVM kit. The app gives Ktor and the Kotlin coroutines library.")
+                url.set("https://github.com/xamcross/octometer")
+
+                scm {
+                    connection.set("scm:git:https://github.com/xamcross/octometer.git")
+                    developerConnection.set("scm:git:https://github.com/xamcross/octometer.git")
+                    url.set("https://github.com/xamcross/octometer")
+                }
+            }
+        }
+    }
 }
