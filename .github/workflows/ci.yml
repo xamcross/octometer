@@ -81,9 +81,24 @@ jobs:
       - name: Build the distribution, with the Angular app inside it
         run: ./gradlew :monitor:backend:installDist
       - name: Start the distribution and open its routes
+        # This step runs the Unix start script
+        # "monitor/backend/build/install/backend/bin/backend", not
+        # "backend.bat". It works on this Windows runner, because the
+        # job sets "shell: bash" above, and windows-latest runs that
+        # shell as Git Bash. The script detects an MSYS shell and
+        # converts APP_HOME, CLASSPATH, and JAVACMD with cygpath. Its
+        # last line execs JAVACMD, so "$!" below holds the process id of
+        # java itself, and "kill" reaches it.
+        #
+        # Correction round 1 (MAJOR 2, release review): the job shell
+        # runs with "-e", so a failed curl used to stop this step before
+        # the kill line ran, and the java process stayed alive until the
+        # job timeout. The trap now runs on every exit path of this
+        # step, a normal end and a failure alike.
         run: |
           ./monitor/backend/build/install/backend/bin/backend &
           server_pid=$!
+          trap 'kill "$server_pid" 2> /dev/null || true' EXIT
           base_url="http://127.0.0.1:7431"
           health_ready=""
           for attempt in $(seq 1 30); do
@@ -95,12 +110,9 @@ jobs:
           done
           if [ -z "$health_ready" ]; then
             echo "The monitor never answered /api/health within 30 seconds."
-            kill "$server_pid" 2> /dev/null || true
             exit 1
           fi
           curl --fail --silent --show-error "$base_url/" > /dev/null
-          kill "$server_pid" 2> /dev/null || true
-          wait "$server_pid" 2> /dev/null || true
 
   frontend:
     name: Frontend
