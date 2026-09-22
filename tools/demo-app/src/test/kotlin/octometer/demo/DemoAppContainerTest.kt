@@ -18,6 +18,7 @@ import org.bson.Document
 import org.testcontainers.containers.MongoDBContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
+import org.testcontainers.utility.DockerImageName
 import octometer.kit.mongo.store.MongoEventLogStore
 
 /**
@@ -30,7 +31,7 @@ class DemoAppContainerTest {
     companion object {
         @Container
         @JvmStatic
-        private val MONGO = MongoDBContainer("mongo:8.0")
+        private val MONGO = MongoDBContainer(DockerImageName.parse("mongo:8.0"))
     }
 
     // Named mongoClient, not client: testApplication gives its own field
@@ -63,7 +64,7 @@ class DemoAppContainerTest {
             header(HttpHeaders.Cookie, "demo_user=amy")
             setBody(
                 """{"sessionId":"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11",""" +
-                    """"clicks":[{"element":"demo.button-one","ageMs":0}]}""",
+                    """"clicks":[{"element":"demo.button-one","ageMs":0,"path":"/"}]}""",
             )
         }
 
@@ -72,6 +73,29 @@ class DemoAppContainerTest {
         val stored = eventCollection().find().first() as Document
         assertEquals("amy", stored.getString("userId"))
         assertEquals("demo.button-one", stored.getString("element"))
+        assertEquals("/", stored.getString("path"), "A click on the demo page must store the path / (Ktor review MAJOR 2).")
+    }
+
+    @Test
+    fun `a click with an unknown path stores the fallback path other`() = testApplication {
+        val store = MongoEventLogStore(mongoClient.getDatabase(databaseName))
+        application {
+            demoModule(store)
+        }
+
+        val response = client.post("/api/octometer/v1/clicks") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Cookie, "demo_user=amy")
+            setBody(
+                """{"sessionId":"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11",""" +
+                    """"clicks":[{"element":"demo.button-one","ageMs":0,"path":"/deep/page"}]}""",
+            )
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertEquals(1L, eventCollection().countDocuments())
+        val stored = eventCollection().find().first() as Document
+        assertEquals("/other", stored.getString("path"), "A path with no match must store /other (contract rule C42).")
     }
 
     @Test

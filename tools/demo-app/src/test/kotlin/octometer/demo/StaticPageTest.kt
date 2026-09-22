@@ -33,6 +33,7 @@ class StaticPageTest {
         assertTrue(body.contains("demo_user"), "The page must set the cookie demo_user.")
         assertTrue(body.contains("flushIntervalMs: 1000"), "The tracker must use flushIntervalMs 1000.")
         assertTrue(body.contains("/tracker/index.js"), "The page must load the built tracker.")
+        assertTrue(body.contains("routes: ['/']"), "The page must give the route pattern list to the tracker.")
     }
 
     @Test
@@ -56,5 +57,31 @@ class StaticPageTest {
         val response = client.get("/tracker/missing.js")
 
         assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    @Test
+    fun `the file name guard blocks a name with a slash`() {
+        // Only a slash or a percent escape can carry a traversal segment
+        // out of static/tracker/ (security review MINOR 6). A dot-only
+        // name, for example "....js", matches the pattern; it gives no
+        // file only because the classpath holds none by that name.
+        val namesWithASlash = listOf("../../../logback.xml", "..%2F..%2Fbuild.gradle.kts")
+        for (name in namesWithASlash) {
+            assertTrue(!TrackerAssets.FILE_NAME_PATTERN.matches(name), "The pattern must block the name $name.")
+            assertEquals(null, TrackerAssets.read(name), "read must give null for $name.")
+        }
+    }
+
+    @Test
+    fun `the tracker route gives 404 for a dot-only file name`() = testApplication {
+        application {
+            demoModule(InMemoryEventLogStore())
+        }
+
+        val dotOnlyNames = listOf("....js", "..js")
+        for (name in dotOnlyNames) {
+            val response = client.get("/tracker/$name")
+            assertEquals(HttpStatusCode.NotFound, response.status, "The route must give 404 for $name.")
+        }
     }
 }
