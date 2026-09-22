@@ -19,6 +19,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.io.readByteArray
+import octometer.kit.core.ingest.AnonymousDailyCap
+import octometer.kit.core.ingest.AnonymousKey
+import octometer.kit.core.ingest.BotUserAgentFilter
+import octometer.kit.core.ingest.EventFieldValidator
 import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestPipeline
@@ -27,8 +31,8 @@ import octometer.kit.core.ingest.IngestSettings
 import octometer.kit.core.ingest.RateLimitResult
 import octometer.kit.core.store.DeletionResult
 import octometer.kit.core.store.EventLogStore
-import octometer.kit.core.user.UserIdResolver
 import java.time.Clock
+import java.time.Duration
 import kotlin.coroutines.coroutineContext
 
 /** The default path of the ingest route (design section 4.2, contract rule C12). */
@@ -44,6 +48,18 @@ private const val MAX_BODY_BYTES: Long = 16 * 1024
  * characters, so this cap stays well above every normal address text.
  */
 private const val MAX_CLIENT_ADDRESS_LENGTH = 64
+
+/**
+ * The maximum length of the `User-Agent` text that the bot filter reads
+ * (design decision D43, issue #117, Java review MAJOR 1). A client can
+ * send a header value near the 8 KB header limit of the Netty engine.
+ * This cap keeps one call of [BotUserAgentFilter.isBot] cheap, also
+ * for a client already at its rate limit.
+ */
+private const val MAX_USER_AGENT_LENGTH = 512
+
+/** One hour, in milliseconds (the throttle window of [BotDropLogThrottle]). */
+private val BOT_DROP_LOG_THROTTLE_MILLIS = Duration.ofHours(1).toMillis()
 
 /**
  * A text form of one IPv4 address (four dot-separated numbers, each 0 to
@@ -121,22 +137,49 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  * That check separates a real cancellation of the call from a
  * [CancellationException] that the app throws by itself.
  *
+ * **The order of the checks (design decision D43, issue #117).** The
+ * route corrected this order on 2026-09-22. The rate limiter now runs
+ * before the bot filter and any real body read too, the original rule
+ * of issue #33. The route runs each check of one request in this
+ * order, and it stops at the first one that answers:
+ *
+ * 1. the `Content-Type` header (415, contract rule C12);
+ * 2. the rate limiter of design decision D20 (429, issue #33) — a
+ *    client already at its limit never reaches step 3 or any step
+ *    below;
+ * 3. the bot filter of [BotUserAgentFilter] (204), on a maximum of 512
+ *    characters of the `User-Agent` value;
+ * 4. the body size (400, contract rule C18), the declared
+ *    `Content-Length` only, with no body read;
+ * 5. the real body read (400, contract rule C18, for a body above the
+ *    limit that step 4 could not catch from its declared length alone)
+ *    and the parse of the body (400, the field rules of
+ *    `kit/jvm-core`);
+ * 6. the design decision D19 drop: a request with no user id stores
+ *    nothing and answers 204, when the app records no anonymous click;
+ * 7. the daily anonymous caps of design decision D43 (204), for a
+ *    request with no user id, when the app records an anonymous click;
+ * 8. the store, with the event cap of design decision D21 inside it.
+ *
  * @param store the event log store of the app.
  * @param ingestPath the path of the route. The default is the path of
  *   contract rule C12. The app must set a read timeout on its engine (for
  *   example `requestReadTimeoutSeconds` of the Netty engine), because this
  *   function sets none for a slow request body.
- * @param settings the settings of design decision D19. The default reads
- *   the process environment.
- * @param clock the clock for `receivedAt` of design section 4.2. The
- *   default is the system clock.
+ * @param settings the settings of design decision D19 and design decision
+ *   D43. The default reads the process environment.
+ * @param clock the clock for `receivedAt` of design section 4.2, and for
+ *   [dailyCap]. The default is the system clock.
  * @param storeDispatcher the dispatcher of the store call. The default is
  *   [defaultStoreDispatcher].
  * @param rateLimiter the ingest rate limiter of design decision D20 (issue
  *   #33). The default builds one [IngestRateLimiter] with [clock], held for
  *   the life of this route, so its window state is shared across each
- *   request. The route answers 429 for a rejected request, before it reads
- *   the request body (contract rule C19).
+ *   request. The route answers 429 for a rejected request (see the order
+ *   above).
+ * @param dailyCap the daily anonymous cap of design decision D43 (issue
+ *   #117). The default builds one [AnonymousDailyCap] with [clock] and the
+ *   two caps of [settings], held for the life of this route.
  * @param clientIpHeaderName the name of the header that holds the client
  *   address (issue #33, step 3). The default reads
  *   `OCTOMETER_CLIENT_IP_HEADER` once, when this function installs the
@@ -159,38 +202,46 @@ public fun Route.octometerIngestRoute(
     clock: Clock = Clock.systemUTC(),
     storeDispatcher: CoroutineDispatcher = defaultStoreDispatcher(),
     rateLimiter: IngestRateLimiter = IngestRateLimiter(clock),
+    dailyCap: AnonymousDailyCap = AnonymousDailyCap(
+        clock,
+        settings.anonMaxEventsPerDay(),
+        settings.anonEventsPerKeyPerDay(),
+    ),
     clientIpHeaderName: String? = System.getenv("OCTOMETER_CLIENT_IP_HEADER"),
     resolveUserId: (ApplicationCall) -> String?,
 ) {
     require(ingestPath.startsWith("/")) {
         "ingestPath must start with a leading slash, but it was \"$ingestPath\"."
     }
+    val botDropLogThrottle = BotDropLogThrottle(clock)
 
     post(ingestPath) {
         try {
-            // The content type check runs before the rate limit check, so
-            // a request with a wrong content type never counts against a
-            // key of the rate limiter (design decision D20). The route
-            // reads no body for that request either way, so the cost of
-            // one such request stays small.
+            // 1. Content type (415, contract rule C12). This check reads
+            // no body, so a request with a wrong content type stays
+            // cheap.
             if (!hasJsonContentType(call)) {
                 call.respond(HttpStatusCode.UnsupportedMediaType)
                 return@post
             }
 
             // resolveUserId runs here, on the coroutine of the call,
-            // before the store call moves to storeDispatcher (rule of the
-            // app documentation above). It also runs before the rate
-            // limit check and before the route reads the request body
-            // (design decision D20, issue #33), so a rejected request
-            // never reads the body. A rejected request still pays the
-            // cost of resolveUserId itself; keep that function short, as
-            // its own KDoc already asks.
+            // before the store call moves to storeDispatcher (rule of
+            // the app documentation above). It runs before the rate
+            // limit check. The route still runs it for a rejected
+            // request, so keep that function short, as its own KDoc
+            // already asks.
             val userId = resolveUserId(call)
-            // The route reads the client address header only for a
-            // request with no user id; check() never reads it for a
-            // signed-in user, so this call would waste one header lookup
-            // on every request otherwise.
+
+            // 2. The rate limiter (429, design decision D20, issue
+            // #33). This runs before the bot filter and the real body
+            // read (steps 3 and 5). A client already at its limit
+            // never reaches the filter, that read, or the parse. Issue
+            // #117 restated this original rule of issue #33 on
+            // 2026-09-22. The route reads the client address header
+            // only for a request with no user id. check() never reads
+            // it for a signed-in user, so this call would waste one
+            // header lookup on every request otherwise.
             val rateLimitResult = if (userId != null) {
                 rateLimiter.check(userId, "")
             } else {
@@ -201,22 +252,96 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
+            // 3. The bot filter (204, design decision D43, issue #117).
+            // This check reads a maximum of MAX_USER_AGENT_LENGTH
+            // characters of the header value, so a long value never
+            // makes the filter costly (Java review MAJOR 1). The kit
+            // stores no User-Agent value: the log line below holds no
+            // header value.
+            val userAgentValue = call.request.header(HttpHeaders.UserAgent)?.take(MAX_USER_AGENT_LENGTH)
+            if (BotUserAgentFilter.isBot(userAgentValue)) {
+                val dropCount = botDropLogThrottle.recordDrop()
+                if (dropCount != null) {
+                    call.application.log.debug(
+                        "The Octometer ingest route dropped {} robot batches in the last hour " +
+                            "(design decision D43).",
+                        dropCount,
+                    )
+                }
+                call.respond(HttpStatusCode.NoContent)
+                return@post
+            }
+
+            // 4. Body size (400, contract rule C18): the declared
+            // Content-Length only, with no body read. A request with
+            // no declared length, or a length at or under the limit,
+            // passes here. The real read below (step 5) still enforces
+            // the same limit for such a request.
+            if (!hasAcceptableDeclaredLength(call, MAX_BODY_BYTES)) {
+                call.respond(HttpStatusCode.BadRequest)
+                return@post
+            }
+
+            // 5. The body read (400, contract rule C18: a body above
+            // the limit with no declared length, or a declared length
+            // that understates the real body) and the parse (400, the
+            // field rules of `kit/jvm-core`).
             val rawBody = call.receiveLimitedText(MAX_BODY_BYTES)
             if (rawBody == null) {
                 call.respond(HttpStatusCode.BadRequest)
                 return@post
             }
-
-            val userIdResolver = UserIdResolver { userId }
-            val defectSafeStore = DefectSafeEventLogStore(store)
-
-            try {
-                withContext(storeDispatcher) {
-                    IngestPipeline.ingest(rawBody, clock, userIdResolver, defectSafeStore, settings)
-                }
+            val events = try {
+                IngestPipeline.process(rawBody, clock, settings)
             } catch (cause: IngestException) {
                 call.respond(HttpStatusCode.BadRequest)
                 return@post
+            }
+
+            // 6. The design decision D19 drop: a request with no user
+            // id stores nothing, when the app records no anonymous
+            // click.
+            if (userId == null && !settings.recordAnonymousClicks()) {
+                call.respond(HttpStatusCode.NoContent)
+                return@post
+            }
+
+            // 7. The daily anonymous caps (204, design decision D43,
+            // issue #117), for a request with no user id, when the app
+            // records an anonymous click. An empty batch needs no
+            // check: it already stores nothing, the same as a dropped
+            // batch.
+            if (userId == null && events.isNotEmpty()) {
+                val key = AnonymousKey.of(clientAddress(call, clientIpHeaderName))
+                if (!dailyCap.check(key, events.size)) {
+                    call.respond(HttpStatusCode.NoContent)
+                    return@post
+                }
+            }
+
+            if (events.isEmpty()) {
+                // Contract rule C13 sets no minimum for the clicks
+                // array; an empty batch stores nothing (design section
+                // 4.2).
+                call.respond(HttpStatusCode.NoContent)
+                return@post
+            }
+
+            // 8. The store, with the event cap of design decision D21
+            // inside it. A userId that breaks contract rule C6 is a
+            // defect of the app, not of the client; it gives 500 below,
+            // never 400.
+            try {
+                EventFieldValidator.validateUserId(userId)
+            } catch (cause: IngestException) {
+                throw IllegalStateException(
+                    "The resolveUserId function of the app returned a userId that breaks contract rule C6.",
+                    cause,
+                )
+            }
+            val defectSafeStore = DefectSafeEventLogStore(store)
+            withContext(storeDispatcher) {
+                defectSafeStore.append(events, userId)
             }
 
             call.respond(HttpStatusCode.NoContent)
@@ -302,6 +427,44 @@ internal class DefectSafeEventLogStore(private val delegate: EventLogStore) : Ev
 }
 
 /**
+ * Throttles the DEBUG line of a bot-filter drop to one line for each
+ * elapsed hour (design decision D43, issue #117, security review M3).
+ * With no throttle, a robot flood would write one line for each
+ * dropped request, ahead of the rate limiter of step 2. [recordDrop]
+ * counts every drop. It reports the drop count only on the one call
+ * that must write a new line.
+ *
+ * One route builds one instance, held for the life of the route, the
+ * form of [AnonymousDailyCap] and [IngestRateLimiter]. This class is
+ * `internal`, so a test of this module can build one on its own.
+ */
+internal class BotDropLogThrottle(private val clock: Clock) {
+    private val lock = Any()
+    private var lastLoggedAtMillis = Long.MIN_VALUE
+    private var dropCountSinceLastLog = 0L
+
+    /**
+     * Records one bot-filter drop. It returns the drop count since the
+     * last written line, on the one call that must write a new line.
+     * It returns `null` on every other call; the caller then writes no
+     * line.
+     */
+    fun recordDrop(): Long? {
+        val now = clock.millis()
+        synchronized(lock) {
+            dropCountSinceLastLog += 1
+            if (lastLoggedAtMillis != Long.MIN_VALUE && now - lastLoggedAtMillis < BOT_DROP_LOG_THROTTLE_MILLIS) {
+                return null
+            }
+            val dueDropCount = dropCountSinceLastLog
+            lastLoggedAtMillis = now
+            dropCountSinceLastLog = 0
+            return dueDropCount
+        }
+    }
+}
+
+/**
  * Reads the client address of one call for the rate limiter (design
  * decision D20, issue #33, step 3).
  *
@@ -361,6 +524,20 @@ private fun hasJsonContentType(call: ApplicationCall): Boolean {
 }
 
 /**
+ * True when the declared `Content-Length` header of [call], at or under
+ * [maxBytes], lets the route skip a real body read (contract rule C18,
+ * design decision D43, issue #117). An absent header, and a header this
+ * function cannot parse as a whole number, both pass here; [ApplicationCall.receiveLimitedText]
+ * still enforces [maxBytes] for a body with no declared length, or a
+ * declared length that understates the real body. This function reads
+ * no byte of the body.
+ */
+private fun hasAcceptableDeclaredLength(call: ApplicationCall, maxBytes: Long): Boolean {
+    val declaredLength = call.request.header(HttpHeaders.ContentLength)?.toLongOrNull()
+    return declaredLength == null || declaredLength <= maxBytes
+}
+
+/**
  * Reads the request body as text, with a limit of [maxBytes] raw bytes
  * (contract rule C18). This function never reads more than one byte above
  * the limit into memory, so a large body never reaches the heap in full.
@@ -379,10 +556,6 @@ private fun hasJsonContentType(call: ApplicationCall): Boolean {
  * against each Ktor 3 version that the kit supports.
  */
 private suspend fun ApplicationCall.receiveLimitedText(maxBytes: Long): String? {
-    val declaredLength = request.header(HttpHeaders.ContentLength)?.toLongOrNull()
-    if (declaredLength != null && declaredLength > maxBytes) {
-        return null
-    }
     @Suppress("DEPRECATION")
     val bytes = request.receiveChannel().readRemaining(maxBytes + 1).use { it.readByteArray() }
     return if (bytes.size > maxBytes) null else bytes.toString(Charsets.UTF_8)

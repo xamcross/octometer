@@ -3,47 +3,116 @@ package octometer.kit.core.ingest;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.List;
+import java.util.regex.Pattern;
 import octometer.kit.core.path.PathPatternMatcher;
 
 /**
  * The settings of the ingest flow (design decision D19; design decision
- * D40, contract rule C42, issue #104). A test sets each field with the
- * constructor. That way, a test needs no change of the process
- * environment.
+ * D40, contract rule C42, issue #104; design decision D43, issue #117).
+ * A test sets each field with the constructor. That way, a test needs no
+ * change of the process environment.
  *
  * <p>{@code pathPatternMatcher} is the route pattern list of rule C42, as
  * one built {@link PathPatternMatcher}. It is {@code null} when the app
  * gives no list, or an invalid list; rule C42 treats the two cases the
  * same way. {@link IngestPipeline} then stores no {@code path} field for
  * each click.
+ *
+ * <p>{@code anonMaxEventsPerDay} and {@code anonEventsPerKeyPerDay} are
+ * the two daily caps of design decision D43 and issue #117. A route
+ * gives the two values to one {@link AnonymousDailyCap}.
  */
-public record IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher pathPatternMatcher) {
+public record IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher pathPatternMatcher,
+        long anonMaxEventsPerDay, long anonEventsPerKeyPerDay) {
 
     private static final Logger LOGGER = System.getLogger("octometer.kit.core");
 
     /** The environment variable of the route pattern list (design decision D40). */
     private static final String PATH_PATTERNS_VARIABLE = "OCTOMETER_PATH_PATTERNS";
 
+    /** The environment variable of the global daily anonymous cap (design decision D43). */
+    private static final String ANON_MAX_EVENTS_PER_DAY_VARIABLE = "OCTOMETER_MAX_ANON_EVENTS_PER_DAY";
+
+    /** The environment variable of the daily anonymous cap of one key (design decision D43). */
+    private static final String ANON_EVENTS_PER_KEY_PER_DAY_VARIABLE = "OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY";
+
+    /** The default of {@value #ANON_MAX_EVENTS_PER_DAY_VARIABLE} (design decision D43). */
+    public static final long DEFAULT_ANON_MAX_EVENTS_PER_DAY = 20_000;
+
+    /** The default of {@value #ANON_EVENTS_PER_KEY_PER_DAY_VARIABLE} (design decision D43). */
+    public static final long DEFAULT_ANON_EVENTS_PER_KEY_PER_DAY = 2_000;
+
+    /** Only an ASCII digit sets a daily cap. A Unicode digit does not. */
+    private static final Pattern ASCII_DIGITS = Pattern.compile("[0-9]+");
+
     /**
-     * Builds a setting with no route pattern list. A caller from before
-     * issue #104 still compiles with this constructor.
+     * Builds a setting with no route pattern list and the default daily
+     * caps. A caller from before issue #104 still compiles with this
+     * constructor.
      */
     public IngestSettings(boolean recordAnonymousClicks) {
-        this(recordAnonymousClicks, null);
+        this(recordAnonymousClicks, null, DEFAULT_ANON_MAX_EVENTS_PER_DAY, DEFAULT_ANON_EVENTS_PER_KEY_PER_DAY);
     }
 
     /**
-     * Reads {@code OCTOMETER_RECORD_ANONYMOUS} and {@code
-     * OCTOMETER_PATH_PATTERNS} from the process environment, then builds
-     * the setting with {@link #fromValue} and {@link
-     * #pathPatternMatcherFromValue}. This method is the one place that
-     * reads each variable.
+     * Builds a setting with the default daily caps. A caller from before
+     * issue #117 still compiles with this constructor.
+     */
+    public IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher pathPatternMatcher) {
+        this(recordAnonymousClicks, pathPatternMatcher, DEFAULT_ANON_MAX_EVENTS_PER_DAY,
+                DEFAULT_ANON_EVENTS_PER_KEY_PER_DAY);
+    }
+
+    /**
+     * Reads {@code OCTOMETER_RECORD_ANONYMOUS}, {@code
+     * OCTOMETER_PATH_PATTERNS}, {@code OCTOMETER_MAX_ANON_EVENTS_PER_DAY},
+     * and {@code OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY} from the process
+     * environment, then builds the setting. This method is the one place
+     * that reads each variable.
      */
     public static IngestSettings fromEnvironment() {
         boolean recordAnonymousClicks =
                 fromValue(System.getenv("OCTOMETER_RECORD_ANONYMOUS")).recordAnonymousClicks();
         PathPatternMatcher pathPatternMatcher = pathPatternMatcherFromValue(System.getenv(PATH_PATTERNS_VARIABLE));
-        return new IngestSettings(recordAnonymousClicks, pathPatternMatcher);
+        long anonMaxEventsPerDay = positiveWholeNumberFromValue(System.getenv(ANON_MAX_EVENTS_PER_DAY_VARIABLE),
+                ANON_MAX_EVENTS_PER_DAY_VARIABLE, DEFAULT_ANON_MAX_EVENTS_PER_DAY);
+        long anonEventsPerKeyPerDay = positiveWholeNumberFromValue(
+                System.getenv(ANON_EVENTS_PER_KEY_PER_DAY_VARIABLE), ANON_EVENTS_PER_KEY_PER_DAY_VARIABLE,
+                DEFAULT_ANON_EVENTS_PER_KEY_PER_DAY);
+        return new IngestSettings(recordAnonymousClicks, pathPatternMatcher, anonMaxEventsPerDay,
+                anonEventsPerKeyPerDay);
+    }
+
+    /**
+     * Turns the raw text of one daily-cap variable into its value
+     * (design decision D43, issue #117, the form of {@code
+     * MongoEventLogStore.maxEventsFromValue}). A {@code null} value
+     * gives {@code defaultValue}, with no warning.
+     *
+     * <p>A value of zero, a negative value, or a value with a character
+     * that is not an ASCII digit, stops the app start: this method
+     * throws {@link IllegalStateException}, with a message that names
+     * {@code variableName} and never repeats the raw value.
+     */
+    static long positiveWholeNumberFromValue(String rawValue, String variableName, long defaultValue) {
+        if (rawValue == null) {
+            return defaultValue;
+        }
+        String trimmed = rawValue.trim();
+        if (ASCII_DIGITS.matcher(trimmed).matches()) {
+            try {
+                long value = Long.parseLong(trimmed);
+                if (value > 0) {
+                    return value;
+                }
+            } catch (NumberFormatException cause) {
+                // A text of only ASCII digits can still overflow a long.
+                // The error below covers this case too.
+            }
+        }
+        throw new IllegalStateException(variableName + " must hold a positive whole number of ASCII "
+                + "digits. The app start stops, because a wrong daily cap can let an anonymous flood "
+                + "reach the store.");
     }
 
     /**
