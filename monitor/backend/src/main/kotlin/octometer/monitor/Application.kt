@@ -7,6 +7,7 @@ import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
@@ -28,6 +29,9 @@ import java.util.Properties
 import kotlin.system.exitProcess
 
 private const val HOST = "127.0.0.1"
+
+// The fixed 400 sentence of issue #148. It names no part of the request.
+private const val REQUEST_NOT_VALID_MESSAGE = "The request is not valid."
 
 @Serializable
 data class HealthResponse(
@@ -90,6 +94,17 @@ fun Application.module(config: MonitorConfig) {
     // inside a store can throw that exact class while this call stays
     // active. Only a real cancellation of this call may skip the response.
     install(StatusPages) {
+        // Issue #148: the query parser of Ktor throws BadRequestException
+        // for a bad percent escape in a query string, for example
+        // "?x=%zz". RequestGuard checks only the path, so this exception
+        // reaches StatusPages. This handler goes before the catch-all, so
+        // a request mistake gives 400, not 500. The message of
+        // BadRequestException can hold the raw query string, so the log
+        // line names the exception class only, at a level below ERROR.
+        exception<BadRequestException> { call, cause ->
+            log.info("The query string is not valid. {}", cause.javaClass.simpleName)
+            call.respond(HttpStatusCode.BadRequest, ErrorBody(REQUEST_NOT_VALID_MESSAGE))
+        }
         exception<Throwable> { call, cause ->
             if (cause is CancellationException && !call.isActive) throw cause
             log.error("An unhandled exception reached the server. {}", cause.javaClass.simpleName)
