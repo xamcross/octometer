@@ -154,11 +154,13 @@ describe('Apps', () => {
     flushApps([]);
   });
 
-  it('clears notFoundAppId from the URL after the message shows, but keeps the message on the screen (accessibility MINOR 5 of the correction round 1 of #159)', () => {
+  it('clears notFoundAppId from the URL after the message shows, but keeps the message on the screen and in the status region (accessibility BLOCKER A of the correction round 2 of #159)', () => {
+    const announcer = TestBed.inject(Announcer);
     const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
 
     fixture.componentRef.setInput('notFoundAppId', '9');
     fixture.detectChanges();
+    vi.advanceTimersByTime(200);
 
     expect(navigateSpy).toHaveBeenCalledWith([], {
       queryParams: { notFoundAppId: null },
@@ -166,12 +168,15 @@ describe('Apps', () => {
       replaceUrl: true,
     });
 
-    // Simulates the router echoing the cleared query parameter back as the route input.
-    fixture.componentRef.setInput('notFoundAppId', null);
+    // Simulates the real router: it echoes the cleared query parameter back
+    // as `undefined`, not as `null`.
+    fixture.componentRef.setInput('notFoundAppId', undefined);
     fixture.detectChanges();
+    vi.advanceTimersByTime(200);
 
     const message = root().querySelector('.not-found-message');
     expect(message?.textContent?.trim()).toBe('App 9 is not registered.');
+    expect(announcer.message()).toBe('App 9 is not registered.');
     startStore();
     flushApps([]);
   });

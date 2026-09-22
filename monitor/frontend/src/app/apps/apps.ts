@@ -113,10 +113,14 @@ export class Apps {
     // message through the shared status region (accessibility MAJOR 1 of
     // the correction round 1 of pull request #159), then clears the query
     // parameter from the URL, so a reload does not repeat the message
-    // (accessibility MINOR 5).
+    // (accessibility MINOR 5). The effect runs a second time after the
+    // clear, because the router echoes the missing parameter back as
+    // undefined, not as null (accessibility BLOCKER A of the correction
+    // round 2). The guard below returns on that second run, so the shown
+    // message and the announced text stay in place.
     effect(() => {
       const id = this.notFoundAppId();
-      if (id === null) {
+      if (!id) {
         return;
       }
       this.shownNotFoundAppId.set(id);

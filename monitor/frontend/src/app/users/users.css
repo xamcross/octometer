@@ -98,7 +98,7 @@ tbody tr:focus-within {
  * attribute, so it stays in the tab order (the reviewer confirmed this
  * choice). This rule gives it a visible state too: a lower-contrast text,
  * no pointer cursor, and a lighter border. #595959 on #f8f8f8 keeps a
- * contrast of 7.0:1, above the 3:1 floor of WCAG 1.4.3.
+ * contrast of 6.6:1, above the 3:1 floor of WCAG 1.4.3.
  */
 .pager button[aria-disabled='true'] {
   color: #595959;
