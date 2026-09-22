@@ -1049,6 +1049,60 @@ class IngestRouteTest {
     }
 
     @Test
+    fun `a 300-character header value falls back to the remote address as the daily cap key, never the raw header text`() =
+        testApplication {
+            // Finding of the correction of 2026-09-22: the daily cap key
+            // must be the same normalised address as the rate limiter
+            // (issue #33), never a raw header value. A raw-header key
+            // would let a client send a new, huge decoy header value on
+            // each request and never repeat a key, so the per-key cap
+            // would never catch it. This route already passes
+            // clientAddress(call, clientIpHeaderName) into AnonymousKey.of,
+            // the same call the rate limiter makes, so this test only
+            // locks that fact in.
+            val store = InMemoryEventLogStore()
+            val dailyCap = AnonymousDailyCap(fixedClock, 1_000, 1)
+            application {
+                routing {
+                    octometerIngestRoute(
+                        store = store,
+                        settings = IngestSettings(true),
+                        clock = fixedClock,
+                        dailyCap = dailyCap,
+                        clientIpHeaderName = "X-Client-Ip",
+                    ) { null }
+                }
+            }
+
+            val firstResponse = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                header("X-Client-Ip", "9".repeat(300))
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.NoContent, firstResponse.status)
+            assertEquals(1, store.events().size)
+
+            // A different 300-character header value. A raw-header key
+            // would treat this as a brand new key, and the per-key cap
+            // of 1 would never drop it. The route instead falls back to
+            // the remote address for each request (issue #33: a value
+            // above 64 characters never becomes the key), so this
+            // second request shares the first request's key and goes
+            // above its cap of 1.
+            val secondResponse = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                header("X-Client-Ip", "8".repeat(300))
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.NoContent, secondResponse.status)
+            assertEquals(
+                1,
+                store.events().size,
+                "The daily cap map must hold one key (the remote address), never a raw 300-character header value.",
+            )
+        }
+
+    @Test
     fun `a marker user agent and a marker address stay out of each captured log line`() = testApplication {
         val store = InMemoryEventLogStore()
         val markerUserAgent = "SENTINEL-bot-marker-user-agent-host-octo-shard-00"
@@ -1149,37 +1203,31 @@ class IngestRouteTest {
     }
 
     @Test
-    fun `an invalid body gives 400 even for an already-limited client, because the parse runs before the rate limiter`() =
-        testApplication {
-            // Issue #117, design decision D43 moves the parse (400)
-            // ahead of the rate limiter (429) in the order of the route
-            // (see the KDoc of octometerIngestRoute). This test replaces
-            // the pre-issue-117 test of the same scenario, which
-            // expected 429 under the old order.
-            val store = InMemoryEventLogStore()
-            application {
-                routing {
-                    octometerIngestRoute(
-                        store = store,
-                        settings = IngestSettings(true),
-                        clock = fixedClock,
-                    ) { "user-1" }
-                }
+    fun `a 429 answer arrives even for a body that is not valid JSON`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { "user-1" }
             }
-
-            repeat(30) {
-                client.post(DEFAULT_INGEST_PATH) {
-                    contentType(ContentType.Application.Json)
-                    setBody(validBody)
-                }
-            }
-
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                setBody("this is not valid JSON")
-            }
-            assertEquals(HttpStatusCode.BadRequest, response.status)
         }
+
+        repeat(30) {
+            client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                setBody(validBody)
+            }
+        }
+
+        // A body that IngestPipeline.process would reject with 400. The
+        // route must never reach that parse step once the limiter
+        // rejects the request (issue #33, step 4): the answer is 429,
+        // not 400.
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody("this is not valid JSON")
+        }
+        assertEquals(HttpStatusCode.TooManyRequests, response.status)
+    }
 
     @Test
     fun `with OCTOMETER_CLIENT_IP_HEADER set, two different header values get two counters`() = testApplication {
@@ -1314,45 +1362,50 @@ class IngestRouteTest {
     }
 
     @Test
-    fun `an already-limited client still gets 400 for a body above the maximum size, because the body size check runs first`() =
-        testApplication {
-            // Issue #117, design decision D43 moves the body size check
-            // (400) ahead of the rate limiter (429) in the order of the
-            // route (see the KDoc of octometerIngestRoute). This test
-            // replaces the pre-issue-117 test of the same scenario,
-            // which expected 429 under the old order (security review
-            // MINOR 2 and concurrency review MINOR 7 of pull request
-            // #158).
-            val store = InMemoryEventLogStore()
-            application {
-                routing {
-                    octometerIngestRoute(
-                        store = store,
-                        settings = IngestSettings(true),
-                        clock = fixedClock,
-                    ) { null }
-                }
+    fun `a client already limited gets 429 for a body above the maximum size, never 400`() = testApplication {
+        // Security review MINOR 2 and concurrency review MINOR 7 of pull
+        // request #158: no test held the order of the rate limit check
+        // and the body read. An oversized body gives 400 only when the
+        // route reads the body; it must never reach that step once a
+        // client is already limited (issue #33, step 4; restated as a
+        // correction of design decision D43 on 2026-09-22, after issue
+        // #117 first moved the body size check ahead of the rate
+        // limiter by mistake).
+        //
+        // This body carries no declared Content-Length (the technique of
+        // "a body above 16 KB with no Content-Length gives 400" above),
+        // because a body that does declare an oversized Content-Length
+        // now fails the cheap step-2 check on its own, before the route
+        // ever reaches the rate limiter; that step-2 case has its own
+        // test above ("a body above 16 KB with a correct Content-Length
+        // gives 400") and does not depend on the rate limit state.
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
             }
+        }
 
-            repeat(120) { requestIndex ->
-                val response = client.post(DEFAULT_INGEST_PATH) {
-                    contentType(ContentType.Application.Json)
-                    setBody(validBody)
-                }
-                assertEquals(
-                    HttpStatusCode.NoContent,
-                    response.status,
-                    "Request ${requestIndex + 1} of 120 must pass.",
-                )
-            }
-
-            val oversizedBody = """{"sessionId":"${"a".repeat(20_000)}"}"""
+        repeat(120) { requestIndex ->
             val response = client.post(DEFAULT_INGEST_PATH) {
                 contentType(ContentType.Application.Json)
-                setBody(oversizedBody)
+                setBody(validBody)
             }
-            assertEquals(HttpStatusCode.BadRequest, response.status)
+            assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
         }
+
+        val oversizedBytes = """{"sessionId":"${"a".repeat(20_000)}"}""".toByteArray(Charsets.UTF_8)
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(object : OutgoingContent.WriteChannelContent() {
+                override val contentLength: Long? = null
+                override suspend fun writeTo(channel: ByteWriteChannel) {
+                    channel.writeFully(oversizedBytes)
+                }
+            })
+        }
+        assertEquals(HttpStatusCode.TooManyRequests, response.status)
+    }
 
     @Test
     fun `with OCTOMETER_CLIENT_IP_HEADER set, a forged left element never changes the key`() = testApplication {

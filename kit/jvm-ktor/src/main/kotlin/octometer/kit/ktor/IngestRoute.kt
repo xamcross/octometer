@@ -124,15 +124,22 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  * That check separates a real cancellation of the call from a
  * [CancellationException] that the app throws by itself.
  *
- * **The order of the checks (design decision D43, issue #117).** The
- * route runs each check of one request in this order, and it stops at
- * the first one that answers:
+ * **The order of the checks (design decision D43, issue #117; corrected
+ * 2026-09-22 so the rate limiter again runs before any real body read,
+ * the original rule of issue #33).** The route runs each check of one
+ * request in this order, and it stops at the first one that answers:
  *
  * 1. the `Content-Type` header (415, contract rule C12);
- * 2. the body size (400, contract rule C18);
- * 3. the bot filter of [BotUserAgentFilter] (204, before the parse);
- * 4. the parse of the body (400, the field rules of `kit/jvm-core`);
- * 5. the rate limiter of design decision D20 (429, issue #33);
+ * 2. the body size (400, contract rule C18), the declared
+ *    `Content-Length` only, with no body read;
+ * 3. the bot filter of [BotUserAgentFilter] (204);
+ * 4. the rate limiter of design decision D20 (429, issue #33) — a
+ *    client already at its limit pays for no real body read and no
+ *    parse below;
+ * 5. the real body read (400, contract rule C18, for a body above the
+ *    limit that step 2 could not catch from its declared length alone)
+ *    and the parse of the body (400, the field rules of
+ *    `kit/jvm-core`);
  * 6. the design decision D19 drop (a request with no user id, with
  *    anonymous recording off, stores nothing and answers 204);
  * 7. the daily anonymous caps of design decision D43 (204), for a
@@ -202,32 +209,28 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
-            // 2. Body size (400, contract rule C18). The route must
-            // read the body before it can check the bot filter or the
-            // parse, so this check runs next (design decision D43,
-            // issue #117, the order of octometerIngestRoute above).
-            val rawBody = call.receiveLimitedText(MAX_BODY_BYTES)
-            if (rawBody == null) {
+            // 2. Body size (400, contract rule C18): the declared
+            // Content-Length only, with no body read. A request with
+            // no declared length, or a length at or under the limit,
+            // passes here; the real read below (step 5) still enforces
+            // the same limit for such a request (design decision D43,
+            // issue #117, correction of 2026-09-22: the rate limiter
+            // must run before any real body read, the original rule of
+            // issue #33).
+            if (!hasAcceptableDeclaredLength(call, MAX_BODY_BYTES)) {
                 call.respond(HttpStatusCode.BadRequest)
                 return@post
             }
 
-            // 3. The bot filter (204, before the parse; design decision
-            // D43, issue #117). The kit stores no User-Agent value: the
-            // log line below holds no header value.
+            // 3. The bot filter (204, before the rate limiter and the
+            // parse; design decision D43, issue #117). The kit stores
+            // no User-Agent value: the log line below holds no header
+            // value.
             if (BotUserAgentFilter.isBot(call.request.header(HttpHeaders.UserAgent))) {
                 call.application.log.debug(
                     "The Octometer ingest route drops a batch of a robot user agent (design decision D43).",
                 )
                 call.respond(HttpStatusCode.NoContent)
-                return@post
-            }
-
-            // 4. The parse (400, the field rules of `kit/jvm-core`).
-            val events = try {
-                IngestPipeline.process(rawBody, clock, settings)
-            } catch (cause: IngestException) {
-                call.respond(HttpStatusCode.BadRequest)
                 return@post
             }
 
@@ -238,9 +241,11 @@ public fun Route.octometerIngestRoute(
             // keep that function short, as its own KDoc already asks.
             val userId = resolveUserId(call)
 
-            // 5. The rate limiter (429, design decision D20, issue #33).
-            // The route reads the client address header only for a
-            // request with no user id; check() never reads it for a
+            // 4. The rate limiter (429, design decision D20, issue #33).
+            // This runs before the real body read (step 5): a client
+            // already at its limit never pays for that read or for the
+            // parse. The route reads the client address header only for
+            // a request with no user id; check() never reads it for a
             // signed-in user, so this call would waste one header lookup
             // on every request otherwise.
             val rateLimitResult = if (userId != null) {
@@ -250,6 +255,22 @@ public fun Route.octometerIngestRoute(
             }
             if (rateLimitResult == RateLimitResult.LIMITED) {
                 call.respond(HttpStatusCode.TooManyRequests)
+                return@post
+            }
+
+            // 5. The body read (400, contract rule C18: a body above
+            // the limit with no declared length, or a declared length
+            // that understates the real body) and the parse (400, the
+            // field rules of `kit/jvm-core`).
+            val rawBody = call.receiveLimitedText(MAX_BODY_BYTES)
+            if (rawBody == null) {
+                call.respond(HttpStatusCode.BadRequest)
+                return@post
+            }
+            val events = try {
+                IngestPipeline.process(rawBody, clock, settings)
+            } catch (cause: IngestException) {
+                call.respond(HttpStatusCode.BadRequest)
                 return@post
             }
 
@@ -439,6 +460,20 @@ private fun hasJsonContentType(call: ApplicationCall): Boolean {
 }
 
 /**
+ * True when the declared `Content-Length` header of [call], at or under
+ * [maxBytes], lets the route skip a real body read (contract rule C18,
+ * design decision D43, issue #117). An absent header, and a header this
+ * function cannot parse as a whole number, both pass here; [ApplicationCall.receiveLimitedText]
+ * still enforces [maxBytes] for a body with no declared length, or a
+ * declared length that understates the real body. This function reads
+ * no byte of the body.
+ */
+private fun hasAcceptableDeclaredLength(call: ApplicationCall, maxBytes: Long): Boolean {
+    val declaredLength = call.request.header(HttpHeaders.ContentLength)?.toLongOrNull()
+    return declaredLength == null || declaredLength <= maxBytes
+}
+
+/**
  * Reads the request body as text, with a limit of [maxBytes] raw bytes
  * (contract rule C18). This function never reads more than one byte above
  * the limit into memory, so a large body never reaches the heap in full.
@@ -457,10 +492,6 @@ private fun hasJsonContentType(call: ApplicationCall): Boolean {
  * against each Ktor 3 version that the kit supports.
  */
 private suspend fun ApplicationCall.receiveLimitedText(maxBytes: Long): String? {
-    val declaredLength = request.header(HttpHeaders.ContentLength)?.toLongOrNull()
-    if (declaredLength != null && declaredLength > maxBytes) {
-        return null
-    }
     @Suppress("DEPRECATION")
     val bytes = request.receiveChannel().readRemaining(maxBytes + 1).use { it.readByteArray() }
     return if (bytes.size > maxBytes) null else bytes.toString(Charsets.UTF_8)

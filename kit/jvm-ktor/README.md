@@ -87,13 +87,19 @@ value. An absent header passes.
 
 `octometerIngestRoute` runs each check of one request in this order,
 and it stops at the first one that answers (design decision D43, issue
-#117; see the KDoc of `octometerIngestRoute` for the full detail):
+#117; corrected 2026-09-22, so the rate limiter again runs before any
+real body read, the original rule of issue #33; see the KDoc of
+`octometerIngestRoute` for the full detail):
 
 1. the `Content-Type` header (415);
-2. the body size (400);
-3. the bot filter (204, before the parse);
-4. the parse of the body (400);
-5. the rate limit of design decision D20 (429);
+2. the body size (400), the declared `Content-Length` header only,
+   with no body read;
+3. the bot filter (204);
+4. the rate limit of design decision D20 (429) — a client already at
+   its limit pays for no real body read and no parse below;
+5. the real body read (400, for a body above the limit that step 2
+   could not catch from its declared length alone) and the parse of
+   the body (400);
 6. the design decision D19 drop (a request with no user id, with
    anonymous recording off, stores nothing);
 7. the daily anonymous caps (204), for a request with no user id and
@@ -103,6 +109,13 @@ and it stops at the first one that answers (design decision D43, issue
 A success and each of the three drops above (the bot filter, a daily
 cap, and the event cap) all answer 204 with an empty body, so a client
 learns nothing about the reason (contract rule C19).
+
+**The daily cap key.** The daily anonymous cap reads the same
+normalised client address as the rate limiter above (the same
+`clientIpHeaderName` rule): a header value above 64 characters, or
+with no IPv4 or IPv6 address form, falls back to the remote address.
+The map of `AnonymousDailyCap` never holds a raw header value as a
+key.
 
 ## The store dispatcher
 
