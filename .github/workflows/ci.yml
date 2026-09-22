@@ -135,7 +135,22 @@ jobs:
         with:
           # cache-read-only: same source and rule as the "jvm" job above.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: monitor/frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: monitor/frontend/package-lock.json
+      - name: Build the distribution, with the Angular app inside it
+        run: ./gradlew :monitor:backend:installDist
       - name: Test the monitor backend
+        # Correction round 2 of issue #38 (MAJOR, release review): this
+        # step ran before installDist, so FrontendCspTest and
+        # WindowsStartScriptTest always skipped. The step now runs
+        # after the build, and the variable below fails the build on a
+        # skip of either class.
+        env:
+          OCTOMETER_REQUIRE_DIST: 'true'
         run: ./gradlew :monitor:backend:test
       - name: Keep the test report
         if: failure()
@@ -143,6 +158,39 @@ jobs:
         with:
           name: test-report-monitor-windows
           path: monitor/backend/build/reports/tests/test
+      - name: Start the distribution and open its routes
+        # This step runs the Unix start script
+        # "monitor/backend/build/install/backend/bin/backend", not
+        # "backend.bat". It works on this Windows runner, because the
+        # job sets "shell: bash" above, and windows-latest runs that
+        # shell as Git Bash. The script detects an MSYS shell and
+        # converts APP_HOME, CLASSPATH, and JAVACMD with cygpath. Its
+        # last line execs JAVACMD, so "$!" below holds the process id of
+        # java itself, and "kill" reaches it.
+        #
+        # Correction round 1 (MAJOR 2, release review): the job shell
+        # runs with "-e". A failed curl used to stop this step before
+        # the kill line ran. The java process then stayed alive until
+        # the job timeout. The trap now runs on every exit path of this
+        # step, a normal end and a failure alike.
+        run: |
+          ./monitor/backend/build/install/backend/bin/backend &
+          server_pid=$!
+          trap 'kill "$server_pid" 2> /dev/null || true' EXIT
+          base_url="http://127.0.0.1:7431"
+          health_ready=""
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error "$base_url/api/health" > /dev/null; then
+              health_ready="yes"
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$health_ready" ]; then
+            echo "The monitor never answered /api/health within 30 seconds."
+            exit 1
+          fi
+          curl --fail --silent --show-error "$base_url/" > /dev/null
 
   frontend:
     name: Frontend
