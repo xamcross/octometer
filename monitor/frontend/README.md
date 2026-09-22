@@ -1,7 +1,8 @@
 # Octometer frontend
 
 This is the Angular app of Octometer. It shows the app list and the data of
-each app.
+each app. This line is a proof edit for issue #177, step 5, and it holds no
+code change.
 
 ## Node version
 
