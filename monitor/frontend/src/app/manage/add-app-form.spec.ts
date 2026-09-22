@@ -34,12 +34,14 @@ describe('AddAppForm', () => {
     return fixture.nativeElement as HTMLElement;
   }
 
-  function fillAndSubmit(overrides: {
-    name?: string;
-    connectionString?: string;
-    database?: string;
-    collection?: string;
-  } = {}): void {
+  function fillAndSubmit(
+    overrides: {
+      name?: string;
+      connectionString?: string;
+      database?: string;
+      collection?: string;
+    } = {},
+  ): void {
     const name = root().querySelector<HTMLInputElement>('#add-app-name')!;
     const connectionString = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
     const database = root().querySelector<HTMLInputElement>('#add-app-database')!;
@@ -48,7 +50,8 @@ describe('AddAppForm', () => {
     name.value = overrides.name ?? 'traficio';
     name.dispatchEvent(new Event('input'));
     connectionString.value =
-      overrides.connectionString ?? 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
+      overrides.connectionString ??
+      'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
     connectionString.dispatchEvent(new Event('input'));
     database.value = overrides.database ?? 'exampledb';
     database.dispatchEvent(new Event('input'));
@@ -57,7 +60,9 @@ describe('AddAppForm', () => {
       collection.dispatchEvent(new Event('change'));
     }
 
-    root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    root()
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { cancelable: true }));
     fixture.detectChanges();
   }
 
@@ -112,12 +117,13 @@ describe('AddAppForm', () => {
     const submit = root().querySelector<HTMLButtonElement>('button[type="submit"]')!;
     expect(submit.disabled).toBe(true);
 
-    httpMock
-      .expectOne({ url: '/api/apps', method: 'POST' })
-      .flush({ appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' }, {
+    httpMock.expectOne({ url: '/api/apps', method: 'POST' }).flush(
+      { appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
+      {
         status: 201,
         statusText: 'Created',
-      });
+      },
+    );
     fixture.detectChanges();
     expect(submit.disabled).toBe(false);
   });
@@ -132,7 +138,12 @@ describe('AddAppForm', () => {
     }
 
     it('clears the form fields', () => {
-      submitAndFlushCreated({ appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' });
+      submitAndFlushCreated({
+        appId: 1,
+        name: 'traficio',
+        database: 'exampledb',
+        collection: 'octometer_events',
+      });
 
       expect(root().querySelector<HTMLInputElement>('#add-app-name')!.value).toBe('');
       expect(root().querySelector<HTMLInputElement>('#add-app-connection-string')!.value).toBe('');
@@ -141,7 +152,12 @@ describe('AddAppForm', () => {
 
     it('announces "App added" through the shared status region', () => {
       const announceSpy = vi.spyOn(announcer, 'announce');
-      submitAndFlushCreated({ appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' });
+      submitAndFlushCreated({
+        appId: 1,
+        name: 'traficio',
+        database: 'exampledb',
+        collection: 'octometer_events',
+      });
 
       expect(announceSpy).toHaveBeenCalledWith('App added');
     });
@@ -165,7 +181,10 @@ describe('AddAppForm', () => {
     fillAndSubmit();
     httpMock
       .expectOne({ url: '/api/apps', method: 'POST' })
-      .flush({ error: 'Give a shorter connection string.' }, { status: 400, statusText: 'Bad Request' });
+      .flush(
+        { error: 'Give a shorter connection string.' },
+        { status: 400, statusText: 'Bad Request' },
+      );
     fixture.detectChanges();
 
     expect(root().textContent).toContain('Give a shorter connection string.');
@@ -206,12 +225,13 @@ describe('AddAppForm', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     fillAndSubmit({ connectionString: secret });
-    httpMock
-      .expectOne({ url: '/api/apps', method: 'POST' })
-      .flush({ appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' }, {
+    httpMock.expectOne({ url: '/api/apps', method: 'POST' }).flush(
+      { appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
+      {
         status: 201,
         statusText: 'Created',
-      });
+      },
+    );
     fixture.detectChanges();
 
     for (const spy of [logSpy, warnSpy, errorSpy]) {
@@ -220,6 +240,8 @@ describe('AddAppForm', () => {
       }
     }
     expect(window.location.href).not.toContain(secret);
-    expect(root().querySelector<HTMLInputElement>('#add-app-connection-string')!.value).not.toContain(secret);
+    expect(
+      root().querySelector<HTMLInputElement>('#add-app-connection-string')!.value,
+    ).not.toContain(secret);
   });
 });

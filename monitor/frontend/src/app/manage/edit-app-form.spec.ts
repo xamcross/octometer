@@ -82,7 +82,9 @@ describe('EditAppForm', () => {
     const connectionString = root().querySelector<HTMLInputElement>(
       'input[id^="edit-app-connection-string-"]',
     )!;
-    expect(root().querySelector(`label[for="${name.id}"]`)?.textContent?.trim().length).toBeGreaterThan(0);
+    expect(
+      root().querySelector(`label[for="${name.id}"]`)?.textContent?.trim().length,
+    ).toBeGreaterThan(0);
     expect(
       root().querySelector(`label[for="${connectionString.id}"]`)?.textContent?.trim().length,
     ).toBeGreaterThan(0);
@@ -93,7 +95,9 @@ describe('EditAppForm', () => {
     const name = root().querySelector<HTMLInputElement>('input[id^="edit-app-name-"]')!;
     name.value = 'traficio-renamed';
     name.dispatchEvent(new Event('input'));
-    root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    root()
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { cancelable: true }));
 
     const req = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
     expect(req.request.body).toEqual({ name: 'traficio-renamed' });
@@ -107,7 +111,9 @@ describe('EditAppForm', () => {
     )!;
     connectionString.value = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
     connectionString.dispatchEvent(new Event('input'));
-    root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    root()
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { cancelable: true }));
 
     const req = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
     expect(req.request.body).toEqual({
@@ -123,7 +129,9 @@ describe('EditAppForm', () => {
       const updatedSpy = vi.fn();
       fixture.componentInstance.updated.subscribe(updatedSpy);
       openEditor();
-      root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+      root()
+        .querySelector('form')!
+        .dispatchEvent(new Event('submit', { cancelable: true }));
       httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' }).flush(null, {
         status: 204,
         statusText: 'No Content',
@@ -138,7 +146,9 @@ describe('EditAppForm', () => {
 
   it('shows the fixed 404 message from the API, linked with aria-describedby', () => {
     openEditor();
-    root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    root()
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { cancelable: true }));
     httpMock
       .expectOne({ url: '/api/apps/3', method: 'PATCH' })
       .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
@@ -151,7 +161,9 @@ describe('EditAppForm', () => {
 
   it('shows no inline text for a network failure', () => {
     openEditor();
-    root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    root()
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { cancelable: true }));
     httpMock
       .expectOne({ url: '/api/apps/3', method: 'PATCH' })
       .error(new ProgressEvent('error'), { status: 0, statusText: 'Unknown Error' });
@@ -188,7 +200,9 @@ describe('EditAppForm', () => {
     )!;
     connectionString.value = secret;
     connectionString.dispatchEvent(new Event('input'));
-    root().querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    root()
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { cancelable: true }));
     httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' }).flush(null, {
       status: 204,
       statusText: 'No Content',

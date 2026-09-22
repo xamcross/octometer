@@ -1,5 +1,14 @@
 import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { Component, ElementRef, computed, inject, input, output, signal, viewChild } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import { Announcer } from '../announcer';
 import type { AppRow } from '../apps/app-row';
@@ -39,7 +48,8 @@ export class DeleteAppDialog {
 
   private readonly dialogEl = viewChild.required<ElementRef<HTMLDialogElement>>('dialogEl');
   private readonly cancelButton = viewChild.required<ElementRef<HTMLButtonElement>>('cancelButton');
-  private readonly triggerButton = viewChild.required<ElementRef<HTMLButtonElement>>('triggerButton');
+  private readonly triggerButton =
+    viewChild.required<ElementRef<HTMLButtonElement>>('triggerButton');
 
   protected readonly typedName = signal('');
   protected readonly pending = signal(false);

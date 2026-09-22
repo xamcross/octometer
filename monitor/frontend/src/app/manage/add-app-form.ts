@@ -2,7 +2,12 @@ import { HttpClient } from '@angular/common/http';
 import { Component, inject, output, signal } from '@angular/core';
 
 import { Announcer } from '../announcer';
-import { ALLOWED_COLLECTIONS, AppSummary, CreateAppRequest, readApiErrorMessage } from './app-registry-api';
+import {
+  ALLOWED_COLLECTIONS,
+  AppSummary,
+  CreateAppRequest,
+  readApiErrorMessage,
+} from './app-registry-api';
 
 /**
  * The form of step 2: `POST /api/apps` with the fields of D13. The

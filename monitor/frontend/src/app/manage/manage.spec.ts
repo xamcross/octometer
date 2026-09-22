@@ -196,22 +196,28 @@ describe('Manage', () => {
     it('reloads the list after the form reports a created app', () => {
       flushList([]);
       const nameField = root().querySelector<HTMLInputElement>('#add-app-name')!;
-      const connectionStringField = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
+      const connectionStringField = root().querySelector<HTMLInputElement>(
+        '#add-app-connection-string',
+      )!;
       const databaseField = root().querySelector<HTMLInputElement>('#add-app-database')!;
       nameField.value = 'traficio';
       nameField.dispatchEvent(new Event('input'));
-      connectionStringField.value = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
+      connectionStringField.value =
+        'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
       connectionStringField.dispatchEvent(new Event('input'));
       databaseField.value = 'exampledb';
       databaseField.dispatchEvent(new Event('input'));
-      root().querySelector('app-add-app-form form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+      root()
+        .querySelector('app-add-app-form form')!
+        .dispatchEvent(new Event('submit', { cancelable: true }));
 
-      httpMock
-        .expectOne({ url: '/api/apps', method: 'POST' })
-        .flush({ appId: 9, name: 'traficio', database: 'exampledb', collection: 'octometer_events' }, {
+      httpMock.expectOne({ url: '/api/apps', method: 'POST' }).flush(
+        { appId: 9, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
+        {
           status: 201,
           statusText: 'Created',
-        });
+        },
+      );
       fixture.detectChanges();
 
       flushList([buildRow({ appId: 9, name: 'traficio' })]);
@@ -225,7 +231,9 @@ describe('Manage', () => {
 
       root().querySelector<HTMLButtonElement>('button.edit-toggle')!.click();
       fixture.detectChanges();
-      root().querySelector('app-edit-app-form form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+      root()
+        .querySelector('app-edit-app-form form')!
+        .dispatchEvent(new Event('submit', { cancelable: true }));
       httpMock
         .expectOne({ url: '/api/apps/4', method: 'PATCH' })
         .flush(null, { status: 204, statusText: 'No Content' });
@@ -288,7 +296,9 @@ describe('Manage', () => {
 
     flushList([]);
     const nameField = root().querySelector<HTMLInputElement>('#add-app-name')!;
-    const connectionStringField = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
+    const connectionStringField = root().querySelector<HTMLInputElement>(
+      '#add-app-connection-string',
+    )!;
     const databaseField = root().querySelector<HTMLInputElement>('#add-app-database')!;
     nameField.value = 'traficio';
     nameField.dispatchEvent(new Event('input'));
@@ -296,13 +306,16 @@ describe('Manage', () => {
     connectionStringField.dispatchEvent(new Event('input'));
     databaseField.value = 'exampledb';
     databaseField.dispatchEvent(new Event('input'));
-    root().querySelector('app-add-app-form form')!.dispatchEvent(new Event('submit', { cancelable: true }));
-    httpMock
-      .expectOne({ url: '/api/apps', method: 'POST' })
-      .flush({ appId: 9, name: 'traficio', database: 'exampledb', collection: 'octometer_events' }, {
+    root()
+      .querySelector('app-add-app-form form')!
+      .dispatchEvent(new Event('submit', { cancelable: true }));
+    httpMock.expectOne({ url: '/api/apps', method: 'POST' }).flush(
+      { appId: 9, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
+      {
         status: 201,
         statusText: 'Created',
-      });
+      },
+    );
     fixture.detectChanges();
     flushList([buildRow({ appId: 9, name: 'traficio' })]);
 
