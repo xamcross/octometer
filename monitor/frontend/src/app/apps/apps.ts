@@ -1,62 +1,19 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, inject } from '@angular/core';
+import { Component, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
+import { Announcer } from '../announcer';
 import { createPollStore } from '../poll/poll-store';
 import { RefreshBar } from '../refresh-bar/refresh-bar';
+import {
+  STATUS_ICON,
+  STATUS_LABEL,
+  formatLocalDateTime,
+  formatLocalTime,
+  numberFormat,
+  readZoneName,
+} from '../status-format';
 import type { AppRow, AppStatus } from './app-row';
-
-/** The visible text of each status value (D33: an icon plus text, never colour alone). */
-const STATUS_LABEL: Record<AppStatus, string> = {
-  OK: 'OK',
-  NEVER_POLLED: 'Not polled yet',
-  UNREACHABLE: 'Unreachable',
-  UNAUTHORIZED: 'Unauthorized',
-  OVERPRIVILEGED: 'Overprivileged',
-  INVALID_DATA: 'Invalid data',
-  ERROR: 'Error',
-};
-
-/** The icon of each status value. `aria-hidden` hides it. The text next to it gives the meaning. */
-const STATUS_ICON: Record<AppStatus, string> = {
-  OK: '✓',
-  NEVER_POLLED: '–',
-  UNREACHABLE: '⚠',
-  UNAUTHORIZED: '⚠',
-  OVERPRIVILEGED: '⚠',
-  INVALID_DATA: '⚠',
-  ERROR: '⚠',
-};
-
-/** Formats a count in the locale of the browser (D30). */
-const numberFormat = new Intl.NumberFormat();
-
-function pad(value: number): string {
-  return value.toString().padStart(2, '0');
-}
-
-/** Formats an ISO time in local time, as D31 states: `yyyy-MM-dd HH:mm:ss`. */
-function formatLocalDateTime(iso: string): string {
-  const date = new Date(iso);
-  return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-  );
-}
-
-/** Formats an ISO time in local time, the time part only: `HH:mm:ss`. */
-function formatLocalTime(iso: string): string {
-  const date = new Date(iso);
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
-/** Reads the short zone name of the browser, for example "UTC" or "GMT+2" (D31). */
-function readZoneName(): string {
-  const part = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
-    .formatToParts(new Date())
-    .find((entry) => entry.type === 'timeZoneName');
-  return part?.value ?? '';
-}
 
 /**
  * The route "/apps" (D28, level 1 of the design). It shows one row for each
@@ -82,12 +39,55 @@ function readZoneName(): string {
 export class Apps {
   private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
+  private readonly announcer = inject(Announcer);
+
+  /**
+   * The `notFoundAppId` query parameter, bound by the router. The level 2
+   * view of #52 sets this parameter on a 404 answer (D30). The
+   * constructor below copies its value into `shownNotFoundAppId` and then
+   * clears it from the URL, so a reload of `/apps` does not show the
+   * message again.
+   */
+  readonly notFoundAppId = input<string | null>(null);
+
+  /**
+   * The app id of the not-found message that the view shows (accessibility
+   * MINOR 5 of the correction round 1 of pull request #159). It keeps its
+   * value after the constructor clears `notFoundAppId` from the URL, so
+   * the message stays on the screen.
+   */
+  protected readonly shownNotFoundAppId = signal<string | null>(null);
 
   /** The poll store of the app list. */
   protected readonly store = createPollStore<AppRow[]>(() => this.http.get<AppRow[]>('/api/apps'));
 
   /** The zone name for the "Data time" column header (D31). */
   protected readonly zoneName = readZoneName();
+
+  constructor() {
+    // Copies a fresh notFoundAppId into shownNotFoundAppId, announces the
+    // message through the shared status region (accessibility MAJOR 1 of
+    // the correction round 1 of pull request #159), then clears the query
+    // parameter from the URL, so a reload does not repeat the message
+    // (accessibility MINOR 5). The effect runs a second time after the
+    // clear, because the router echoes the missing parameter back as
+    // undefined, not as null (accessibility BLOCKER A of the correction
+    // round 2). The guard below returns on that second run, so the shown
+    // message and the announced text stay in place.
+    effect(() => {
+      const id = this.notFoundAppId();
+      if (!id) {
+        return;
+      }
+      this.shownNotFoundAppId.set(id);
+      this.announcer.announce(`App ${id} is not registered.`);
+      void this.router.navigate([], {
+        queryParams: { notFoundAppId: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+    });
+  }
 
   /** True for each status other than `OK` and `NEVER_POLLED` (D30). */
   protected isFailed(status: AppStatus): boolean {

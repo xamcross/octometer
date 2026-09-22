@@ -104,6 +104,24 @@ class MongoEventLogStoreInsertOnlyUserTest {
                 "user-1");
 
         assertEquals(1, rawCollectionAsRoot.countDocuments());
+
+        // MongoDB review of pull request #165: the append above also
+        // exercises the event cap guard, and estimatedDocumentCount()
+        // needs the find action that this role does not hold. The guard
+        // must still fail open for this one call, with a second warning
+        // that holds the numeric MongoDB error code 13 (Unauthorized).
+        assertEquals(2, CapturingLoggerFinder.records().size(),
+                "The append must add the guard's own fail-open warning, next to the createIndex warning.");
+        CapturingLoggerFinder.Record capWarning = null;
+        for (CapturingLoggerFinder.Record eachRecord : CapturingLoggerFinder.records()) {
+            if (eachRecord.message().contains("could not read its event count")) {
+                capWarning = eachRecord;
+            }
+        }
+        assertEquals(java.lang.System.Logger.Level.WARNING, capWarning.level());
+        assertTrue(capWarning.message().contains("MongoDB error code 13"), "The line must name the error code.");
+        assertFalse(capWarning.message().toLowerCase().contains("not authorized"),
+                "The line must never hold the server text.");
     }
 
     private static MongoClient connectWithRetry(String user, String password, String authDatabase) {

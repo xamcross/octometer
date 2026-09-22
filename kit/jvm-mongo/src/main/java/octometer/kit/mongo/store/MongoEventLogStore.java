@@ -2,13 +2,19 @@ package octometer.kit.mongo.store;
 
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoCommandException;
+import com.mongodb.MongoWriteConcernException;
+import com.mongodb.MongoWriteException;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 import com.mongodb.client.model.InsertManyOptions;
+import com.mongodb.client.result.DeleteResult;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -16,8 +22,12 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import octometer.kit.core.ingest.IngestEvent;
+import octometer.kit.core.store.DeletionResult;
+import octometer.kit.core.store.EventCapGuard;
+import octometer.kit.core.store.EventCountEstimator;
 import octometer.kit.core.store.EventLogStore;
 import org.bson.Document;
+import org.bson.conversions.Bson;
 
 /**
  * The MongoDB {@link EventLogStore} of design decision D22 and contract
@@ -65,18 +75,100 @@ import org.bson.Document;
  * socket read timeout plus a write concern with a {@code wtimeout} with
  * driver 5.0.
  *
- * <p>{@link #deleteByUserId} does not yet delete an event; issue #35 adds
- * that behavior.
+ * <p>{@link #append} drops the whole batch above the event cap of design
+ * decision D21 (contract rule C19, issue #34): the environment variable
+ * {@code OCTOMETER_MAX_EVENTS} (default 200000). The store reads
+ * {@link #estimatedEventCount()} through an {@link EventCapGuard}, which
+ * caches the value for 60 seconds, so this class never runs a count
+ * query on each request. A dropped batch throws no exception; the caller
+ * (the ingest route) then answers 204, the same answer as a stored batch
+ * (contract rule C19). The store writes one warning for each clock hour,
+ * never one for each dropped batch. The warning holds no user id, no
+ * client address, and no session id (design decision D15).
+ *
+ * <p>The app database user needs the {@code find} action on {@code
+ * octometer_events}, next to {@code insert}, {@code createIndex}, and
+ * {@code collMod}. {@link #estimatedEventCount()} sends the MongoDB
+ * {@code count} command. That command needs the {@code find} action.
+ * Without {@code find} the cap never stops the ingest. The store then
+ * fails closed after three count errors in a row; see the class
+ * comment of {@link EventCapGuard} for that state.
+ *
+ * <p>{@link #deleteByUserId} implements contract rule C43 (issue #35,
+ * correction round 1). A call reads the distinct {@code sessionId}
+ * values of the given user id, deletes each anonymous event of those
+ * sessions, then deletes each event of the given user id of those
+ * sessions. It reads the session ids again, and it repeats the two
+ * deletes for a new session id, up to 3 passes in total. The anonymous
+ * delete of a pass always runs before the user delete of the same
+ * pass. A user event is the only link from a session id to the user
+ * id. So a pass never deletes that link before it deletes the
+ * anonymous events that the link finds. Each command of a pass is a
+ * separate MongoDB command, not one transaction; the class comment
+ * above states why this store opens no transaction. The Javadoc of
+ * {@link EventLogStore#deleteByUserId} states the pass loop and the
+ * retry rule in full. A session id list of more than 1 000 entries
+ * goes to {@code deleteMany} in batches of 1 000, to keep each command
+ * well under the 16 MB command limit of the server.
+ *
+ * <p>Each {@code deleteMany} result passes through {@link
+ * #deletedCount}, which reads {@link DeleteResult#getDeletedCount()}
+ * only when {@link DeleteResult#wasAcknowledged()} is {@code true}. An
+ * unacknowledged write concern gives a clear {@link
+ * EventLogDeleteException} instead of the {@link
+ * UnsupportedOperationException} of the driver.
+ *
+ * <p>Contract rule C8 gives the collection only two indexes: one on
+ * {@code _id}, and the TTL index on {@code ts}. Issue #35 adds no new
+ * index, because the erasure is a rare, owner-triggered action. Each
+ * MongoDB command of {@code deleteByUserId} is therefore a full
+ * collection scan, never an index seek. Design decision D21 caps the
+ * collection at 200 000 documents, so the scan cost stays bounded.
+ * {@code MongoEventLogStoreDeleteByUserIdTest} runs {@code explain} on
+ * the two filter shapes and asserts the {@code COLLSCAN} stage; a
+ * delete command shares the query plan of a find command with the
+ * same filter.
+ *
+ * <p><strong>The erasure order for an app team (design decision
+ * D15).</strong> Call this method first, in the app. Wait for one full
+ * poll cycle of the monitor (the refresh time of the mode). Then call
+ * the erasure route of the monitor, {@code DELETE
+ * /api/apps/{appId}/events?userId=<id>} (issue #61). A call to the
+ * monitor route before that wait lets the poll cycle read the erased
+ * events again from this store.
  */
-public final class MongoEventLogStore implements EventLogStore {
+public final class MongoEventLogStore implements EventLogStore, EventCountEstimator {
 
     /** The collection name of contract rule C1. */
     public static final String COLLECTION_NAME = "octometer_events";
 
     private static final String OCTOMETER_RETENTION_DAYS = "OCTOMETER_RETENTION_DAYS";
+    private static final String OCTOMETER_MAX_EVENTS = "OCTOMETER_MAX_EVENTS";
     private static final String TTL_INDEX_NAME = "ts_ttl";
     private static final int DEFAULT_RETENTION_DAYS = 30;
+    private static final long DEFAULT_MAX_EVENTS = 200_000;
     private static final int INDEX_OPTIONS_CONFLICT_ERROR_CODE = 85;
+
+    /** The bound on the pass count of {@link #deleteByUserId}. */
+    private static final int MAX_DELETE_PASSES = 3;
+
+    /** The largest count of session ids that one {@code deleteMany} filter holds. */
+    private static final int SESSION_ID_BATCH_SIZE = 1000;
+
+    /**
+     * The error code of {@link EventLogDeleteException} for an
+     * unacknowledged write concern. This value is not a MongoDB server
+     * error code; the driver gives no code for this case, and -1 is
+     * already the code for an unknown driver failure.
+     */
+    private static final int UNACKNOWLEDGED_WRITE_ERROR_CODE = -2;
+
+    /**
+     * The refresh interval of the event cap cache (design decision D21,
+     * issue #34). The store reads {@link #estimatedEventCount()} at most
+     * one time in this interval.
+     */
+    private static final Duration EVENT_CAP_REFRESH_INTERVAL = Duration.ofSeconds(60);
 
     /**
      * The largest retention that the TTL index field of the server
@@ -86,36 +178,100 @@ public final class MongoEventLogStore implements EventLogStore {
      */
     private static final int MAX_RETENTION_DAYS = 24855;
 
-    /** Only an ASCII digit sets a retention. A Unicode digit does not. */
+    /** Only an ASCII digit sets a retention or a cap. A Unicode digit does not. */
     private static final Pattern ASCII_DIGITS = Pattern.compile("[0-9]+");
+
+    /**
+     * The largest event cap that {@link #maxEventsFromValue} accepts with
+     * no clamp. At about 350 bytes for one stored event (design section
+     * 2), this value uses about 350 MB, well under the 512 MB of an
+     * Atlas M0 cluster (security review of pull request #165, MINOR 1).
+     */
+    private static final long MAX_MAX_EVENTS = 1_000_000;
 
     private static final Logger LOGGER = System.getLogger("octometer.kit.mongo");
 
     private final MongoCollection<Document> collection;
+    private final EventCapGuard eventCapGuard;
 
     /**
      * Builds the store on the {@code octometer_events} collection of
      * {@code database}, and creates the TTL index with the retention of
-     * {@code OCTOMETER_RETENTION_DAYS}.
+     * {@code OCTOMETER_RETENTION_DAYS}. The event cap reads
+     * {@code OCTOMETER_MAX_EVENTS} and uses the system clock.
      */
     public MongoEventLogStore(MongoDatabase database) {
-        this(database, retentionDaysFromEnvironment());
+        this(database, retentionDaysFromEnvironment(), maxEventsFromEnvironment(), Clock.systemUTC());
     }
 
     /**
      * Builds the store with an explicit retention, with no read of the
-     * process environment. A test uses this constructor. The value of
-     * {@code retentionDays} must be 1 or more.
+     * process environment at all. The event cap takes the default of
+     * {@link #DEFAULT_MAX_EVENTS}, not {@code OCTOMETER_MAX_EVENTS}
+     * (MongoDB review of pull request #165, MINOR 4). A test uses this
+     * constructor for a check that has no concern with the event cap.
+     * A value of {@code OCTOMETER_MAX_EVENTS} in the shell of the
+     * developer who runs the test can then never change the outcome.
+     * The value of {@code retentionDays} must be 1 or more.
      */
     MongoEventLogStore(MongoDatabase database, int retentionDays) {
+        this(database, retentionDays, DEFAULT_MAX_EVENTS, Clock.systemUTC());
+    }
+
+    /**
+     * Builds the store with an explicit retention, an explicit event cap,
+     * and an injected clock, with no read of the process environment. A
+     * test of the event cap (issue #34) uses this constructor, with a
+     * fixed or a mutable clock. The value of {@code retentionDays} must
+     * be 1 or more; the value of {@code maxEvents} must be 1 or more.
+     */
+    MongoEventLogStore(MongoDatabase database, int retentionDays, long maxEvents, Clock clock) {
         Objects.requireNonNull(database, "database must not be null");
         if (retentionDays < 1) {
             throw new IllegalArgumentException("retentionDays must be 1 or more");
         }
         this.collection = database.getCollection(COLLECTION_NAME);
         ensureTtlIndex(database, retentionDays);
+        this.eventCapGuard = new EventCapGuard(maxEvents, EVENT_CAP_REFRESH_INTERVAL, clock, this,
+                MongoEventLogStore::mongoErrorCodeOf);
     }
 
+    /**
+     * Reads the numeric MongoDB error code of a failed count read, for
+     * the fail-closed warning of {@link EventCapGuard} (security review
+     * of pull request #165, BLOCKER 2, and MongoDB review, MAJOR 1). It
+     * never reads the server text, because the server text can hold a
+     * host, a port, or a database name (design decision D15).
+     */
+    private static String mongoErrorCodeOf(RuntimeException cause) {
+        return cause instanceof MongoCommandException commandException
+                ? Integer.toString(commandException.getErrorCode())
+                : "unknown";
+    }
+
+    /**
+     * The cheap event count of {@link EventCountEstimator} (design
+     * decision D21, issue #34). {@code estimatedDocumentCount()} reads
+     * collection metadata; it never scans every document. After an
+     * unclean shutdown of the server, that metadata count can drift
+     * from the true document count, until an administrator runs
+     * {@code validate} (MongoDB review of pull request #165, MINOR 6).
+     */
+    @Override
+    public long estimatedEventCount() {
+        return collection.estimatedDocumentCount();
+    }
+
+    /**
+     * Appends the batch, or drops the whole batch above the event cap.
+     * This method checks each event of the batch for {@code null} first.
+     * It checks the cap second (MongoDB review of pull request #165,
+     * MINOR 7). A batch with a {@code null} event always throws, at or
+     * under the cap alike. A dropped batch returns at once, with no
+     * network call, so it returns faster than a stored batch. A client
+     * can measure that timing difference. It learns no user data from
+     * it (security review of pull request #165, MINOR 4).
+     */
     @Override
     public void append(List<IngestEvent> events, String userId) {
         Objects.requireNonNull(events, "events must not be null");
@@ -127,6 +283,10 @@ public final class MongoEventLogStore implements EventLogStore {
             Objects.requireNonNull(event, "event must not be null");
             documents.add(toDocument(event, userId));
         }
+        if (eventCapGuard.isOverCap()) {
+            eventCapGuard.warnDropOncePerHour();
+            return;
+        }
         try {
             collection.insertMany(documents, new InsertManyOptions().ordered(true));
         } catch (MongoBulkWriteException e) {
@@ -136,6 +296,7 @@ public final class MongoEventLogStore implements EventLogStore {
         } catch (RuntimeException e) {
             throw new EventLogWriteException(-1);
         }
+        eventCapGuard.countAppended(documents.size());
     }
 
     /**
@@ -154,12 +315,106 @@ public final class MongoEventLogStore implements EventLogStore {
                 : exception.getWriteConcernError().getCode();
     }
 
+    /**
+     * Implements {@link EventLogStore#deleteByUserId} (contract rule
+     * C43, correction round 1 of issue #35). See the class comment
+     * above for the pass loop, the batch size, the write-concern guard,
+     * the collection-scan cost, and the erasure order of design
+     * decision D15.
+     */
     @Override
-    public void deleteByUserId(String userId) {
-        throw new UnsupportedOperationException(
-                "The store does not delete an event by user id yet. No event was deleted. "
-                        + "Each event of this user stays until the TTL index removes it. "
-                        + "Issue #35 adds the delete.");
+    public DeletionResult deleteByUserId(String userId) {
+        Objects.requireNonNull(userId, "userId must not be null");
+        if (userId.isEmpty()) {
+            throw new IllegalArgumentException("userId must not be an empty text");
+        }
+        try {
+            long userEventCount = 0;
+            long anonymousEventCount = 0;
+            List<String> sessionIds = readSessionIds(userId);
+            for (int pass = 0; !sessionIds.isEmpty() && pass < MAX_DELETE_PASSES; pass++) {
+                anonymousEventCount += deleteAnonymousEvents(sessionIds);
+                userEventCount += deleteUserEvents(userId, sessionIds);
+                sessionIds = readSessionIds(userId);
+            }
+            return new DeletionResult(userEventCount, anonymousEventCount, sessionIds.isEmpty());
+        } catch (EventLogDeleteException e) {
+            throw e;
+        } catch (MongoWriteException e) {
+            throw new EventLogDeleteException(e.getError().getCode());
+        } catch (MongoWriteConcernException e) {
+            throw new EventLogDeleteException(e.getWriteConcernError().getCode());
+        } catch (MongoCommandException e) {
+            throw new EventLogDeleteException(e.getErrorCode());
+        } catch (RuntimeException e) {
+            throw new EventLogDeleteException(-1);
+        }
+    }
+
+    /**
+     * Reads the distinct {@code sessionId} values of {@code userId}:
+     * step (a) of {@link EventLogStore#deleteByUserId}, and step (d) at
+     * the end of each pass.
+     */
+    private List<String> readSessionIds(String userId) {
+        return collection.distinct("sessionId", Filters.eq("userId", userId), String.class).into(new ArrayList<>());
+    }
+
+    /**
+     * Deletes each event with {@code userId: null} whose {@code
+     * sessionId} is one of {@code sessionIds}: step (b) of one pass of
+     * {@link EventLogStore#deleteByUserId} (contract rule C43).
+     */
+    private long deleteAnonymousEvents(List<String> sessionIds) {
+        long deletedCount = 0;
+        for (List<String> batch : batches(sessionIds)) {
+            Bson filter = Filters.and(Filters.eq("userId", null), Filters.in("sessionId", batch));
+            deletedCount += deletedCount(collection.deleteMany(filter));
+        }
+        return deletedCount;
+    }
+
+    /**
+     * Deletes each event with {@code userId} whose {@code sessionId} is
+     * one of {@code sessionIds}: step (c) of one pass of {@link
+     * EventLogStore#deleteByUserId} (contract rule C43).
+     */
+    private long deleteUserEvents(String userId, List<String> sessionIds) {
+        long deletedCount = 0;
+        for (List<String> batch : batches(sessionIds)) {
+            Bson filter = Filters.and(Filters.eq("userId", userId), Filters.in("sessionId", batch));
+            deletedCount += deletedCount(collection.deleteMany(filter));
+        }
+        return deletedCount;
+    }
+
+    /**
+     * Splits {@code sessionIds} into a list of batches of {@link
+     * #SESSION_ID_BATCH_SIZE} entries each, so one {@code deleteMany}
+     * command never sends more than that many session ids.
+     */
+    private static List<List<String>> batches(List<String> sessionIds) {
+        List<List<String>> batches = new ArrayList<>();
+        for (int start = 0; start < sessionIds.size(); start += SESSION_ID_BATCH_SIZE) {
+            int end = Math.min(start + SESSION_ID_BATCH_SIZE, sessionIds.size());
+            batches.add(sessionIds.subList(start, end));
+        }
+        return batches;
+    }
+
+    /**
+     * Reads the deleted count of {@code result} only when the write is
+     * acknowledged (MAJOR 2 of the MongoDB review of pull request #157).
+     * {@link DeleteResult#getDeletedCount()} throws {@link
+     * UnsupportedOperationException} with {@link
+     * com.mongodb.WriteConcern#UNACKNOWLEDGED}; this method turns that
+     * case into a clear {@link EventLogDeleteException} instead.
+     */
+    private static long deletedCount(DeleteResult result) {
+        if (!result.wasAcknowledged()) {
+            throw new EventLogDeleteException(UNACKNOWLEDGED_WRITE_ERROR_CODE);
+        }
+        return result.getDeletedCount();
     }
 
     /**
@@ -278,6 +533,60 @@ public final class MongoEventLogStore implements EventLogStore {
         return DEFAULT_RETENTION_DAYS;
     }
 
+    /**
+     * Reads {@code OCTOMETER_MAX_EVENTS} from the process environment,
+     * then builds the cap with {@link #maxEventsFromValue}.
+     */
+    private static long maxEventsFromEnvironment() {
+        return maxEventsFromValue(System.getenv(OCTOMETER_MAX_EVENTS));
+    }
+
+    /**
+     * Turns the raw text of {@code OCTOMETER_MAX_EVENTS} into the event
+     * cap (design decision D21, issue #34). A {@code null} value gives
+     * the default of 200000, with no warning.
+     *
+     * <p>A value of zero, a negative value, or a value with a character
+     * other than an ASCII digit, stops the app start with a clear error
+     * (correction round 1 of pull request #165). A wrong cap can let the
+     * ingest fill the whole database. This store never guesses a safe
+     * value on its own.
+     *
+     * <p>A value above {@link #MAX_MAX_EVENTS} is clamped at start, with
+     * its own warning (security review of pull request #165, MINOR 1).
+     */
+    static long maxEventsFromValue(String rawValue) {
+        if (rawValue == null) {
+            return DEFAULT_MAX_EVENTS;
+        }
+        String trimmed = rawValue.trim();
+        if (ASCII_DIGITS.matcher(trimmed).matches()) {
+            try {
+                long maxEvents = Long.parseLong(trimmed);
+                if (maxEvents > 0) {
+                    return clampMaxEvents(maxEvents);
+                }
+            } catch (NumberFormatException e) {
+                // A text of only ASCII digits can still overflow a long.
+                // The error below covers this case too.
+            }
+        }
+        throw new IllegalStateException(OCTOMETER_MAX_EVENTS + " must hold a positive whole number of "
+                + "ASCII digits. The app start stops, because a wrong cap can let the ingest fill the "
+                + "whole database.");
+    }
+
+    private static long clampMaxEvents(long maxEvents) {
+        if (maxEvents > MAX_MAX_EVENTS) {
+            LOGGER.log(Level.WARNING, OCTOMETER_MAX_EVENTS + " asks for " + maxEvents
+                    + " events. The store clamps the value to " + MAX_MAX_EVENTS
+                    + " events, so the collection stays well under the storage limit of a small "
+                    + "MongoDB cluster.");
+            return MAX_MAX_EVENTS;
+        }
+        return maxEvents;
+    }
+
     private static int clampRetentionDays(int retentionDays) {
         if (retentionDays > MAX_RETENTION_DAYS) {
             LOGGER.log(Level.WARNING, OCTOMETER_RETENTION_DAYS + " asks for " + retentionDays
@@ -306,6 +615,36 @@ public final class MongoEventLogStore implements EventLogStore {
         }
 
         /** The numeric MongoDB error code, or -1 when the driver gives no code. */
+        public int errorCode() {
+            return errorCode;
+        }
+    }
+
+    /**
+     * A failed {@link #deleteByUserId} call. The message holds only a
+     * fixed text and the numeric MongoDB error code. It holds no host,
+     * no port, no database name, no user id, and no session id, and it
+     * holds no cause (design decision D15). The error code is -1 when
+     * the driver gives no code, and -2 when a write concern was
+     * unacknowledged.
+     */
+    public static final class EventLogDeleteException extends RuntimeException {
+
+        private final int errorCode;
+
+        EventLogDeleteException(int errorCode) {
+            super(errorCode == UNACKNOWLEDGED_WRITE_ERROR_CODE
+                    ? "The store could not delete the events of one user id. "
+                            + "The write concern of the database gave no acknowledgment."
+                    : "The store could not delete the events of one user id. "
+                            + "The MongoDB error code is " + errorCode + ".");
+            this.errorCode = errorCode;
+        }
+
+        /**
+         * The numeric MongoDB error code, -1 when the driver gives no
+         * code, or -2 when a write concern was unacknowledged.
+         */
         public int errorCode() {
             return errorCode;
         }

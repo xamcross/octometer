@@ -14,10 +14,15 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger("octometer.monitor.registry.SecretStore")
 
 private const val SECRETS_FILE_NAME = "apps.json"
 private const val MAX_MOVE_ATTEMPTS = 5
 private const val MOVE_RETRY_PAUSE_MILLIS = 50L
+private const val LEFTOVER_TEMP_FILE_PREFIX = "apps-"
+private const val LEFTOVER_TEMP_FILE_SUFFIX = ".json.tmp"
 
 /**
  * The secrets folder is not available after [MAX_MOVE_ATTEMPTS] tries of
@@ -94,6 +99,41 @@ open class SecretStore(dataDir: String) {
                 orphanKeys.size
             }
         }
+
+    /**
+     * Removes each leftover `apps-*.json.tmp` file of the secrets folder
+     * (issue #141). A kill of the process between the temporary write and
+     * the atomic move of [writeAll] can leave such a file behind. The
+     * start sweep of `MonitorServices.open` calls this once, before the
+     * first write.
+     *
+     * Returns the removed count. A failed delete gives one warning with
+     * the count only, never a file name or a file path, and it does not
+     * stop the caller.
+     */
+    suspend fun removeLeftoverTempFiles(): Int =
+        mutex.withLock {
+            withContext(Dispatchers.IO) { deleteLeftoverTempFiles() }
+        }
+
+    private fun deleteLeftoverTempFiles(): Int {
+        val leftoverFiles = secretsDir.listFiles { file ->
+            file.name.startsWith(LEFTOVER_TEMP_FILE_PREFIX) && file.name.endsWith(LEFTOVER_TEMP_FILE_SUFFIX)
+        } ?: return 0
+        var removedCount = 0
+        var failedCount = 0
+        for (leftoverFile in leftoverFiles) {
+            if (leftoverFile.delete()) {
+                removedCount += 1
+            } else {
+                failedCount += 1
+            }
+        }
+        if (failedCount > 0) {
+            log.warn("The start could not remove {} leftover temporary secret file(s).", failedCount)
+        }
+        return removedCount
+    }
 
     // MAJOR 6 (second Ktor review) and MINOR (second security review): the
     // old code read the file with no retry and with no

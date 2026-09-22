@@ -1,0 +1,115 @@
+/*
+ * No table element gets a `display` value in this file, so the table
+ * keeps its native semantics for a screen reader.
+ */
+caption {
+  text-align: left;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+
+th,
+td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+/*
+ * Only the user id cell breaks inside a word. A number and a header
+ * stay on one line. A narrow viewport then does not break each one
+ * into one character for each line.
+ */
+th[scope='row'] {
+  overflow-wrap: anywhere;
+  min-width: 8rem;
+}
+
+.num {
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+th[scope='row'] a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+/* The table scrolls sideways when the columns need more width than the screen. */
+/* `position: relative` makes this container the containing block of an absolute child, so the page keeps one scroll direction. */
+.table-scroll {
+  position: relative;
+  overflow-x: auto;
+}
+
+/* A click on a data cell opens the link of the user cell (D28). */
+tbody td {
+  cursor: pointer;
+}
+
+tbody tr:hover,
+tbody tr:focus-within {
+  background-color: #eef2f7;
+}
+
+@media (forced-colors: active) {
+  tbody tr:hover,
+  tbody tr:focus-within {
+    background-color: Highlight;
+    color: HighlightText;
+  }
+}
+
+.filter-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+.filter-form input {
+  min-height: 24px;
+  box-sizing: border-box;
+}
+
+.filter-form button,
+.pager button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0.25rem 0.75rem;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 0.75rem 0;
+}
+
+/*
+ * A disabled pager button keeps aria-disabled, not the native disabled
+ * attribute, so it stays in the tab order (the reviewer confirmed this
+ * choice). This rule gives it a visible state too: a lower-contrast text,
+ * no pointer cursor, and a lighter border. #595959 on #f8f8f8 keeps a
+ * contrast of 6.6:1, above the 3:1 floor of WCAG 1.4.3.
+ */
+.pager button[aria-disabled='true'] {
+  color: #595959;
+  background-color: #f8f8f8;
+  border-color: #767676;
+  cursor: default;
+}
+
+@media (forced-colors: active) {
+  .pager button[aria-disabled='true'] {
+    color: GrayText;
+    border-color: GrayText;
+  }
+}

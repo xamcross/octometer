@@ -60,6 +60,7 @@ import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestSettings
 import octometer.kit.core.path.PathPatternMatcher
+import octometer.kit.core.store.DeletionResult
 import octometer.kit.core.store.EventLogStore
 import octometer.kit.core.store.InMemoryEventLogStore
 import org.slf4j.LoggerFactory
@@ -113,6 +114,39 @@ class IngestRouteTest {
         assertEquals(1, stored.size)
         assertEquals("checkout.save", stored[0].element())
         assertEquals("user-1", stored[0].userId())
+    }
+
+    @Test
+    fun `a batch that the store drops above the event cap still gives 204 and an empty body`() = testApplication {
+        // Issue #34: the store of design decision D21 drops a batch above
+        // OCTOMETER_MAX_EVENTS with no exception; the route then answers
+        // 204, the same answer as a stored batch (contract rule C19). This
+        // test stands in for that store with a fake that always drops, so
+        // this module needs no MongoDB dependency for the check.
+        val store = object : EventLogStore {
+            override fun append(events: List<IngestEvent>, userId: String?) {
+                // The event cap of design decision D21: the store drops the
+                // whole batch and writes no event.
+            }
+
+            override fun deleteByUserId(userId: String): DeletionResult {
+                // Not used by this test.
+                return DeletionResult(0, 0, true)
+            }
+        }
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(validBody)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertEquals("", response.bodyAsText(), "The answer must hold no body, so a client learns nothing.")
     }
 
     // The two tests below prove the route seam of contract rule C42
@@ -414,8 +448,11 @@ class IngestRouteTest {
                 recordedThreadName.set(Thread.currentThread().name)
             }
 
-            override fun deleteByUserId(userId: String) {
-                // Not used by this test.
+            override fun deleteByUserId(userId: String): DeletionResult {
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         val testDispatcher = newSingleThreadContext("octo-store-test-thread")
@@ -457,8 +494,11 @@ class IngestRouteTest {
                 Thread.sleep(200)
             }
 
-            override fun deleteByUserId(userId: String) {
-                // Not used by this test.
+            override fun deleteByUserId(userId: String): DeletionResult {
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         // A distinct user id for each call (design decision D20, issue #33):
@@ -568,8 +608,11 @@ class IngestRouteTest {
                 throw IllegalStateException("SENTINEL-store-host-octo-shard-00 user victim-42")
             }
 
-            override fun deleteByUserId(userId: String) {
-                // Not used by this test.
+            override fun deleteByUserId(userId: String): DeletionResult {
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         application {
@@ -598,8 +641,11 @@ class IngestRouteTest {
                 throw IngestException(IngestException.Reason.INVALID_JSON, "the store throws this by mistake")
             }
 
-            override fun deleteByUserId(userId: String) {
-                // Not used by this test.
+            override fun deleteByUserId(userId: String): DeletionResult {
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         application {
@@ -630,8 +676,11 @@ class IngestRouteTest {
                     throw CancellationException("SENTINEL-cancel-marker-host-octo-shard-00")
                 }
 
-                override fun deleteByUserId(userId: String) {
-                    // Not used by this test.
+                override fun deleteByUserId(userId: String): DeletionResult {
+                    // This test never calls deleteByUserId. A call by
+                    // mistake must fail loudly, not pass with a quiet
+                    // DeletionResult(0, 0, true).
+                    throw UnsupportedOperationException()
                 }
             }
             application {
@@ -663,8 +712,11 @@ class IngestRouteTest {
                 }
             }
 
-            override fun deleteByUserId(userId: String) {
-                // Not used by this test.
+            override fun deleteByUserId(userId: String): DeletionResult {
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         application {
@@ -694,8 +746,11 @@ class IngestRouteTest {
                         future.get()
                     }
 
-                    override fun deleteByUserId(userId: String) {
-                        // Not used by this test.
+                    override fun deleteByUserId(userId: String): DeletionResult {
+                        // This test never calls deleteByUserId. A call
+                        // by mistake must fail loudly, not pass with a
+                        // quiet DeletionResult(0, 0, true).
+                        throw UnsupportedOperationException()
                     }
                 }
                 application {

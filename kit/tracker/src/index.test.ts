@@ -4,6 +4,14 @@ import * as pathMatch from './path-match.js';
 import * as batchModule from './batch.js';
 
 const ENDPOINT = 'https://app.example/api/octometer/v1/clicks';
+const SESSION_STORAGE_KEY = 'octo_session_id';
+/**
+ * A stored session id for most tests. Most tests run with this id already
+ * in `sessionStorage`. `start()` then finds an existing session. It sends
+ * no `octo:session-start` entry (issue #107). A test of the session start
+ * clears the store first, so its own `start()` call finds a new session.
+ */
+const EXISTING_SESSION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 /**
  * Sets `document.visibilityState` and `document.hidden` to fixed values,
@@ -25,6 +33,30 @@ function setVisibilityState(value: 'visible' | 'hidden'): void {
 function restoreVisibilityState(): void {
   delete (document as { visibilityState?: unknown }).visibilityState;
   delete (document as { hidden?: unknown }).hidden;
+}
+
+/** Sets `document.prerendering`, for one test. See `setVisibilityState`. */
+function setPrerendering(value: boolean): void {
+  Object.defineProperty(document, 'prerendering', {
+    configurable: true,
+    get: () => value,
+  });
+}
+
+function restorePrerendering(): void {
+  delete (document as { prerendering?: unknown }).prerendering;
+}
+
+/** Sets `navigator.webdriver`, for one test. See `setVisibilityState`. */
+function setWebdriver(value: boolean): void {
+  Object.defineProperty(window.navigator, 'webdriver', {
+    configurable: true,
+    get: () => value,
+  });
+}
+
+function restoreWebdriver(): void {
+  delete (window.navigator as { webdriver?: unknown }).webdriver;
 }
 
 interface FetchCall {
@@ -57,6 +89,11 @@ function clickElement(element: Element): void {
   element.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
 }
 
+/** Gives each fetch call whose body holds a click other than the session start. */
+function clickBatchCalls(calls: readonly FetchCall[]): FetchCall[] {
+  return calls.filter((call) => call.body.clicks[0]?.element !== 'octo:session-start');
+}
+
 describe('createTracker', () => {
   let tracker: Tracker | null;
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -65,6 +102,11 @@ describe('createTracker', () => {
     vi.useFakeTimers();
     document.body.innerHTML = '';
     window.sessionStorage.clear();
+    // Most tests run with an existing, valid session id already stored.
+    // start() then finds no new session. It sends no octo:session-start
+    // entry (issue #107). A test of the session start clears the store
+    // again.
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, EXISTING_SESSION_ID);
     fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
     vi.stubGlobal('fetch', fetchMock);
     tracker = null;
@@ -76,6 +118,8 @@ describe('createTracker', () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     restoreVisibilityState();
+    restorePrerendering();
+    restoreWebdriver();
   });
 
   it('records a click on a child of a data-octo element', () => {
@@ -223,12 +267,15 @@ describe('createTracker', () => {
     clickElement(host);
     vi.advanceTimersByTime(5000);
 
-    const calls = parseCalls(fetchMock);
+    // stop() removes the stored session id. The restart then begins a new
+    // session. It sends one extra octo:session-start entry (issue #107).
+    // The click queue itself still holds only the new click.
+    const calls = clickBatchCalls(parseCalls(fetchMock));
     expect(calls).toHaveLength(1);
     expect(at(calls, 0).body.clicks).toHaveLength(1);
   });
 
-  it('stop() clears the pending flush timer', () => {
+  it('stop() clears the pending flush timer, so it never fires', () => {
     const host = document.createElement('div');
     host.setAttribute('data-octo', 'save');
     document.body.appendChild(host);
@@ -236,12 +283,20 @@ describe('createTracker', () => {
     tracker = createTracker({ endpoint: ENDPOINT });
     tracker.start();
     clickElement(host);
-    const withTimer = vi.getTimerCount();
+    fetchMock.mockClear();
     tracker.stop();
 
-    // jsdom schedules its own timer for a sessionStorage write, so the test
-    // compares the count before and after stop(), not against zero.
-    expect(vi.getTimerCount()).toBe(withTimer - 1);
+    // Reliability review MINOR 3 and TypeScript review MINOR 1: a direct
+    // check of the timer count pins the clearTimeout() call of stop().
+    // Without it, jsdom still holds one pending timer here.
+    expect(vi.getTimerCount()).toBe(0);
+
+    // stop() also removes the stored session id (a real write). A raw
+    // jsdom timer count then no longer isolates the flush timer alone
+    // (issue #107). This test also checks the flush timer through its
+    // effect. It never fires after stop().
+    vi.advanceTimersByTime(5000);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('stop() removes the sessionStorage key that the flush wrote', () => {
@@ -297,13 +352,15 @@ describe('createTracker', () => {
     tracker.start();
     clickElement(host);
     vi.advanceTimersByTime(1000);
-    const firstId = at(parseCalls(fetchMock), 0).body.sessionId;
+    const firstId = at(clickBatchCalls(parseCalls(fetchMock)), 0).body.sessionId;
 
     tracker.stop();
     tracker.start();
     clickElement(host);
     vi.advanceTimersByTime(1000);
-    const secondId = at(parseCalls(fetchMock), 1).body.sessionId;
+    // stop() begins a new session at the next start() (issue #107), thus
+    // one extra call carries the octo:session-start entry of that session.
+    const secondId = at(clickBatchCalls(parseCalls(fetchMock)), 1).body.sessionId;
 
     expect(secondId).not.toBe(firstId);
   });
@@ -523,7 +580,9 @@ describe('createTracker', () => {
 
   it('does not throw and does not stall the queue when getOrCreateSessionId() throws', () => {
     const realCrypto = globalThis.crypto;
-    // No stored session id and no crypto: generateUuid() must run and throw.
+    // No stored session id and no crypto: generateUuid() must run and
+    // throw, also inside start() itself (issue #107).
+    window.sessionStorage.clear();
     vi.stubGlobal('crypto', undefined);
     const host = document.createElement('div');
     host.setAttribute('data-octo', 'save');
@@ -665,7 +724,21 @@ describe('createTracker', () => {
     expect(body.sessionId.length).toBeGreaterThan(0);
   });
 
-  it('falls back to an in-memory sessionId when sessionStorage.setItem throws', () => {
+  it('falls back to an in-memory sessionId when sessionStorage.setItem throws', async () => {
+    // TypeScript review MINOR 2: window.sessionStorage holds a valid
+    // stored id from the outer beforeEach hook, so a test with no clear()
+    // here never reaches the catch block that this test names: the id
+    // needs no rewrite, and setItem never runs. The clear() call below
+    // forces a new session, so the write, and its catch block, both run.
+    //
+    // This write also sets the module-level fallback id
+    // (moduleFallbackSessionId), because setItem always throws here. A
+    // fresh module instance keeps that write out of every later test in
+    // this file (see "a blocked sessionStorage" below, the same
+    // pattern).
+    vi.resetModules();
+    const { createTracker: freshCreateTracker } = await import('./index.js');
+    window.sessionStorage.clear();
     vi.spyOn(window.sessionStorage.__proto__, 'setItem').mockImplementation(() => {
       throw new DOMException('blocked');
     });
@@ -673,15 +746,23 @@ describe('createTracker', () => {
     host.setAttribute('data-octo', 'save');
     document.body.appendChild(host);
 
-    tracker = createTracker({ endpoint: ENDPOINT });
+    tracker = freshCreateTracker({ endpoint: ENDPOINT });
     tracker.start();
     clickElement(host);
     vi.advanceTimersByTime(5000);
 
     const calls = parseCalls(fetchMock);
-    const body = at(calls, 0).body;
-    expect(typeof body.sessionId).toBe('string');
-    expect(body.sessionId.length).toBeGreaterThan(0);
+    const sessionStartCall = calls.find(
+      (call) => call.body.clicks[0]?.element === 'octo:session-start',
+    );
+    expect(sessionStartCall).toBeDefined();
+    const sentId = (sessionStartCall as FetchCall).body.sessionId;
+    expect(sentId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    // setItem always throws, thus the id never reaches the real store.
+    expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+
+    const clickCall = clickBatchCalls(calls)[0];
+    expect(clickCall?.body.sessionId).toBe(sentId);
   });
 
   it('does not throw when sessionStorage.removeItem throws during stop()', () => {
@@ -1601,6 +1682,491 @@ describe('createTracker', () => {
       for (const call of calls) {
         expect(call.init.keepalive).toBe(true);
       }
+    });
+  });
+
+  // Issue #107: start() sends the entry octo:session-start at once, in
+  // its own request, for a new session id (contract rule C38, design
+  // decision D41).
+  describe('the session start', () => {
+    it('sends one request with one octo:session-start entry, before any click and with no wait', () => {
+      window.sessionStorage.clear();
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+
+      // No click, and no vi.advanceTimersByTime call: the request already
+      // went out inside the start() call itself.
+      const calls = parseCalls(fetchMock);
+      expect(calls).toHaveLength(1);
+      expect(at(calls, 0).body.clicks).toEqual([{ element: 'octo:session-start', ageMs: 0 }]);
+    });
+
+    it('holds the sessionId of the new session', () => {
+      window.sessionStorage.clear();
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+
+      const call = at(parseCalls(fetchMock), 0);
+      expect(call.body.sessionId).toBe(window.sessionStorage.getItem(SESSION_STORAGE_KEY));
+    });
+
+    it('adds the path field of rule C39 when the routes option gives one', () => {
+      window.sessionStorage.clear();
+      window.history.pushState({}, '', '/history/42');
+
+      tracker = createTracker({
+        endpoint: ENDPOINT,
+        routes: ['/', '/history/:id'],
+      });
+      tracker.start();
+
+      const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+      expect(at(clicks, 0).path).toBe('/history/:id');
+    });
+
+    it('adds no path field without the routes option', () => {
+      window.sessionStorage.clear();
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+
+      const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+      expect(at(clicks, 0)).not.toHaveProperty('path');
+    });
+
+    it('sends the request with keepalive true, so a fast page exit does not cancel it', () => {
+      window.sessionStorage.clear();
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+
+      expect(at(parseCalls(fetchMock), 0).init.keepalive).toBe(true);
+    });
+
+    it('sends no session start when a second start() reads the same stored id (a page reload)', () => {
+      window.sessionStorage.clear();
+
+      const firstLoad = createTracker({ endpoint: ENDPOINT });
+      firstLoad.start();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const storedId = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+      // firstLoad.stop() removes its own listeners, so it touches no later
+      // test. A real page reload never calls stop(). It keeps
+      // sessionStorage, thus the test restores the id right after.
+      firstLoad.stop();
+      window.sessionStorage.setItem(SESSION_STORAGE_KEY, storedId as string);
+      fetchMock.mockClear();
+
+      // A second createTracker() call simulates the fresh module state of
+      // a reloaded page. The browser keeps sessionStorage across a reload.
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('records a click on a data-octo="octo:session-start" element as no click, also right after the automatic send', () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      window.sessionStorage.clear();
+      const host = document.createElement('div');
+      host.setAttribute('data-octo', 'octo:session-start');
+      document.body.appendChild(host);
+
+      tracker = createTracker({ endpoint: ENDPOINT });
+      tracker.start();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      clickElement(host);
+      vi.advanceTimersByTime(5000);
+
+      // Only the own call of the tracker sent the one request above (rule
+      // C38). The page click added no second one.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('writes no console line that holds the session id or the path', () => {
+      window.sessionStorage.clear();
+      window.history.pushState({}, '', '/history/42');
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      tracker = createTracker({ endpoint: ENDPOINT, routes: ['/history/:id'] });
+      tracker.start();
+
+      const id = window.sessionStorage.getItem(SESSION_STORAGE_KEY) as string;
+      for (const spy of [logSpy, warnSpy, errorSpy]) {
+        for (const call of spy.mock.calls) {
+          const text = call.map((part) => String(part)).join(' ');
+          expect(text).not.toContain(id);
+          expect(text).not.toContain('/history/42');
+        }
+      }
+    });
+
+    // The retry rule of the session start follows the timer flush (issue
+    // #107), not the lifecycle rule: one retry, after a wait.
+    describe('the retry rule of the session start', () => {
+      it('retries one time after a 500 response, after a wait', async () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0);
+        fetchMock
+          .mockResolvedValueOnce({ ok: false, status: 500 })
+          .mockResolvedValueOnce({ ok: true, status: 204 });
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        expect(() => tracker?.start()).not.toThrow();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        await expect(vi.advanceTimersByTimeAsync(500)).resolves.not.toThrow();
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      });
+
+      it('drops the entry after a second 500 response, and throws no error into the page', async () => {
+        vi.spyOn(Math, 'random').mockReturnValue(0);
+        fetchMock.mockResolvedValue({ ok: false, status: 500 });
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        expect(() => tracker?.start()).not.toThrow();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        await expect(vi.advanceTimersByTimeAsync(500)).resolves.not.toThrow();
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+
+        await expect(vi.advanceTimersByTimeAsync(5000)).resolves.not.toThrow();
+        // No third attempt: the timer retry rule allows one retry only.
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    describe('the wait for a visible, non-prerendering document', () => {
+      it('sends nothing while document.prerendering is true, then sends one time after prerenderingchange', () => {
+        setPrerendering(true);
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        setPrerendering(false);
+        document.dispatchEvent(new Event('prerenderingchange'));
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        // A second event finds no pending wait: it must not send a second time.
+        document.dispatchEvent(new Event('prerenderingchange'));
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('waits for a hidden document, then sends one time after visibilitychange to visible, and no more after a later hide-show cycle', () => {
+        setVisibilityState('hidden');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        setVisibilityState('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        // TypeScript review MINOR 3: the { once: true } listener option
+        // must matter here. A later hide-show cycle sends no second entry.
+        setVisibilityState('hidden');
+        document.dispatchEvent(new Event('visibilitychange'));
+        setVisibilityState('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('stop() cancels the pending session start while it waits for visibilitychange', () => {
+        setVisibilityState('hidden');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        tracker.stop();
+
+        setVisibilityState('visible');
+        expect(() => document.dispatchEvent(new Event('visibilitychange'))).not.toThrow();
+
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+
+      it('stop() cancels the pending session start while it waits for prerenderingchange', () => {
+        setPrerendering(true);
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        tracker.stop();
+
+        setPrerendering(false);
+        expect(() => document.dispatchEvent(new Event('prerenderingchange'))).not.toThrow();
+
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+
+      // Reliability review MINOR 2: no test held the run token and the
+      // listener removal of stop() together, for a session that begins a
+      // second wait right after the first one is cancelled.
+      it('sends exactly one session start when start() runs again after stop(), for a document that stays hidden through the first wait', () => {
+        setVisibilityState('hidden');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        tracker.stop();
+        tracker.start();
+
+        setVisibilityState('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('sends exactly one session start when start() runs again after stop(), for a document that stays in a prerender through the first wait', () => {
+        setPrerendering(true);
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        tracker.stop();
+        tracker.start();
+
+        setPrerendering(false);
+        document.dispatchEvent(new Event('prerenderingchange'));
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('sends at once when the document is already visible and not prerendering', () => {
+        setVisibilityState('visible');
+        setPrerendering(false);
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    // Maintainer decision of 2026-09-22 (MAJOR 1 of the reliability
+    // review): a new id enters sessionStorage only at the moment the
+    // session start request goes out, after the wait for the visible
+    // state and the end of a prerender. A page that never becomes
+    // visible stores nothing, thus the next document of the same tab
+    // starts a fresh session.
+    describe('the storage write timing (MAJOR 1)', () => {
+      it('leaves no stored id when a hidden document ends before it becomes visible (a pagehide while hidden)', () => {
+        setVisibilityState('hidden');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        window.dispatchEvent(new Event('pagehide'));
+
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+      });
+
+      it('stores the id at the moment the session start goes out, when the document becomes visible', () => {
+        setVisibilityState('hidden');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+
+        setVisibilityState('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+
+        const sentId = at(parseCalls(fetchMock), 0).body.sessionId;
+        expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBe(sentId);
+      });
+
+      it('sends no second session start on a reload after the id enters storage at the send, for a document that started hidden', () => {
+        setVisibilityState('hidden');
+        window.sessionStorage.clear();
+
+        const firstLoad = createTracker({ endpoint: ENDPOINT });
+        firstLoad.start();
+        setVisibilityState('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const storedId = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+
+        // A real page reload never calls stop(). This call only removes
+        // the listeners of firstLoad, so it touches no later test.
+        firstLoad.stop();
+        window.sessionStorage.setItem(SESSION_STORAGE_KEY, storedId as string);
+        fetchMock.mockClear();
+
+        // A second createTracker() call simulates the fresh module state
+        // of a reloaded page.
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('the navigator.webdriver filter', () => {
+      it('sends nothing, also for a later click, when navigator.webdriver is true', () => {
+        setWebdriver(true);
+        window.sessionStorage.clear();
+        const host = document.createElement('div');
+        host.setAttribute('data-octo', 'save');
+        document.body.appendChild(host);
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        clickElement(host);
+        vi.advanceTimersByTime(5000);
+
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+
+      it('sends the session start entry when ignoreWebdriver is true, also with navigator.webdriver true', () => {
+        setWebdriver(true);
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT, ignoreWebdriver: true });
+        tracker.start();
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(at(parseCalls(fetchMock), 0).body.clicks[0]?.element).toBe('octo:session-start');
+      });
+
+      it('records a click when ignoreWebdriver is true, also with navigator.webdriver true', () => {
+        setWebdriver(true);
+        window.sessionStorage.clear();
+        const host = document.createElement('div');
+        host.setAttribute('data-octo', 'save');
+        document.body.appendChild(host);
+
+        tracker = createTracker({ endpoint: ENDPOINT, ignoreWebdriver: true });
+        tracker.start();
+        fetchMock.mockClear();
+        clickElement(host);
+        vi.advanceTimersByTime(5000);
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(at(parseCalls(fetchMock), 0).body.clicks[0]?.element).toBe('save');
+      });
+
+      it('sends the entry with the default false value of ignoreWebdriver: navigator.webdriver false sends it', () => {
+        setWebdriver(false);
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('a session id already stored (not a new session)', () => {
+      it('sends no session start for a valid stored id', () => {
+        // The outer beforeEach hook already stores a valid id.
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+
+      it('sends the session start for a stored id that fails the UUID rule of rule C5', () => {
+        window.sessionStorage.setItem(SESSION_STORAGE_KEY, 'not-a-uuid');
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(at(parseCalls(fetchMock), 0).body.clicks[0]?.element).toBe('octo:session-start');
+      });
+    });
+
+    // A blocked sessionStorage keeps the fallback id in a module variable
+    // (issue #107, step 4), thus each test here needs a fresh module
+    // instance. Without this, an earlier test in this file could leave a
+    // fallback id behind. This describe would then read it by mistake.
+    describe('a blocked sessionStorage (the module-level fallback id)', () => {
+      let freshCreateTracker: typeof createTracker;
+
+      beforeEach(async () => {
+        vi.resetModules();
+        ({ createTracker: freshCreateTracker } = await import('./index.js'));
+      });
+
+      it('sends exactly one session start for the life of the document, also across a stop() and a later start()', () => {
+        vi.spyOn(window.sessionStorage.__proto__, 'getItem').mockImplementation(() => {
+          throw new DOMException('blocked');
+        });
+        vi.spyOn(window.sessionStorage.__proto__, 'setItem').mockImplementation(() => {
+          throw new DOMException('blocked');
+        });
+
+        tracker = freshCreateTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        tracker.stop();
+        tracker.start();
+
+        // Still one: the fallback id lives at the module level, not inside
+        // the tracker instance that stop() tore down.
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('still records a click normally with a blocked sessionStorage', () => {
+        vi.spyOn(window.sessionStorage.__proto__, 'getItem').mockImplementation(() => {
+          throw new DOMException('blocked');
+        });
+        vi.spyOn(window.sessionStorage.__proto__, 'setItem').mockImplementation(() => {
+          throw new DOMException('blocked');
+        });
+        const host = document.createElement('div');
+        host.setAttribute('data-octo', 'save');
+        document.body.appendChild(host);
+
+        tracker = freshCreateTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        fetchMock.mockClear();
+        clickElement(host);
+        vi.advanceTimersByTime(5000);
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(at(parseCalls(fetchMock), 0).body.clicks[0]?.element).toBe('save');
+      });
+
+      // Reliability review MINOR 1: a store that reads null (no throw)
+      // but fails each write is a different case from a full block. The
+      // old readStoredSessionId() returned the real null here, thus a
+      // second start() made a second, different id.
+      it('gives one session start with one id, not two, when sessionStorage reads succeed but each write fails', () => {
+        vi.spyOn(window.sessionStorage.__proto__, 'setItem').mockImplementation(() => {
+          throw new DOMException('blocked');
+        });
+        window.sessionStorage.clear();
+
+        tracker = freshCreateTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const firstId = at(parseCalls(fetchMock), 0).body.sessionId;
+
+        tracker.stop();
+        tracker.start();
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const secondId = at(parseCalls(fetchMock), 0).body.sessionId;
+        expect(secondId).toBe(firstId);
+      });
     });
   });
 });
