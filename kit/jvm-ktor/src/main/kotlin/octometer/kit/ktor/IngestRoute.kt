@@ -32,6 +32,7 @@ import octometer.kit.core.ingest.RateLimitResult
 import octometer.kit.core.store.DeletionResult
 import octometer.kit.core.store.EventLogStore
 import java.time.Clock
+import java.time.Duration
 import kotlin.coroutines.coroutineContext
 
 /** The default path of the ingest route (design section 4.2, contract rule C12). */
@@ -47,6 +48,18 @@ private const val MAX_BODY_BYTES: Long = 16 * 1024
  * characters, so this cap stays well above every normal address text.
  */
 private const val MAX_CLIENT_ADDRESS_LENGTH = 64
+
+/**
+ * The maximum length of the `User-Agent` text that the bot filter reads
+ * (design decision D43, issue #117, Java review MAJOR 1). A client can
+ * send a header value near the 8 KB header limit of the Netty engine;
+ * this cap keeps one call of [BotUserAgentFilter.isBot] cheap, also for
+ * a client already at its rate limit.
+ */
+private const val MAX_USER_AGENT_LENGTH = 512
+
+/** One hour, in milliseconds (the throttle window of [BotDropLogThrottle]). */
+private val BOT_DROP_LOG_THROTTLE_MILLIS = Duration.ofHours(1).toMillis()
 
 /**
  * A text form of one IPv4 address (four dot-separated numbers, each 0 to
@@ -125,19 +138,21 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  * [CancellationException] that the app throws by itself.
  *
  * **The order of the checks (design decision D43, issue #117; corrected
- * 2026-09-22 so the rate limiter again runs before any real body read,
- * the original rule of issue #33).** The route runs each check of one
- * request in this order, and it stops at the first one that answers:
+ * 2026-09-22, so the rate limiter runs before the bot filter and any
+ * real body read too, the original rule of issue #33).** The route runs
+ * each check of one request in this order, and it stops at the first
+ * one that answers:
  *
  * 1. the `Content-Type` header (415, contract rule C12);
- * 2. the body size (400, contract rule C18), the declared
+ * 2. the rate limiter of design decision D20 (429, issue #33) — a
+ *    client already at its limit never reaches the bot filter, the
+ *    body-size check, the real body read, or the parse below;
+ * 3. the bot filter of [BotUserAgentFilter] (204), on a maximum of 512
+ *    characters of the `User-Agent` value;
+ * 4. the body size (400, contract rule C18), the declared
  *    `Content-Length` only, with no body read;
- * 3. the bot filter of [BotUserAgentFilter] (204);
- * 4. the rate limiter of design decision D20 (429, issue #33) — a
- *    client already at its limit pays for no real body read and no
- *    parse below;
  * 5. the real body read (400, contract rule C18, for a body above the
- *    limit that step 2 could not catch from its declared length alone)
+ *    limit that step 4 could not catch from its declared length alone)
  *    and the parse of the body (400, the field rules of
  *    `kit/jvm-core`);
  * 6. the design decision D19 drop (a request with no user id, with
@@ -198,6 +213,7 @@ public fun Route.octometerIngestRoute(
     require(ingestPath.startsWith("/")) {
         "ingestPath must start with a leading slash, but it was \"$ingestPath\"."
     }
+    val botDropLogThrottle = BotDropLogThrottle(clock)
 
     post(ingestPath) {
         try {
@@ -209,45 +225,23 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
-            // 2. Body size (400, contract rule C18): the declared
-            // Content-Length only, with no body read. A request with
-            // no declared length, or a length at or under the limit,
-            // passes here; the real read below (step 5) still enforces
-            // the same limit for such a request (design decision D43,
-            // issue #117, correction of 2026-09-22: the rate limiter
-            // must run before any real body read, the original rule of
-            // issue #33).
-            if (!hasAcceptableDeclaredLength(call, MAX_BODY_BYTES)) {
-                call.respond(HttpStatusCode.BadRequest)
-                return@post
-            }
-
-            // 3. The bot filter (204, before the rate limiter and the
-            // parse; design decision D43, issue #117). The kit stores
-            // no User-Agent value: the log line below holds no header
-            // value.
-            if (BotUserAgentFilter.isBot(call.request.header(HttpHeaders.UserAgent))) {
-                call.application.log.debug(
-                    "The Octometer ingest route drops a batch of a robot user agent (design decision D43).",
-                )
-                call.respond(HttpStatusCode.NoContent)
-                return@post
-            }
-
             // resolveUserId runs here, on the coroutine of the call,
             // before the store call moves to storeDispatcher (rule of
             // the app documentation above). It runs before the rate
-            // limit check, so a rejected request still pays its cost;
-            // keep that function short, as its own KDoc already asks.
+            // limit check, so the route still runs it for a rejected
+            // request; keep that function short, as its own KDoc
+            // already asks.
             val userId = resolveUserId(call)
 
-            // 4. The rate limiter (429, design decision D20, issue #33).
-            // This runs before the real body read (step 5): a client
-            // already at its limit never pays for that read or for the
-            // parse. The route reads the client address header only for
+            // 2. The rate limiter (429, design decision D20, issue #33).
+            // This runs before the bot filter and the real body read
+            // (steps 3 and 5): a client already at its limit never
+            // reaches the filter, that read, or the parse (issue #117,
+            // correction of 2026-09-22, the original rule of issue
+            // #33). The route reads the client address header only for
             // a request with no user id; check() never reads it for a
-            // signed-in user, so this call would waste one header lookup
-            // on every request otherwise.
+            // signed-in user, so this call would waste one header
+            // lookup on every request otherwise.
             val rateLimitResult = if (userId != null) {
                 rateLimiter.check(userId, "")
             } else {
@@ -255,6 +249,36 @@ public fun Route.octometerIngestRoute(
             }
             if (rateLimitResult == RateLimitResult.LIMITED) {
                 call.respond(HttpStatusCode.TooManyRequests)
+                return@post
+            }
+
+            // 3. The bot filter (204, design decision D43, issue #117).
+            // This check reads a maximum of MAX_USER_AGENT_LENGTH
+            // characters of the header value, so a long value never
+            // makes the filter costly (Java review MAJOR 1). The kit
+            // stores no User-Agent value: the log line below holds no
+            // header value.
+            val userAgentValue = call.request.header(HttpHeaders.UserAgent)?.take(MAX_USER_AGENT_LENGTH)
+            if (BotUserAgentFilter.isBot(userAgentValue)) {
+                val dropCount = botDropLogThrottle.recordDrop()
+                if (dropCount != null) {
+                    call.application.log.debug(
+                        "The Octometer ingest route dropped {} robot batches in the last hour " +
+                            "(design decision D43).",
+                        dropCount,
+                    )
+                }
+                call.respond(HttpStatusCode.NoContent)
+                return@post
+            }
+
+            // 4. Body size (400, contract rule C18): the declared
+            // Content-Length only, with no body read. A request with
+            // no declared length, or a length at or under the limit,
+            // passes here; the real read below (step 5) still enforces
+            // the same limit for such a request.
+            if (!hasAcceptableDeclaredLength(call, MAX_BODY_BYTES)) {
+                call.respond(HttpStatusCode.BadRequest)
                 return@post
             }
 
@@ -396,6 +420,45 @@ internal class DefectSafeEventLogStore(private val delegate: EventLogStore) : Ev
             return delegate.deleteByUserId(userId)
         } catch (cause: IngestException) {
             throw IllegalStateException("The EventLogStore of the app failed.", cause)
+        }
+    }
+}
+
+/**
+ * Throttles the DEBUG line of a bot-filter drop to one line for each
+ * elapsed hour (design decision D43, issue #117, security review M3).
+ * With no throttle, a robot flood would write one line for each
+ * dropped request, ahead of the rate limiter of step 2. [recordDrop]
+ * counts every drop; it returns the count of drops since the last
+ * write only on the call that must write a new line, and `null` on
+ * every other call.
+ *
+ * One route builds one instance, held for the life of the route, the
+ * form of [AnonymousDailyCap] and [IngestRateLimiter]. This class is
+ * `internal`, so a test of this module can build one on its own.
+ */
+internal class BotDropLogThrottle(private val clock: Clock) {
+    private val lock = Any()
+    private var lastLoggedAtMillis = Long.MIN_VALUE
+    private var dropCountSinceLastLog = 0L
+
+    /**
+     * Records one bot-filter drop. Returns the drop count since the
+     * last written line, at most one time for each elapsed hour since
+     * that line; returns `null` on every other call, so the caller
+     * writes no line for it.
+     */
+    fun recordDrop(): Long? {
+        val now = clock.millis()
+        synchronized(lock) {
+            dropCountSinceLastLog += 1
+            if (lastLoggedAtMillis != Long.MIN_VALUE && now - lastLoggedAtMillis < BOT_DROP_LOG_THROTTLE_MILLIS) {
+                return null
+            }
+            val dueDropCount = dropCountSinceLastLog
+            lastLoggedAtMillis = now
+            dropCountSinceLastLog = 0
+            return dueDropCount
         }
     }
 }

@@ -994,6 +994,100 @@ class IngestRouteTest {
     }
 
     @Test
+    fun `a second robot drop inside one hour writes no line, and the next hour reports both`() = testApplication {
+        // Security review M3: with no throttle, a robot flood would
+        // write one DEBUG line for each dropped request. This test
+        // proves the fix of BotDropLogThrottle: the first drop of an
+        // hour writes its line at once (count 1); a second drop inside
+        // the same hour writes no line of its own, and its count joins
+        // the line of the next hour.
+        val store = InMemoryEventLogStore()
+        val clock = MutableClock(fixedClock.instant())
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = clock) { null }
+            }
+        }
+        val robotUserAgent = "Mozilla/5.0 (compatible; Googlebot/2.1)"
+
+        client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.UserAgent, robotUserAgent)
+            setBody(validBody)
+        }
+        val debugEventsAfterFirstDrop = logAppender.events.filter { it.level == Level.DEBUG }
+        assertEquals(1, debugEventsAfterFirstDrop.size)
+        assertTrue(debugEventsAfterFirstDrop[0].formattedMessage.contains("1"))
+
+        client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.UserAgent, robotUserAgent)
+            setBody(validBody)
+        }
+        val debugEventsAfterSecondDrop = logAppender.events.filter { it.level == Level.DEBUG }
+        assertEquals(1, debugEventsAfterSecondDrop.size, "The second drop of the same hour must write no line.")
+
+        clock.advance(Duration.ofMinutes(61))
+        client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.UserAgent, robotUserAgent)
+            setBody(validBody)
+        }
+        val debugEventsAfterNextHour = logAppender.events.filter { it.level == Level.DEBUG }
+        assertEquals(2, debugEventsAfterNextHour.size)
+        assertTrue(debugEventsAfterNextHour[1].formattedMessage.contains("2"))
+    }
+
+    @Test
+    fun `an 8 KB User-Agent value with a bot token near its start still gives 204`() = testApplication {
+        // Java review MAJOR 1: the filter reads a maximum of 512
+        // characters of the header value, so a value near the 8 KB
+        // header limit of the Netty engine still matches when its bot
+        // token sits inside that window.
+        val store = InMemoryEventLogStore()
+        val longUserAgent = "bot" + "x".repeat(8 * 1024)
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.UserAgent, longUserAgent)
+            setBody(validBody)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertTrue(store.events().isEmpty())
+    }
+
+    @Test
+    fun `a bot token past the first 512 characters of an 8 KB User-Agent value never matches`() =
+        testApplication {
+            // The route reads only the first 512 characters of the
+            // header value (Java review MAJOR 1), so a bot token past
+            // that cut never reaches the pattern match, and the batch
+            // of a real, very long User-Agent value still stores.
+            val store = InMemoryEventLogStore()
+            val longUserAgent = "x".repeat(600) + "bot" + "x".repeat(7 * 1024)
+            application {
+                routing {
+                    octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
+                }
+            }
+
+            val response = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                header(HttpHeaders.UserAgent, longUserAgent)
+                setBody(validBody)
+            }
+
+            assertEquals(HttpStatusCode.NoContent, response.status)
+            assertEquals(1, store.events().size)
+        }
+
+    @Test
     fun `a batch above a daily cap gives 204 and the store holds 0 events`() = testApplication {
         val store = InMemoryEventLogStore()
         val dailyCap = AnonymousDailyCap(fixedClock, 1, 100)
@@ -1367,18 +1461,14 @@ class IngestRouteTest {
         // request #158: no test held the order of the rate limit check
         // and the body read. An oversized body gives 400 only when the
         // route reads the body; it must never reach that step once a
-        // client is already limited (issue #33, step 4; restated as a
-        // correction of design decision D43 on 2026-09-22, after issue
-        // #117 first moved the body size check ahead of the rate
-        // limiter by mistake).
+        // client is already limited (issue #33, step 4).
         //
-        // This body carries no declared Content-Length (the technique of
-        // "a body above 16 KB with no Content-Length gives 400" above),
-        // because a body that does declare an oversized Content-Length
-        // now fails the cheap step-2 check on its own, before the route
-        // ever reaches the rate limiter; that step-2 case has its own
-        // test above ("a body above 16 KB with a correct Content-Length
-        // gives 400") and does not depend on the rate limit state.
+        // The maintainer named the second correction of 2026-09-22 (the
+        // fix of Java review MAJOR 3): the rate limiter must run before
+        // the declared-length check too, so a limited client with a
+        // declared oversized Content-Length still gets 429, and never
+        // 400. This test sends a plain oversized body with its normal
+        // declared Content-Length, the original form of this test.
         val store = InMemoryEventLogStore()
         application {
             routing {
@@ -1394,15 +1484,10 @@ class IngestRouteTest {
             assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
         }
 
-        val oversizedBytes = """{"sessionId":"${"a".repeat(20_000)}"}""".toByteArray(Charsets.UTF_8)
+        val oversizedBody = """{"sessionId":"${"a".repeat(20_000)}"}"""
         val response = client.post(DEFAULT_INGEST_PATH) {
             contentType(ContentType.Application.Json)
-            setBody(object : OutgoingContent.WriteChannelContent() {
-                override val contentLength: Long? = null
-                override suspend fun writeTo(channel: ByteWriteChannel) {
-                    channel.writeFully(oversizedBytes)
-                }
-            })
+            setBody(oversizedBody)
         }
         assertEquals(HttpStatusCode.TooManyRequests, response.status)
     }
