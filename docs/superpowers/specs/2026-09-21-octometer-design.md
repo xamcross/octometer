@@ -315,7 +315,7 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
     `lastInteractionAt`. First pages: `page`, `pageCount`, `rows` with `path`, `sessions`.
     Anonymous sessions: `page`, `pageCount`, `rows` with `sessionId`, `firstPath`, `source`,
     `startTime`, `clicks`, `userId`. A gap
-    holds `from` and `to`. The erasure returns `deleted`. Each time field is UTC ISO 8601
+    holds `from` and `to`. The erasure returns `deleted` and `checkpointed`. Each time field is UTC ISO 8601
     with milliseconds.
   - Each route of D44 keeps the Host check of D12, sends `Cache-Control: no-store`, and adds
     no CORS header.
