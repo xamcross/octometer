@@ -93,6 +93,79 @@ class EventStoreTest {
         assertEquals(2, countEvents(database, appId))
     }
 
+    // --- The skipped_event row (design decision D5, issue #27) ---
+
+    @Test
+    fun `commitPage inserts each skipped event with its reason, in the same transaction as the cursor move`() = runBlocking {
+        store.commitPage(
+            appId,
+            listOf(sampleEvent("e1")),
+            cursor = "cursor-1",
+            skippedEvents = listOf(SkippedEvent("bad-1", "ts missing"), SkippedEvent("bad-2", "userId empty")),
+        )
+
+        assertEquals(1, countEvents(database, appId))
+        assertEquals("cursor-1", readCursor(database, appId))
+        assertEquals(
+            mapOf("bad-1" to "ts missing", "bad-2" to "userId empty"),
+            readSkippedReasons(database, appId),
+        )
+    }
+
+    @Test
+    fun `commitPage with no skippedEvents argument keeps the old caller of issue 16 valid`() = runBlocking {
+        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1")
+
+        assertEquals(1, countEvents(database, appId))
+        assertEquals(0, readSkippedReasons(database, appId).size)
+    }
+
+    @Test
+    fun `a replay with the same skipped events adds 0 new skipped_event rows`() = runBlocking {
+        val skipped = listOf(SkippedEvent("bad-1", "ts missing"))
+        store.commitPage(appId, emptyList(), cursor = "cursor-1", skippedEvents = skipped)
+
+        store.commitPage(appId, emptyList(), cursor = "cursor-2", skippedEvents = skipped)
+
+        assertEquals(1, readSkippedReasons(database, appId).size)
+        assertEquals("cursor-2", readCursor(database, appId))
+    }
+
+    // BLOCKER 1 of correction round 1 (Kotlin backend engineer) extends
+    // here. The failed page must roll back a skipped_event insert too,
+    // not only an event insert.
+    @Test
+    fun `a failed insert rolls back a skipped_event row too`() = runBlocking {
+        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1")
+
+        val badPage = listOf(sampleEvent("e2"), sampleEvent("e3", userId = ""))
+        assertFailsWith<SQLException> {
+            store.commitPage(appId, badPage, cursor = "cursor-2", skippedEvents = listOf(SkippedEvent("bad-1", "ts missing")))
+        }
+
+        assertEquals("cursor-1", readCursor(database, appId))
+        assertEquals(0, readSkippedReasons(database, appId).size)
+    }
+
+    // --- recordCycleSuccess (design decisions D5, D8, issue #27) ---
+
+    @Test
+    fun `recordCycleSuccess sets last_poll_at, last_success_at, and the status`() = runBlocking {
+        store.recordCycleSuccess(appId, nowMillis = 1_700_000_500_000L, status = "OK")
+
+        val row = readAppRow(database, appId)
+        assertEquals(1_700_000_500_000L, row.lastPollAt)
+        assertEquals(1_700_000_500_000L, row.lastSuccessAt)
+        assertEquals("OK", row.status)
+    }
+
+    @Test
+    fun `recordCycleSuccess sets the status INVALID_DATA when the caller passes it`() = runBlocking {
+        store.recordCycleSuccess(appId, nowMillis = 1_700_000_600_000L, status = "INVALID_DATA")
+
+        assertEquals("INVALID_DATA", readAppRow(database, appId).status)
+    }
+
     // A defect of section 6 would let a NULL element pass. This test proves
     // the schema itself rejects it, not only the Kotlin type.
     @Test
@@ -162,6 +235,39 @@ private suspend fun readCursor(database: SqliteDatabase, appId: Long): String? =
             select.executeQuery().use { result ->
                 result.next()
                 result.getString(1)
+            }
+        }
+    }
+
+/** Reads each `skipped_event` row of one app as a map of event id to reason (issue #27). */
+private suspend fun readSkippedReasons(database: SqliteDatabase, appId: Long): Map<String, String> =
+    database.read { reader ->
+        reader.prepareStatement("SELECT event_id, reason FROM skipped_event WHERE app_id = ?").use { select ->
+            select.setLong(1, appId)
+            select.executeQuery().use { result ->
+                val reasons = mutableMapOf<String, String>()
+                while (result.next()) {
+                    reasons[result.getString(1)] = result.getString(2)
+                }
+                reasons
+            }
+        }
+    }
+
+/** The three columns of one app row that a good poll cycle sets (design decisions D5, D8). */
+private data class AppRow(val status: String?, val lastPollAt: Long?, val lastSuccessAt: Long?)
+
+private suspend fun readAppRow(database: SqliteDatabase, appId: Long): AppRow =
+    database.read { reader ->
+        reader.prepareStatement("SELECT status, last_poll_at, last_success_at FROM app WHERE id = ?").use { select ->
+            select.setLong(1, appId)
+            select.executeQuery().use { result ->
+                result.next()
+                AppRow(
+                    status = result.getString(1),
+                    lastPollAt = result.getLong(2).takeUnless { result.wasNull() },
+                    lastSuccessAt = result.getLong(3).takeUnless { result.wasNull() },
+                )
             }
         }
     }

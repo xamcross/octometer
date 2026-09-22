@@ -5,6 +5,7 @@ import com.mongodb.MongoClientSettings
 import com.mongodb.ReadPreference
 import com.mongodb.kotlin.client.coroutine.MongoClient
 import com.mongodb.kotlin.client.coroutine.MongoDatabase
+import java.time.Clock
 import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -19,6 +20,7 @@ import octometer.monitor.registry.ConnectionStringCheck
 import octometer.monitor.registry.ConnectionStringValidator
 import octometer.monitor.store.EventStore
 import octometer.monitor.store.NewEvent
+import octometer.monitor.store.SkippedEvent
 import org.bson.BsonBinaryWriter
 import org.bson.Document
 import org.bson.codecs.DocumentCodec
@@ -51,14 +53,20 @@ internal const val PAGE_BYTE_BUDGET = 8L * 1024 * 1024
 /** The cycle timeout of design decision D6, for the page loop of step 5. */
 internal const val CYCLE_TIMEOUT_MILLIS = 45_000L
 
+/** The status of D8 for a poll cycle with no skipped document. */
+internal const val STATUS_OK = "OK"
+
+/** The status of D8 for a cycle that skipped one document or more (design decision D5). */
+internal const val STATUS_INVALID_DATA = "INVALID_DATA"
+
 /**
  * A failed MongoDB read of one poll cycle. The message holds one fixed
  * sentence plus the class name of the real cause.
  *
- * The message never holds a host, a port, a database name, or a part of
- * a connection string (design decision D11, the security note of issue
- * #16). This class keeps no `cause`, so a stack trace of this exception
- * cannot reach the driver message either.
+ * The message never holds a host, a port, or a database name. It never
+ * holds a part of a connection string either (design decision D11, the
+ * security note of issue #16). This class keeps no `cause`, so a stack
+ * trace of this exception cannot reach the driver message either.
  */
 class MongoReadFailedException(cause: Throwable) :
     Exception("The reader could not read MongoDB. ${cause.javaClass.simpleName}")
@@ -71,11 +79,12 @@ data class PollTarget(
     val cursor: String?,
 )
 
-/** The result of one poll cycle: the stored event count, the page count, and the new cursor. */
+/** The result of one poll cycle: the stored count, the page count, the cursor, and the skipped count (issue #27). */
 data class PollOutcome(
     val eventsStored: Int,
     val pagesRead: Int,
     val cursor: String?,
+    val eventsSkipped: Int = 0,
 )
 
 /**
@@ -95,17 +104,22 @@ data class PollOutcome(
  *
  * [serverTimeSource] reads the server time of the primary. The default,
  * [helloLocalTime], reads the `localTime` field of the `hello` command
- * (section 4.3). A test can inject a different source, to prove that
- * the bound of [readBound] follows this value, and never a local clock
- * of the monitor process.
+ * (section 4.3). A test can inject a different source. It then proves
+ * that the bound of [readBound] follows this value, and never a local
+ * clock of the monitor process.
  *
  * The connection string parameter of [pollOnce] never reaches a field
  * of this class, a log line, or an exception message (design decision
  * D11). The build of the client, through [clientFor], runs inside
  * [withMongoFailure]. A failed parse of the connection string, or a
- * failed client build, therefore also gives [MongoReadFailedException],
- * with no part of the connection string in its message (BLOCKER 1 of
- * the security review of pull request #160).
+ * failed client build, therefore also gives [MongoReadFailedException].
+ * Its message holds no part of the connection string (BLOCKER 1 of the
+ * security review of pull request #160).
+ *
+ * [clock] gives the time of [pollOnce]'s status update (issue #27, D8).
+ * The default, `Clock.systemUTC()`, matches the epoch-millisecond UTC
+ * unit of `app.last_poll_at`, `app.last_success_at`, and `event.ts`. A
+ * test injects a fixed clock, for a stable assertion.
  */
 class MongoAppReader(
     private val eventStore: EventStore,
@@ -113,6 +127,7 @@ class MongoAppReader(
     private val clientFactory: (String) -> MongoClient = ::defaultMongoClient,
     private val serverTimeSource: suspend (MongoDatabase) -> Date = ::helloLocalTime,
     internal val cycleTimeoutMillis: Long = CYCLE_TIMEOUT_MILLIS,
+    private val clock: Clock = Clock.systemUTC(),
 ) : AutoCloseable {
 
     private val clients = ConcurrentHashMap<Long, MongoClient>()
@@ -120,19 +135,34 @@ class MongoAppReader(
     /**
      * Runs one poll cycle for [target], with the connection string
      * [connectionString]. The page loop runs inside `withTimeout` of
-     * [cycleTimeoutMillis] milliseconds (design decision D6).
+     * [cycleTimeoutMillis] milliseconds (design decision D6). A good
+     * cycle then sets the status, `last_poll_at`, and `last_success_at`
+     * of the app row (D5, D8, issue #27).
      *
      * A real cancellation of the calling coroutine still propagates.
      * This method, through [withMongoFailure], catches a
      * `CancellationException` only to check whether it is real (lesson
-     * 2 of the brief); it then throws the real one again unchanged.
+     * 2 of the brief). It then throws the real one again unchanged.
      */
     suspend fun pollOnce(target: PollTarget, connectionString: String): PollOutcome {
         val database = openDatabase(target.appId, connectionString, target.database)
         val bound = readBound(database)
-        return runCycleWithTimeout(target.appId, target.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { cursor ->
+        val outcome = runCycleWithTimeout(target.appId, target.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { cursor ->
             readPage(database, target.collection, cursor, bound, PAGE_LIMIT)
         }
+        recordCycleSuccess(target.appId, outcome.eventsSkipped)
+        return outcome
+    }
+
+    /**
+     * Records the status of a good cycle (issue #27, D5, D8). It runs
+     * only after [runCycleWithTimeout] returns with no throw. A failed
+     * cycle then changes none of the three columns of the app row this
+     * round (issue #28 adds the failure status).
+     */
+    private suspend fun recordCycleSuccess(appId: Long, eventsSkipped: Int) {
+        val status = if (eventsSkipped > 0) STATUS_INVALID_DATA else STATUS_OK
+        eventStore.recordCycleSuccess(appId, clock.millis(), status)
     }
 
     /** Closes the kept client of one app id, for example after the app is gone. */
@@ -224,15 +254,17 @@ class MongoAppReader(
      * Docker. The loop stops at [maxPages], or at the first page
      * smaller than [pageLimit] (the last page of the cycle).
      *
-     * A document that fails the parse of [parseEvent] never stops the
-     * page. [runCycle] skips it. The loop still moves the cursor past
-     * it, in the same page commit. One WARN line names the skipped
-     * count of the page, with no field of a document.
+     * [invalidReason] checks each document. An invalid one never stops
+     * the page. [runCycle] skips it and writes its `skipped_event` row,
+     * with the fixed reason (design decision D5, issue #27). The loop
+     * still moves the cursor past it, in the same page commit. One WARN
+     * line names the skipped count of the page, with no field of a
+     * document.
      *
-     * Issue #27 adds the `skipped_event` row and the status
-     * `INVALID_DATA` for this case (design decision D5). This round
-     * only stops the old failure of "one bad document stops the app
-     * for ever" (Kotlin review, MAJOR 2 of pull request #160).
+     * [pollOnce] sets the status `INVALID_DATA` after a cycle with one
+     * skip or more, else `OK` (D8). This fixes the old failure of "one
+     * bad document stops the app for ever" (Kotlin review, MAJOR 2 of
+     * pull request #160).
      */
     internal suspend fun runCycle(
         appId: Long,
@@ -244,26 +276,32 @@ class MongoAppReader(
         var cursor = initialCursor
         var pagesRead = 0
         var eventsStored = 0
+        var eventsSkipped = 0
         while (pagesRead < maxPages) {
             val page = fetchPage(cursor)
             if (page.isEmpty()) break
             val events = mutableListOf<NewEvent>()
-            var skippedCount = 0
+            val skipped = mutableListOf<SkippedEvent>()
             for (document in page) {
-                val event = parseEventOrNull(document)
-                if (event != null) events += event else skippedCount += 1
+                val reason = invalidReason(document)
+                if (reason == null) {
+                    events += parseEvent(document)
+                } else {
+                    skipped += SkippedEvent(document.getObjectId("_id").toHexString(), reason)
+                }
             }
-            if (skippedCount > 0) {
-                log.warn("The reader skipped {} invalid document(s) of one page.", skippedCount)
+            if (skipped.isNotEmpty()) {
+                log.warn("The reader skipped {} invalid document(s) of one page.", skipped.size)
             }
             val newCursor = page.last().getObjectId("_id").toHexString()
-            eventStore.commitPage(appId, events, newCursor)
+            eventStore.commitPage(appId, events, newCursor, skippedEvents = skipped)
             cursor = newCursor
             eventsStored += events.size
+            eventsSkipped += skipped.size
             pagesRead += 1
             if (page.size < pageLimit) break
         }
-        return PollOutcome(eventsStored, pagesRead, cursor)
+        return PollOutcome(eventsStored, pagesRead, cursor, eventsSkipped)
     }
 
     /**
@@ -296,10 +334,10 @@ class MongoAppReader(
 /**
  * Parses one event document into [NewEvent] (contract rules C1 to C6).
  * An unknown field of the document stays out of the result (contract
- * rule C9); this function reads only the five named fields.
+ * rule C9). This function reads only the five named fields.
  *
- * A missing field, or a wrong BSON type, throws. [parseEventOrNull]
- * turns that throw into `null`, for the skip of [MongoAppReader.runCycle].
+ * [MongoAppReader.runCycle] calls [invalidReason] first, so this
+ * function runs only for a document that already passed that check.
  */
 internal fun parseEvent(document: Document): NewEvent {
     val id = document.getObjectId("_id")
@@ -317,17 +355,30 @@ internal fun parseEvent(document: Document): NewEvent {
 }
 
 /**
- * Parses one document, or returns `null` for an invalid one (design
- * decision D5, Kotlin review MAJOR 2 of pull request #160). The caller
- * counts the `null` result, and it logs the count only, never a field
- * of the document.
+ * Checks one event document against section 4.1. It returns a fixed
+ * reason, or `null` for a valid document (design decision D5, decision
+ * 1 of issue #27). A reason names the field and the rule only. It never
+ * holds a value of the document.
+ *
+ * An absent `userId` field is a valid anonymous event, the same as an
+ * explicit `null` value (contract rule C6). An empty `userId` string is
+ * invalid.
  */
-private fun parseEventOrNull(document: Document): NewEvent? =
-    try {
-        parseEvent(document)
-    } catch (invalid: Exception) {
-        null
-    }
+internal fun invalidReason(document: Document): String? {
+    val ts = document["ts"]
+    if (ts == null) return "ts missing"
+    if (ts !is Date) return "ts wrong type"
+    val element = document["element"]
+    if (element == null) return "element missing"
+    if (element !is String) return "element wrong type"
+    val sessionId = document["sessionId"]
+    if (sessionId == null) return "sessionId missing"
+    if (sessionId !is String) return "sessionId wrong type"
+    val userId = document["userId"]
+    if (userId != null && userId !is String) return "userId wrong type"
+    if (userId is String && userId.isEmpty()) return "userId empty"
+    return null
+}
 
 /**
  * The bound of section 4.3: `ObjectId.getSmallestWithDate(serverTime -
@@ -344,9 +395,9 @@ internal fun boundObjectId(serverTime: Date, settleLagSeconds: Long): ObjectId =
  * `{_id: 1}`.
  *
  * Without a cursor, the filter holds no `$gt` term. The note of the
- * review of pull request #83 explains why: `{_id: {$gt: null}}` matches
- * no document in MongoDB, so the first cycle of a new app would read
- * nothing.
+ * review of pull request #83 explains why. The filter `{_id: {$gt:
+ * null}}` matches no document in MongoDB. Thus the first cycle of a new
+ * app would read nothing.
  */
 internal fun idFilter(cursor: String?, bound: ObjectId): Bson {
     val range = Document("\$lt", bound)
@@ -387,14 +438,14 @@ private fun bsonByteSize(document: Document): Long {
  * [ConnectionStringValidator.check] runs first (D10: "the monitor
  * checks the scheme with a string test before the driver parses the
  * URI"). The registry already checks a new connection string at the
- * save (D11); this second check catches a value that a person edited
+ * save (D11). This second check catches a value that a person edited
  * by hand in the secrets file.
  *
  * The caller of this function, [MongoAppReader.clientFor], runs inside
  * `withMongoFailure`. A failed check, and a failed [ConnectionString]
- * parse, both give [MongoReadFailedException], with no part of the
- * connection string in the message (BLOCKER 1 of the security review
- * of pull request #160).
+ * parse, both give [MongoReadFailedException]. Its message holds no
+ * part of the connection string (BLOCKER 1 of the security review of
+ * pull request #160).
  */
 private fun defaultMongoClient(connectionString: String): MongoClient {
     val check = ConnectionStringValidator.check(connectionString)
