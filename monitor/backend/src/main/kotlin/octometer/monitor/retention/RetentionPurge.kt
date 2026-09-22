@@ -1,8 +1,6 @@
 package octometer.monitor.retention
 
 import java.time.Clock
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import octometer.monitor.store.DEFAULT_BUSY_TIMEOUT_MILLIS
 import octometer.monitor.store.SqliteDatabase
 import org.slf4j.LoggerFactory
@@ -48,11 +46,12 @@ private const val RESTORE_BUSY_TIMEOUT_SQL = "PRAGMA busy_timeout=$DEFAULT_BUSY_
  * that cursor, not from a row of the local `event` table. A deleted
  * event never reaches the store a second time.
  *
- * The delete runs in batches of [PURGE_BATCH_SIZE] rows. It checks the
- * cancel between two batches, so [RetentionPurgeJob.stop] returns soon
- * after a cancel. The purge runs [CHECKPOINT_SQL] once, after the last
- * batch, with `busy_timeout` at 0 for that one call (correction round 1,
- * decision 7). It logs the total deleted count. It never logs event
+ * The delete runs in batches of [PURGE_BATCH_SIZE] rows. The write call
+ * of each batch checks the cancel state on entry, so
+ * [RetentionPurgeJob.stop] returns soon after a cancel. The purge runs
+ * [CHECKPOINT_SQL] once, after the last batch, with `busy_timeout` at 0
+ * for that one call (correction round 1, decision 7). It logs the total
+ * deleted count. It never logs event
  * data.
  *
  * [onWrite] runs after each write call to the database, a delete batch
@@ -69,7 +68,12 @@ class RetentionPurge(
         val cutoff = clock.millis() - retentionDays.toLong() * MILLIS_PER_DAY
         var totalDeleted = 0
         while (true) {
-            currentCoroutineContext().ensureActive()
+            // Correction round 2, MINOR A: this loop has no explicit
+            // cancel check. deleteOneBatch calls database.write, and
+            // database.write calls withContext. withContext checks the
+            // cancel state on entry, before it runs the block. A cancel
+            // between two batches still stops the loop before a further
+            // batch runs.
             val deleted = deleteOneBatch(cutoff)
             totalDeleted += deleted
             if (deleted < PURGE_BATCH_SIZE) break
@@ -111,7 +115,12 @@ class RetentionPurge(
                         check(result.next()) { "PRAGMA wal_checkpoint(TRUNCATE) gave no row." }
                         val busy = result.getInt(1)
                         if (busy != 0) {
-                            log.debug("The checkpoint was busy. It did not run to completion.")
+                            // Correction round 2, MINOR B: WARN, not DEBUG.
+                            // The root log level is INFO. A DEBUG line here
+                            // stayed invisible, while an old wal frame still
+                            // held a purged row until a later checkpoint.
+                            // This line names no event data and no row.
+                            log.warn("The checkpoint was busy. It did not run to completion.")
                         }
                     }
                 }
