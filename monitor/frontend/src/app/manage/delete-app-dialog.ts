@@ -1,4 +1,4 @@
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpHeaders } from '@angular/common/http';
 import {
   Component,
   ElementRef,
@@ -26,10 +26,20 @@ const DELETE_HEADERS = new HttpHeaders({ 'Content-Type': 'application/json' });
  * The DELETE request holds `Content-Type: application/json` and a body of
  * `{}`, so the header is present although the route needs no field.
  *
- * A close of the dialog, from Cancel, from Escape, or from a successful
- * delete, moves the focus back to the trigger button. The parent moves the
- * focus to the `<h1>` after a successful delete (step 5), once it removes
- * the row and this component with it.
+ * A close of the dialog, from Cancel or from Escape, moves the focus back
+ * to the trigger button. A browser fires the `close` event on a later,
+ * queued task, and not at once (the HTML Standard, "close the dialog").
+ *
+ * A successful delete skips that trigger-focus step: `restoreFocusOnClose`
+ * marks the close as expected, so `onDialogClose` returns at once when the
+ * queued `close` event later arrives. The parent moves the focus to the
+ * `<h1>` right after the delete (step 5), and this flag stops a later race
+ * from moving the focus back to a trigger button whose row may already be
+ * gone.
+ *
+ * A 404 on the delete means a second window already removed the app. The
+ * dialog emits `staleList` in that case, so the parent reads the list
+ * again and drops the stale row.
  */
 @Component({
   selector: 'app-delete-app-dialog',
@@ -46,6 +56,9 @@ export class DeleteAppDialog {
   /** Emits after a successful delete. */
   readonly deleted = output<void>();
 
+  /** Emits when a 404 answer shows that the app is no longer registered. */
+  readonly staleList = output<void>();
+
   private readonly dialogEl = viewChild.required<ElementRef<HTMLDialogElement>>('dialogEl');
   private readonly cancelButton = viewChild.required<ElementRef<HTMLButtonElement>>('cancelButton');
   private readonly triggerButton =
@@ -54,6 +67,9 @@ export class DeleteAppDialog {
   protected readonly typedName = signal('');
   protected readonly pending = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
+
+  /** True while `onDialogClose` must skip the trigger-focus step (a delete just succeeded). */
+  private restoreFocusOnClose = true;
 
   protected readonly formattedClicks = computed(() => numberFormat.format(this.app().clicks));
   protected readonly canConfirm = computed(() => this.typedName() === this.app().name);
@@ -64,6 +80,10 @@ export class DeleteAppDialog {
 
   protected get errorId(): string {
     return `delete-app-error-${this.app().appId}`;
+  }
+
+  protected get headingId(): string {
+    return `delete-app-heading-${this.app().appId}`;
   }
 
   /** Opens the dialog, and puts the default focus on "Cancel". */
@@ -78,8 +98,16 @@ export class DeleteAppDialog {
     this.dialogEl().nativeElement.close();
   }
 
-  /** Restores the focus to the trigger button after any close of the dialog. */
+  /**
+   * Restores the focus to the trigger button after a close of the dialog
+   * from Cancel or from Escape. Skips the step, once, after a successful
+   * delete: `onDeleted` already moved the focus and cleared the flag.
+   */
   protected onDialogClose(): void {
+    if (!this.restoreFocusOnClose) {
+      this.restoreFocusOnClose = true;
+      return;
+    }
     this.triggerButton().nativeElement.focus();
   }
 
@@ -103,6 +131,7 @@ export class DeleteAppDialog {
 
   private onDeleted(): void {
     this.pending.set(false);
+    this.restoreFocusOnClose = false;
     this.dialogEl().nativeElement.close();
     this.announcer.announce('App deleted');
     this.deleted.emit();
@@ -114,6 +143,9 @@ export class DeleteAppDialog {
     this.errorMessage.set(message);
     if (message) {
       this.announcer.announce(message);
+    }
+    if (error instanceof HttpErrorResponse && error.status === 404) {
+      this.staleList.emit();
     }
   }
 }

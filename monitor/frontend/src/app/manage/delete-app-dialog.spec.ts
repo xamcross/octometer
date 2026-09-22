@@ -27,6 +27,11 @@ function buildRow(overrides: Partial<AppRow> = {}): AppRow {
  * installed `jsdom` package, 2026-09-22). This adds a minimal stand-in for
  * this file only, and it removes the stand-in in `afterEach`, so no other
  * spec file of the shared `jsdom` document (`isolate: false`) sees it.
+ *
+ * The HTML Standard fires the `close` event from a queued task, and not at
+ * once ("close the dialog", the last step). A real `setTimeout` schedules
+ * the event on a later task here too, so a test of the focus order sees the
+ * real race, and not a false pass from a synchronous event.
  */
 function installDialogPolyfill(): void {
   const proto = HTMLDialogElement.prototype as unknown as {
@@ -38,7 +43,7 @@ function installDialogPolyfill(): void {
   };
   proto.close = function (this: HTMLDialogElement): void {
     this.removeAttribute('open');
-    this.dispatchEvent(new Event('close'));
+    setTimeout(() => this.dispatchEvent(new Event('close')), 0);
   };
 }
 
@@ -46,6 +51,11 @@ function removeDialogPolyfill(): void {
   const proto = HTMLDialogElement.prototype as unknown as Record<string, unknown>;
   delete proto['showModal'];
   delete proto['close'];
+}
+
+/** Waits for one queued task, so a `setTimeout(..., 0)` of the dialog polyfill runs. */
+function flushQueuedTask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe('DeleteAppDialog', () => {
@@ -69,8 +79,11 @@ describe('DeleteAppDialog', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    httpMock.verify();
-    removeDialogPolyfill();
+    try {
+      httpMock.verify();
+    } finally {
+      removeDialogPolyfill();
+    }
   });
 
   function root(): HTMLElement {
@@ -122,16 +135,37 @@ describe('DeleteAppDialog', () => {
     expect(confirmButton.disabled).toBe(false);
   });
 
-  it('closes the dialog and restores focus to the trigger on Cancel', () => {
+  it('closes the dialog and restores focus to the trigger on Cancel', async () => {
     openDialog();
     const trigger = root().querySelector<HTMLButtonElement>('button.delete-trigger')!;
 
     root().querySelector<HTMLButtonElement>('button.cancel')!.click();
     fixture.detectChanges();
+    await flushQueuedTask();
 
     const dialog = root().querySelector('dialog')!;
     expect(dialog.hasAttribute('open')).toBe(false);
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it('gives the dialog an accessible name from its own heading', () => {
+    openDialog();
+
+    const dialog = root().querySelector('dialog')!;
+    const labelledBy = dialog.getAttribute('aria-labelledby');
+    const heading = document.getElementById(labelledBy ?? '');
+    expect(heading?.tagName).toBe('H2');
+    expect(heading?.textContent?.trim().length).toBeGreaterThan(0);
+  });
+
+  it('shows a sentence with no number for a NEVER_POLLED app, not "0 events"', () => {
+    fixture.componentRef.setInput('app', buildRow({ status: 'NEVER_POLLED', clicks: 0 }));
+    fixture.detectChanges();
+    openDialog();
+
+    const dialog = root().querySelector('dialog')!;
+    expect(dialog.textContent).toContain('Octometer holds no event of traficio yet.');
+    expect(dialog.textContent).not.toContain('0');
   });
 
   it('sends DELETE /api/apps/{id} with the header Content-Type: application/json', () => {
@@ -163,9 +197,29 @@ describe('DeleteAppDialog', () => {
       expect(announceSpy).toHaveBeenCalledWith('App deleted');
       expect(deletedSpy).toHaveBeenCalled();
     });
+
+    it('does not move the focus back to the trigger once the queued close event later arrives', async () => {
+      openDialog();
+      typeConfirmName('traficio');
+      root().querySelector<HTMLButtonElement>('button.confirm-delete')!.click();
+      httpMock
+        .expectOne({ url: '/api/apps/5', method: 'DELETE' })
+        .flush(null, { status: 204, statusText: 'No Content' });
+      fixture.detectChanges();
+
+      const trigger = root().querySelector<HTMLButtonElement>('button.delete-trigger')!;
+      // A parent view (Manage) would already have moved the focus to its own
+      // `<h1>` by the time this queued task runs. It must not fall back to
+      // this trigger, whose row a parent may already have removed.
+      await flushQueuedTask();
+      expect(document.activeElement).not.toBe(trigger);
+    });
   });
 
-  it('shows the fixed 404 message inside the dialog, and keeps the dialog open', () => {
+  it('shows the fixed 404 message inside the dialog, keeps the dialog open, and reports a stale list', () => {
+    const staleListSpy = vi.fn();
+    fixture.componentInstance.staleList.subscribe(staleListSpy);
+
     openDialog();
     typeConfirmName('traficio');
     root().querySelector<HTMLButtonElement>('button.confirm-delete')!.click();
@@ -177,6 +231,7 @@ describe('DeleteAppDialog', () => {
     const dialog = root().querySelector('dialog')!;
     expect(dialog.hasAttribute('open')).toBe(true);
     expect(dialog.textContent).toContain('The app is not registered.');
+    expect(staleListSpy).toHaveBeenCalled();
   });
 
   it('shows the fixed 503 message inside the dialog', () => {

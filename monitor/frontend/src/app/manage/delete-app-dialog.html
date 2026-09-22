@@ -1,10 +1,14 @@
 <button type="button" class="delete-trigger" #triggerButton (click)="open()">Delete</button>
 
-<dialog #dialogEl (close)="onDialogClose()">
-  <h2>Delete {{ app().name }}?</h2>
+<dialog #dialogEl (close)="onDialogClose()" [attr.aria-labelledby]="headingId">
+  <h2 [id]="headingId">Delete {{ app().name }}?</h2>
   <p>
-    This removes <strong>{{ formattedClicks() }}</strong> events of {{ app().name }}. This cannot be
-    undone.
+    @if (app().status === 'NEVER_POLLED') {
+      Octometer holds no event of {{ app().name }} yet.
+    } @else {
+      This removes <strong>{{ formattedClicks() }}</strong> events of {{ app().name }}.
+    }
+    This cannot be undone.
   </p>
 
   <div class="field">
