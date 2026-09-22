@@ -12,12 +12,14 @@ plugins {
 }
 
 group = "com.github.xamcross.octometer"
-version = "0.1.0"
+version = libs.versions.octometer.kit.get()
 
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
     }
+    // A source jar for the JitPack publication (finding MINOR 2, PR #155).
+    withSourcesJar()
 }
 
 // JUnit Jupiter: gradle/libs.versions.toml holds the version (issue #138).

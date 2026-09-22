@@ -9,4 +9,6 @@
 jdk:
   - openjdk21
 install:
+  # Issue #71 adds a fourth kit module, kit/jvm-spring. Add its
+  # publishToMavenLocal task to this line then.
   - ./gradlew :kit:jvm-core:publishToMavenLocal :kit:jvm-mongo:publishToMavenLocal :kit:jvm-ktor:publishToMavenLocal -x test

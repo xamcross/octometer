@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.github.xamcross.octometer"
-version = "0.1.0"
+version = libs.versions.octometer.kit.get()
 
 kotlin {
     jvmToolchain(21)
@@ -23,6 +23,18 @@ kotlin {
         apiVersion.set(KotlinLanguageVersion.KOTLIN_2_0)
         languageVersion.set(KotlinLanguageVersion.KOTLIN_2_0)
     }
+    // The published POM must name the lowest stdlib that this module
+    // needs (finding MAJOR 1, PR #155). The api version above is 2.0,
+    // thus 2.0.0 is enough. Without this line, the POM names the
+    // compiler's own stdlib (2.4.20) and forces it on each app; an app
+    // on an older Kotlin then fails with a metadata version error. An
+    // app on a newer Kotlin raises the stdlib itself.
+    coreLibrariesVersion = "2.0.0"
+}
+
+java {
+    // A source jar for the JitPack publication (finding MINOR 2, PR #155).
+    withSourcesJar()
 }
 
 // JUnit Jupiter: gradle/libs.versions.toml holds the version, the same
