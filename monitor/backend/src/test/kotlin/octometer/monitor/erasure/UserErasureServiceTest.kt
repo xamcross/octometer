@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import octometer.monitor.captureLogEvents
 import octometer.monitor.registerTempRoot
 import octometer.monitor.store.SqliteDatabase
+import octometer.monitor.testDataDir
 import kotlin.system.measureTimeMillis
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -32,7 +33,7 @@ class UserErasureServiceTest {
 
     @BeforeTest
     fun setUp() = runBlocking {
-        database = SqliteDatabase.open(tempDir.absolutePath)
+        database = SqliteDatabase.open(testDataDir(tempDir))
     }
 
     @AfterTest

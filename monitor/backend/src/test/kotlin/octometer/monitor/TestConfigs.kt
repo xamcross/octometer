@@ -53,6 +53,18 @@ fun testDataDir(): String {
     return File(root, "data").absolutePath
 }
 
+// SQLite MAJOR A of correction round 2: a test with its own registered
+// [root] must nest its data folder too, the same rule as testDataDir().
+// A call with the root itself as dataDir puts the default backupDir at
+// the sibling "backups" folder of the root, thus outside the root.
+
+/** The nested data folder of an already registered [root]. It makes the folder. */
+fun testDataDir(root: File): String {
+    val dataDir = File(root, "data")
+    dataDir.mkdirs()
+    return dataDir.absolutePath
+}
+
 // SQLite MAJOR 1 of correction round 1: backupDir defaults to the sibling
 // "backups" folder of dataDir, the same rule as the production default.
 // A test that gives testDataDir() its nested "data" folder thus keeps its

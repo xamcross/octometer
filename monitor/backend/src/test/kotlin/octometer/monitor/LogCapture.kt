@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
+import java.util.Collections
 import org.slf4j.LoggerFactory
 
 /**
@@ -51,12 +52,23 @@ suspend fun <T> captureLogEvents(block: suspend () -> T): Pair<T, List<ILoggingE
     val root = LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME) as Logger
     val oldLevel = root.level
     val appender = ListAppender<ILoggingEvent>()
+    // MAJOR B, correction round 2 of issue #55: appender.list is a plain
+    // ArrayList by default. A background job (the daily backup job, and
+    // now the purge job of issue #59) logs from Dispatchers.Default while
+    // this function reads the list, so a plain ArrayList throws a
+    // ConcurrentModificationException. The synchronized list gives each
+    // write a lock. The read below takes a copy under the same lock,
+    // because an iteration over a synchronized list still needs its own
+    // lock.
+    val list = Collections.synchronizedList(ArrayList<ILoggingEvent>())
+    appender.list = list
     appender.start()
     root.addAppender(appender)
     root.level = Level.TRACE
     try {
         val result = block()
-        val events = appender.list.filterNot { event ->
+        val capturedEvents = synchronized(list) { list.toList() }
+        val events = capturedEvents.filterNot { event ->
             KNOWN_URL_LOGGER_PREFIXES.any { prefix -> event.loggerName.startsWith(prefix) }
         }
         return result to events
