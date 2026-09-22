@@ -5,6 +5,7 @@ import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import java.io.File
 import java.nio.file.Files
+import octometer.monitor.backup.backupsDir
 import octometer.monitor.config.MonitorConfig
 
 // One shared config pair for the tests of this module. HealthRouteTest and
@@ -52,6 +53,23 @@ fun testDataDir(): String {
     return File(root, "data").absolutePath
 }
 
+// SQLite MAJOR A of correction round 2: a test with its own registered
+// [root] must nest its data folder too, the same rule as testDataDir().
+// A call with the root itself as dataDir puts the default backupDir at
+// the sibling "backups" folder of the root, thus outside the root.
+
+/** The nested data folder of an already registered [root]. It makes the folder. */
+fun testDataDir(root: File): String {
+    val dataDir = File(root, "data")
+    dataDir.mkdirs()
+    return dataDir.absolutePath
+}
+
+// SQLite MAJOR 1 of correction round 1: backupDir defaults to the sibling
+// "backups" folder of dataDir, the same rule as the production default.
+// A test that gives testDataDir() its nested "data" folder thus keeps its
+// backups inside the one registered root, never at the system temp root.
+
 // Correction round 1 of issue #59 (MAJOR 3, SQLite review): MonitorServices
 // now runs a retention purge at each open call, on the real clock. A large
 // default keeps each fixed test fixture. A test of the purge itself passes
@@ -59,21 +77,31 @@ fun testDataDir(): String {
 private const val LARGE_TEST_RETENTION_DAYS = 3_650_000
 
 /** The dev mode config of the tests, with the configured port 7431. */
-fun devConfig(dataDir: String = testDataDir(), retentionDays: Int = LARGE_TEST_RETENTION_DAYS) = MonitorConfig(
+fun devConfig(
+    dataDir: String = testDataDir(),
+    backupDir: String = backupsDir(dataDir).absolutePath,
+    retentionDays: Int = LARGE_TEST_RETENTION_DAYS,
+) = MonitorConfig(
     mode = "dev",
     port = 7431,
     dataDir = dataDir,
     settleLagSeconds = 2,
     retentionDays = retentionDays,
+    backupDir = backupDir,
 )
 
 /** The prod mode config of the tests, with the configured port 7431. */
-fun prodConfig(dataDir: String = testDataDir(), retentionDays: Int = LARGE_TEST_RETENTION_DAYS) = MonitorConfig(
+fun prodConfig(
+    dataDir: String = testDataDir(),
+    backupDir: String = backupsDir(dataDir).absolutePath,
+    retentionDays: Int = LARGE_TEST_RETENTION_DAYS,
+) = MonitorConfig(
     mode = "prod",
     port = 7431,
     dataDir = dataDir,
     settleLagSeconds = 60,
     retentionDays = retentionDays,
+    backupDir = backupDir,
 )
 
 /**

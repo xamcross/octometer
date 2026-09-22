@@ -35,11 +35,15 @@ private const val WRITER_THREAD_NAME = "octometer-sqlite-writer"
  */
 class ApplicationLifecycleTest {
 
-    private val dataDir = Files.createTempDirectory("octometer-lifecycle-test-").toFile().also { registerTempRoot(it) }
+    // SQLite MAJOR 1 of correction round 1: dataDir sits under root, a
+    // nested folder, so the sibling backups folder of issue #55 stays
+    // inside root and never lands at the system temp root.
+    private val root = Files.createTempDirectory("octometer-lifecycle-test-").toFile().also { registerTempRoot(it) }
+    private val dataDir = File(root, "data")
 
     @AfterTest
     fun tearDown() {
-        dataDir.deleteRecursively()
+        root.deleteRecursively()
     }
 
     @Test
@@ -63,11 +67,15 @@ class ApplicationLifecycleTest {
                 val response = client.send(request, HttpResponse.BodyHandlers.ofString())
 
                 assertEquals(200, response.statusCode())
-                assertEquals(before + 1, writerThreadCount(), "the store must open one writer thread at the start")
+                assertEquals(
+                    before + 1,
+                    awaitWriterThreadCount(before + 1),
+                    "the store must open one writer thread at the start",
+                )
             } finally {
                 server.stop(gracePeriodMillis = 0, timeoutMillis = 1000)
             }
-            assertEquals(before, writerThreadCount(), "the store must close its writer thread at the stop")
+            assertEquals(before, awaitWriterThreadCount(before), "the store must close its writer thread at the stop")
         }
     }
 
@@ -102,11 +110,15 @@ class ApplicationLifecycleTest {
             val response = client.send(request, HttpResponse.BodyHandlers.ofString())
 
             assertEquals(200, response.statusCode())
-            assertEquals(before + 1, writerThreadCount(), "the database must still open, although the sweep failed")
+            assertEquals(
+                before + 1,
+                awaitWriterThreadCount(before + 1),
+                "the database must still open, although the sweep failed",
+            )
         } finally {
             server.stop(gracePeriodMillis = 0, timeoutMillis = 1000)
         }
-        assertEquals(before, writerThreadCount(), "the writer thread must not survive the stop")
+        assertEquals(before, awaitWriterThreadCount(before), "the writer thread must not survive the stop")
         assertTrue(
             brokenBytes.contentEquals(secretsFile.readBytes()),
             "the broken file must stay exactly as it was",
@@ -181,4 +193,19 @@ class ApplicationLifecycleTest {
     // coroutine, or none, runs on it.
     private fun writerThreadCount(): Int =
         Thread.getAllStackTraces().keys.count { it.name.startsWith(WRITER_THREAD_NAME) }
+
+    // Issue #55: a busy CI runner needs a short moment to schedule the
+    // writer thread's first task, or to end that thread after close().
+    // This polls for up to two seconds, the same rule as
+    // MonitorServicesTest.awaitWriterThreadCount, so the count settles
+    // before the test reads it.
+    private fun awaitWriterThreadCount(expected: Int, timeoutMillis: Long = 2_000): Int {
+        val deadline = System.nanoTime() + timeoutMillis * 1_000_000
+        var count = writerThreadCount()
+        while (count != expected && System.nanoTime() < deadline) {
+            Thread.sleep(20)
+            count = writerThreadCount()
+        }
+        return count
+    }
 }

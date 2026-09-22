@@ -10,6 +10,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import octometer.monitor.backup.backupsDir
 
 // Issue #109: migration 002 adds the first-page columns and rebuilds the
 // indexes as partial indexes. Source: the design brief of #101, rules M1
@@ -18,6 +19,10 @@ class Migration002Test {
 
     private val tempDir = Files.createTempDirectory("octometer-migration-002-test-").toFile()
 
+    // The data folder sits under tempDir, so the sibling backups folder of
+    // issue #55 stays inside tempDir and deletes with it.
+    private val dataDir = File(tempDir, "data")
+
     @AfterTest
     fun tearDown() {
         tempDir.deleteRecursively()
@@ -25,7 +30,7 @@ class Migration002Test {
 
     @Test
     fun `a new database gets user_version 2 and the three columns`() = runBlocking {
-        val database = SqliteDatabase.open(tempDir.absolutePath)
+        val database = SqliteDatabase.open(dataDir.absolutePath)
         try {
             assertEquals(2, database.write { userVersion(it) })
             val columns = database.write { tableColumns(it) }
@@ -39,7 +44,7 @@ class Migration002Test {
 
     @Test
     fun `a database at user_version 1 with rows gets migration 002 and keeps its rows`() = runBlocking {
-        val dbFile = File(tempDir, "octometer.db")
+        val dbFile = File(dataDir.apply { mkdirs() }, "octometer.db")
         DriverManager.getConnection("jdbc:sqlite:${dbFile.absolutePath}").use { connection ->
             createV1Schema(connection)
             connection.createStatement().use { it.execute("PRAGMA user_version = 1") }
@@ -47,7 +52,7 @@ class Migration002Test {
             insertV1Event(connection, appId = 1L, eventId = "e1")
         }
 
-        val database = SqliteDatabase.open(tempDir.absolutePath)
+        val database = SqliteDatabase.open(dataDir.absolutePath)
         try {
             assertEquals(2, database.write { userVersion(it) })
             assertEquals(1, database.read { countEvents(it) })
@@ -58,7 +63,7 @@ class Migration002Test {
 
     @Test
     fun `the four indexes exist with the WHERE text of the criteria`() = runBlocking {
-        val database = SqliteDatabase.open(tempDir.absolutePath)
+        val database = SqliteDatabase.open(dataDir.absolutePath)
         try {
             assertTrue(
                 indexSql(database, "event_agg")!!.contains("WHERE kind = 0"),
@@ -80,12 +85,12 @@ class Migration002Test {
 
     @Test
     fun `a second start applies no migration`() = runBlocking {
-        SqliteDatabase.open(tempDir.absolutePath).close()
+        SqliteDatabase.open(dataDir.absolutePath).close()
 
-        val secondStart = SqliteDatabase.open(tempDir.absolutePath)
+        val secondStart = SqliteDatabase.open(dataDir.absolutePath)
         try {
             assertEquals(2, secondStart.write { userVersion(it) })
-            assertTrue(secondStart.write { MigrationRunner.run(it) }.isEmpty())
+            assertTrue(secondStart.write { MigrationRunner.run(it, backupsDir(dataDir.absolutePath)) }.isEmpty())
         } finally {
             secondStart.close()
         }
@@ -95,7 +100,7 @@ class Migration002Test {
     // because #110 fills the new columns, not this issue.
     @Test
     fun `an insert without kind stores the value 0`() = runBlocking {
-        val database = SqliteDatabase.open(tempDir.absolutePath)
+        val database = SqliteDatabase.open(dataDir.absolutePath)
         try {
             val store = EventStore(database)
             val appId = insertApp(database, "demo")
@@ -121,13 +126,13 @@ class Migration002Test {
 
     @Test
     fun `the guard against a newer database now names version 2`() {
-        val dbFile = File(tempDir, "octometer.db")
+        val dbFile = File(dataDir.apply { mkdirs() }, "octometer.db")
         DriverManager.getConnection("jdbc:sqlite:${dbFile.absolutePath}").use { connection ->
             connection.createStatement().use { it.execute("PRAGMA user_version = 99") }
         }
 
         val error = assertFailsWith<IllegalStateException> {
-            SqliteDatabase.open(tempDir.absolutePath)
+            SqliteDatabase.open(dataDir.absolutePath)
         }
         assertTrue(error.message!!.contains("this build knows 2"), "the message names the latest version 2")
     }

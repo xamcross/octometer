@@ -1,9 +1,11 @@
 package octometer.monitor.store
 
+import java.io.File
 import java.nio.file.Files
 import java.sql.Connection
 import java.sql.SQLException
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.registerTempRoot
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -14,13 +16,16 @@ import kotlin.test.assertFailsWith
 // the reader, because the two are separate JDBC connections.
 class PragmaTest {
 
-    private val tempDir = Files.createTempDirectory("octometer-pragma-test-").toFile()
-    private val database = SqliteDatabase.open(tempDir.absolutePath)
+    // SQLite MAJOR 1 of correction round 1: dataDir sits under root, so
+    // the sibling backups folder of issue #55 stays inside root.
+    private val root = Files.createTempDirectory("octometer-pragma-test-").toFile().also { registerTempRoot(it) }
+    private val dataDir = File(root, "data")
+    private val database = SqliteDatabase.open(dataDir.absolutePath)
 
     @AfterTest
     fun tearDown() {
         database.close()
-        tempDir.deleteRecursively()
+        root.deleteRecursively()
     }
 
     @Test

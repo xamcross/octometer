@@ -41,7 +41,7 @@ class UserTotalsRouteTest {
 
     @BeforeTest
     fun setUp() = runBlocking {
-        database = SqliteDatabase.open(tempDir.absolutePath)
+        database = SqliteDatabase.open(testDataDir(tempDir))
     }
 
     @AfterTest

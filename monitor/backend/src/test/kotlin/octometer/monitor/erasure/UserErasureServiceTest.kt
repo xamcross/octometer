@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import octometer.monitor.captureLogEvents
 import octometer.monitor.registerTempRoot
 import octometer.monitor.store.SqliteDatabase
+import octometer.monitor.testDataDir
 import kotlin.system.measureTimeMillis
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -32,7 +33,7 @@ class UserErasureServiceTest {
 
     @BeforeTest
     fun setUp() = runBlocking {
-        database = SqliteDatabase.open(tempDir.absolutePath)
+        database = SqliteDatabase.open(testDataDir(tempDir))
     }
 
     @AfterTest
@@ -168,7 +169,7 @@ class UserErasureServiceTest {
         assertTrue(result.checkpointed, "expected the checkpoint to complete with no other reader")
         // A TRUNCATE checkpoint moves each WAL frame into the main file, so
         // the WAL file goes back to an empty state.
-        val walFile = File(tempDir, "octometer.db-wal")
+        val walFile = File(File(tempDir, "data"), "octometer.db-wal")
         assertTrue(!walFile.exists() || walFile.length() == 0L, "expected an empty or an absent WAL file")
     }
 

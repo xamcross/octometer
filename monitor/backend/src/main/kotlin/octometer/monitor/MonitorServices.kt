@@ -3,6 +3,7 @@ package octometer.monitor
 import java.io.IOException
 import java.time.Clock
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.backup.DailyBackupJob
 import octometer.monitor.config.MonitorConfig
 import octometer.monitor.registry.AppRegistryService
 import octometer.monitor.registry.SecretStore
@@ -26,12 +27,17 @@ class MonitorServices private constructor(
     val config: MonitorConfig,
     val database: SqliteDatabase,
     val secretStore: SecretStore,
+    private val dailyBackupJob: DailyBackupJob,
     private val retentionPurgeJob: RetentionPurgeJob,
 ) : AutoCloseable {
 
     val appRegistryService: AppRegistryService = AppRegistryService(database, secretStore)
 
+    // Issue #55: close() waits for a backup that runs, so the caller
+    // never sees a half-written backup file. Issue #59: close() also
+    // stops the retention purge job.
     override fun close() {
+        runBlocking { dailyBackupJob.stop() }
         retentionPurgeJob.stop()
         database.close()
     }
@@ -58,32 +64,37 @@ class MonitorServices private constructor(
          * store or a locked file.
          *
          * The purge job of issue #59 starts here too, before the sweep.
-         * A later failure of this method stops the job again, in the
+         * The daily backup job of issue #55 starts after the sweep. A
+         * later failure of this method stops each started job, in the
          * same catch block that closes the store.
          */
-        fun open(config: MonitorConfig): MonitorServices {
-            val database = SqliteDatabase.open(config.dataDir)
+        fun open(config: MonitorConfig, clock: Clock = Clock.systemDefaultZone()): MonitorServices {
+            val database = SqliteDatabase.open(config.dataDir, backupDir = config.backupDir, clock = clock)
+            var dailyBackupJob: DailyBackupJob? = null
+            var retentionPurgeJob: RetentionPurgeJob? = null
             try {
                 val secretStore = SecretStore(config.dataDir)
-                val retentionPurgeJob = newRetentionPurgeJob(database, config.retentionDays)
+                retentionPurgeJob = newRetentionPurgeJob(database, config.retentionDays)
                 retentionPurgeJob.start()
-                try {
-                    val removedOrphans = try {
-                        runBlocking { sweepOrphanSecrets(database, secretStore) }
-                    } catch (unavailable: SecretStoreUnavailableException) {
-                        log.warn("The orphan secret sweep did not run. {}", unavailable.javaClass.simpleName)
-                        0
-                    } catch (fileFailure: IOException) {
-                        log.warn("The orphan secret sweep did not run. {}", fileFailure.javaClass.simpleName)
-                        0
-                    }
-                    log.info("The start removed {} orphan secret(s).", removedOrphans)
-                    return MonitorServices(config, database, secretStore, retentionPurgeJob)
-                } catch (startFailure: Throwable) {
-                    retentionPurgeJob.stop()
-                    throw startFailure
+                val removedOrphans = try {
+                    runBlocking { sweepOrphanSecrets(database, secretStore) }
+                } catch (unavailable: SecretStoreUnavailableException) {
+                    log.warn("The orphan secret sweep did not run. {}", unavailable.javaClass.simpleName)
+                    0
+                } catch (fileFailure: IOException) {
+                    log.warn("The orphan secret sweep did not run. {}", fileFailure.javaClass.simpleName)
+                    0
                 }
+                log.info("The start removed {} orphan secret(s).", removedOrphans)
+                // Issue #55: the daily backup job of D36. A throw after
+                // this line stops each started job in the catch block
+                // below.
+                dailyBackupJob = DailyBackupJob(database, config.dataDir, clock, backupDir = config.backupDir)
+                    .also { it.start() }
+                return MonitorServices(config, database, secretStore, dailyBackupJob, retentionPurgeJob)
             } catch (startFailure: Throwable) {
+                dailyBackupJob?.let { runBlocking { it.stop() } }
+                retentionPurgeJob?.stop()
                 database.close()
                 throw startFailure
             }
