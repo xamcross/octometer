@@ -1,0 +1,42 @@
+<button type="button" class="delete-trigger" #triggerButton (click)="open()">Delete</button>
+
+<dialog #dialogEl (close)="onDialogClose()" [attr.aria-labelledby]="headingId">
+  <h2 [id]="headingId">Delete {{ app().name }}?</h2>
+  <p>
+    @if (app().status === 'NEVER_POLLED') {
+      Octometer holds no event of {{ app().name }} yet.
+    } @else {
+      This removes <strong>{{ formattedClicks() }}</strong> events of {{ app().name }}.
+    }
+    This cannot be undone.
+  </p>
+
+  <div class="field">
+    <label [for]="confirmId">Type the app name to confirm</label>
+    <input
+      [id]="confirmId"
+      class="confirm-name"
+      type="text"
+      autocomplete="off"
+      [value]="typedName()"
+      (input)="onTypedNameInput($event)"
+      [attr.aria-describedby]="errorMessage() ? errorId : null"
+    />
+  </div>
+
+  @if (errorMessage(); as message) {
+    <p [id]="errorId" class="form-error">{{ message }}</p>
+  }
+
+  <div class="actions">
+    <button type="button" class="cancel" #cancelButton (click)="cancel()">Cancel</button>
+    <button
+      type="button"
+      class="confirm-delete"
+      [disabled]="!canConfirm() || pending()"
+      (click)="confirmDelete()"
+    >
+      Delete this app
+    </button>
+  </div>
+</dialog>
