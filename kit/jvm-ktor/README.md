@@ -28,6 +28,10 @@ route of design section 4.2 with one function, `octometerIngestRoute`.
   dependency change); `./gradlew :kit:jvm-ktor:test` gave `BUILD
   SUCCESSFUL`.
 
+## OCTOMETER_PATH_PATTERNS
+
+A run of whitespace separates each route pattern of `OCTOMETER_PATH_PATTERNS` (a space, a tab, or a line break).
+
 ## The store dispatcher
 
 `octometerIngestRoute` runs the store call inside a dispatcher (design
