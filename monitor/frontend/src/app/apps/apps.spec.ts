@@ -116,6 +116,30 @@ describe('Apps', () => {
     expect(root().textContent).toContain('Octometer reads the app list.');
   });
 
+  it('shows no not-found message when the query parameter is absent', () => {
+    expect(root().querySelector('.not-found-message')).toBeNull();
+  });
+
+  it('shows a message with the app id when notFoundAppId is set (D30, #52)', () => {
+    fixture.componentRef.setInput('notFoundAppId', '9');
+    fixture.detectChanges();
+
+    const message = root().querySelector('.not-found-message');
+    expect(message?.textContent?.trim()).toBe('App 9 is not registered.');
+  });
+
+  it('keeps the refresh bar directly after the heading, even with a not-found message', () => {
+    fixture.componentRef.setInput('notFoundAppId', '9');
+    fixture.detectChanges();
+
+    const children = Array.from(root().children);
+    const headingIndex = children.findIndex((el) => el.tagName === 'H1');
+    const refreshBarIndex = children.findIndex((el) => el.tagName === 'APP-REFRESH-BAR');
+
+    expect(headingIndex).toBe(0);
+    expect(refreshBarIndex).toBe(1);
+  });
+
   describe('once the app list answers', () => {
     it('shows "No app is registered." and a link to /manage when the list is empty', () => {
       startStore();

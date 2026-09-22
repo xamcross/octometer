@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, inject } from '@angular/core';
+import { Component, inject, input } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
 import { createPollStore } from '../poll/poll-store';
@@ -82,6 +82,13 @@ function readZoneName(): string {
 export class Apps {
   private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
+
+  /**
+   * The `notFoundAppId` query parameter, bound by the router. The level 2
+   * view of #52 sets this parameter on a 404 answer (D30), and this view
+   * then shows a message under the heading.
+   */
+  readonly notFoundAppId = input<string | null>(null);
 
   /** The poll store of the app list. */
   protected readonly store = createPollStore<AppRow[]>(() => this.http.get<AppRow[]>('/api/apps'));
