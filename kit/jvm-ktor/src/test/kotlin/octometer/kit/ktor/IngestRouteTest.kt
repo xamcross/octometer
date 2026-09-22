@@ -1,5 +1,6 @@
 package octometer.kit.ktor
 
+import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger as LogbackLogger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.AppenderBase
@@ -56,6 +57,7 @@ import kotlinx.coroutines.newSingleThreadContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import octometer.kit.core.ingest.AnonymousDailyCap
 import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestSettings
@@ -887,6 +889,196 @@ class IngestRouteTest {
         assertTrue(store.events().isEmpty())
     }
 
+    // The tests below check the bot filter and the daily anonymous caps
+    // of design decision D43 and issue #117.
+
+    @Test
+    fun `the Googlebot user agent gives 204 and the store holds 0 events`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.UserAgent, "Mozilla/5.0 (compatible; Googlebot/2.1)")
+            setBody(validBody)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertTrue(store.events().isEmpty())
+    }
+
+    @Test
+    fun `the PYTHON-REQUESTS user agent gives 204 because the match ignores the letter case`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.UserAgent, "PYTHON-REQUESTS/2.31")
+            setBody(validBody)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertTrue(store.events().isEmpty())
+    }
+
+    @Test
+    fun `a common browser user agent still stores its events`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            header(
+                HttpHeaders.UserAgent,
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36",
+            )
+            setBody(validBody)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertEquals(1, store.events().size)
+    }
+
+    @Test
+    fun `an absent User-Agent header passes the filter`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(validBody)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertEquals(1, store.events().size)
+    }
+
+    @Test
+    fun `a robot drop writes one DEBUG line without the header value`() = testApplication {
+        val store = InMemoryEventLogStore()
+        val userAgent = "Mozilla/5.0 (compatible; Googlebot/2.1)"
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.UserAgent, userAgent)
+            setBody(validBody)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertTrue(store.events().isEmpty())
+        val debugEvents = logAppender.events.filter { it.level == Level.DEBUG }
+        assertEquals(1, debugEvents.size)
+        assertFalse(debugEvents[0].formattedMessage.contains(userAgent))
+    }
+
+    @Test
+    fun `a batch above a daily cap gives 204 and the store holds 0 events`() = testApplication {
+        val store = InMemoryEventLogStore()
+        val dailyCap = AnonymousDailyCap(fixedClock, 1, 100)
+        application {
+            routing {
+                octometerIngestRoute(
+                    store = store,
+                    settings = IngestSettings(true),
+                    clock = fixedClock,
+                    dailyCap = dailyCap,
+                ) { null }
+            }
+        }
+
+        val firstResponse = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(validBody)
+        }
+        assertEquals(HttpStatusCode.NoContent, firstResponse.status)
+        assertEquals(1, store.events().size)
+
+        val secondResponse = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(validBody)
+        }
+        assertEquals(HttpStatusCode.NoContent, secondResponse.status)
+        assertEquals(1, store.events().size, "The batch above the daily cap must add no new event.")
+    }
+
+    @Test
+    fun `a signed-in user never pays the daily anonymous cap`() = testApplication {
+        val store = InMemoryEventLogStore()
+        val dailyCap = AnonymousDailyCap(fixedClock, 1, 1)
+        application {
+            routing {
+                octometerIngestRoute(
+                    store = store,
+                    settings = IngestSettings(true),
+                    clock = fixedClock,
+                    dailyCap = dailyCap,
+                ) { "user-1" }
+            }
+        }
+
+        repeat(3) { requestIndex ->
+            val response = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 3 must pass.")
+        }
+        assertEquals(3, store.events().size)
+    }
+
+    @Test
+    fun `a marker user agent and a marker address stay out of each captured log line`() = testApplication {
+        val store = InMemoryEventLogStore()
+        val markerUserAgent = "SENTINEL-bot-marker-user-agent-host-octo-shard-00"
+        val markerAddress = "203.0.113.77"
+        application {
+            routing {
+                octometerIngestRoute(
+                    store = store,
+                    settings = IngestSettings(true),
+                    clock = fixedClock,
+                    clientIpHeaderName = "X-Client-Ip",
+                ) { null }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.UserAgent, markerUserAgent)
+            header("X-Client-Ip", markerAddress)
+            setBody(validBody)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertTrue(store.events().isEmpty())
+        val messages = logAppender.events.map { it.formattedMessage }
+        assertTrue(messages.isNotEmpty(), "Expected the bot drop to write at least one log line.")
+        assertTrue(messages.none { it.contains(markerUserAgent) })
+        assertTrue(messages.none { it.contains(markerAddress) })
+    }
+
     // The tests below check the ingest rate limit of design decision D20
     // and issue #33. `octometerIngestRoute` builds one `IngestRateLimiter`
     // by default when a test installs the route, so each test below gets
@@ -957,31 +1149,37 @@ class IngestRouteTest {
     }
 
     @Test
-    fun `a 429 answer arrives even for a body that is not valid JSON`() = testApplication {
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { "user-1" }
+    fun `an invalid body gives 400 even for an already-limited client, because the parse runs before the rate limiter`() =
+        testApplication {
+            // Issue #117, design decision D43 moves the parse (400)
+            // ahead of the rate limiter (429) in the order of the route
+            // (see the KDoc of octometerIngestRoute). This test replaces
+            // the pre-issue-117 test of the same scenario, which
+            // expected 429 under the old order.
+            val store = InMemoryEventLogStore()
+            application {
+                routing {
+                    octometerIngestRoute(
+                        store = store,
+                        settings = IngestSettings(true),
+                        clock = fixedClock,
+                    ) { "user-1" }
+                }
             }
-        }
 
-        repeat(30) {
-            client.post(DEFAULT_INGEST_PATH) {
+            repeat(30) {
+                client.post(DEFAULT_INGEST_PATH) {
+                    contentType(ContentType.Application.Json)
+                    setBody(validBody)
+                }
+            }
+
+            val response = client.post(DEFAULT_INGEST_PATH) {
                 contentType(ContentType.Application.Json)
-                setBody(validBody)
+                setBody("this is not valid JSON")
             }
+            assertEquals(HttpStatusCode.BadRequest, response.status)
         }
-
-        // A body that IngestPipeline.process would reject with 400. The
-        // route must never reach that parse step once the limiter
-        // rejects the request (issue #33, step 4): the answer is 429,
-        // not 400.
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            setBody("this is not valid JSON")
-        }
-        assertEquals(HttpStatusCode.TooManyRequests, response.status)
-    }
 
     @Test
     fun `with OCTOMETER_CLIENT_IP_HEADER set, two different header values get two counters`() = testApplication {
@@ -1116,34 +1314,45 @@ class IngestRouteTest {
     }
 
     @Test
-    fun `a client already limited gets 429 for a body above the maximum size, never 400`() = testApplication {
-        // Security review MINOR 2 and concurrency review MINOR 7 of pull
-        // request #158: no test held the order of the rate limit check
-        // and the body read. An oversized body gives 400 only when the
-        // route reads the body; it must never reach that step once a
-        // client is already limited (issue #33, step 4).
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
+    fun `an already-limited client still gets 400 for a body above the maximum size, because the body size check runs first`() =
+        testApplication {
+            // Issue #117, design decision D43 moves the body size check
+            // (400) ahead of the rate limiter (429) in the order of the
+            // route (see the KDoc of octometerIngestRoute). This test
+            // replaces the pre-issue-117 test of the same scenario,
+            // which expected 429 under the old order (security review
+            // MINOR 2 and concurrency review MINOR 7 of pull request
+            // #158).
+            val store = InMemoryEventLogStore()
+            application {
+                routing {
+                    octometerIngestRoute(
+                        store = store,
+                        settings = IngestSettings(true),
+                        clock = fixedClock,
+                    ) { null }
+                }
             }
-        }
 
-        repeat(120) { requestIndex ->
+            repeat(120) { requestIndex ->
+                val response = client.post(DEFAULT_INGEST_PATH) {
+                    contentType(ContentType.Application.Json)
+                    setBody(validBody)
+                }
+                assertEquals(
+                    HttpStatusCode.NoContent,
+                    response.status,
+                    "Request ${requestIndex + 1} of 120 must pass.",
+                )
+            }
+
+            val oversizedBody = """{"sessionId":"${"a".repeat(20_000)}"}"""
             val response = client.post(DEFAULT_INGEST_PATH) {
                 contentType(ContentType.Application.Json)
-                setBody(validBody)
+                setBody(oversizedBody)
             }
-            assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
+            assertEquals(HttpStatusCode.BadRequest, response.status)
         }
-
-        val oversizedBody = """{"sessionId":"${"a".repeat(20_000)}"}"""
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            setBody(oversizedBody)
-        }
-        assertEquals(HttpStatusCode.TooManyRequests, response.status)
-    }
 
     @Test
     fun `with OCTOMETER_CLIENT_IP_HEADER set, a forged left element never changes the key`() = testApplication {

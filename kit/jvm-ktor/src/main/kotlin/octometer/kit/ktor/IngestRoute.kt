@@ -19,6 +19,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.io.readByteArray
+import octometer.kit.core.ingest.AnonymousDailyCap
+import octometer.kit.core.ingest.AnonymousKey
+import octometer.kit.core.ingest.BotUserAgentFilter
+import octometer.kit.core.ingest.EventFieldValidator
 import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestPipeline
@@ -27,7 +31,6 @@ import octometer.kit.core.ingest.IngestSettings
 import octometer.kit.core.ingest.RateLimitResult
 import octometer.kit.core.store.DeletionResult
 import octometer.kit.core.store.EventLogStore
-import octometer.kit.core.user.UserIdResolver
 import java.time.Clock
 import kotlin.coroutines.coroutineContext
 
@@ -121,22 +124,40 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  * That check separates a real cancellation of the call from a
  * [CancellationException] that the app throws by itself.
  *
+ * **The order of the checks (design decision D43, issue #117).** The
+ * route runs each check of one request in this order, and it stops at
+ * the first one that answers:
+ *
+ * 1. the `Content-Type` header (415, contract rule C12);
+ * 2. the body size (400, contract rule C18);
+ * 3. the bot filter of [BotUserAgentFilter] (204, before the parse);
+ * 4. the parse of the body (400, the field rules of `kit/jvm-core`);
+ * 5. the rate limiter of design decision D20 (429, issue #33);
+ * 6. the design decision D19 drop (a request with no user id, with
+ *    anonymous recording off, stores nothing and answers 204);
+ * 7. the daily anonymous caps of design decision D43 (204), for a
+ *    request with no user id and with anonymous recording on;
+ * 8. the store, with the event cap of design decision D21 inside it.
+ *
  * @param store the event log store of the app.
  * @param ingestPath the path of the route. The default is the path of
  *   contract rule C12. The app must set a read timeout on its engine (for
  *   example `requestReadTimeoutSeconds` of the Netty engine), because this
  *   function sets none for a slow request body.
- * @param settings the settings of design decision D19. The default reads
- *   the process environment.
- * @param clock the clock for `receivedAt` of design section 4.2. The
- *   default is the system clock.
+ * @param settings the settings of design decision D19 and design decision
+ *   D43. The default reads the process environment.
+ * @param clock the clock for `receivedAt` of design section 4.2, and for
+ *   [dailyCap]. The default is the system clock.
  * @param storeDispatcher the dispatcher of the store call. The default is
  *   [defaultStoreDispatcher].
  * @param rateLimiter the ingest rate limiter of design decision D20 (issue
  *   #33). The default builds one [IngestRateLimiter] with [clock], held for
  *   the life of this route, so its window state is shared across each
- *   request. The route answers 429 for a rejected request, before it reads
- *   the request body (contract rule C19).
+ *   request. The route answers 429 for a rejected request (see the order
+ *   above).
+ * @param dailyCap the daily anonymous cap of design decision D43 (issue
+ *   #117). The default builds one [AnonymousDailyCap] with [clock] and the
+ *   two caps of [settings], held for the life of this route.
  * @param clientIpHeaderName the name of the header that holds the client
  *   address (issue #33, step 3). The default reads
  *   `OCTOMETER_CLIENT_IP_HEADER` once, when this function installs the
@@ -159,6 +180,11 @@ public fun Route.octometerIngestRoute(
     clock: Clock = Clock.systemUTC(),
     storeDispatcher: CoroutineDispatcher = defaultStoreDispatcher(),
     rateLimiter: IngestRateLimiter = IngestRateLimiter(clock),
+    dailyCap: AnonymousDailyCap = AnonymousDailyCap(
+        clock,
+        settings.anonMaxEventsPerDay(),
+        settings.anonEventsPerKeyPerDay(),
+    ),
     clientIpHeaderName: String? = System.getenv("OCTOMETER_CLIENT_IP_HEADER"),
     resolveUserId: (ApplicationCall) -> String?,
 ) {
@@ -168,25 +194,51 @@ public fun Route.octometerIngestRoute(
 
     post(ingestPath) {
         try {
-            // The content type check runs before the rate limit check, so
-            // a request with a wrong content type never counts against a
-            // key of the rate limiter (design decision D20). The route
-            // reads no body for that request either way, so the cost of
-            // one such request stays small.
+            // 1. Content type (415, contract rule C12). This check reads
+            // no body, so a request with a wrong content type stays
+            // cheap.
             if (!hasJsonContentType(call)) {
                 call.respond(HttpStatusCode.UnsupportedMediaType)
                 return@post
             }
 
+            // 2. Body size (400, contract rule C18). The route must
+            // read the body before it can check the bot filter or the
+            // parse, so this check runs next (design decision D43,
+            // issue #117, the order of octometerIngestRoute above).
+            val rawBody = call.receiveLimitedText(MAX_BODY_BYTES)
+            if (rawBody == null) {
+                call.respond(HttpStatusCode.BadRequest)
+                return@post
+            }
+
+            // 3. The bot filter (204, before the parse; design decision
+            // D43, issue #117). The kit stores no User-Agent value: the
+            // log line below holds no header value.
+            if (BotUserAgentFilter.isBot(call.request.header(HttpHeaders.UserAgent))) {
+                call.application.log.debug(
+                    "The Octometer ingest route drops a batch of a robot user agent (design decision D43).",
+                )
+                call.respond(HttpStatusCode.NoContent)
+                return@post
+            }
+
+            // 4. The parse (400, the field rules of `kit/jvm-core`).
+            val events = try {
+                IngestPipeline.process(rawBody, clock, settings)
+            } catch (cause: IngestException) {
+                call.respond(HttpStatusCode.BadRequest)
+                return@post
+            }
+
             // resolveUserId runs here, on the coroutine of the call,
-            // before the store call moves to storeDispatcher (rule of the
-            // app documentation above). It also runs before the rate
-            // limit check and before the route reads the request body
-            // (design decision D20, issue #33), so a rejected request
-            // never reads the body. A rejected request still pays the
-            // cost of resolveUserId itself; keep that function short, as
-            // its own KDoc already asks.
+            // before the store call moves to storeDispatcher (rule of
+            // the app documentation above). It runs before the rate
+            // limit check, so a rejected request still pays its cost;
+            // keep that function short, as its own KDoc already asks.
             val userId = resolveUserId(call)
+
+            // 5. The rate limiter (429, design decision D20, issue #33).
             // The route reads the client address header only for a
             // request with no user id; check() never reads it for a
             // signed-in user, so this call would waste one header lookup
@@ -201,22 +253,48 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
-            val rawBody = call.receiveLimitedText(MAX_BODY_BYTES)
-            if (rawBody == null) {
-                call.respond(HttpStatusCode.BadRequest)
+            // 6. The design decision D19 drop: a request with no user
+            // id, with anonymous recording off, stores nothing.
+            if (userId == null && !settings.recordAnonymousClicks()) {
+                call.respond(HttpStatusCode.NoContent)
                 return@post
             }
 
-            val userIdResolver = UserIdResolver { userId }
-            val defectSafeStore = DefectSafeEventLogStore(store)
-
-            try {
-                withContext(storeDispatcher) {
-                    IngestPipeline.ingest(rawBody, clock, userIdResolver, defectSafeStore, settings)
+            // 7. The daily anonymous caps (204, design decision D43,
+            // issue #117), for a request with no user id and with
+            // anonymous recording on. An empty batch needs no check: it
+            // already stores nothing, the same as a dropped batch.
+            if (userId == null && events.isNotEmpty()) {
+                val key = AnonymousKey.of(clientAddress(call, clientIpHeaderName))
+                if (!dailyCap.check(key, events.size)) {
+                    call.respond(HttpStatusCode.NoContent)
+                    return@post
                 }
-            } catch (cause: IngestException) {
-                call.respond(HttpStatusCode.BadRequest)
+            }
+
+            if (events.isEmpty()) {
+                // Contract rule C13 sets no minimum for the clicks
+                // array; an empty batch stores nothing (design section
+                // 4.2).
+                call.respond(HttpStatusCode.NoContent)
                 return@post
+            }
+
+            // 8. The store, with the event cap of design decision D21
+            // inside it. A userId that breaks contract rule C6 is a
+            // defect of the app, not of the client; it gives 500 below,
+            // never 400.
+            try {
+                EventFieldValidator.validateUserId(userId)
+            } catch (cause: IngestException) {
+                throw IllegalStateException(
+                    "The resolveUserId function of the app returned a userId that breaks contract rule C6.",
+                    cause,
+                )
+            }
+            val defectSafeStore = DefectSafeEventLogStore(store)
+            withContext(storeDispatcher) {
+                defectSafeStore.append(events, userId)
             }
 
             call.respond(HttpStatusCode.NoContent)
