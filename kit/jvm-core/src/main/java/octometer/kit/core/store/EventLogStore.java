@@ -5,8 +5,7 @@ import octometer.kit.core.ingest.IngestEvent;
 
 /**
  * The event log store of design decision D18. An app gives one
- * implementation. This module adds only an in-memory implementation;
- * issue #35 adds {@code deleteByUserId} to the other stores.
+ * implementation. This module adds only an in-memory implementation.
  */
 public interface EventLogStore {
 
@@ -54,15 +53,58 @@ public interface EventLogStore {
     }
 
     /**
-     * Deletes each stored event with the given user id. The value of
-     * {@code userId} must not be {@code null}, and it must not be an
-     * empty text. An implementation throws {@link NullPointerException}
-     * for a {@code null} value, and {@link IllegalArgumentException} for
-     * an empty text. A store never erases an anonymous event with this
-     * method, because that event holds no user id (contract rule C6).
+     * Deletes each stored event with the given user id, and each stored
+     * event with {@code userId: null} of a session of that user
+     * (contract rule C43, the design change of 2026-09-22 for issue #35,
+     * correction round 1). An event of a second user id in the same
+     * session stays.
      *
-     * <p>A store throws an unchecked exception when the delete fails. An
+     * <p>An implementation runs these steps in order:
+     * <ul>
+     * <li>Step (a): it reads the session ids of the given user id.</li>
+     * <li>Step (b): it deletes each anonymous event of those sessions.</li>
+     * <li>Step (c): it deletes each event with the given user id of
+     * those sessions.</li>
+     * <li>Step (d): it reads the session ids again.</li>
+     * </ul>
+     * When a new session id appears at step (d), the implementation
+     * repeats steps (b) to (d), up to 3 passes in total. The anonymous
+     * delete of a pass always runs before the user delete of the same
+     * pass.
+     *
+     * <p>This order protects the anonymous events. A user event is the
+     * only link from a session id to the given user id. A pass never
+     * deletes that link before it deletes the anonymous events. A
+     * failed delete, or a new session that starts during the call, can
+     * therefore never strand an anonymous event beyond a retry's reach.
+     *
+     * <p>A MongoDB store must not run these steps as one transaction;
+     * its constructor takes only a {@code MongoDatabase}, with no client
+     * session (design decision D22).
+     *
+     * <p>The return value holds {@link DeletionResult#complete()}. The
+     * value is {@code false} when the pass bound stopped the call while
+     * a new session id still existed. A caller runs this method again
+     * when the value is {@code false}, and also after a failed call.
+     *
+     * <p>The value of {@code userId} must not be {@code null}, and it
+     * must not be an empty text. An implementation throws {@link
+     * NullPointerException} for a {@code null} value, and {@link
+     * IllegalArgumentException} for an empty text.
+     *
+     * <p>The return value holds only the two counts and the flag of
+     * {@link DeletionResult}. A store must never put a user id or a
+     * session id into a log line, an exception message, or the return
+     * value.
+     *
+     * <p>A store throws an unchecked exception when a delete fails. An
      * adapter maps that exception to status 500.
+     *
+     * <p>For an app team: run this call before the erasure route of the
+     * monitor. Wait for one full poll cycle of the monitor after this
+     * call, then call the monitor route. Design decision D15 states this
+     * order. A call to the monitor route before that wait lets a poll
+     * cycle read the erased events again from this store.
      */
-    void deleteByUserId(String userId);
+    DeletionResult deleteByUserId(String userId);
 }
