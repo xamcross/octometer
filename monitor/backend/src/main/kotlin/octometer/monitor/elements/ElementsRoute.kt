@@ -87,7 +87,9 @@ fun Route.elementsRoute(database: SqliteDatabase) {
 /**
  * Reads the app row and the level 3 statement of section 6, and merges
  * them. One `read` call holds the read-only connection for the two
- * statements; no connection escapes this function.
+ * statements; no connection escapes this function. Pull request #127
+ * made `SqliteDatabase.read { }` one read transaction, so the app check
+ * and the level 3 statement now see one snapshot of the store.
  */
 internal suspend fun loadElementTotals(
     database: SqliteDatabase,
