@@ -134,7 +134,11 @@ class PollScheduler(
             try {
                 tick()
             } catch (cancellation: CancellationException) {
-                throw cancellation
+                // Lesson 2 of the backend brief: a real cancellation of
+                // this coroutine must still propagate. A false one, from
+                // a still-active coroutine, is a failed tick instead.
+                if (!currentCoroutineContext().isActive) throw cancellation
+                log.warn("The poll tick failed. {}", cancellation.javaClass.simpleName)
             } catch (failure: Exception) {
                 log.warn("The poll tick failed. {}", failure.javaClass.simpleName)
             }
@@ -201,9 +205,11 @@ class PollScheduler(
      * path. Issue #28 adds the backoff of this case.
      *
      * A real cancellation of the scheduler propagates unchanged. The
-     * guard below re-throws a plain [CancellationException] at once
-     * (lesson 2 of the backend brief). The last catch guards against
-     * each other exception, for example a SQLite failure of
+     * guard below re-throws a [CancellationException] only when this
+     * coroutine is no longer active (lesson 2 of the backend brief). A
+     * false one, from a still-active coroutine, moves `next_poll_at`
+     * like each other failed cycle. The last catch guards against each
+     * other exception, for example a SQLite failure of
      * `EventStore.commitPage`. One bad cycle can then never leave this
      * app stuck at its old `next_poll_at` for ever.
      */
@@ -224,7 +230,12 @@ class PollScheduler(
             log.warn("The poll cycle failed. {}", readFailure.javaClass.simpleName)
             recordFailure(appId)
         } catch (cancellation: CancellationException) {
-            throw cancellation
+            // Lesson 2 of the backend brief: re-throw only a real
+            // cancellation of this coroutine. A false one, from a
+            // still-active coroutine, is a failed cycle instead.
+            if (!currentCoroutineContext().isActive) throw cancellation
+            log.warn("The poll cycle failed. {}", cancellation.javaClass.simpleName)
+            recordFailure(appId)
         } catch (failure: Exception) {
             log.warn("The poll cycle failed. {}", failure.javaClass.simpleName)
             recordFailure(appId)
