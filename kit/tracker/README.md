@@ -195,4 +195,7 @@ for the call, with no click text in it.
 This package holds the tracker core, the page lifecycle flush, and the
 retry rule. Issue #107 owns the session start call (`start()` sending the
 entry `octo:session-start`) and the consent-gated wait rules of design
-decision D41.
+decision D41. Issue #108 owns the `referrerHost` field. The present
+tracker reads no `document.referrer` value, thus it sends no
+`referrerHost` field on any entry (design decision D42, contract rule
+C40).
