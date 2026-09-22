@@ -53,21 +53,21 @@ fun testDataDir(): String {
 }
 
 /** The dev mode config of the tests, with the configured port 7431. */
-fun devConfig(dataDir: String = testDataDir()) = MonitorConfig(
+fun devConfig(dataDir: String = testDataDir(), retentionDays: Int = 395) = MonitorConfig(
     mode = "dev",
     port = 7431,
     dataDir = dataDir,
     settleLagSeconds = 2,
-    retentionDays = 395,
+    retentionDays = retentionDays,
 )
 
 /** The prod mode config of the tests, with the configured port 7431. */
-fun prodConfig(dataDir: String = testDataDir()) = MonitorConfig(
+fun prodConfig(dataDir: String = testDataDir(), retentionDays: Int = 395) = MonitorConfig(
     mode = "prod",
     port = 7431,
     dataDir = dataDir,
     settleLagSeconds = 60,
-    retentionDays = 395,
+    retentionDays = retentionDays,
 )
 
 /**
