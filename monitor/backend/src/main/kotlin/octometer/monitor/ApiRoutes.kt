@@ -5,6 +5,7 @@ import octometer.monitor.apps.appTotals
 import octometer.monitor.elements.elementsRoute
 import octometer.monitor.erasure.userErasureRoutes
 import octometer.monitor.registry.appRegistryRoutes
+import octometer.monitor.users.userTotalsRoute
 
 /**
  * The one entry point for each API route beyond health (MAJOR 4 of the
@@ -19,6 +20,7 @@ import octometer.monitor.registry.appRegistryRoutes
 fun Route.apiRoutes(services: MonitorServices) {
     appRegistryRoutes(services.appRegistryService)
     appTotals(services.database)
+    userTotalsRoute(services.database)
     elementsRoute(services.database)
     userErasureRoutes(services.database)
 }
