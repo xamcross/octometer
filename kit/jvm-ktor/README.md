@@ -49,6 +49,12 @@ Leave the option unset when no such proxy sits in front of the app. A
 wrong header name lets a client choose its own rate-limit key, and the
 limit then protects nobody.
 
+**A known gap.** The client address key uses the full text of an IPv6
+address. One host with a routed `/64` prefix can thus use a new key for
+every request, and the limit has no effect against that host. Issue
+#116 and issue #118 own the fix (the first 64 bits of an IPv6 address as
+the key, design decision D43).
+
 ## The store dispatcher
 
 `octometerIngestRoute` runs the store call inside a dispatcher (design
