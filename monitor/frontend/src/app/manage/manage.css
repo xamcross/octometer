@@ -1,0 +1,51 @@
+/*
+ * No table element gets a `display` value in this file, so the table keeps
+ * its native semantics for a screen reader.
+ */
+caption {
+  text-align: left;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+
+th,
+td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+th[scope='row'],
+.error-text {
+  overflow-wrap: anywhere;
+}
+
+th[scope='row'] {
+  min-width: 8rem;
+}
+
+.error-text {
+  margin: 0.25rem 0 0;
+}
+
+/* `position: relative` makes this container the containing block of a hidden span. */
+.table-scroll {
+  position: relative;
+  overflow-x: auto;
+  margin-bottom: 2rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.add-app {
+  max-width: 32rem;
+}
+
+.add-app h2 {
+  font-size: 1.1rem;
+}

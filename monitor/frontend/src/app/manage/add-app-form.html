@@ -1,0 +1,58 @@
+<form (submit)="onSubmit($event)">
+  <div class="field">
+    <label for="add-app-name">Name</label>
+    <input
+      id="add-app-name"
+      type="text"
+      required
+      [value]="name()"
+      (input)="onNameInput($event)"
+      [attr.aria-describedby]="errorMessage() ? 'add-app-error' : null"
+    />
+  </div>
+
+  <div class="field">
+    <label for="add-app-connection-string">Connection string</label>
+    <input
+      id="add-app-connection-string"
+      type="password"
+      autocomplete="off"
+      required
+      [value]="connectionString()"
+      (input)="onConnectionStringInput($event)"
+      [attr.aria-describedby]="errorMessage() ? 'add-app-error' : null"
+    />
+  </div>
+
+  <div class="field">
+    <label for="add-app-database">Database</label>
+    <input
+      id="add-app-database"
+      type="text"
+      required
+      [value]="database()"
+      (input)="onDatabaseInput($event)"
+      [attr.aria-describedby]="errorMessage() ? 'add-app-error' : null"
+    />
+  </div>
+
+  <div class="field">
+    <label for="add-app-collection">Collection</label>
+    <select
+      id="add-app-collection"
+      [value]="collection()"
+      (change)="onCollectionChange($event)"
+      [attr.aria-describedby]="errorMessage() ? 'add-app-error' : null"
+    >
+      @for (name of allowedCollections; track name) {
+        <option [value]="name">{{ name }}</option>
+      }
+    </select>
+  </div>
+
+  @if (errorMessage(); as message) {
+    <p id="add-app-error" class="form-error">{{ message }}</p>
+  }
+
+  <button type="submit" [disabled]="pending()">Add app</button>
+</form>
