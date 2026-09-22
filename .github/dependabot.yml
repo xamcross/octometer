@@ -46,15 +46,18 @@ updates:
     # decision D22). gradle/libs.versions.toml holds this coordinate
     # twice: mongodb-driver-sync = "5.0.1" and mongodb-sync-newest.
     # Dependabot names a Gradle dependency "groupId:artifactId", thus
-    # one rule covers both entries. The rule holds the compile pin, and
-    # it also stops an update of mongodb-sync-newest. A person raises
-    # mongodb-sync-newest by hand (kit/jvm-mongo/README.md).
+    # one rule covers each entry that Dependabot reads.
     #
-    # Today Dependabot reads neither entry. A [versions] entry with no
-    # [libraries] reference is not a dependency, and
-    # kit/jvm-mongo/build.gradle.kts builds the coordinate from a
-    # Kotlin variable. This rule is a guard for a later refactor of the
-    # catalog.
+    # Dependabot reads the mongodb-driver-sync entry through the
+    # [libraries] table of gradle/libs.versions.toml (issue #138). This
+    # rule stops its update, so the compile version stays 5.0.1.
+    #
+    # Dependabot reads no dependency for mongodb-sync-newest. A
+    # [versions] entry with no [libraries] reference is not a
+    # dependency, and kit/jvm-mongo/build.gradle.kts:107 builds that
+    # coordinate from a Kotlin variable. This rule is also a guard for
+    # a later [libraries] entry. A person raises mongodb-sync-newest by
+    # hand (kit/jvm-mongo/README.md).
     ignore:
       - dependency-name: "org.mongodb:mongodb-driver-sync"
 
