@@ -7,6 +7,7 @@ import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
+import io.ktor.server.plugins.autohead.AutoHeadResponse
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
@@ -85,6 +86,11 @@ fun Application.module(config: MonitorConfig, staticDir: File? = defaultStaticDi
     install(ContentNegotiation) {
         json()
     }
+    // Correction round 1 of issue #38 (MINOR 2, security review): D12
+    // names HEAD a safe method, the same as GET. Each GET route must
+    // answer HEAD the same way, with no body. This plugin builds the
+    // HEAD answer from the GET route, for every route below.
+    install(AutoHeadResponse)
     // MAJOR 6 (Ktor review) and MAJOR 2 of the second review: a failure
     // that leaves a route handler must never reach the default Ktor error
     // page. That page can print the request and the stack trace.
@@ -116,6 +122,13 @@ fun Application.module(config: MonitorConfig, staticDir: File? = defaultStaticDi
         // has one. A dev-mode run through Gradle has none; ng serve
         // then serves the UI on its own port (D27).
         if (staticDir != null) {
+            // Correction round 1 (MINOR 3, security review; MINOR 5,
+            // release review): a missing index.html gives 404 for each
+            // page, not 500. This warning names the cause once, at the
+            // start, so a broken or a partial install is clear at once.
+            if (!File(staticDir, "index.html").isFile) {
+                log.warn("The static folder holds no index.html. Each page answers 404 until a full install replaces it.")
+            }
             staticFrontend(staticDir)
         }
     }

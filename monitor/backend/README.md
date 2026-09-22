@@ -3,6 +3,12 @@
 The Ktor server of the monitor. See `docs/superpowers/specs/2026-09-21-octometer-design.md`
 for the full design, and `contract/README.md` for the event log contract.
 
+## The release zip (issue #38)
+
+Plain `assemble` and `build` skip the distribution zip, so the JVM job of CI stays free of
+Node. Run `./gradlew :monitor:backend:distZip` to build the zip, with the Angular app of
+`monitor/frontend` inside it.
+
 ## The daily backup (issue #55)
 
 The monitor writes one backup file each day, and one backup file before a

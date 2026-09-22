@@ -4,14 +4,12 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
-import io.ktor.server.routing.get
+import io.ktor.server.routing.route
 import octometer.monitor.apps.appTotals
 import octometer.monitor.elements.elementsRoute
 import octometer.monitor.erasure.userErasureRoutes
 import octometer.monitor.registry.appRegistryRoutes
 import octometer.monitor.users.userTotalsRoute
-
-private const val UNKNOWN_API_ROUTE_MESSAGE = "The route does not exist."
 
 /**
  * The one entry point for each API route beyond health (MAJOR 4 of the
@@ -33,7 +31,14 @@ fun Route.apiRoutes(services: MonitorServices) {
     // Ktor tries a constant path segment before this wildcard segment,
     // so this route matches only after each specific "/api/" route
     // above fails to match. It gives the 404 of the API instead.
-    get("/api/{path...}") {
-        call.respond(HttpStatusCode.NotFound, ErrorBody(UNKNOWN_API_ROUTE_MESSAGE))
+    //
+    // Correction round 1 (MINOR 4, security review): route(...) with
+    // handle answers each method, not GET alone. A POST or a DELETE on
+    // an unknown API path must also get the fixed JSON body, not an
+    // empty 404 body.
+    route("/api/{path...}") {
+        handle {
+            call.respond(HttpStatusCode.NotFound, ErrorBody(UNKNOWN_API_ROUTE_MESSAGE))
+        }
     }
 }
