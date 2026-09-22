@@ -31,9 +31,11 @@ private fun awaitWriterShutdown(executor: ExecutorService) {
 /**
  * The SQLite store of D3. The writer connection is private. Each write
  * runs on the one writer thread, through `write`. The reader connection
- * is private and read-only. Each read runs through `read`. A mutex admits
- * one call at a time, because a JDBC connection is not safe for two
- * parallel calls. `close()` ends both connections and the dispatcher.
+ * is private and read-only. Each read runs through `read`, inside one
+ * read transaction, so a caller with more than one statement reads one
+ * snapshot. A mutex admits one call at a time, because a JDBC connection
+ * is not safe for two parallel calls. `close()` ends both connections and
+ * the dispatcher.
  */
 class SqliteDatabase private constructor(
     private val writer: Connection,
@@ -48,11 +50,52 @@ class SqliteDatabase private constructor(
     suspend fun <T> write(block: (Connection) -> T): T =
         withContext(writerDispatcher) { block(writer) }
 
-    /** Runs one block with the reader connection. The mutex serialises each call. */
+    /**
+     * Runs one block with the reader connection, inside one read
+     * transaction. `BEGIN` opens the transaction before the block runs,
+     * and `COMMIT` closes it after the block returns, so each statement
+     * of the block reads the one snapshot of the `BEGIN` (MAJOR 1 of
+     * correction round 1 for pull request #127). Without this rule the
+     * reader connection stays in autocommit mode, and each statement of
+     * the block opens and closes its own snapshot; a write of the poll
+     * loop between two statements then gives an impossible row.
+     *
+     * A block that throws gets `ROLLBACK`, and the throw still reaches
+     * the caller; a coroutine cancellation still rolls back and still
+     * propagates. The mutex serialises each call.
+     */
     suspend fun <T> read(block: (Connection) -> T): T =
         withContext(Dispatchers.IO) {
-            readMutex.withLock { block(reader) }
+            readMutex.withLock {
+                reader.createStatement().use { it.execute("BEGIN") }
+                var committed = false
+                var failure: Throwable? = null
+                try {
+                    val result = block(reader)
+                    reader.createStatement().use { it.execute("COMMIT") }
+                    committed = true
+                    result
+                } catch (error: Throwable) {
+                    failure = error
+                    throw error
+                } finally {
+                    if (!committed) {
+                        rollbackReader(failure)
+                    }
+                }
+            }
         }
+
+    // The rollback runs in a finally, and a failed ROLLBACK never stays
+    // silent; it joins the original throw as a suppressed exception. The
+    // same pattern protects the writer connection in EventStore.
+    private fun rollbackReader(failure: Throwable?) {
+        try {
+            reader.createStatement().use { it.execute("ROLLBACK") }
+        } catch (rollbackError: Throwable) {
+            failure?.addSuppressed(rollbackError)
+        }
+    }
 
     override fun close() {
         runCatching { writer.close() }
