@@ -19,24 +19,22 @@ suspend fun <T> captureErrorLogEvents(block: suspend () -> T): Pair<T, List<ILog
 
 /**
  * Logger names of a known, framework-level TRACE line that names the
- * full request URL, with no tie to issue #61. Each one stays below the
- * `logback.xml` root level of INFO in a real deployment, so it never
- * runs there. A sentinel test at TRACE level must skip it, or every
- * route with a value in its path or its query string would fail.
+ * full request URL, with no tie to a route of the monitor. A sentinel
+ * test at TRACE level must skip it, or every route would fail.
  *
  * `io.ktor.client`: the WebSockets plugin of the test HTTP client logs
  * each call, from the client side, not the server side.
  *
- * `io.ktor.server.plugins.statuspages.StatusPages`: this plugin logs
- * "No handler found for status code ... for call: <url>" for a normal
- * answer with no registered status handler. This is a framework line,
- * not a monitor line. Issue #150 removes this filter, and it fixes the
- * plugin so it no longer names the URL (MINOR 9, second SQL review of
- * #61).
+ * Issue #150 removed the earlier entry for
+ * `io.ktor.server.plugins.statuspages.StatusPages` (MINOR 9, second SQL
+ * review of #61). Pull request #170 removed the entry for
+ * `io.ktor.server.plugins.contentnegotiation.ContentNegotiation` too
+ * (BLOCKER 1 of that review). Each logger is now OFF in `logback.xml`.
+ * Each one writes no line at any level. This list needs no filter for
+ * either one.
  */
 private val KNOWN_URL_LOGGER_PREFIXES = listOf(
     "io.ktor.client",
-    "io.ktor.server.plugins.statuspages.StatusPages",
 )
 
 /**
