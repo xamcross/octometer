@@ -73,7 +73,15 @@ describe('EditAppForm', () => {
     expect(name.value).toBe('traficio');
     expect(connectionString.value).toBe('');
     expect(connectionString.type).toBe('password');
-    expect(connectionString.getAttribute('autocomplete')).toBe('off');
+    expect(connectionString.getAttribute('autocomplete')).toBe('new-password');
+  });
+
+  it('moves the focus to the name field when the form opens', async () => {
+    openEditor();
+    await fixture.whenStable();
+
+    const name = root().querySelector<HTMLInputElement>('input[id^="edit-app-name-"]')!;
+    expect(document.activeElement).toBe(name);
   });
 
   it('labels each field of the open form', () => {
@@ -142,9 +150,27 @@ describe('EditAppForm', () => {
       expect(announceSpy).toHaveBeenCalledWith('App updated');
       expect(updatedSpy).toHaveBeenCalled();
     });
+
+    it('moves the focus back to the "Edit" button after a save', async () => {
+      openEditor();
+      root()
+        .querySelector('form')!
+        .dispatchEvent(new Event('submit', { cancelable: true }));
+      httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' }).flush(null, {
+        status: 204,
+        statusText: 'No Content',
+      });
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const toggle = root().querySelector<HTMLButtonElement>('button.edit-toggle')!;
+      expect(document.activeElement).toBe(toggle);
+    });
   });
 
-  it('shows the fixed 404 message from the API, linked with aria-describedby', () => {
+  it('shows the fixed 404 message from the API, linked with aria-describedby, and reports a stale list', () => {
+    const staleListSpy = vi.fn();
+    fixture.componentInstance.staleList.subscribe(staleListSpy);
     openEditor();
     root()
       .querySelector('form')!
@@ -155,11 +181,14 @@ describe('EditAppForm', () => {
     fixture.detectChanges();
 
     expect(root().textContent).toContain('The app is not registered.');
-    const name = root().querySelector<HTMLInputElement>('input[id^="edit-app-name-"]')!;
-    expect(name.getAttribute('aria-describedby')).toContain('edit-app-error-');
+    const connectionString = root().querySelector<HTMLInputElement>(
+      'input[id^="edit-app-connection-string-"]',
+    )!;
+    expect(connectionString.getAttribute('aria-describedby')).toContain('edit-app-error-');
+    expect(staleListSpy).toHaveBeenCalled();
   });
 
-  it('shows no inline text for a network failure', () => {
+  it('shows a general sentence for a network failure, linked with aria-describedby', () => {
     openEditor();
     root()
       .querySelector('form')!
@@ -169,7 +198,11 @@ describe('EditAppForm', () => {
       .error(new ProgressEvent('error'), { status: 0, statusText: 'Unknown Error' });
     fixture.detectChanges();
 
-    expect(root().querySelector('[id^="edit-app-error-"]')).toBeNull();
+    expect(root().textContent).toContain('The monitor did not answer. Try again.');
+    const connectionString = root().querySelector<HTMLInputElement>(
+      'input[id^="edit-app-connection-string-"]',
+    )!;
+    expect(connectionString.getAttribute('aria-describedby')).toContain('edit-app-error-');
   });
 
   it('closes the form and discards changes on Cancel', () => {
@@ -188,11 +221,46 @@ describe('EditAppForm', () => {
     expect(reopenedName.value).toBe('traficio');
   });
 
-  it('never writes the typed connection string to the console after a save', () => {
+  it('clears the typed connection string signal on Cancel, and keeps it out of memory', () => {
+    openEditor();
+    const connectionString = root().querySelector<HTMLInputElement>(
+      'input[id^="edit-app-connection-string-"]',
+    )!;
+    connectionString.value = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
+    connectionString.dispatchEvent(new Event('input'));
+
+    root().querySelector<HTMLButtonElement>('button.cancel')!.click();
+    fixture.detectChanges();
+
+    // `open()` also clears the field, so a later reopen cannot tell the two
+    // resets apart. This reads the signal itself, right after Cancel.
+    const instance = fixture.componentInstance as unknown as { connectionString: () => string };
+    expect(instance.connectionString()).toBe('');
+  });
+
+  it('moves the focus back to the "Edit" button after Cancel', async () => {
+    openEditor();
+    root().querySelector<HTMLButtonElement>('button.cancel')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const toggle = root().querySelector<HTMLButtonElement>('button.edit-toggle')!;
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it('never writes the typed connection string to the console, to storage, or to the URL, after a save', () => {
     const secret = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const methodNames = ['log', 'info', 'warn', 'error', 'debug'] as const;
+    const spies = methodNames.map((name) =>
+      vi.spyOn(console, name).mockImplementation(() => undefined),
+    );
+
+    // Proves the spies capture a real call, so the loop below is not vacuous.
+    console.log('a control line');
+    expect(spies[0].mock.calls.some((call) => call.join(' ').includes('a control line'))).toBe(
+      true,
+    );
+    spies[0].mockClear();
 
     openEditor();
     const connectionString = root().querySelector<HTMLInputElement>(
@@ -209,11 +277,13 @@ describe('EditAppForm', () => {
     });
     fixture.detectChanges();
 
-    for (const spy of [logSpy, warnSpy, errorSpy]) {
+    for (const spy of spies) {
       for (const call of spy.mock.calls) {
         expect(call.join(' ')).not.toContain(secret);
       }
     }
     expect(window.location.href).not.toContain(secret);
+    expect(JSON.stringify(Object.entries(localStorage))).not.toContain(secret);
+    expect(JSON.stringify(Object.entries(sessionStorage))).not.toContain(secret);
   });
 });

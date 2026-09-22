@@ -1,5 +1,15 @@
-import { HttpClient } from '@angular/common/http';
-import { Component, inject, input, output, signal } from '@angular/core';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  inject,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import { Announcer } from '../announcer';
 import type { AppRow } from '../apps/app-row';
@@ -10,9 +20,18 @@ import { UpdateAppRequest, readApiErrorMessage } from './app-registry-api';
  * connection string of D13. Each row of the list gets its own instance.
  *
  * The "Edit" button opens the form. The name field starts with the current
- * name. The connection string field starts empty, because the API never
- * returns the stored value (D11, D15): a blank field then means "keep the
- * old connection string", and the request omits the field.
+ * name, and the focus moves to it. The connection string field starts
+ * empty, because the API never returns the stored value (D11, D15): a
+ * blank field then means "keep the old connection string", and the
+ * request omits the field.
+ *
+ * The focus moves back to the "Edit" button after a cancel and after a
+ * successful save, so a keyboard user stays near the row (the pattern of
+ * `DeleteAppDialog.onDialogClose`).
+ *
+ * A 404 on the save means a second window already removed the app. The
+ * form emits `staleList` in that case, so the parent reads the list again
+ * and drops the stale row.
  */
 @Component({
   selector: 'app-edit-app-form',
@@ -22,12 +41,19 @@ import { UpdateAppRequest, readApiErrorMessage } from './app-registry-api';
 export class EditAppForm {
   private readonly http = inject(HttpClient);
   private readonly announcer = inject(Announcer);
+  private readonly injector = inject(Injector);
 
   /** The app the control edits. */
   readonly app = input.required<AppRow>();
 
   /** Emits after a successful save. */
   readonly updated = output<void>();
+
+  /** Emits when a 404 answer shows that the app is no longer registered. */
+  readonly staleList = output<void>();
+
+  private readonly nameField = viewChild<ElementRef<HTMLInputElement>>('nameField');
+  private readonly editToggle = viewChild<ElementRef<HTMLButtonElement>>('editToggle');
 
   protected readonly editing = signal(false);
   protected readonly name = signal('');
@@ -53,11 +79,14 @@ export class EditAppForm {
     this.connectionString.set('');
     this.errorMessage.set(null);
     this.editing.set(true);
+    afterNextRender(() => this.nameField()?.nativeElement.focus(), { injector: this.injector });
   }
 
-  /** Closes the form. It discards each typed value. */
+  /** Closes the form. It discards each typed value, and moves the focus back to "Edit". */
   protected cancel(): void {
     this.editing.set(false);
+    this.connectionString.set('');
+    afterNextRender(() => this.editToggle()?.nativeElement.focus(), { injector: this.injector });
   }
 
   protected onNameInput(event: Event): void {
@@ -91,6 +120,7 @@ export class EditAppForm {
     this.connectionString.set('');
     this.announcer.announce('App updated');
     this.updated.emit();
+    afterNextRender(() => this.editToggle()?.nativeElement.focus(), { injector: this.injector });
   }
 
   private onFailed(error: unknown): void {
@@ -99,6 +129,9 @@ export class EditAppForm {
     this.errorMessage.set(message);
     if (message) {
       this.announcer.announce(message);
+    }
+    if (error instanceof HttpErrorResponse && error.status === 404) {
+      this.staleList.emit();
     }
   }
 }
