@@ -13,13 +13,15 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import octometer.monitor.backup.backupsDir
+import octometer.monitor.registerTempRoot
 
 // Step 4 of issue #55: the migration runner backs up the database before
 // it applies a pending migration. Source: D36 and the acceptance criteria
 // of issue #55.
 class MigrationRunnerBackupTest {
 
-    private val root = Files.createTempDirectory("octometer-migration-backup-test-").toFile()
+    private val root =
+        Files.createTempDirectory("octometer-migration-backup-test-").toFile().also { registerTempRoot(it) }
     private val dataDir = File(root, "data").absolutePath
     private val clock: Clock = Clock.fixed(Instant.parse("2026-01-08T09:15:30Z"), ZoneOffset.UTC)
 

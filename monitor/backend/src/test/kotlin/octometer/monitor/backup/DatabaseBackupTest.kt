@@ -5,6 +5,7 @@ import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 import java.sql.DriverManager
+import octometer.monitor.registerTempRoot
 import org.junit.jupiter.api.Assumptions
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -16,7 +17,8 @@ import kotlin.test.assertTrue
 // method never copies octometer.db with a plain file copy.
 class DatabaseBackupTest {
 
-    private val tempDir = Files.createTempDirectory("octometer-database-backup-test-").toFile()
+    private val tempDir =
+        Files.createTempDirectory("octometer-database-backup-test-").toFile().also { registerTempRoot(it) }
     private val backupsDir = File(tempDir, "backups")
 
     @AfterTest

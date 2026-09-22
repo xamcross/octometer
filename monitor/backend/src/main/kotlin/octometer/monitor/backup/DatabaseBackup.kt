@@ -5,6 +5,7 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.sql.Connection
+import java.sql.DriverManager
 
 private const val MAX_MOVE_ATTEMPTS = 5
 private const val MOVE_RETRY_PAUSE_MILLIS = 50L
@@ -43,6 +44,7 @@ object DatabaseBackup {
         tempFile.delete()
         try {
             runVacuumInto(connection, tempFile)
+            checkIntegrity(tempFile)
             moveIntoPlace(tempFile, finalFile)
         } finally {
             tempFile.delete()
@@ -57,7 +59,32 @@ object DatabaseBackup {
                 statement.execute()
             }
         } catch (failure: Exception) {
-            throw BackupFailedException("The database backup did not write. ${failure.javaClass.simpleName}", failure)
+            // Reliability MINOR 4 of correction round 1: the cause of a
+            // failure can hold a full path, for example inside a driver
+            // exception message. The class comment promises no full path,
+            // thus this exception carries no cause.
+            throw BackupFailedException("The database backup did not write. ${failure.javaClass.simpleName}")
+        }
+    }
+
+    // Reliability MINOR 9 of the SQLite and file system review: a cheap
+    // check at the moment of the write catches a bad page before the file
+    // takes the final name, not a year later at a restore.
+    private fun checkIntegrity(tempFile: File) {
+        val url = "jdbc:sqlite:${tempFile.absolutePath}"
+        val answer = try {
+            DriverManager.getConnection(url).use { connection ->
+                connection.createStatement().use { statement ->
+                    statement.executeQuery("PRAGMA quick_check").use { result ->
+                        if (result.next()) result.getString(1) else null
+                    }
+                }
+            }
+        } catch (failure: Exception) {
+            throw BackupFailedException("The backup integrity check did not run. ${failure.javaClass.simpleName}")
+        }
+        if (answer != "ok") {
+            throw BackupFailedException("The backup integrity check failed.")
         }
     }
 
@@ -78,9 +105,12 @@ object DatabaseBackup {
                 return
             } catch (moveFailure: IOException) {
                 if (attempt >= MAX_MOVE_ATTEMPTS) {
+                    // Reliability MINOR 4 of correction round 1: an
+                    // IOException of a failed move holds the source path
+                    // and the target path. This exception drops that
+                    // cause, so a printed stack trace never carries them.
                     throw BackupFailedException(
                         "The backup file did not move into place after $MAX_MOVE_ATTEMPTS attempts.",
-                        moveFailure,
                     )
                 }
                 Thread.sleep(MOVE_RETRY_PAUSE_MILLIS)

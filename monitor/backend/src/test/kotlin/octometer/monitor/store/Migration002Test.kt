@@ -1,4 +1,4 @@
-﻿package octometer.monitor.store
+package octometer.monitor.store
 
 import java.io.File
 import java.nio.file.Files
