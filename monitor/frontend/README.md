@@ -21,6 +21,10 @@ Run each script from this folder.
 - `npm run format` — writes each file in the Prettier code style.
 - `npm run format:check` — checks the Prettier code style, and changes no file.
 
+This module has no changed-only test script. The Angular unit-test
+builder runs one spec for one changed file. It skips a template
+change and a style change. `npm test` runs the whole suite here.
+
 ## Dev proxy
 
 The dev server sends each request under `/api` to the monitor server at
