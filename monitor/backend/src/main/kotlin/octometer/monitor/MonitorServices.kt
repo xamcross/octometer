@@ -1,7 +1,9 @@
 package octometer.monitor
 
 import java.io.IOException
+import java.time.Clock
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.backup.DailyBackupJob
 import octometer.monitor.config.MonitorConfig
 import octometer.monitor.registry.AppRegistryService
 import octometer.monitor.registry.SecretStore
@@ -23,11 +25,15 @@ class MonitorServices private constructor(
     val config: MonitorConfig,
     val database: SqliteDatabase,
     val secretStore: SecretStore,
+    private val dailyBackupJob: DailyBackupJob,
 ) : AutoCloseable {
 
     val appRegistryService: AppRegistryService = AppRegistryService(database, secretStore)
 
+    // Issue #55: close() waits for a backup that runs, so the caller
+    // never sees a half-written backup file.
     override fun close() {
+        runBlocking { dailyBackupJob.stop() }
         database.close()
     }
 
@@ -52,8 +58,9 @@ class MonitorServices private constructor(
          * the failure again. A failed start then never leaves an open
          * store or a locked file.
          */
-        fun open(config: MonitorConfig): MonitorServices {
-            val database = SqliteDatabase.open(config.dataDir)
+        fun open(config: MonitorConfig, clock: Clock = Clock.systemDefaultZone()): MonitorServices {
+            val database = SqliteDatabase.open(config.dataDir, clock)
+            var dailyBackupJob: DailyBackupJob? = null
             try {
                 val secretStore = SecretStore(config.dataDir)
                 val removedOrphans = try {
@@ -66,8 +73,12 @@ class MonitorServices private constructor(
                     0
                 }
                 log.info("The start removed {} orphan secret(s).", removedOrphans)
-                return MonitorServices(config, database, secretStore)
+                // Issue #55: the daily backup job of D36. A throw after
+                // this line stops the job in the catch block below.
+                dailyBackupJob = DailyBackupJob(database, config.dataDir, clock).also { it.start() }
+                return MonitorServices(config, database, secretStore, dailyBackupJob)
             } catch (startFailure: Throwable) {
+                dailyBackupJob?.let { runBlocking { it.stop() } }
                 database.close()
                 throw startFailure
             }
