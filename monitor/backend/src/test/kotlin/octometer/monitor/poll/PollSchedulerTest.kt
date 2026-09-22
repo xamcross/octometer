@@ -90,14 +90,21 @@ class PollSchedulerTest {
 
         val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5)
         scheduler.start()
-        testScheduler.runCurrent()
-        awaitCondition(testScheduler) { cycle.calls.size == 1 }
-
-        // stop() cancels the tick loop first. No later tick can then move
-        // the virtual clock further, while this waits for the one poll
-        // in progress to finish (issue #17, decision 1). Only then does
-        // a read of next_poll_at see a value with no race on the clock.
-        scheduler.stop()
+        try {
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 1 }
+        } finally {
+            // stop() cancels the tick loop first. No later tick can then
+            // move the virtual clock further, while this waits for the
+            // one poll in progress to finish (issue #17, decision 1).
+            // Only then does a read of next_poll_at see a value with no
+            // race on the clock.
+            //
+            // A finally block: MAJOR 2 of the second Kotlin review. A
+            // failed assertion above must still stop the loop, with no
+            // hang.
+            scheduler.stop()
+        }
 
         assertEquals(5_000L, store.nextPollAtOf(appId), "next_poll_at moves by the interval")
         assertEquals("cursor-1", store.cursorOf(appId), "the cursor moves to the outcome of the cycle")
@@ -115,22 +122,26 @@ class PollSchedulerTest {
 
         val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, tickIntervalMillis = 1_000)
         scheduler.start()
-        testScheduler.runCurrent()
-        awaitCondition(testScheduler) { cycle.calls.size == 1 }
+        try {
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 1 }
 
-        // A second tick fires while the first poll is still gated. The
-        // app must stay at one call: the active-poll map of decision 6
-        // stops a second poll of the same app.
-        testScheduler.advanceTimeBy(1_000)
-        testScheduler.runCurrent()
-        settle(testScheduler)
-        assertEquals(1, cycle.calls.size, "a second tick during one slow poll starts no new poll")
+            // A second tick fires while the first poll is still gated.
+            // The app must stay at one call: the active-poll map of
+            // decision 6 stops a second poll of the same app.
+            testScheduler.advanceTimeBy(1_000)
+            testScheduler.runCurrent()
+            settle(testScheduler)
+            assertEquals(1, cycle.calls.size, "a second tick during one slow poll starts no new poll")
 
-        gate.complete(Unit)
-        // stop() cancels the loop first. No further tick can then race
-        // the virtual clock forward, while this waits for the gated
-        // poll to finish (issue #17, decision 1).
-        scheduler.stop()
+            gate.complete(Unit)
+        } finally {
+            // stop() cancels the loop first. No further tick can then
+            // race the virtual clock forward, while this waits for the
+            // gated poll to finish (issue #17, decision 1). A finally
+            // block: MAJOR 2 of the second Kotlin review.
+            scheduler.stop()
+        }
 
         assertEquals(1, cycle.calls.size, "the app polled exactly once in total")
         // The virtual clock already moved to 1 000 ms (the advanceTimeBy
@@ -219,9 +230,13 @@ class PollSchedulerTest {
 
         val (_, events) = captureLogEvents {
             scheduler.start()
-            testScheduler.runCurrent()
-            awaitCondition(testScheduler) { cycle.calls.size == 1 }
-            scheduler.stop()
+            try {
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 1 }
+            } finally {
+                // A finally block: MAJOR 2 of the second Kotlin review.
+                scheduler.stop()
+            }
         }
 
         assertEquals("old-cursor", store.cursorOf(appId), "an unexpected exception never moves the cursor")
@@ -250,12 +265,16 @@ class PollSchedulerTest {
 
         val (_, events) = captureLogEvents {
             scheduler.start()
-            testScheduler.runCurrent()
-            awaitCondition(testScheduler) { cycle.calls.size == 1 }
-            // stop() cancels the loop first, so the read below sees a
-            // stable next_poll_at. No later tick races the virtual
-            // clock forward (issue #17, decision 1).
-            scheduler.stop()
+            try {
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 1 }
+            } finally {
+                // stop() cancels the loop first, so the read below sees
+                // a stable next_poll_at. No later tick races the
+                // virtual clock forward (issue #17, decision 1). A
+                // finally block: MAJOR 2 of the second Kotlin review.
+                scheduler.stop()
+            }
         }
 
         assertEquals("old-cursor", store.cursorOf(appId), "a failed cycle never moves the cursor")
@@ -287,9 +306,13 @@ class PollSchedulerTest {
 
         val (_, events) = captureLogEvents {
             scheduler.start()
-            testScheduler.runCurrent()
-            awaitCondition(testScheduler) { store.nextPollAtOf(appId) == 5_000L }
-            scheduler.stop()
+            try {
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { store.nextPollAtOf(appId) == 5_000L }
+            } finally {
+                // A finally block: MAJOR 2 of the second Kotlin review.
+                scheduler.stop()
+            }
         }
 
         assertTrue(cycle.calls.isEmpty(), "the cycle never runs with no stored secret")
@@ -320,16 +343,20 @@ class PollSchedulerTest {
 
         val (_, events) = captureLogEvents {
             scheduler.start()
-            testScheduler.runCurrent()
-            settle(testScheduler)
-            assertTrue(cycle.calls.isEmpty(), "the failed first tick starts no poll")
+            try {
+                testScheduler.runCurrent()
+                settle(testScheduler)
+                assertTrue(cycle.calls.isEmpty(), "the failed first tick starts no poll")
 
-            // The next tick, after the normal delay, reads the app list
-            // again, and finds the due app.
-            testScheduler.advanceTimeBy(1_000)
-            testScheduler.runCurrent()
-            awaitCondition(testScheduler) { cycle.calls.size == 1 }
-            scheduler.stop()
+                // The next tick, after the normal delay, reads the app
+                // list again, and finds the due app.
+                testScheduler.advanceTimeBy(1_000)
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 1 }
+            } finally {
+                // A finally block: MAJOR 2 of the second Kotlin review.
+                scheduler.stop()
+            }
         }
 
         val warnings = events.filter { it.level == Level.WARN }
@@ -342,11 +369,10 @@ class PollSchedulerTest {
 
     // A write of the poll result can itself fail (for example a busy
     // database). This must never leave the poll coroutine with an
-    // uncaught exception (found through a real run of the full suite,
-    // where a busy-database probe of a different test class raced with
-    // this exact write). A stub cycle throws, so this drives the
-    // catch-all of runPollCycle, whose own recordFailure call then
-    // fails too.
+    // uncaught exception. A real run of the full suite found the gap: a
+    // busy-database probe of a different test class raced with this
+    // exact write. A stub cycle throws, so this drives the catch-all of
+    // runPollCycle, whose own recordFailure call then fails too.
     @Test
     fun `a write failure of the poll result logs one more WARN, with no uncaught exception`() = runTest {
         val store = FakePollStore()
@@ -360,14 +386,18 @@ class PollSchedulerTest {
 
         val (_, events) = captureLogEvents {
             scheduler.start()
-            testScheduler.runCurrent()
-            awaitCondition(testScheduler) { cycle.calls.size == 1 }
-            // The write failure above still lets the loop go on: the
-            // next tick retries the write, on the same due app.
-            testScheduler.advanceTimeBy(1_000)
-            testScheduler.runCurrent()
-            awaitCondition(testScheduler) { store.nextPollAtOf(appId) != 0L }
-            scheduler.stop()
+            try {
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 1 }
+                // The write failure above still lets the loop go on:
+                // the next tick retries the write, on the same due app.
+                testScheduler.advanceTimeBy(1_000)
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { store.nextPollAtOf(appId) != 0L }
+            } finally {
+                // A finally block: MAJOR 2 of the second Kotlin review.
+                scheduler.stop()
+            }
         }
 
         val warnings = events.filter { it.level == Level.WARN }.map { it.formattedMessage }
@@ -397,17 +427,24 @@ class PollSchedulerTest {
             order += "stop-finished"
         }
 
-        // `stop()` cancels the tick loop, and then waits for the poll
-        // that the gate still holds. Pump the virtual scheduler so
-        // that cancellation can complete, and confirm stop() has not
-        // returned yet, because the poll is still gated.
-        repeat(20) {
-            testScheduler.advanceUntilIdle()
-            yield()
+        try {
+            // `stop()` cancels the tick loop, and then waits for the
+            // poll that the gate still holds. Pump the virtual
+            // scheduler so that cancellation can complete, and confirm
+            // stop() has not returned yet, because the poll is still
+            // gated.
+            repeat(20) {
+                testScheduler.advanceUntilIdle()
+                yield()
+            }
+            assertTrue(order.isEmpty(), "stop() must still wait for the poll in progress")
+        } finally {
+            // A finally block: MAJOR 2 of the second Kotlin review. A
+            // failed assertion above must still release the gate, so
+            // the gated poll ends and stopJob does not outlive the
+            // test.
+            gate.complete(Unit)
         }
-        assertTrue(order.isEmpty(), "stop() must still wait for the poll in progress")
-
-        gate.complete(Unit)
         // The loop cancel() of stop() races, on a real thread, against
         // the advanceUntilIdle() pumps above. The tick loop can still
         // fire a few more times before that cancel() lands. This waits
@@ -431,12 +468,16 @@ class PollSchedulerTest {
         val gate = CompletableDeferred<Unit>()
         val cycle = RecordingPollCycle(gate = gate)
 
+        // stop() runs its grace bound on a real dispatcher (issue #17,
+        // decision 2), so this value is a real wait, not a virtual one.
+        // MINOR 5 of the second security review: a small bound here
+        // keeps the suite fast, with no real wait of several seconds.
         val scheduler = pollScheduler(
             store,
             secretStore,
             cycle,
             testScheduler = testScheduler,
-            stopGraceMillis = 5_000,
+            stopGraceMillis = 200,
         )
         scheduler.start()
         testScheduler.runCurrent()
@@ -548,12 +589,12 @@ private class FakePollStore(initialRows: List<AppRow> = emptyList()) : PollStore
 
     fun nextPollAtOf(appId: Long): Long? = rows.getValue(appId).nextPollAt
 
-    /** The next [count] calls to [readApps] throw, instead of reading (issue #17, decision 1). */
+    /** The next [count] calls to [readApps] throw, and it does not read (issue #17, decision 1). */
     fun failNextReads(count: Int) {
         readFailuresRemaining = count
     }
 
-    /** The next [count] calls to [recordFailure] throw, instead of writing. */
+    /** The next [count] calls to [recordFailure] throw, and it does not write. */
     fun failNextFailureWrites(count: Int) {
         writeFailuresRemaining = count
     }
