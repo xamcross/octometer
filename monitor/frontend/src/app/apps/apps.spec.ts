@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
+import { Announcer } from '../announcer';
 import type { AppRow } from './app-row';
 import { Apps } from './apps';
 
@@ -114,6 +115,70 @@ describe('Apps', () => {
   it('shows a loading text before the first answer arrives, and no table', () => {
     expect(root().querySelector('table')).toBeNull();
     expect(root().textContent).toContain('Octometer reads the app list.');
+  });
+
+  it('shows no not-found message when the query parameter is absent', () => {
+    expect(root().querySelector('.not-found-message')).toBeNull();
+  });
+
+  it('shows a message with the app id when notFoundAppId is set (D30, #52)', () => {
+    fixture.componentRef.setInput('notFoundAppId', '9');
+    fixture.detectChanges();
+
+    const message = root().querySelector('.not-found-message');
+    expect(message?.textContent?.trim()).toBe('App 9 is not registered.');
+  });
+
+  it('keeps the refresh bar directly after the heading, even with a not-found message', () => {
+    fixture.componentRef.setInput('notFoundAppId', '9');
+    fixture.detectChanges();
+
+    const children = Array.from(root().children);
+    const headingIndex = children.findIndex((el) => el.tagName === 'H1');
+    const refreshBarIndex = children.findIndex((el) => el.tagName === 'APP-REFRESH-BAR');
+
+    expect(headingIndex).toBe(0);
+    expect(refreshBarIndex).toBe(1);
+  });
+
+  it('announces the not-found message through the shared status region (accessibility MAJOR 1 of the correction round 1 of #159)', () => {
+    const announcer = TestBed.inject(Announcer);
+    vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    fixture.componentRef.setInput('notFoundAppId', '9');
+    fixture.detectChanges();
+    vi.advanceTimersByTime(200);
+
+    expect(announcer.message()).toBe('App 9 is not registered.');
+    startStore();
+    flushApps([]);
+  });
+
+  it('clears notFoundAppId from the URL after the message shows, but keeps the message on the screen and in the status region (accessibility BLOCKER A of the correction round 2 of #159)', () => {
+    const announcer = TestBed.inject(Announcer);
+    const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    fixture.componentRef.setInput('notFoundAppId', '9');
+    fixture.detectChanges();
+    vi.advanceTimersByTime(200);
+
+    expect(navigateSpy).toHaveBeenCalledWith([], {
+      queryParams: { notFoundAppId: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+
+    // Simulates the real router: it echoes the cleared query parameter back
+    // as `undefined`, not as `null`.
+    fixture.componentRef.setInput('notFoundAppId', undefined);
+    fixture.detectChanges();
+    vi.advanceTimersByTime(200);
+
+    const message = root().querySelector('.not-found-message');
+    expect(message?.textContent?.trim()).toBe('App 9 is not registered.');
+    expect(announcer.message()).toBe('App 9 is not registered.');
+    startStore();
+    flushApps([]);
   });
 
   describe('once the app list answers', () => {

@@ -17,8 +17,10 @@ describe('Banner', () => {
     fixture.detectChanges();
 
     const slot = fixture.nativeElement.querySelector('.banner-slot') as HTMLElement;
-    // 3rem equals 48px at the default font size, and it grows at a text zoom.
-    expect(getComputedStyle(slot).minHeight).toBe('3rem');
+    // The CSS sets min-height to 3rem. jsdom 30 resolves a computed length
+    // to a pixel value, the same as a real browser, so the value here is
+    // 48px (3rem at the default 16px font size).
+    expect(getComputedStyle(slot).minHeight).toBe('48px');
     expect(slot.querySelector('.banner-text')).toBeNull();
   });
 
@@ -27,7 +29,7 @@ describe('Banner', () => {
     fixture.detectChanges();
 
     const slot = fixture.nativeElement.querySelector('.banner-slot') as HTMLElement;
-    expect(getComputedStyle(slot).minHeight).toBe('3rem');
+    expect(getComputedStyle(slot).minHeight).toBe('48px');
     const text = slot.querySelector('.banner-text');
     expect(text?.textContent).toContain('The monitor API did not answer.');
   });
