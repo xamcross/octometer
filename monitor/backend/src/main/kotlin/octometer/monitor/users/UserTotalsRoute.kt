@@ -13,18 +13,22 @@ import octometer.monitor.store.SqliteDatabase
 /** The row count of one page (issue #50, step 4). */
 internal const val USER_PAGE_SIZE = 50
 
+/** The maximum length of the filter `q` (correction round 1 of pull request #145). */
+internal const val MAX_FILTER_LENGTH = 200
+
 // The escape character of each LIKE clause below. The bound value of q
 // gets this character before a literal '%', a literal '_', and this
 // character itself. A user id can then never turn q into a wildcard
 // (issue #50, step 3).
 private const val LIKE_ESCAPE_CHAR = '\\'
 
-// Rule M4 of the design (section 6): the literal `kind = 0` keeps the
-// partial index event_agg. A bound parameter does not give the same
-// plan on each SQLite build. Thus the filter stays in the SQL text.
-// Each statement here holds one fixed shape, with the filter q or
-// without it. The value of q always travels as a bound parameter of
-// the LIKE clause. No user text ever joins the SQL text itself.
+// Design document section 6: "Level 2 and level 3 keep the filter
+// kind = 0, else SQLite ignores the index event_agg." A bound parameter
+// does not give the same plan on each SQLite build. Thus the filter
+// stays in the SQL text. Each statement here holds one fixed shape,
+// with the filter q or without it. The value of q always travels as a
+// bound parameter of the LIKE clause. No user text ever joins the SQL
+// text itself.
 internal const val USER_TOTALS_COUNT_SQL =
     "SELECT COUNT(*) FROM (SELECT user_id FROM event WHERE app_id = ? AND kind = 0 GROUP BY user_id)"
 internal const val USER_TOTALS_COUNT_FILTERED_SQL =
@@ -61,7 +65,24 @@ sealed class UserTotalsResult {
     object AppNotFound : UserTotalsResult()
 }
 
-/** Installs `GET /api/apps/{appId}/users` on the route tree (issue #50). */
+/**
+ * Installs `GET /api/apps/{appId}/users` on the route tree (issue #50).
+ *
+ * An empty or a missing `page` means page 1. An empty or a missing `q`
+ * means no filter. `q` matches a substring of the user id with `LIKE`.
+ * SQLite folds the case of `LIKE` for an ASCII letter only; a letter
+ * outside ASCII needs the same case in `q` and in the user id. The
+ * route adds no `lower()` call, because that call loses the index
+ * `event_agg`.
+ *
+ * A non-empty `q` drops the row with `userId: null`, because SQLite
+ * never matches `NULL` against a `LIKE` pattern. An empty `q` still
+ * shows that row.
+ *
+ * A `q` above [MAX_FILTER_LENGTH] characters gives 400. A `q` with a
+ * control character gives 400 too: a NUL character cuts the `LIKE`
+ * pattern short, and the shortened pattern then matches every user.
+ */
 fun Route.userTotalsRoute(database: SqliteDatabase) {
     get("/api/apps/{appId}/users") {
         val appId = call.parameters["appId"]?.toLongOrNull()
@@ -75,6 +96,14 @@ fun Route.userTotalsRoute(database: SqliteDatabase) {
             return@get
         }
         val filter = call.request.queryParameters["q"]
+        if (filter != null && filter.length > MAX_FILTER_LENGTH) {
+            call.respond(HttpStatusCode.BadRequest, ErrorBody("The filter q is too long."))
+            return@get
+        }
+        if (filter != null && filter.any { it.code < 0x20 }) {
+            call.respond(HttpStatusCode.BadRequest, ErrorBody("The filter q holds a control character."))
+            return@get
+        }
         when (val result = loadUserTotals(database, appId, requestedPage, filter)) {
             UserTotalsResult.AppNotFound ->
                 call.respond(HttpStatusCode.NotFound, ErrorBody("The app is not registered."))
@@ -84,10 +113,11 @@ fun Route.userTotalsRoute(database: SqliteDatabase) {
     }
 }
 
-// A missing page defaults to 1. A present page must be a positive whole
+// A missing page or an empty page defaults to 1, the same way an empty
+// q means no filter. A present, non-empty page must be a positive whole
 // number. Otherwise the route gives 400 (issue #50, step 4, and D13).
 private fun parsePage(raw: String?): Int? {
-    if (raw == null) return 1
+    if (raw.isNullOrEmpty()) return 1
     val page = raw.toIntOrNull() ?: return null
     return page.takeIf { it >= 1 }
 }
@@ -101,10 +131,12 @@ private fun parsePage(raw: String?): Int? {
  * Otherwise a poll-loop write between the two statements can move a
  * user across the page boundary. That gives a wrong pageCount.
  *
- * Pull request #127 (issue #18) turns `read { }` into one read
- * transaction. That change is not on `main` yet. Until it merges, the
- * mutex of `read { }` still keeps the two statements together, with no
- * poll-loop write between them on the one reader connection.
+ * `main` holds that change since commit 6154083 ("feat(monitor): serve
+ * the level 1 totals at GET /api/apps (#127)"): `SqliteDatabase.read { }`
+ * runs `BEGIN` before the block and `COMMIT` after it, thus the whole
+ * block is one read transaction. The count statement and the page
+ * statement then read the one snapshot of that transaction, and a
+ * write that commits between them changes neither result.
  */
 suspend fun loadUserTotals(
     database: SqliteDatabase,
@@ -124,9 +156,11 @@ suspend fun loadUserTotals(
         UserTotalsResult.Success(page = page, pageCount = pageCount, rows = rows)
     }
 
-// A blank filter means "no filter". An empty LIKE pattern would still
+// An empty filter means "no filter". An empty LIKE pattern would still
 // match every row. This function keeps the plain SQL text for the
-// common case of no q parameter.
+// common case of no q parameter. A non-empty filter drops the row with
+// userId: null, because `NULL LIKE '%...%'` gives NULL, and SQLite
+// treats that as no match.
 private fun toLikePattern(filter: String?): String? =
     filter?.takeIf { it.isNotEmpty() }?.let { "%" + escapeLikePattern(it) + "%" }
 
@@ -151,7 +185,10 @@ private fun appExists(reader: Connection, appId: Long): Boolean =
         statement.executeQuery().use { it.next() }
     }
 
-private fun countUserGroups(reader: Connection, appId: Long, likePattern: String?): Int {
+// internal, not private: the test of SQL MAJOR 3 (correction round 1)
+// calls this function directly, to insert a write between the count
+// statement and the page statement of one read transaction.
+internal fun countUserGroups(reader: Connection, appId: Long, likePattern: String?): Int {
     val sql = if (likePattern == null) USER_TOTALS_COUNT_SQL else USER_TOTALS_COUNT_FILTERED_SQL
     return reader.prepareStatement(sql).use { statement ->
         var index = 1
@@ -166,7 +203,7 @@ private fun countUserGroups(reader: Connection, appId: Long, likePattern: String
     }
 }
 
-private fun readUserTotalsPage(
+internal fun readUserTotalsPage(
     reader: Connection,
     appId: Long,
     likePattern: String?,
