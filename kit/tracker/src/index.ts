@@ -10,6 +10,7 @@
  */
 
 import { matchPreparedPath, prepareRoutes, type PreparedRoute } from './path-match.js';
+import { splitIntoRequestBatches, type ClickPayload } from './batch.js';
 
 /** An option of the tracker. `endpoint` is mandatory; the rest have a default. */
 export interface TrackerOptions {
@@ -49,17 +50,50 @@ const SESSION_STORAGE_KEY = 'octo_session_id';
 const ELEMENT_PATTERN = /^[A-Za-z0-9_.:-]{1,100}$/;
 /**
  * The reserved element prefix of the contract, rule C38, in each letter
- * case. A click on a `data-octo` value with this prefix records no click,
- * with no exception: issue #107 sends `octo:session-start` through its
- * own call, never through a click on a page element.
+ * case. A click on a `data-octo` value with this prefix records no
+ * click. This has no exception. Issue #107 sends `octo:session-start`
+ * through its own call, never through a click on a page element.
  */
 const RESERVED_ELEMENT_PREFIX = /^octo:/i;
-/** The queue holds a maximum of 200 entries (design decision D24). */
+/**
+ * The queue holds a maximum of 200 entries (design decision D24).
+ *
+ * A full queue splits into `MAX_QUEUE_SIZE / MAX_BATCH_ENTRIES` requests
+ * at most (`batch.ts`). That count, times `MAX_BODY_BYTES`, must stay
+ * below the 64 KB keepalive quota of one page:
+ *
+ * MAX_QUEUE_SIZE / MAX_BATCH_ENTRIES * MAX_BODY_BYTES < 65536
+ */
 const MAX_QUEUE_SIZE = 200;
-/** One request holds a maximum of 50 clicks (contract rule C17). */
-const MAX_BATCH_SIZE = 50;
 const DEFAULT_FLUSH_INTERVAL_MS = 5000;
 const DEFAULT_CREDENTIALS: RequestCredentials = 'same-origin';
+/**
+ * The retry rule of issue #36. A batch of the timer flush goes out one
+ * more time after a network error, a 5xx response, or a 429 response.
+ * The timer flush runs while the page stays visible.
+ */
+const TIMER_RETRY_COUNT = 1;
+/**
+ * A batch of the pagehide flush, or of the visibilitychange flush, goes
+ * out one time only, with no retry (maintainer decision of 2026-09-22).
+ * A browser can freeze the page after the hidden state and drop the
+ * connection. A retry there gives the largest risk of a double count.
+ */
+const LIFECYCLE_RETRY_COUNT = 0;
+/** The wait before the first retry, after a network error or a 5xx response. */
+const RETRY_DELAY_MS = 500;
+/** The extra random wait, from 0 up to this value, added to `RETRY_DELAY_MS`. */
+const RETRY_JITTER_MS = 500;
+/**
+ * The wait before the retry after a 429 response. A 429 response states a
+ * rate limit of a fixed 60-second window (design decisions D20 and D43).
+ * The tracker waits longer, so the retry falls in a later window.
+ */
+const RETRY_DELAY_429_MS = 2000;
+/** The extra random wait, from 0 up to this value, added to `RETRY_DELAY_429_MS`. */
+const RETRY_JITTER_429_MS = 2000;
+/** The `sessionId` rule of the contract, rule C5: a canonical 36-character UUID. */
+const SESSION_ID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 interface QueueEntry {
   element: string;
@@ -89,6 +123,15 @@ export function createTracker(options: TrackerOptions): Tracker {
   let everStarted = false;
   let droppedOctoPrefix = false;
   let clickListener: ((event: Event) => void) | null = null;
+  let pageHideListener: (() => void) | null = null;
+  let visibilityChangeListener: (() => void) | null = null;
+  /**
+   * The run token of the tracker (MAJOR 1 of the TypeScript review). Each
+   * `start()` call and each `stop()` call raises this number by one. A
+   * pending retry checks its own token against this number, so a retry
+   * never fires after a later `stop()`.
+   */
+  let runId = 0;
 
   function start(): void {
     if (started) {
@@ -99,13 +142,27 @@ export function createTracker(options: TrackerOptions): Tracker {
       return;
     }
     started = true;
+    runId += 1;
     everStarted = true;
     clickListener = (event: Event) => handleClick(event);
     document.addEventListener('click', clickListener, true);
+    // Issue #36, steps 1 and 2: the tracker sends the queue before the
+    // browser hides or unloads the page.
+    pageHideListener = () => safeFlush({ keepalive: true, retryCount: LIFECYCLE_RETRY_COUNT });
+    visibilityChangeListener = () => {
+      if (document.visibilityState === 'hidden') {
+        safeFlush({ keepalive: true, retryCount: LIFECYCLE_RETRY_COUNT });
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', pageHideListener);
+    }
+    document.addEventListener('visibilitychange', visibilityChangeListener);
   }
 
   function stop(): void {
     started = false;
+    runId += 1;
     queue = [];
     if (timerId !== null) {
       clearTimeout(timerId);
@@ -115,6 +172,14 @@ export function createTracker(options: TrackerOptions): Tracker {
       document.removeEventListener('click', clickListener, true);
     }
     clickListener = null;
+    if (pageHideListener !== null && typeof window !== 'undefined') {
+      window.removeEventListener('pagehide', pageHideListener);
+    }
+    pageHideListener = null;
+    if (visibilityChangeListener !== null && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', visibilityChangeListener);
+    }
+    visibilityChangeListener = null;
     sessionId = null;
     droppedOctoPrefix = false;
     if (everStarted) {
@@ -145,8 +210,8 @@ export function createTracker(options: TrackerOptions): Tracker {
       return;
     }
     // The path of a click is the page at the time of the click, not the
-    // page at the time of the later flush (an app can navigate between the
-    // two, because the tracker holds the click in its queue).
+    // page at the time of the later flush. An app can navigate between
+    // the two, because the tracker holds the click in its queue.
     const path = computePath(preparedRoutes);
     enqueue(name, path);
   }
@@ -187,17 +252,34 @@ export function createTracker(options: TrackerOptions): Tracker {
       // One timer at a time. A later click of the same batch joins the queue.
       return;
     }
+    const token = runId;
     timerId = setTimeout(() => {
       timerId = null;
-      try {
-        flush();
-      } catch {
-        // The tracker gives no error to the page. It drops the batch instead.
+      if (token !== runId) {
+        // MAJOR 1 of the TypeScript review: stop() ran first. Send nothing.
+        return;
       }
+      safeFlush({ keepalive: false, retryCount: TIMER_RETRY_COUNT });
     }, flushIntervalMs);
   }
 
-  function flush(): void {
+  interface FlushOptions {
+    /** True on the pagehide flush and the visibilitychange flush (design decision D24). */
+    keepalive: boolean;
+    /** The count of extra sends that the retry rule of issue #36 allows for this flush. */
+    retryCount: number;
+  }
+
+  /** Runs `flush()` inside a try/catch, so a throw of it never reaches the page. */
+  function safeFlush(options: FlushOptions): void {
+    try {
+      flush(options);
+    } catch {
+      // The tracker gives no error to the page. It drops the batch instead.
+    }
+  }
+
+  function flush(options: FlushOptions): void {
     if (queue.length === 0) {
       return;
     }
@@ -205,24 +287,120 @@ export function createTracker(options: TrackerOptions): Tracker {
     // only this one batch. A later click still starts a new timer.
     const entries = queue;
     queue = [];
+    if (timerId !== null) {
+      // A lifecycle flush can run while a timer is still pending (MINOR 2
+      // of the reliability review). Clear it, so a later click starts its
+      // own timer instead of an early, empty-queue flush.
+      clearTimeout(timerId);
+      timerId = null;
+    }
     const id = getOrCreateSessionId();
-    for (let offset = 0; offset < entries.length; offset += MAX_BATCH_SIZE) {
-      void sendBatch(id, entries.slice(offset, offset + MAX_BATCH_SIZE));
+    const now = monotonicNow();
+    const clicks = entries.map((entry) => toClickPayload(entry, now));
+    // Issue #36, step 6: the tracker measures the encoded body as UTF-8
+    // bytes. It splits a batch whose body passes 15 000 bytes, also below
+    // 50 entries (contract rule C17).
+    const batches = splitIntoRequestBatches(id, clicks);
+    const token = runId;
+    for (const batch of batches) {
+      try {
+        // MINOR 4 of the reliability review: one batch must not stop the
+        // send of a later batch, also when fetch throws at the call.
+        void sendBatch(id, batch, options.keepalive, options.retryCount, token);
+      } catch {
+        // The tracker gives no error to the page. It drops this batch only.
+      }
     }
   }
 
-  function sendBatch(id: string, batch: QueueEntry[]): Promise<void> {
-    const now = monotonicNow();
-    const clicks = batch.map((entry) => {
-      const click: { element: string; ageMs: number; path?: string } = {
-        element: entry.element,
-        ageMs: Math.max(0, Math.round(now - entry.queuedAt)),
-      };
-      if (entry.path !== undefined) {
-        click.path = entry.path;
-      }
-      return click;
+  function toClickPayload(entry: QueueEntry, now: number): ClickPayload {
+    const click: { element: string; ageMs: number; path?: string } = {
+      element: entry.element,
+      ageMs: Math.max(0, Math.round(now - entry.queuedAt)),
+    };
+    if (entry.path !== undefined) {
+      click.path = entry.path;
+    }
+    return click;
+  }
+
+  /**
+   * Sends one request. The retry rule of issue #36: it sends the same
+   * batch again, up to `retriesLeft` more times. It waits first
+   * (`retryDelayMs`), after a network error, a 5xx response, or a 429
+   * response. It drops the batch after each other 4xx response.
+   *
+   * `token` is the run token of the flush that built this batch
+   * (MAJOR 1 of the TypeScript review). A retry runs only when `token`
+   * still equals the current run token, so no retry fires after a later
+   * `stop()`.
+   *
+   * A maintainer comment on issue #36 states a limit of this rule. The
+   * MongoDB store of the app writes a batch without a transaction. A
+   * retry after a mid-batch failure can write part of a batch two times.
+   * See the README section "The retry rule" for the detail.
+   */
+  function sendBatch(
+    id: string,
+    batch: ClickPayload[],
+    keepalive: boolean,
+    retriesLeft: number,
+    token: number,
+  ): Promise<void> {
+    return fetch(endpoint, {
+      method: 'POST',
+      credentials,
+      headers: buildHeaders(),
+      referrerPolicy: 'no-referrer',
+      keepalive,
+      body: JSON.stringify({ sessionId: id, clicks: batch }),
+    })
+      .then((response) => {
+        if (response.ok) {
+          return;
+        }
+        const isRetryableStatus = response.status === 429 || response.status >= 500;
+        if (retriesLeft > 0 && isRetryableStatus && token === runId) {
+          return waitThenRetry(id, batch, keepalive, retriesLeft, token, response.status);
+        }
+        // Each other 4xx response drops the batch. No error reaches the page.
+      })
+      .catch(() => {
+        if (retriesLeft > 0 && token === runId) {
+          return waitThenRetry(id, batch, keepalive, retriesLeft, token, undefined).catch(() => {
+            // A second network error drops the batch too.
+          });
+        }
+        // The tracker gives no error to the page. It drops the batch instead.
+      });
+  }
+
+  /**
+   * Waits the retry delay (`retryDelayMs`), then sends `batch` again.
+   *
+   * It checks the run token a second time, after the wait, because
+   * `stop()` can run during the wait (MAJOR 1 of the TypeScript review).
+   */
+  function waitThenRetry(
+    id: string,
+    batch: ClickPayload[],
+    keepalive: boolean,
+    retriesLeft: number,
+    token: number,
+    status: number | undefined,
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        if (token !== runId) {
+          resolve();
+          return;
+        }
+        resolve(sendBatch(id, batch, keepalive, retriesLeft - 1, token));
+      }, retryDelayMs(status));
     });
+  }
+
+  function buildHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
     if (getExtraHeaders) {
       try {
@@ -232,25 +410,15 @@ export function createTracker(options: TrackerOptions): Tracker {
       }
     }
     // The tracker owns the content type. It drops each spelling of the
-    // header name first, so a header object cannot carry the name two
-    // times with a different case (contract rule C12).
+    // header name first. A header object then cannot carry the name two
+    // times, with a different case (contract rule C12).
     for (const name of Object.keys(headers)) {
       if (name.toLowerCase() === 'content-type') {
         delete headers[name];
       }
     }
     headers['Content-Type'] = 'application/json';
-    return fetch(endpoint, {
-      method: 'POST',
-      credentials,
-      headers,
-      referrerPolicy: 'no-referrer',
-      body: JSON.stringify({ sessionId: id, clicks }),
-    })
-      .then(() => undefined)
-      .catch(() => {
-        // Issue #36 adds the retry rule for a network error, a 5xx, and a 429.
-      });
+    return headers;
   }
 
   function getOrCreateSessionId(): string {
@@ -258,7 +426,10 @@ export function createTracker(options: TrackerOptions): Tracker {
       return sessionId;
     }
     const stored = readStoredSessionId();
-    const id = stored ?? generateUuid();
+    // MINOR 5 of the TypeScript review: a stored value must pass the C5
+    // rule of the contract, a UUID, before use. A wrong value gets a new
+    // id, so the ingest route never rejects the whole batch for it.
+    const id = stored !== null && SESSION_ID_PATTERN.test(stored) ? stored : generateUuid();
     sessionId = id;
     writeStoredSessionId(id);
     return id;
@@ -294,9 +465,9 @@ export function createTracker(options: TrackerOptions): Tracker {
 
 /**
  * Checks and splits the `routes` option one time. It fails closed: one
- * bad entry counts as no route list, because a dropped entry would move
- * a later pattern into its place and change the match order (contract
- * rule C42 gives the server the same rule).
+ * bad entry counts as no route list. A dropped entry would move a later
+ * pattern into its place, and change the match order. Contract rule C42
+ * gives the server the same rule.
  *
  * This function gives `undefined` in four cases. The option is missing.
  * The option is not an array. The option is an empty array. The option
@@ -325,6 +496,20 @@ function prepareRoutesOption(routes: TrackerOptions['routes']): readonly Prepare
     return undefined;
   }
   return prepared;
+}
+
+/**
+ * The wait, in milliseconds, before a retry. `status` is the response
+ * status, or `undefined` for a network error. The wait is longer after a
+ * 429 response: the rate limit uses a fixed 60-second window (design
+ * decisions D20 and D43, reliability review MAJOR 1). The random part
+ * spreads the retries of a group of tabs across the window.
+ */
+function retryDelayMs(status: number | undefined): number {
+  if (status === 429) {
+    return RETRY_DELAY_429_MS + Math.random() * RETRY_JITTER_429_MS;
+  }
+  return RETRY_DELAY_MS + Math.random() * RETRY_JITTER_MS;
 }
 
 /** A monotonic clock. It ignores a change of the system clock (MAJOR 1 of the review). */
