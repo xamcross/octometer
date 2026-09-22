@@ -1,5 +1,7 @@
 package octometer.kit.core.ingest;
 
+import java.lang.System.Logger;
+import java.lang.System.Logger.Level;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -15,16 +17,43 @@ import octometer.kit.core.user.UserIdResolver;
  * public entry point of the module. An adapter calls {@link #ingest}
  * with the raw body, a {@link Clock}, a {@link UserIdResolver}, and an
  * {@link EventLogStore}.
+ *
+ * <p>Version 1.1 of the contract adds three behaviors (issue #103):
+ * <ul>
+ *   <li>the server drops an entry whose `element` starts with the
+ *       reserved prefix `octo:` in each letter case, except the exact
+ *       text `octo:session-start` (rule C38);</li>
+ *   <li>the server checks `path` against rule C39, and drops an invalid
+ *       value while it keeps the entry (rule C41). A valid value is not
+ *       stored yet: this module has no route pattern list (rule C42),
+ *       so {@link IngestEvent#path()} is always {@code null} until
+ *       issue #104 adds the list and the match;</li>
+ *   <li>the server checks `referrerHost` against rule C40 on the
+ *       `octo:session-start` entry only, and drops an invalid value or a
+ *       value of another entry while it keeps the entry (rules C40,
+ *       C41).</li>
+ * </ul>
+ * Each drop rule writes a maximum of one warning for the whole batch, and
+ * no warning holds a raw path or a raw host (rule C41).
  */
 public final class IngestPipeline {
+
+    /** The exact text that marks the first event of a session (rule C38). */
+    static final String SESSION_START_ELEMENT = "octo:session-start";
+
+    /** The reserved element prefix of rule C38. The letter case does not matter (issue #101, second data review). */
+    private static final String RESERVED_ELEMENT_PREFIX = "octo:";
+
+    private static final Logger LOGGER = System.getLogger("octometer.kit.core");
 
     private IngestPipeline() {
     }
 
     /**
      * Parses and validates one ingest body, then returns one
-     * {@link IngestEvent} for each click, in the order of the `clicks`
-     * array.
+     * {@link IngestEvent} for each kept click, in the order of the
+     * `clicks` array. An entry whose `element` breaks rule C38 is not
+     * kept; see the class comment.
      *
      * <p>It throws {@link IngestException} for a broken rule of the
      * contract (`contract/README.md`, rules C4, C5, C13, C15, C17, C18,
@@ -41,12 +70,67 @@ public final class IngestPipeline {
 
         Instant receivedAt = clock.instant();
         List<IngestEvent> events = new ArrayList<>(parsed.clicks().size());
+        boolean warnedReservedElement = false;
+        boolean warnedInvalidField = false;
         for (ParsedClick click : parsed.clicks()) {
+            // Rule C33 runs before rule C38. An element that breaks rule
+            // C4 makes the whole body invalid (400), also when it starts
+            // with the reserved prefix. Rule C38 then drops only an
+            // entry whose element is legal under rule C4.
             EventFieldValidator.validateElement(click.element());
+            boolean isSessionStart = SESSION_START_ELEMENT.equals(click.element());
+            if (!isSessionStart && hasReservedElementPrefix(click.element())) {
+                if (!warnedReservedElement) {
+                    LOGGER.log(Level.WARNING, "The batch holds an entry whose element starts with "
+                            + "the reserved prefix octo: and is not octo:session-start. The server "
+                            + "drops the entry and keeps the rest of the batch (contract rule C38).");
+                    warnedReservedElement = true;
+                }
+                continue;
+            }
             Instant ts = TsCalculator.computeTs(receivedAt, click.ageMs());
-            events.add(new IngestEvent(parsed.sessionId(), click.element(), ts));
+
+            // This module has no route pattern list yet (rule C42), so
+            // the event record always holds a null path. The shape
+            // check of rule C39 still runs here, only to find an
+            // invalid value for the warning of rule C41. The checked
+            // raw value stays in click (a ParsedClick) and goes no
+            // further; issue #104 adds the match that fills the event
+            // record.
+            if (click.path() != null && !EventFieldValidator.isValidPath(click.path()) && !warnedInvalidField) {
+                LOGGER.log(Level.WARNING, "The batch holds an entry with an invalid path or "
+                        + "referrerHost value. The server drops the field and keeps the entry "
+                        + "(contract rule C41).");
+                warnedInvalidField = true;
+            }
+            String path = null;
+
+            String referrerHost = null;
+            if (isSessionStart && click.referrerHost() != null) {
+                String matchedReferrerHost = EventFieldValidator.matchReferrerHost(click.referrerHost());
+                if (matchedReferrerHost != null) {
+                    referrerHost = matchedReferrerHost;
+                } else if (!warnedInvalidField) {
+                    LOGGER.log(Level.WARNING, "The batch holds an entry with an invalid path or "
+                            + "referrerHost value. The server drops the field and keeps the entry "
+                            + "(contract rule C41).");
+                    warnedInvalidField = true;
+                }
+            }
+
+            events.add(new IngestEvent(parsed.sessionId(), click.element(), ts, path, referrerHost));
         }
         return List.copyOf(events);
+    }
+
+    /**
+     * Checks the reserved element prefix of rule C38. The check ignores
+     * the ASCII letter case, so it also matches `OCTO:foo` (issue #101,
+     * second data review).
+     */
+    private static boolean hasReservedElementPrefix(String element) {
+        return element.length() >= RESERVED_ELEMENT_PREFIX.length()
+                && element.regionMatches(true, 0, RESERVED_ELEMENT_PREFIX, 0, RESERVED_ELEMENT_PREFIX.length());
     }
 
     /**

@@ -11,10 +11,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * that its file name holds (rules C13, C15, C17, C18, C36, C37).
  *
  * <p>Version 1.1 adds the fields `path` and `referrerHost` (rules C39 to
- * C42, issue #101). The present parser does not check these fields, so it
- * skips each one as an unknown field of a `clicks` entry (rule C32). This
- * is the forward-compatible behavior of an old kit: it drops a new field
- * and it does not fail. Issue #103 adds the checks of C39 to C42.
+ * C42, issue #101). This parser reads each one as a plain JSON string,
+ * with no shape check (issue #103). {@link EventFieldValidator} and
+ * {@link IngestPipeline} hold the shape check and the drop rule of C41.
  */
 class IngestParserContractExamplesTest {
 
@@ -124,22 +123,49 @@ class IngestParserContractExamplesTest {
     }
 
     @Test
-    void parsesAClickWithAPathFieldAsAnUnknownField() {
+    void parsesTheValidPathFieldOfAClick() {
         String body = ExampleFiles.read("ingest-valid-C39-path.json");
 
         ParsedIngestRequest request = IngestParser.parse(body);
 
         assertEquals(1, request.clicks().size());
         assertEquals("article.read-more", request.clicks().get(0).element());
+        assertEquals("/articles/example-article", request.clicks().get(0).path());
     }
 
     @Test
-    void parsesAClickWithABadPathAsAnUnknownField() {
+    void parsesABadPathFieldOfAClickAsARawValue() {
         String body = ExampleFiles.read("ingest-valid-C41-bad-path-dropped.json");
 
         ParsedIngestRequest request = IngestParser.parse(body);
 
         assertEquals(1, request.clicks().size());
         assertEquals("article.read-more", request.clicks().get(0).element());
+        assertEquals("//articles/example-article", request.clicks().get(0).path());
+    }
+
+    @Test
+    void parsesAReferrerHostFieldOfAClick() {
+        String body = """
+                {"sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                 "clicks": [{"element": "octo:session-start", "ageMs": 0, "referrerHost": "google.com"}]}
+                """;
+
+        ParsedIngestRequest request = IngestParser.parse(body);
+
+        assertEquals(1, request.clicks().size());
+        assertEquals("google.com", request.clicks().get(0).referrerHost());
+    }
+
+    @Test
+    void rejectsADuplicatePathKeyInsideAClick() {
+        String body = """
+                {"sessionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                 "clicks": [{"element": "a.one", "ageMs": 1, "path": "/one", "path": "/two"}]}
+                """;
+
+        IngestException error = assertThrows(IngestException.class, () -> IngestParser.parse(body));
+
+        assertEquals(IngestException.Reason.DUPLICATE_FIELD, error.reason());
     }
 }

@@ -44,4 +44,16 @@ class HealthRouteTest {
         assertEquals("prod", body["mode"]!!.jsonPrimitive.content)
         assertEquals(60, body["refreshSeconds"]!!.jsonPrimitive.int)
     }
+
+    // Issue #59, step 5: the health route also gives the configured
+    // retentionDays value, so the level 1 view can show it (issue #66).
+    @Test
+    fun `the health route answers with retentionDays`() = testApplication {
+        application { module(devConfig(retentionDays = 30)) }
+
+        val response = client.get("/api/health") { allowedHost() }
+
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals(30, body["retentionDays"]!!.jsonPrimitive.int)
+    }
 }

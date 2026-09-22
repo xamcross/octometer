@@ -4,6 +4,7 @@ import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import octometer.monitor.config.MonitorConfig
 import octometer.monitor.module
+import octometer.monitor.testDataDir
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
@@ -92,7 +93,7 @@ private fun withRawSocketServer(block: (port: Int, send: (String) -> String) -> 
     val config = MonitorConfig(
         mode = "prod",
         port = port,
-        dataDir = "build/dev-data",
+        dataDir = testDataDir(),
         settleLagSeconds = 60,
         retentionDays = 395,
     )

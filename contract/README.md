@@ -1,10 +1,10 @@
-# Event log contract v1.1
+# Event log contract v1.2
 
 This document states the event log contract of Octometer. The contract has four parts: the
 event document, the ingest request, the reader rule, and the database user. The source is
 section 4 of `docs/superpowers/specs/2026-09-21-octometer-design.md`, plus section 1 and the
 last paragraph of section 6 for the definitions below. Some rules also cite an owner decision
-or a design decision from that document: O4, O5, D4, D5, and D21.
+or a design decision from that document: O4, O5, D4, D5, D20, D21, D42, D43, and D44.
 
 Version 1.1. It adds the rules C38 to C43: the session-start marker and its transport form, the
 `path` field and its stored form, the `referrerHost` field and its closed set, and the erasure
@@ -13,13 +13,20 @@ for a campaign parameter, because no advertisement campaign runs. Version 1.1 is
 under rule C9. The collection name stays `octometer_events`. Version 1.1 reserves one value of
 the field `element`. A reader of version 1.0 counts an event `octo:session-start` as a click.
 
+Version 1.2. It corrects the text of the Purpose paragraph, and of rules C19, C38, C40, and
+C42. Each one now agrees word for word with design version 1.1. It adds no field and no rule,
+thus it is not a major change under rule C10. A reader of version 1.1 already matches each
+corrected rule, because the correction states no new behavior of the tracker or of the
+server.
+
 Each rule has an ID, `C1` to `C43`. The table at the end maps each rule ID to its example file.
 
 ## Purpose
 
 Octometer is a monitor for the click metrics of the owner's web apps (design section 1). Each
-app writes its clicks to a flat event log. The monitor reads this log and shows three table
-views: an app view, a user view, and an element view.
+app writes its clicks to a flat event log. The monitor reads this log and shows five table
+views: an app view, a user view, and an element view. Design decision D44 adds two more
+views, "First pages" and "Anonymous sessions".
 
 ## Definitions
 
@@ -97,10 +104,16 @@ application/json`.
   server returns 400.
 - **C18.** One request body has a maximum size of 16 KB. A body above this limit is invalid;
   the server returns 400.
-- **C19.** The server returns status 204 for a success and for a batch that the event cap
-  drops. It returns 400 for an invalid body, 415 for a content type other than JSON, and 429
-  for the rate limit. The event cap is `OCTOMETER_MAX_EVENTS`, default 200000 (design
-  decision D21).
+- **C19.** The server returns status 204 for one of three cases:
+
+  - a success;
+  - a batch that the event cap drops;
+  - a batch that a daily anonymous cap drops, or that the bot filter of design decision D43
+    drops.
+
+  It returns 400 for an invalid body, 415 for a content type other than JSON, and 429 for the
+  rate limit (design decision D20). The event cap is `OCTOMETER_MAX_EVENTS`, default 200000
+  (design decision D21).
 - **C32.** The server ignores an unknown field in the ingest request body. A `userId` field
   in the body is such a field. The server ignores it. The stored user id comes only from the
   authentication context (rule C16). The server also ignores an unknown field inside an entry
@@ -112,9 +125,14 @@ application/json`.
 - **C37.** `ageMs` is a JSON integer. A value with a fraction or an exponent, for example
   `1.0` or `1e3`, makes the body invalid.
 - **C38.** The element prefix `octo:` is reserved for the contract. An app must not use it as
-  a `data-octo` value. The tracker drops such a value in each letter case (for example
-  `OCTO:foo`), except the exact text `octo:session-start`, and it writes one console warning
-  for the first dropped value. The element `octo:session-start` marks the first event of a
+  a `data-octo` value. The server checks rule C33 before it checks this rule. An `element`
+  value that breaks rule C33 makes the whole body invalid, also when the value starts with
+  the prefix `octo:`. The server then returns 400 for the whole batch, and this rule drops no
+  entry. The tracker drops each `data-octo` value with the prefix `octo:` in
+  each letter case (for example `OCTO:foo`), also the exact text `octo:session-start`, and it
+  writes one console warning for the first dropped value. Only the own call of the tracker
+  makes a session start. A `data-octo` attribute of a page never makes a session start. The
+  element `octo:session-start` marks the first event of a
   session. It is not a click. A reader of version 1.0 counts it as a click. The tracker sends
   the session start as one entry of `clicks`, with `element: "octo:session-start"` and
   `ageMs: 0` (rule C13). This is not a new request form. The server accepts the element
@@ -144,9 +162,17 @@ application/json`.
   the server stores `other`. The server drops a client value with a different form, under
   rule C41. The server drops a `referrerHost`
   field on an entry with an element other than `octo:session-start`. A free host name can
-  name an employer, a tenant, or an internal host, thus the source list is fixed. An entry
-  `octo:session-start` without `referrerHost` is a direct visit, or a visit from a source
-  that sends no referrer.
+  name an employer, a tenant, or an internal host, thus the source list is fixed. The tracker
+  sends no `referrerHost` field for one of five cases (design decision D42):
+
+  - an empty referrer;
+  - a referrer with a scheme other than `http` or `https`;
+  - the origin of the app;
+  - an IP literal;
+  - a host without a dot.
+
+  The server never adds a `referrerHost` field on its own. An entry `octo:session-start`
+  without `referrerHost` is a direct visit, or a visit from a source that sends no referrer.
 - **C41.** An invalid `path` or `referrerHost` value does not make the body invalid. The
   server drops that field, it keeps the entry, and it writes a maximum of one warning for
   each batch. No log line holds a raw path or a raw host. This rule holds only for a value
@@ -168,9 +194,22 @@ application/json`.
   segment, or a `..` segment gives `/other`. The server decodes no `%` escape before the
   match. A path that matches no pattern gives `/other`. The server stores `/other` for that
   path. It does not drop the `path` field. Without a route pattern list, the server stores no
-  `path` field, and it writes one warning at startup. **Warning for an app team.** A path can
-  hold an identifier, a token, or a search term. Mark each such segment with `:name` in the
-  route list. Never use `*` for a segment that holds a token, an email address, or a user id.
+  `path` field, and it writes one warning at startup. **An invalid route pattern.** An entry
+  of the pattern list is invalid in one of five cases:
+
+  - the entry is not a string;
+  - the entry is an empty string;
+  - the entry has no leading `/`;
+  - a segment of the entry is empty, for example in `/a/` or in `/a//b`;
+  - a segment of the entry holds a character outside the set of rule C39; a well-formed
+    escape `%XX` is valid there too.
+
+  The root entry `/` stays valid, because it has no segment. A pattern list with one invalid
+  pattern counts as no list: the tracker sends no `path`, and the server stores no `path` and
+  writes one warning at the start. Neither side drops one pattern and keeps the rest, because
+  a dropped pattern would change the match order. **Warning for an app team.** A path can hold
+  an identifier, a token, or a search term. Mark each such segment with `:name` in the route
+  list. Never use `*` for a segment that holds a token, an email address, or a user id.
 
 ## 3. The reader rule (design section 4.3)
 
@@ -253,9 +292,9 @@ is also valid JSON. Its value breaks one rule of the contract.
 | C35 | Database role limit (`FIND` only, one collection) | No example file. This rule states a database administration fact. |
 | C36 | Duplicate-key rejection | `examples/ingest-invalid-C36-duplicate-key.json` — the file repeats the `sessionId` key with the same value, thus the file breaks only the duplicate-key rule. |
 | C37 | `ageMs` as a plain integer, invalid with a fraction or an exponent | `examples/ingest-invalid-C37-agems-fraction.json` |
-| C38 | The `octo:` prefix, the `octo:session-start` marker, and its transport form | `examples/event-valid-C38-session-start.json` |
+| C38 | The `octo:` prefix, the `octo:session-start` marker, and its transport form | `examples/event-valid-C38-session-start.json` (the stored marker), `examples/ingest-invalid-C38-session-start-trailing-space.json` (`octo:session-start` with a trailing space breaks rule C33 before rule C38 runs, so the whole body is invalid) |
 | C39 | The shape of the `path` field | `examples/event-valid-C39-path.json` (stored event), `examples/ingest-valid-C39-path.json` (ingest body) |
 | C40 | The shape of `referrerHost`, its closed set, and the source list | `examples/event-valid-C40-source.json` |
 | C41 | The rule for an invalid `path` or `referrerHost` value | `examples/ingest-valid-C41-bad-path-dropped.json` — the file holds a `path` value that breaks rule C39; the body stays valid, and the present parser ignores the field as an unknown field (rule C32). |
-| C42 | The route pattern list and the derivation of the stored `path` | `examples/event-valid-C42-masked-path.json` (a masked `:name` segment), `examples/event-valid-C42-other-path.json` (no matching pattern), `examples/event-valid-C39-path.json` (a kept `*` segment) |
+| C42 | The route pattern list and the derivation of the stored `path` | `examples/event-valid-C42-masked-path.json` (a masked `:name` segment), `examples/event-valid-C42-other-path.json` (no matching pattern), `examples/event-valid-C39-path.json` (a kept `*` segment), `examples/C42-path-match-cases.json` (the shared matcher case table: an ordered route pattern list, an input path, and the expected result, for the tracker and for the server of issue #104). The case file covers the match rule only. Each side checks each pattern before the first match. |
 | C43 | The erasure of an anonymous session | No example file. This rule states an app action, not a document shape. |
