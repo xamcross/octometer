@@ -22,7 +22,9 @@ import kotlinx.io.readByteArray
 import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestPipeline
+import octometer.kit.core.ingest.IngestRateLimiter
 import octometer.kit.core.ingest.IngestSettings
+import octometer.kit.core.ingest.RateLimitResult
 import octometer.kit.core.store.EventLogStore
 import octometer.kit.core.user.UserIdResolver
 import java.time.Clock
@@ -90,6 +92,18 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  *   default is the system clock.
  * @param storeDispatcher the dispatcher of the store call. The default is
  *   [defaultStoreDispatcher].
+ * @param rateLimiter the ingest rate limiter of design decision D20 (issue
+ *   #33). The default builds one [IngestRateLimiter] with [clock], held for
+ *   the life of this route, so its window state is shared across each
+ *   request. The route answers 429 for a rejected request, before it reads
+ *   the request body (contract rule C19).
+ * @param clientIpHeaderName the name of the header that holds the client
+ *   address (issue #33, step 3). The default reads
+ *   `OCTOMETER_CLIENT_IP_HEADER` once, when this function installs the
+ *   route. A `null` value, and a request with no such header, both fall
+ *   back to the remote address of the connection. This function reads one
+ *   header value only; the trusted-proxy rule for a header with more than
+ *   one address is issue #116, not this one.
  * @param resolveUserId reads the user id from the current call, or `null`
  *   when no user is signed in (contract rule C6).
  */
@@ -99,6 +113,8 @@ public fun Route.octometerIngestRoute(
     settings: IngestSettings = IngestSettings.fromEnvironment(),
     clock: Clock = Clock.systemUTC(),
     storeDispatcher: CoroutineDispatcher = defaultStoreDispatcher(),
+    rateLimiter: IngestRateLimiter = IngestRateLimiter(clock),
+    clientIpHeaderName: String? = System.getenv("OCTOMETER_CLIENT_IP_HEADER"),
     resolveUserId: (ApplicationCall) -> String?,
 ) {
     require(ingestPath.startsWith("/")) {
@@ -112,16 +128,24 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
+            // resolveUserId runs here, on the coroutine of the call,
+            // before the store call moves to storeDispatcher (rule of the
+            // app documentation above). It also runs before the rate
+            // limit check and before the route reads the request body
+            // (design decision D20, issue #33), so a rejected request
+            // never reads the body.
+            val userId = resolveUserId(call)
+            if (rateLimiter.check(userId, clientAddress(call, clientIpHeaderName)) == RateLimitResult.LIMITED) {
+                call.respond(HttpStatusCode.TooManyRequests)
+                return@post
+            }
+
             val rawBody = call.receiveLimitedText(MAX_BODY_BYTES)
             if (rawBody == null) {
                 call.respond(HttpStatusCode.BadRequest)
                 return@post
             }
 
-            // Rule of the app documentation above: resolveUserId runs here,
-            // on the coroutine of the call, before the store call moves to
-            // storeDispatcher.
-            val userId = resolveUserId(call)
             val userIdResolver = UserIdResolver { userId }
             val defectSafeStore = DefectSafeEventLogStore(store)
 
@@ -208,6 +232,24 @@ private class DefectSafeEventLogStore(private val delegate: EventLogStore) : Eve
             throw IllegalStateException("The EventLogStore of the app failed.", cause)
         }
     }
+}
+
+/**
+ * Reads the client address of one call for the rate limiter (design
+ * decision D20, issue #33, step 3).
+ *
+ * It reads the header that [headerName] names when [headerName] is not
+ * `null` and the request holds that header. It falls back to the remote
+ * address of the connection ([io.ktor.server.request.ApplicationRequest.local])
+ * when [headerName] is `null`, or when the request holds no such header.
+ *
+ * This function reads one header value as one raw text. It never splits a
+ * comma-separated list of a proxy chain and never picks one address from
+ * it; that trusted-proxy rule is issue #116, not this one.
+ */
+private fun clientAddress(call: ApplicationCall, headerName: String?): String {
+    val headerValue = headerName?.let { call.request.header(it) }
+    return headerValue ?: call.request.local.remoteAddress
 }
 
 /**

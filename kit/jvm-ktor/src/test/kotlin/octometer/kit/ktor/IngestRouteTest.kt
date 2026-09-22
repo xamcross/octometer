@@ -22,7 +22,9 @@ import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.writeFully
 import java.net.Socket
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.concurrent.Callable
 import java.util.concurrent.CopyOnWriteArrayList
@@ -411,9 +413,16 @@ class IngestRouteTest {
                 // Not used by this test.
             }
         }
+        // A distinct user id for each call (design decision D20, issue #33):
+        // 64 calls under one user id would break the 30-request window
+        // limit and turn most of them into a fast 429, never a slow store
+        // call, which this test does not want to check.
+        val userIdCounter = java.util.concurrent.atomic.AtomicInteger()
         application {
             routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) {
+                    "user-${userIdCounter.incrementAndGet()}"
+                }
             }
         }
 
@@ -773,6 +782,238 @@ class IngestRouteTest {
 
         assertEquals(HttpStatusCode.NoContent, response.status)
         assertTrue(store.events().isEmpty())
+    }
+
+    // The tests below check the ingest rate limit of design decision D20
+    // and issue #33. `octometerIngestRoute` builds one `IngestRateLimiter`
+    // by default when a test installs the route, so each test below gets
+    // its own limiter and its own window.
+
+    @Test
+    fun `request 31 of one user id in 60 seconds gives 429, and a request after the window passes`() =
+        testApplication {
+            val store = InMemoryEventLogStore()
+            val clock = MutableClock(fixedClock.instant())
+            application {
+                routing {
+                    octometerIngestRoute(store = store, settings = IngestSettings(true), clock = clock) { "user-1" }
+                }
+            }
+
+            repeat(30) { requestIndex ->
+                val response = client.post(DEFAULT_INGEST_PATH) {
+                    contentType(ContentType.Application.Json)
+                    setBody(validBody)
+                }
+                assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 30 must pass.")
+            }
+
+            val limitedResponse = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.TooManyRequests, limitedResponse.status)
+            assertEquals("", limitedResponse.bodyAsText())
+            assertEquals(30, store.events().size)
+
+            clock.advance(Duration.ofSeconds(60))
+
+            val afterWindowResponse = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.NoContent, afterWindowResponse.status)
+        }
+
+    @Test
+    fun `without a user id, request 121 of one client address gives 429`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) { null }
+            }
+        }
+
+        repeat(120) { requestIndex ->
+            val response = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
+        }
+
+        val limitedResponse = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(validBody)
+        }
+        assertEquals(HttpStatusCode.TooManyRequests, limitedResponse.status)
+        // The 120 earlier, allowed requests already stored one event
+        // each (settings records an anonymous click); the limited 121st
+        // request must add no new one.
+        assertEquals(120, store.events().size)
+    }
+
+    @Test
+    fun `a 429 answer arrives even for a body that is not valid JSON`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+            }
+        }
+
+        repeat(30) {
+            client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                setBody(validBody)
+            }
+        }
+
+        // A body that IngestPipeline.process would reject with 400. The
+        // route must never reach that parse step once the limiter
+        // rejects the request (issue #33, step 4): the answer is 429,
+        // not 400.
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody("this is not valid JSON")
+        }
+        assertEquals(HttpStatusCode.TooManyRequests, response.status)
+    }
+
+    @Test
+    fun `with OCTOMETER_CLIENT_IP_HEADER set, two different header values get two counters`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(
+                    store = store,
+                    settings = IngestSettings(true),
+                    clientIpHeaderName = "X-Client-Ip",
+                ) { null }
+            }
+        }
+
+        repeat(120) {
+            val response = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                header("X-Client-Ip", "203.0.113.9")
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.NoContent, response.status)
+        }
+
+        // A different header value is a different key (design decision
+        // D20), so this first request of that key still passes, even
+        // though the test host sends every request from the same
+        // underlying connection.
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            header("X-Client-Ip", "198.51.100.2")
+            setBody(validBody)
+        }
+        assertEquals(HttpStatusCode.NoContent, response.status)
+    }
+
+    @Test
+    fun `without OCTOMETER_CLIENT_IP_HEADER, a spoofed header never changes the key`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) { null }
+            }
+        }
+
+        repeat(120) { requestIndex ->
+            val response = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                // No clientIpHeaderName is set, so this header must have
+                // no effect on the key: the key is the remote address of
+                // the connection (issue #33, step 3).
+                header("X-Forwarded-For", "203.0.113.$requestIndex")
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            header("X-Forwarded-For", "203.0.113.250")
+            setBody(validBody)
+        }
+        assertEquals(HttpStatusCode.TooManyRequests, response.status)
+    }
+
+    @Test
+    fun `with OCTOMETER_CLIENT_IP_HEADER set, a request with no such header falls back to the remote address`() =
+        testApplication {
+            val store = InMemoryEventLogStore()
+            application {
+                routing {
+                    octometerIngestRoute(
+                        store = store,
+                        settings = IngestSettings(true),
+                        clientIpHeaderName = "X-Client-Ip",
+                    ) { null }
+                }
+            }
+
+            repeat(120) {
+                val response = client.post(DEFAULT_INGEST_PATH) {
+                    contentType(ContentType.Application.Json)
+                    setBody(validBody)
+                }
+                assertEquals(HttpStatusCode.NoContent, response.status)
+            }
+
+            val response = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.TooManyRequests, response.status)
+        }
+
+    @Test
+    fun `a 429 answer writes no line of its own to the application log of the route`() = testApplication {
+        // IngestRateLimiter writes its own warning through java.base
+        // System.Logger (see IngestRateLimiterTest of kit/jvm-core, which
+        // checks that line holds no key). This test checks a different
+        // rule: the route itself, like its 400 and 415 answers, calls
+        // respondWithDefect for no 429 answer, so it writes no defect
+        // line of its own (design decision D15).
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) { null }
+            }
+        }
+
+        repeat(121) {
+            client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                setBody(validBody)
+            }
+        }
+
+        val messages = logAppender.events.map { it.formattedMessage }
+        assertTrue(messages.none { it.contains("The Octometer ingest route failed") })
+    }
+
+    /** A [Clock] that a test can move forward, for a rate-limit window test. */
+    private class MutableClock(startInstant: Instant) : Clock() {
+        @Volatile
+        private var current: Instant = startInstant
+
+        fun advance(duration: Duration) {
+            current = current.plus(duration)
+        }
+
+        override fun getZone(): ZoneId = ZoneOffset.UTC
+
+        override fun withZone(zone: ZoneId?): Clock {
+            throw UnsupportedOperationException("This test clock always uses UTC.")
+        }
+
+        override fun instant(): Instant = current
     }
 
     @Test
