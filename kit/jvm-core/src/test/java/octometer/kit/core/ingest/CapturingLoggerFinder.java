@@ -11,6 +11,11 @@ import java.util.ResourceBundle;
  * {@link Logger} for each call of {@link System#getLogger(String)}. A
  * test then reads {@link #messages()} with no new dependency: {@code
  * System.Logger} is a part of `java.base`.
+ *
+ * <p>{@link #messages()} and {@link #clear()} are {@code public} (issue
+ * #34), so a test of a different package of this module, for example
+ * {@code octometer.kit.core.store}, can read the same log capture. The
+ * module registers one {@link System.LoggerFinder} only.
  */
 public final class CapturingLoggerFinder extends System.LoggerFinder {
 
@@ -20,12 +25,12 @@ public final class CapturingLoggerFinder extends System.LoggerFinder {
      * Returns each message that a test recorded since the last call of
      * {@link #clear()}, oldest first.
      */
-    static Deque<String> messages() {
+    public static Deque<String> messages() {
         return MESSAGES;
     }
 
     /** Empties the recorded messages, before one test runs. */
-    static void clear() {
+    public static void clear() {
         MESSAGES.clear();
     }
 

@@ -49,6 +49,19 @@ class InMemoryEventLogStoreTest {
     }
 
     @Test
+    void estimatedEventCountReflectsTheStoredEventCount() {
+        // Issue #34: an app can use this store as a cheap EventCountEstimator
+        // for a test of the event cap guard, with no MongoDB dependency.
+        InMemoryEventLogStore store = new InMemoryEventLogStore();
+        assertEquals(0, store.estimatedEventCount());
+
+        IngestEvent event = new IngestEvent("3fa85f64-5717-4562-b3fc-2c963f66afa6", "checkout.save", FIXED_INSTANT);
+        store.append(List.of(event, event, event), "user-1");
+
+        assertEquals(3, store.estimatedEventCount());
+    }
+
+    @Test
     void deleteByUserIdRemovesOnlyTheMatchingEvents() {
         InMemoryEventLogStore store = new InMemoryEventLogStore();
         IngestEvent event = new IngestEvent("3fa85f64-5717-4562-b3fc-2c963f66afa6", "checkout.save", FIXED_INSTANT);

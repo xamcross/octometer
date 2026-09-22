@@ -9,6 +9,8 @@ import com.mongodb.client.model.Indexes;
 import com.mongodb.client.model.InsertManyOptions;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -16,6 +18,8 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import octometer.kit.core.ingest.IngestEvent;
+import octometer.kit.core.store.EventCapGuard;
+import octometer.kit.core.store.EventCountEstimator;
 import octometer.kit.core.store.EventLogStore;
 import org.bson.Document;
 
@@ -67,16 +71,36 @@ import org.bson.Document;
  *
  * <p>{@link #deleteByUserId} does not yet delete an event; issue #35 adds
  * that behavior.
+ *
+ * <p>{@link #append} drops the whole batch above the event cap of design
+ * decision D21 (contract rule C19, issue #34): the environment variable
+ * {@code OCTOMETER_MAX_EVENTS} (default 200000). The store reads
+ * {@link #estimatedEventCount()} through an {@link EventCapGuard}, which
+ * caches the value for 60 seconds, so this class never runs a count
+ * query on each request. A dropped batch throws no exception; the caller
+ * (the ingest route) then answers 204, the same answer as a stored batch
+ * (contract rule C19). The store writes one warning for each 60-minute
+ * span, never one for each dropped batch, and the warning holds no user
+ * id, no client address, and no session id (design decision D15).
  */
-public final class MongoEventLogStore implements EventLogStore {
+public final class MongoEventLogStore implements EventLogStore, EventCountEstimator {
 
     /** The collection name of contract rule C1. */
     public static final String COLLECTION_NAME = "octometer_events";
 
     private static final String OCTOMETER_RETENTION_DAYS = "OCTOMETER_RETENTION_DAYS";
+    private static final String OCTOMETER_MAX_EVENTS = "OCTOMETER_MAX_EVENTS";
     private static final String TTL_INDEX_NAME = "ts_ttl";
     private static final int DEFAULT_RETENTION_DAYS = 30;
+    private static final long DEFAULT_MAX_EVENTS = 200_000;
     private static final int INDEX_OPTIONS_CONFLICT_ERROR_CODE = 85;
+
+    /**
+     * The refresh interval of the event cap cache (design decision D21,
+     * issue #34). The store reads {@link #estimatedEventCount()} at most
+     * one time in this interval.
+     */
+    private static final Duration EVENT_CAP_REFRESH_INTERVAL = Duration.ofSeconds(60);
 
     /**
      * The largest retention that the TTL index field of the server
@@ -86,34 +110,60 @@ public final class MongoEventLogStore implements EventLogStore {
      */
     private static final int MAX_RETENTION_DAYS = 24855;
 
-    /** Only an ASCII digit sets a retention. A Unicode digit does not. */
+    /** Only an ASCII digit sets a retention or a cap. A Unicode digit does not. */
     private static final Pattern ASCII_DIGITS = Pattern.compile("[0-9]+");
 
     private static final Logger LOGGER = System.getLogger("octometer.kit.mongo");
 
     private final MongoCollection<Document> collection;
+    private final EventCapGuard eventCapGuard;
 
     /**
      * Builds the store on the {@code octometer_events} collection of
      * {@code database}, and creates the TTL index with the retention of
-     * {@code OCTOMETER_RETENTION_DAYS}.
+     * {@code OCTOMETER_RETENTION_DAYS}. The event cap reads
+     * {@code OCTOMETER_MAX_EVENTS} and uses the system clock.
      */
     public MongoEventLogStore(MongoDatabase database) {
-        this(database, retentionDaysFromEnvironment());
+        this(database, retentionDaysFromEnvironment(), maxEventsFromEnvironment(), Clock.systemUTC());
     }
 
     /**
      * Builds the store with an explicit retention, with no read of the
-     * process environment. A test uses this constructor. The value of
-     * {@code retentionDays} must be 1 or more.
+     * process environment for the retention. The event cap still reads
+     * {@code OCTOMETER_MAX_EVENTS} and uses the system clock. A test uses
+     * this constructor. The value of {@code retentionDays} must be 1 or
+     * more.
      */
     MongoEventLogStore(MongoDatabase database, int retentionDays) {
+        this(database, retentionDays, maxEventsFromEnvironment(), Clock.systemUTC());
+    }
+
+    /**
+     * Builds the store with an explicit retention, an explicit event cap,
+     * and an injected clock, with no read of the process environment. A
+     * test of the event cap (issue #34) uses this constructor, with a
+     * fixed or a mutable clock. The value of {@code retentionDays} must
+     * be 1 or more; the value of {@code maxEvents} must be 1 or more.
+     */
+    MongoEventLogStore(MongoDatabase database, int retentionDays, long maxEvents, Clock clock) {
         Objects.requireNonNull(database, "database must not be null");
         if (retentionDays < 1) {
             throw new IllegalArgumentException("retentionDays must be 1 or more");
         }
         this.collection = database.getCollection(COLLECTION_NAME);
         ensureTtlIndex(database, retentionDays);
+        this.eventCapGuard = new EventCapGuard(maxEvents, EVENT_CAP_REFRESH_INTERVAL, clock, this);
+    }
+
+    /**
+     * The cheap event count of {@link EventCountEstimator} (design
+     * decision D21, issue #34). {@code estimatedDocumentCount()} reads
+     * collection metadata; it never scans every document.
+     */
+    @Override
+    public long estimatedEventCount() {
+        return collection.estimatedDocumentCount();
     }
 
     @Override
@@ -121,6 +171,10 @@ public final class MongoEventLogStore implements EventLogStore {
         Objects.requireNonNull(events, "events must not be null");
         if (events.isEmpty()) {
             throw new IllegalArgumentException("events must hold one event or more");
+        }
+        if (eventCapGuard.isOverCap()) {
+            eventCapGuard.warnDropOncePerHour();
+            return;
         }
         List<Document> documents = new ArrayList<>(events.size());
         for (IngestEvent event : events) {
@@ -276,6 +330,43 @@ public final class MongoEventLogStore implements EventLogStore {
         LOGGER.log(Level.WARNING, OCTOMETER_RETENTION_DAYS + " holds a value that is not a positive "
                 + "whole number of ASCII digits. The store uses the default of 30 days.");
         return DEFAULT_RETENTION_DAYS;
+    }
+
+    /**
+     * Reads {@code OCTOMETER_MAX_EVENTS} from the process environment,
+     * then builds the cap with {@link #maxEventsFromValue}.
+     */
+    private static long maxEventsFromEnvironment() {
+        return maxEventsFromValue(System.getenv(OCTOMETER_MAX_EVENTS));
+    }
+
+    /**
+     * Turns the raw text of {@code OCTOMETER_MAX_EVENTS} into the event
+     * cap (design decision D21, issue #34). A {@code null} value gives
+     * the default of 200000, with no warning. A value that holds a
+     * character other than an ASCII digit, or that is not a positive
+     * whole number, also gives the default, with one warning; the
+     * warning names the variable and never repeats the value.
+     */
+    static long maxEventsFromValue(String rawValue) {
+        if (rawValue == null) {
+            return DEFAULT_MAX_EVENTS;
+        }
+        String trimmed = rawValue.trim();
+        if (ASCII_DIGITS.matcher(trimmed).matches()) {
+            try {
+                long maxEvents = Long.parseLong(trimmed);
+                if (maxEvents > 0) {
+                    return maxEvents;
+                }
+            } catch (NumberFormatException e) {
+                // A text of only ASCII digits can still overflow a long.
+                // The warning below covers this case too.
+            }
+        }
+        LOGGER.log(Level.WARNING, OCTOMETER_MAX_EVENTS + " holds a value that is not a positive "
+                + "whole number of ASCII digits. The store uses the default of 200000 events.");
+        return DEFAULT_MAX_EVENTS;
     }
 
     private static int clampRetentionDays(int retentionDays) {

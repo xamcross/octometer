@@ -13,8 +13,13 @@ import octometer.kit.core.ingest.IngestEvent;
  * <p>Use this store only in a test and in a demo. It holds each event in
  * the heap, with no size limit, and it loses each event at a restart. An
  * app in production uses the MongoDB store of issue #11.
+ *
+ * <p>This store also implements {@link EventCountEstimator} (issue #34),
+ * so a test of {@link EventCapGuard} can use it with no MongoDB
+ * dependency. {@link #estimatedEventCount()} walks the whole queue; that
+ * cost is fine for a test and a demo store, never for production.
  */
-public final class InMemoryEventLogStore implements EventLogStore {
+public final class InMemoryEventLogStore implements EventLogStore, EventCountEstimator {
 
     private final ConcurrentLinkedQueue<StoredEvent> storedEvents = new ConcurrentLinkedQueue<>();
 
@@ -47,5 +52,15 @@ public final class InMemoryEventLogStore implements EventLogStore {
      */
     public List<StoredEvent> events() {
         return List.copyOf(storedEvents);
+    }
+
+    /**
+     * Returns the exact count of each stored event (issue #34). This
+     * store gives an exact value, not a real estimate, because it holds
+     * every event in the heap already.
+     */
+    @Override
+    public long estimatedEventCount() {
+        return storedEvents.size();
     }
 }
