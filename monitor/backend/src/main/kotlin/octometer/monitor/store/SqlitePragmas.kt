@@ -11,10 +11,15 @@ private const val JOURNAL_MODE_PRAGMA = "PRAGMA journal_mode=WAL"
  */
 object SqlitePragmas {
 
+    // Correction round 1 of issue #59, decision 7: the retention purge sets
+    // busy_timeout to 0 around one checkpoint call, then restores this
+    // value. The two places share one constant, so they never drift apart.
+    const val DEFAULT_BUSY_TIMEOUT_MILLIS: Int = 5000
+
     val statements: List<String> = listOf(
         JOURNAL_MODE_PRAGMA,
         "PRAGMA synchronous=NORMAL",
-        "PRAGMA busy_timeout=5000",
+        "PRAGMA busy_timeout=$DEFAULT_BUSY_TIMEOUT_MILLIS",
         "PRAGMA foreign_keys=ON",
         "PRAGMA secure_delete=ON",
         "PRAGMA temp_store=MEMORY",
