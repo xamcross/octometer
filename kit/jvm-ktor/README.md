@@ -64,6 +64,46 @@ the key, design decision D43).
 
 A run of whitespace separates each route pattern of `OCTOMETER_PATH_PATTERNS` (a space, a tab, or a line break).
 
+## The daily anonymous caps and the bot filter
+
+`octometerIngestRoute` applies two more limits of design decision D43
+(issue #117), on top of the per-minute rate limit above.
+
+`OCTOMETER_MAX_ANON_EVENTS_PER_DAY` (default 20000) and
+`OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY` (default 2000) cap the
+anonymous events of one day, one global counter and one counter for
+each key (`kit/jvm-core` README.md holds the full state). Only a
+request with no user id, with `OCTOMETER_RECORD_ANONYMOUS=true`, pays
+this check. A batch above either cap drops in full and answers 204.
+
+The route also drops a batch when the `User-Agent` header value
+matches `bot|crawl|spider|slurp|headless|preview|monitor|
+Go-http-client|python-requests|curl`, in any letter case (design
+decision D43). This check applies to each request, signed in or not.
+It answers 204 with one DEBUG log line, and it never stores the header
+value. An absent header passes.
+
+## The order of the checks
+
+`octometerIngestRoute` runs each check of one request in this order,
+and it stops at the first one that answers (design decision D43, issue
+#117; see the KDoc of `octometerIngestRoute` for the full detail):
+
+1. the `Content-Type` header (415);
+2. the body size (400);
+3. the bot filter (204, before the parse);
+4. the parse of the body (400);
+5. the rate limit of design decision D20 (429);
+6. the design decision D19 drop (a request with no user id, with
+   anonymous recording off, stores nothing);
+7. the daily anonymous caps (204), for a request with no user id and
+   with anonymous recording on;
+8. the store, with the event cap of design decision D21 inside it.
+
+A success and each of the three drops above (the bot filter, a daily
+cap, and the event cap) all answer 204 with an empty body, so a client
+learns nothing about the reason (contract rule C19).
+
 ## The store dispatcher
 
 `octometerIngestRoute` runs the store call inside a dispatcher (design
