@@ -18,9 +18,54 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      jvm: ${{ steps.filter.outputs.jvm }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      tracker: ${{ steps.filter.outputs.tracker }}
+      ci: ${{ steps.filter.outputs.ci }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Issue #177, step 3. This filter picks the test job of each changed
+      # module. A path that fits more than one filter stays in each filter
+      # it fits. A doubtful path goes into the "jvm" filter: a run too many
+      # costs less than a missed test (the owner's decision).
+      - name: Detect the changed paths
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            jvm:
+              - 'kit/jvm-*/**'
+              - 'monitor/backend/**'
+              - 'tools/demo-app/**'
+              - 'kit/tracker/**'
+              - 'gradle/**'
+              - '*.gradle.kts'
+              - 'gradle.properties'
+              - 'gradlew*'
+            frontend:
+              - 'monitor/frontend/**'
+            tracker:
+              - 'kit/tracker/**'
+            ci:
+              - '.github/**'
+
   jvm:
     name: JVM modules
-    if: github.event_name != 'schedule'
+    needs: changes
+    if: |
+      github.event_name != 'schedule' &&
+      (needs.changes.outputs.jvm == 'true' || needs.changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -35,6 +80,11 @@ jobs:
           java-version: '21'
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          # cache-read-only: issue #177, step 2. Only the "main" branch
+          # writes new cache entries. Source: docs/setup-gradle.md of
+          # gradle/actions v6.3.0, section "Using the cache read-only".
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Set up Node for the demo app tracker build
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -61,7 +111,10 @@ jobs:
 
   monitor-windows:
     name: Monitor backend on Windows
-    if: github.event_name != 'schedule'
+    needs: changes
+    if: |
+      github.event_name != 'schedule' &&
+      (needs.changes.outputs.jvm == 'true' || needs.changes.outputs.ci == 'true')
     runs-on: windows-latest
     timeout-minutes: 15
     defaults:
@@ -79,6 +132,9 @@ jobs:
           java-version: '21'
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          # cache-read-only: same source and rule as the "jvm" job above.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Test the monitor backend
         run: ./gradlew :monitor:backend:test
       - name: Keep the test report
@@ -90,7 +146,10 @@ jobs:
 
   frontend:
     name: Frontend
-    if: github.event_name != 'schedule'
+    needs: changes
+    if: |
+      github.event_name != 'schedule' &&
+      (needs.changes.outputs.frontend == 'true' || needs.changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -120,7 +179,10 @@ jobs:
 
   tracker:
     name: Tracker
-    if: github.event_name != 'schedule'
+    needs: changes
+    if: |
+      github.event_name != 'schedule' &&
+      (needs.changes.outputs.tracker == 'true' || needs.changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
