@@ -3,8 +3,8 @@ package octometer.monitor.retention
 import java.time.Clock
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import octometer.monitor.store.DEFAULT_BUSY_TIMEOUT_MILLIS
 import octometer.monitor.store.SqliteDatabase
-import octometer.monitor.store.SqlitePragmas
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("octometer.monitor.retention.RetentionPurge")
@@ -36,7 +36,7 @@ private const val DELETE_BATCH_SQL = """
 
 private const val CHECKPOINT_SQL = "PRAGMA wal_checkpoint(TRUNCATE)"
 private const val NO_WAIT_SQL = "PRAGMA busy_timeout=0"
-private const val RESTORE_BUSY_TIMEOUT_SQL = "PRAGMA busy_timeout=${SqlitePragmas.DEFAULT_BUSY_TIMEOUT_MILLIS}"
+private const val RESTORE_BUSY_TIMEOUT_SQL = "PRAGMA busy_timeout=$DEFAULT_BUSY_TIMEOUT_MILLIS"
 
 /**
  * The purge function of issue #59, steps 2 and 3 (D15). One call to

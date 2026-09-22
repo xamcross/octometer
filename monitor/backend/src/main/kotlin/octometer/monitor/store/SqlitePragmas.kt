@@ -18,11 +18,6 @@ const val DEFAULT_BUSY_TIMEOUT_MILLIS = 5000
  */
 object SqlitePragmas {
 
-    // Correction round 1 of issue #59, decision 7: the retention purge sets
-    // busy_timeout to 0 around one checkpoint call, then restores this
-    // value. The two places share one constant, so they never drift apart.
-    const val DEFAULT_BUSY_TIMEOUT_MILLIS: Int = 5000
-
     val statements: List<String> = listOf(
         JOURNAL_MODE_PRAGMA,
         "PRAGMA synchronous=NORMAL",
