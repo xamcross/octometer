@@ -1,8 +1,8 @@
 package octometer.monitor.poll
 
-import java.sql.Connection
 import java.time.Clock
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -13,17 +13,20 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import octometer.monitor.mongo.MongoReadFailedException
 import octometer.monitor.mongo.PollOutcome
 import octometer.monitor.mongo.PollTarget
 import octometer.monitor.registry.SecretStore
-import octometer.monitor.store.SqliteDatabase
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("octometer.monitor.poll.PollScheduler")
 
 /** The tick interval of design decision D6: one second. */
 private const val DEFAULT_TICK_INTERVAL_MILLIS = 1_000L
+
+/** The bound of [PollScheduler.stop] (issue #17, decision 2): 10 seconds. */
+private const val DEFAULT_STOP_GRACE_MILLIS = 10_000L
 
 /**
  * One poll cycle of one app (issue #17, decision 2). The production
@@ -33,15 +36,6 @@ private const val DEFAULT_TICK_INTERVAL_MILLIS = 1_000L
 fun interface PollCycle {
     suspend fun run(target: PollTarget, connectionString: String): PollOutcome
 }
-
-/** One row of the app table, read at one tick (issue #17, decision 5). */
-private data class AppRow(
-    val appId: Long,
-    val database: String,
-    val collection: String,
-    val cursor: String?,
-    val nextPollAt: Long?,
-)
 
 /**
  * The poll scheduler of design decision D6 and issue #17. One tick loop
@@ -59,17 +53,22 @@ private data class AppRow(
  * [octometer.monitor.mongo.MongoAppReader.pollOnce] already holds the
  * one timeout of design decision D6, inside the injected [pollCycle].
  *
- * [next_poll_at] moves by [pollIntervalSeconds] after each cycle, on a
+ * `next_poll_at` moves by [pollIntervalSeconds] after each cycle, on a
  * success and on a failure alike (issue #17, decision 6). Issue #28
- * adds the backoff of a failed cycle, and issue #29 adds the wake rule
- * of a resumed process. Neither one is part of this class.
+ * adds the backoff of a failed cycle. Issue #29 adds the wake rule of a
+ * resumed process. Neither one is part of this class.
  *
  * Each epoch value of the `app` table, and of this class, is a count of
- * milliseconds since 1970, the unit of the column `created_at` and of
- * [PollTarget] (issue #17, decision 9).
+ * milliseconds since 1970. This is the unit of the column `created_at`
+ * and of [PollTarget] (issue #17, decision 9).
+ *
+ * [pollStore] is the store seam of decision 7 (Kotlin review, MAJOR 7).
+ * [SqlitePollStore] is the production value. A test gives an in-memory
+ * fake instead, so no test mixes virtual time with the real writer
+ * thread of `SqliteDatabase`.
  */
 class PollScheduler(
-    private val database: SqliteDatabase,
+    private val pollStore: PollStore,
     private val secretStore: SecretStore,
     private val pollCycle: PollCycle,
     private val closeClient: (Long) -> Unit,
@@ -77,6 +76,7 @@ class PollScheduler(
     dispatcher: CoroutineDispatcher,
     private val pollIntervalSeconds: Long,
     private val tickIntervalMillis: Long = DEFAULT_TICK_INTERVAL_MILLIS,
+    private val stopGraceMillis: Long = DEFAULT_STOP_GRACE_MILLIS,
 ) {
 
     private val supervisor = SupervisorJob()
@@ -101,29 +101,56 @@ class PollScheduler(
 
     /**
      * Stops the tick loop, so no new poll starts. It then waits for each
-     * poll that is still in progress, instead of a cancel of that poll,
-     * so a caller never sees a half-written cursor (issue #17, decision
-     * 1 and the acceptance test of a `close` call).
+     * poll that is still in progress. The wait has a bound of
+     * [stopGraceMillis] (issue #17, decision 2; MAJOR 1 of the security
+     * review).
+     *
+     * A poll that has not finished by that bound gets one cancel. A
+     * stuck MongoDB read can then never hold the stop call for ever.
+     *
+     * The scope of this scheduler then cancels too (MINOR 2 of the
+     * Kotlin review). No leftover job of it can start a new poll.
      */
     suspend fun stop() {
         loopJob?.cancelAndJoin()
-        activePolls.values.toList().forEach { it.join() }
+        val running = activePolls.values.toList()
+        val allJoinedInTime = withTimeoutOrNull(stopGraceMillis) {
+            running.forEach { it.join() }
+        }
+        if (allJoinedInTime == null) {
+            running.forEach { it.cancelAndJoin() }
+        }
+        supervisor.cancel()
     }
 
+    /**
+     * The tick loop. One failed tick logs one WARN and the loop goes on
+     * (issue #17, decision 1). A real cancellation of this coroutine
+     * still propagates, unchanged, so a `stop` call still ends the loop
+     * at once.
+     */
     private suspend fun loop() {
         while (currentCoroutineContext().isActive) {
-            tick()
+            try {
+                tick()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: Exception) {
+                log.warn("The poll tick failed. {}", failure.javaClass.simpleName)
+            }
             delay(tickIntervalMillis)
         }
     }
 
     /**
-     * Reads the app list in one `read { }` block (issue #17, decision
-     * 5), closes the client of each app that is gone since the last
-     * tick, and starts a poll for each due app with no active poll.
+     * Reads the app list (issue #17, decision 5). It then does two
+     * things:
+     * - It closes the client of each app that is gone since the last
+     *   tick.
+     * - It starts a poll for each due app with no active poll.
      */
     private suspend fun tick() {
-        val rows = database.read { reader -> readAppRows(reader) }
+        val rows = pollStore.readApps()
         val currentAppIds = rows.map { it.appId }.toSet()
         closeGoneClients(currentAppIds)
         knownAppIds = currentAppIds
@@ -153,34 +180,41 @@ class PollScheduler(
 
     /**
      * Starts one poll cycle as a child coroutine, so the tick loop goes
-     * on while the poll runs (issue #17, decision 6). The connection
-     * string of [row] comes from the secret store here, only for a due
-     * app, never at the read of the app list.
+     * on while the poll runs (issue #17, decision 6).
      */
     private fun startPoll(row: AppRow) {
         val target = PollTarget(row.appId, row.database, row.collection, row.cursor)
-        val job = scope.launch {
-            val connectionString = secretStore.get(row.appId)
-            if (connectionString == null) return@launch
-            runPollCycle(row.appId, target, connectionString)
-        }
+        val job = scope.launch { runPollCycle(row.appId, target) }
         activePolls[row.appId] = job
         job.invokeOnCompletion { activePolls.remove(row.appId, job) }
     }
 
     /**
-     * Runs one poll cycle, and records the result with one `write { }`
-     * block (issue #17, decision 6). A timeout of the cycle, or a failed
-     * MongoDB read, still moves `next_poll_at` by the interval, with no
-     * change of the cursor. Issue #28 adds the backoff of this case.
+     * Runs one poll cycle. It then records the result (issue #17,
+     * decision 6). The secret read sits inside this same try (issue
+     * #17, decision 1). An app with no stored secret gets one WARN,
+     * with no app id. Its `next_poll_at` still moves. The loop then
+     * reads the secret store once each interval, not once each second.
      *
-     * A real cancellation of the scheduler propagates unchanged: this
-     * catches [TimeoutCancellationException] and [MongoReadFailedException]
-     * only, never the plain [kotlinx.coroutines.CancellationException] of
-     * a `stop` call (lesson 2 of the backend brief).
+     * A timeout of the cycle, or a failed MongoDB read, still moves
+     * `next_poll_at` by the interval. The cursor never changes on that
+     * path. Issue #28 adds the backoff of this case.
+     *
+     * A real cancellation of the scheduler propagates unchanged. The
+     * guard below re-throws a plain [CancellationException] at once
+     * (lesson 2 of the backend brief). The last catch guards against
+     * each other exception, for example a SQLite failure of
+     * `EventStore.commitPage`. One bad cycle can then never leave this
+     * app stuck at its old `next_poll_at` for ever.
      */
-    private suspend fun runPollCycle(appId: Long, target: PollTarget, connectionString: String) {
+    private suspend fun runPollCycle(appId: Long, target: PollTarget) {
         try {
+            val connectionString = secretStore.get(appId)
+            if (connectionString == null) {
+                log.warn("The poll skipped one app with no stored secret.")
+                recordFailure(appId)
+                return
+            }
             val outcome = pollCycle.run(target, connectionString)
             recordSuccess(appId, outcome)
         } catch (timeout: TimeoutCancellationException) {
@@ -189,55 +223,38 @@ class PollScheduler(
         } catch (readFailure: MongoReadFailedException) {
             log.warn("The poll cycle failed. {}", readFailure.javaClass.simpleName)
             recordFailure(appId)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: Exception) {
+            log.warn("The poll cycle failed. {}", failure.javaClass.simpleName)
+            recordFailure(appId)
         }
     }
 
+    /**
+     * Writes a good outcome. A write failure here (for example a busy
+     * database) logs one WARN and stops there. It never reaches
+     * [runPollCycle]'s own catch-all, so it can never trigger a second
+     * write attempt of its own.
+     */
     private suspend fun recordSuccess(appId: Long, outcome: PollOutcome) {
         val nextPollAt = clock.millis() + pollIntervalSeconds * 1000
-        database.write { writer -> writeSuccess(writer, appId, nextPollAt, outcome.cursor) }
+        writeSafely { pollStore.writeResult(appId, nextPollAt, outcome.cursor) }
     }
 
+    /** Writes a failed outcome. See [recordSuccess] for the write-failure guard. */
     private suspend fun recordFailure(appId: Long) {
         val nextPollAt = clock.millis() + pollIntervalSeconds * 1000
-        database.write { writer -> writeFailure(writer, appId, nextPollAt) }
+        writeSafely { pollStore.recordFailure(appId, nextPollAt) }
     }
-}
 
-private fun readAppRows(reader: Connection): List<AppRow> =
-    reader.createStatement().use { statement ->
-        statement.executeQuery(
-            "SELECT id, database_name, collection_name, cursor, next_poll_at FROM app",
-        ).use { result ->
-            val rows = mutableListOf<AppRow>()
-            while (result.next()) {
-                val nextPollAt = result.getLong("next_poll_at").takeUnless { result.wasNull() }
-                rows += AppRow(
-                    appId = result.getLong("id"),
-                    database = result.getString("database_name"),
-                    collection = result.getString("collection_name"),
-                    cursor = result.getString("cursor"),
-                    nextPollAt = nextPollAt,
-                )
-            }
-            rows
+    private suspend fun writeSafely(write: suspend () -> Unit) {
+        try {
+            write()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: Exception) {
+            log.warn("The poll result write failed. {}", failure.javaClass.simpleName)
         }
-    }
-
-// A deleted app gives zero updated rows here, and this never throws for
-// that case (issue #17, decision 7).
-private fun writeSuccess(writer: Connection, appId: Long, nextPollAt: Long, cursor: String?) {
-    writer.prepareStatement("UPDATE app SET next_poll_at = ?, cursor = ? WHERE id = ?").use { update ->
-        update.setLong(1, nextPollAt)
-        update.setString(2, cursor)
-        update.setLong(3, appId)
-        update.executeUpdate()
-    }
-}
-
-private fun writeFailure(writer: Connection, appId: Long, nextPollAt: Long) {
-    writer.prepareStatement("UPDATE app SET next_poll_at = ? WHERE id = ?").use { update ->
-        update.setLong(1, nextPollAt)
-        update.setLong(2, appId)
-        update.executeUpdate()
     }
 }
