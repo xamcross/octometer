@@ -38,6 +38,16 @@ private const val SERVER_SELECTION_TIMEOUT_MS = 10_000L
 private const val MAX_IDLE_TIME_MS = 120_000L
 private const val APPLICATION_NAME = "octometer"
 
+/**
+ * The socket read timeout of issue #17, decision 3 (MAJOR 1 of the
+ * security review). With no read timeout, a host can accept the TCP
+ * connection and then stall a command, for example `hello`. That stall
+ * can hold a socket read for ever. The cycle timeout of
+ * [CYCLE_TIMEOUT_MILLIS] now wraps the whole cycle too, so the two
+ * bounds work together.
+ */
+private const val SOCKET_READ_TIMEOUT_MS = 30_000L
+
 /** The page size and the page count of section 4.3 and of step 5. */
 internal const val PAGE_LIMIT = 1000
 internal const val MAX_PAGES_PER_CYCLE = 10
@@ -134,8 +144,12 @@ class MongoAppReader(
 
     /**
      * Runs one poll cycle for [target], with the connection string
-     * [connectionString]. The page loop runs inside `withTimeout` of
-     * [cycleTimeoutMillis] milliseconds (design decision D6). A good
+     * [connectionString]. The whole cycle now runs inside one
+     * `withTimeout` of [cycleTimeoutMillis] milliseconds (issue #17,
+     * decision 3). That timeout covers the client open, the
+     * server-time read, and the page loop. An earlier form left the
+     * client open and the server-time read outside that timeout. A
+     * stalled `hello` command could then hold the poll for ever. A good
      * cycle then sets the status, `last_poll_at`, and `last_success_at`
      * of the app row (D5, D8, issue #27).
      *
@@ -144,21 +158,22 @@ class MongoAppReader(
      * `CancellationException` only to check whether it is real (lesson
      * 2 of the brief). It then throws the real one again unchanged.
      */
-    suspend fun pollOnce(target: PollTarget, connectionString: String): PollOutcome {
-        val database = openDatabase(target.appId, connectionString, target.database)
-        val bound = readBound(database)
-        val outcome = runCycleWithTimeout(target.appId, target.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { cursor ->
-            readPage(database, target.collection, cursor, bound, PAGE_LIMIT)
+    suspend fun pollOnce(target: PollTarget, connectionString: String): PollOutcome =
+        withTimeout(cycleTimeoutMillis) {
+            val database = openDatabase(target.appId, connectionString, target.database)
+            val bound = readBound(database)
+            val outcome = runCycle(target.appId, target.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { cursor ->
+                readPage(database, target.collection, cursor, bound, PAGE_LIMIT)
+            }
+            recordCycleSuccess(target.appId, outcome.eventsSkipped)
+            outcome
         }
-        recordCycleSuccess(target.appId, outcome.eventsSkipped)
-        return outcome
-    }
 
     /**
      * Records the status of a good cycle (issue #27, D5, D8). It runs
-     * only after [runCycleWithTimeout] returns with no throw. A failed
-     * cycle then changes none of the three columns of the app row this
-     * round (issue #28 adds the failure status).
+     * only after [runCycle] returns with no throw. A failed cycle then
+     * changes none of the three columns of the app row this round
+     * (issue #28 adds the failure status).
      */
     private suspend fun recordCycleSuccess(appId: Long, eventsSkipped: Int) {
         val status = if (eventsSkipped > 0) STATUS_INVALID_DATA else STATUS_OK
@@ -233,9 +248,13 @@ class MongoAppReader(
 
     /**
      * Wraps the page loop of step 5 (D4) inside `withTimeout` of
-     * [cycleTimeoutMillis] milliseconds (design decision D6). A test
-     * builds a reader with a small [cycleTimeoutMillis], to prove that
-     * a slow page source trips the timeout, with no long real wait.
+     * [cycleTimeoutMillis] milliseconds. [pollOnce] no longer calls this
+     * function (issue #17, decision 3). Its own `withTimeout` now covers
+     * the client open and the server-time read too, not the page loop
+     * alone. This function stays, for a direct test of the page-loop
+     * timeout, with no client and no Docker. A test builds a reader
+     * with a small [cycleTimeoutMillis]. It then proves that a slow
+     * page source trips the timeout, with no long real wait.
      */
     internal suspend fun runCycleWithTimeout(
         appId: Long,
@@ -314,7 +333,9 @@ class MongoAppReader(
      * other `CancellationException`, from inside the driver, becomes
      * [MongoReadFailedException], the same as each other exception.
      *
-     * One warn-level log line names the exception class only. The line
+     * One debug-level log line names the exception class only (issue
+     * #17, decision 4). The scheduler owns the one WARN line of a
+     * failed cycle; this line would double it otherwise. The line here
      * never holds the connection string, and never the server text of
      * the real cause.
      */
@@ -323,10 +344,10 @@ class MongoAppReader(
             block()
         } catch (cancellation: CancellationException) {
             if (!currentCoroutineContext().isActive) throw cancellation
-            log.warn("The MongoDB read failed. {}", cancellation.javaClass.simpleName)
+            log.debug("The MongoDB read failed. {}", cancellation.javaClass.simpleName)
             throw MongoReadFailedException(cancellation)
         } catch (failure: Exception) {
-            log.warn("The MongoDB read failed. {}", failure.javaClass.simpleName)
+            log.debug("The MongoDB read failed. {}", failure.javaClass.simpleName)
             throw MongoReadFailedException(failure)
         }
 }
@@ -462,6 +483,9 @@ private fun defaultMongoClient(connectionString: String): MongoClient {
         }
         .applyToClusterSettings { cluster ->
             cluster.serverSelectionTimeout(SERVER_SELECTION_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        }
+        .applyToSocketSettings { socket ->
+            socket.readTimeout(SOCKET_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         }
         .build()
     return MongoClient.create(settings)
