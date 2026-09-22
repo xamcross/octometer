@@ -1,3 +1,91 @@
 <h1 tabindex="-1">Users</h1>
 <app-refresh-bar />
-<p>This is a placeholder view for the user list of one app.</p>
+
+<form class="filter-form" (submit)="onFilterSubmit($event)">
+  <label for="user-filter">Filter by user id</label>
+  <input
+    id="user-filter"
+    name="q"
+    type="search"
+    autocomplete="off"
+    maxlength="200"
+    [value]="filterDraft()"
+    (input)="onFilterInput($event)"
+  />
+  <button type="submit">Filter</button>
+</form>
+
+@if (errorText(); as text) {
+  <p class="error-text" role="status">{{ text }}</p>
+}
+
+@if (store.data(); as page) {
+  @if (page.rows.length === 0) {
+    <p>
+      @if (qValue()) {
+        No user id matches "{{ qValue() }}".
+      } @else {
+        No app user has clicked yet.
+      }
+    </p>
+  } @else {
+    <div class="table-scroll" tabindex="0" role="region" aria-labelledby="users-caption">
+      <table>
+        <caption id="users-caption">
+          The users of this app, with the click totals of each user.
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">User</th>
+            <th scope="col" class="num">Clicks</th>
+            <th scope="col" class="num">Sessions</th>
+            <th scope="col" class="num">Unique elements</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of page.rows; track row.userId) {
+            <tr>
+              <th scope="row">
+                <a
+                  [routerLink]="['/apps', appId(), 'elements']"
+                  [queryParams]="rowQueryParams(row)"
+                >
+                  {{ row.userId === null ? '(anonymous)' : row.userId }}
+                </a>
+              </th>
+              <td class="num" (click)="onRowCellClick(row, $event)">
+                {{ formatCount(row.clicks) }}
+              </td>
+              <td class="num" (click)="onRowCellClick(row, $event)">
+                {{ formatCount(row.sessions) }}
+              </td>
+              <td class="num" (click)="onRowCellClick(row, $event)">
+                {{ formatCount(row.uniqueElements) }}
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="pager" aria-label="Pages of the user list">
+      <button
+        type="button"
+        (click)="onPreviousPage()"
+        [attr.aria-disabled]="currentPage() <= 1 ? 'true' : null"
+      >
+        Previous
+      </button>
+      <span aria-current="true">Page {{ currentPage() }} of {{ page.pageCount }}</span>
+      <button
+        type="button"
+        (click)="onNextPage()"
+        [attr.aria-disabled]="currentPage() >= page.pageCount ? 'true' : null"
+      >
+        Next
+      </button>
+    </nav>
+  }
+} @else {
+  <p>Octometer reads the user list.</p>
+}

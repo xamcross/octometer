@@ -1,0 +1,38 @@
+@if (!editing()) {
+  <button type="button" class="edit-toggle" #editToggle (click)="open()">Edit</button>
+} @else {
+  <form (submit)="onSubmit($event)">
+    <div class="field">
+      <label [for]="nameId">Name</label>
+      <input
+        [id]="nameId"
+        type="text"
+        required
+        [value]="name()"
+        (input)="onNameInput($event)"
+        #nameField
+      />
+    </div>
+
+    <div class="field">
+      <label [for]="connectionStringId">New connection string</label>
+      <input
+        [id]="connectionStringId"
+        type="password"
+        autocomplete="new-password"
+        [value]="connectionString()"
+        (input)="onConnectionStringInput($event)"
+        [attr.aria-describedby]="errorMessage() ? errorId : null"
+      />
+    </div>
+
+    @if (errorMessage(); as message) {
+      <p [id]="errorId" class="form-error">{{ message }}</p>
+    }
+
+    <div class="actions">
+      <button type="submit" [disabled]="pending()">Save</button>
+      <button type="button" class="cancel" (click)="cancel()">Cancel</button>
+    </div>
+  </form>
+}

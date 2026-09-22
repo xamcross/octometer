@@ -4,10 +4,10 @@ import {
   EMPTY,
   Observable,
   Subject,
+  Subscription,
   auditTime,
   catchError,
   distinctUntilChanged,
-  exhaustMap,
   fromEvent,
   map,
   merge,
@@ -28,6 +28,12 @@ export interface PollStore<T> {
   readonly lastSuccessAt: Signal<Date | undefined>;
   /** The error of the last failed request, or of a failed health request. */
   readonly error: Signal<unknown>;
+  /**
+   * The error of the last failed data request alone. Undefined before the
+   * first data request, and undefined while the health request fails (a
+   * caller reads `error` for that state, not `dataError`).
+   */
+  readonly dataError: Signal<unknown>;
   /** True while the user pauses the refresh. The "Pause refresh" button writes this signal. */
   readonly paused: WritableSignal<boolean>;
   /** True until the store gets its first answer, good or bad. */
@@ -35,9 +41,20 @@ export interface PollStore<T> {
   /**
    * Sends one request now. A caller uses this after it changes data on the
    * server. Call `refresh()` only from a user action. A pause must stop
-   * each automatic update.
+   * each automatic update. A manual request cancels an earlier manual
+   * request still in flight, and it does not wait for a scheduled request
+   * in flight (correction round 1 of pull request #159, MAJOR 3).
    */
   refresh(): void;
+  /**
+   * Clears `data`, `dataError`, and `firstLoadPending`, and marks each
+   * request in flight as stale. A stale request still fills its answer,
+   * but the store then ignores that answer (correction round 1 of pull
+   * request #159, MAJOR 2). A caller uses this before it points the store
+   * at a different target, for example a different `appId` of one reused
+   * component instance.
+   */
+  reset(): void;
 }
 
 /** Returns true while the document focus sits inside a table body. */
@@ -55,9 +72,17 @@ function isFocusInTbody(): boolean {
  * then it stops. A failed health request goes to the `error` signal,
  * until a good answer arrives.
  *
- * The store then polls `request` with `timer(0, ms)` and `exhaustMap`.
- * `exhaustMap` does not cancel a slow request. A failed request keeps the
+ * The store polls `request` with `timer(0, ms)`. A scheduled tick that
+ * arrives while a request is still in flight waits for the next tick, the
+ * same way `exhaustMap` does: it does not cancel a slow request, and it
+ * drops a tick that a slow request made stale. A failed request keeps the
  * old `data`, and it sets `error`.
+ *
+ * A call of `refresh()` never waits: it starts its own request at once,
+ * and it cancels a request already in flight, of either kind (correction
+ * round 1 of pull request #159, MAJOR 3). A caller of `reset()` also
+ * raises the generation of the store, so an answer of a request that
+ * started before the reset cannot reach `data` (MAJOR 2).
  *
  * The store sends no data poll while the health route fails. Issue #20
  * must show that state to the user.
@@ -80,6 +105,15 @@ export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
   const paused = inject(RefreshPauseState).paused;
   const firstLoadPending = signal(true);
   const manualRefresh$ = new Subject<void>();
+
+  /**
+   * The generation of the current target. `reset()` raises it. A request
+   * started under an older generation carries that generation with its
+   * answer, so the subscriber below can tell a stale answer from a fresh
+   * one, and ignore the stale one (correction round 1 of pull request
+   * #159, MAJOR 2).
+   */
+  let generation = 0;
 
   /**
    * The error of the last failed request. It reads the health error
@@ -119,33 +153,89 @@ export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
     switchMap((ms) => gateOpen$.pipe(switchMap((open) => (open ? timer(0, ms) : EMPTY)))),
   );
 
-  merge(scheduledTicks$, manualRefresh$)
-    .pipe(
-      exhaustMap(() =>
-        request().pipe(
+  /**
+   * The subscription of the request in flight, scheduled or manual. Null
+   * while no request is in flight.
+   */
+  let activeRequest: Subscription | null = null;
+
+  /**
+   * Starts one request. It first cancels a request already in flight, of
+   * either kind, so at most one request stays open at a time. A manual
+   * action then always sends its own request at once (MAJOR 3), and it
+   * also cancels an old app id's request in flight, so a late answer of
+   * that app can never reach `data` (MAJOR 2).
+   */
+  function startRequest(): void {
+    activeRequest?.unsubscribe();
+    const requestGeneration = generation;
+    // A synchronous request (for example `of(value)` in a test) answers
+    // before `subscribe()` below returns, so the callback needs its own
+    // reference to this request, ready before that call. An empty
+    // `Subscription` gives it one: the callback compares `activeRequest`
+    // against `wrapper`, and it clears `activeRequest` correctly either
+    // way, sync or async.
+    const wrapper = new Subscription();
+    activeRequest = wrapper;
+    wrapper.add(
+      request()
+        .pipe(
           map((value) => ({ ok: true as const, value })),
           catchError((requestError: unknown) => of({ ok: false as const, requestError })),
-        ),
-      ),
-      takeUntilDestroyed(destroyRef),
-    )
-    .subscribe((result) => {
-      firstLoadPending.set(false);
-      if (result.ok) {
-        data.set(result.value);
-        lastSuccessAt.set(new Date());
-        dataError.set(undefined);
-      } else {
-        dataError.set(result.requestError);
+          takeUntilDestroyed(destroyRef),
+        )
+        .subscribe((result) => {
+          if (activeRequest === wrapper) {
+            activeRequest = null;
+          }
+          // A reset between the start and the answer of this request
+          // raises the generation. The answer then belongs to a target
+          // the store no longer shows, so the store drops it here
+          // (MAJOR 2).
+          if (requestGeneration !== generation) {
+            return;
+          }
+          firstLoadPending.set(false);
+          if (result.ok) {
+            data.set(result.value);
+            lastSuccessAt.set(new Date());
+            dataError.set(undefined);
+          } else {
+            dataError.set(result.requestError);
+          }
+        }),
+    );
+  }
+
+  merge(
+    scheduledTicks$.pipe(map(() => ({ manual: false }))),
+    manualRefresh$.pipe(map(() => ({ manual: true }))),
+  )
+    .pipe(takeUntilDestroyed(destroyRef))
+    .subscribe(({ manual }) => {
+      // A scheduled tick that arrives while a request is in flight waits
+      // for the next tick, the same way exhaustMap does (D29). A manual
+      // action never waits: it starts its own request at once, and it
+      // cancels a request already in flight.
+      if (activeRequest !== null && !manual) {
+        return;
       }
+      startRequest();
     });
 
   return {
     data,
     lastSuccessAt,
     error,
+    dataError,
     paused,
     firstLoadPending,
     refresh: () => manualRefresh$.next(),
+    reset: () => {
+      generation++;
+      data.set(undefined);
+      dataError.set(undefined);
+      firstLoadPending.set(true);
+    },
   };
 }

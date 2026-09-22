@@ -1,5 +1,6 @@
 package octometer.kit.core.ingest;
 
+import octometer.kit.core.store.DeletionResult;
 import octometer.kit.core.store.EventLogStore;
 import octometer.kit.core.store.InMemoryEventLogStore;
 import octometer.kit.core.store.StoredEvent;
@@ -151,7 +152,7 @@ class IngestPipelineIngestTest {
             }
 
             @Override
-            public void deleteByUserId(String userId) {
+            public DeletionResult deleteByUserId(String userId) {
                 throw new UnsupportedOperationException();
             }
         };
@@ -174,7 +175,7 @@ class IngestPipelineIngestTest {
             }
 
             @Override
-            public void deleteByUserId(String userId) {
+            public DeletionResult deleteByUserId(String userId) {
                 throw new UnsupportedOperationException();
             }
         };
