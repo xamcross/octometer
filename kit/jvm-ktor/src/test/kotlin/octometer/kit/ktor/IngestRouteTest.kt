@@ -56,6 +56,7 @@ import kotlinx.coroutines.withTimeout
 import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestSettings
+import octometer.kit.core.path.PathPatternMatcher
 import octometer.kit.core.store.DeletionResult
 import octometer.kit.core.store.EventLogStore
 import octometer.kit.core.store.InMemoryEventLogStore
@@ -110,6 +111,52 @@ class IngestRouteTest {
         assertEquals(1, stored.size)
         assertEquals("checkout.save", stored[0].element())
         assertEquals("user-1", stored[0].userId())
+    }
+
+    // The two tests below prove the route seam of contract rule C42
+    // (issue #104): octometerIngestRoute passes settings, and so the
+    // path pattern matcher, straight to IngestPipeline.ingest. The Java
+    // review of pull request #156 found that no earlier test of this
+    // module read a stored path value.
+
+    private val pathBody = """{"sessionId":"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11",""" +
+        """"clicks":[{"element":"checkout.save","ageMs":1200,"path":"/history/42"}]}"""
+
+    @Test
+    fun `a route with a path pattern matcher stores the match result`() = testApplication {
+        val store = InMemoryEventLogStore()
+        val matcher = PathPatternMatcher.of(listOf("/", "/articles", "/articles/*", "/history/:id"))
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true, matcher)) { "user-1" }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(pathBody)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertEquals("/history/:id", store.events()[0].path())
+    }
+
+    @Test
+    fun `a route with no path pattern list stores no path`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(pathBody)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertNull(store.events()[0].path())
     }
 
     @Test

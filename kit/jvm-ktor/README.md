@@ -16,6 +16,11 @@ route of design section 4.2 with one function, `octometerIngestRoute`.
   1.6 is no longer supported", and version 2.0 compiles with a
   deprecation warning only ("Update the version to 2.2"). An app on
   Kotlin 2.0, 2.1, or 2.2 can read the class files of this module.
+  `kit/jvm-ktor/build.gradle.kts` also sets `coreLibrariesVersion =
+  "2.0.0"`, so the published POM names `kotlin-stdlib:2.0.0`, and not the
+  compiler's own 2.4.20. Without this setting, an app on Kotlin 2.0, 2.1,
+  or 2.2 would fail to compile with a metadata version error (PR #155,
+  the JitPack review of issue #37).
 - **Ktor 3.2.0.** Ktor is a `compileOnly` dependency (design decision
   D17), thus the app brings its own Ktor 3 version. This module reads the
   request body with `ByteReadChannel.readRemaining(Long)`, because
@@ -27,6 +32,10 @@ route of design section 4.2 with one function, `octometerIngestRoute`.
   3.2.0 on 2026-09-22, as a temporary local check (not a committed
   dependency change); `./gradlew :kit:jvm-ktor:test` gave `BUILD
   SUCCESSFUL`.
+
+## OCTOMETER_PATH_PATTERNS
+
+A run of whitespace separates each route pattern of `OCTOMETER_PATH_PATTERNS` (a space, a tab, or a line break).
 
 ## The store dispatcher
 
