@@ -30,10 +30,12 @@ import org.bson.conversions.Bson;
  * concern of the monitor. An app gives the {@link MongoDatabase}; the kit
  * never creates a client.
  *
- * <p>Each stored document holds exactly the fields of design section 4.1:
- * {@code _id}, {@code ts}, {@code element}, {@code sessionId}, and {@code
- * userId}. The store builds the document with {@link Document}, so it
- * never adds a {@code _class} field (contract rule C11).
+ * <p>Each stored document holds the fields of design section 4.1: {@code
+ * _id}, {@code ts}, {@code element}, {@code sessionId}, and {@code
+ * userId}. It also holds {@code path} and {@code referrerHost} when the
+ * event record holds them (issue #105). The store adds no key with a
+ * {@code null} value. The store builds the document with {@link
+ * Document}, so it never adds a {@code _class} field (contract rule C11).
  *
  * <p>The store creates a TTL index on {@code ts} at start, from the
  * environment variable {@code OCTOMETER_RETENTION_DAYS} (default 30 days,
@@ -214,12 +216,27 @@ public final class MongoEventLogStore implements EventLogStore {
         return result.getDeletedCount();
     }
 
+    /**
+     * Builds the stored document of design section 4.1. The document holds
+     * {@code path} only when {@code event.path()} is not {@code null}, and
+     * it holds {@code referrerHost} only when {@code event.referrerHost()}
+     * is not {@code null} (issue #105). The store writes each value as it
+     * is. It reads no other source for either field. It applies no rule
+     * of its own.
+     */
     private static Document toDocument(IngestEvent event, String userId) {
-        return new Document()
+        Document document = new Document()
                 .append("ts", Date.from(event.ts()))
                 .append("element", event.element())
                 .append("sessionId", event.sessionId())
                 .append("userId", userId);
+        if (event.path() != null) {
+            document.append("path", event.path());
+        }
+        if (event.referrerHost() != null) {
+            document.append("referrerHost", event.referrerHost());
+        }
+        return document;
     }
 
     private void ensureTtlIndex(MongoDatabase database, int retentionDays) {

@@ -30,7 +30,7 @@ public interface EventLogStore {
      * <p>A store reads the list. It never changes the list, and it
      * never keeps a reference to the list after the call.
      *
-     * <p><strong>A store must not write {@link IngestEvent#path()}.</strong>
+     * <p><strong>A store writes {@link IngestEvent#path()} as it is.</strong>
      * That component holds only the match result of rules C39 and C42,
      * never the raw client path. This module has no route pattern list
      * yet, so the value is always {@code null} today. Rule C39 says the
