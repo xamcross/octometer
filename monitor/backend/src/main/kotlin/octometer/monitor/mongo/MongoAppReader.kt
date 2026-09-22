@@ -5,6 +5,7 @@ import com.mongodb.MongoClientSettings
 import com.mongodb.ReadPreference
 import com.mongodb.kotlin.client.coroutine.MongoClient
 import com.mongodb.kotlin.client.coroutine.MongoDatabase
+import java.security.MessageDigest
 import java.time.Clock
 import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
@@ -98,13 +99,34 @@ data class PollOutcome(
 )
 
 /**
- * The kept client of one app id, with the connection string that built it
- * (design decision D10, issue #21). [MongoAppReader.clientFor] compares
- * [connectionString] on each cycle, so a changed value closes the old
- * client and builds a fresh one, and a PATCH of the connection string
- * takes effect at the next poll cycle.
+ * The kept client of one app id, with the SHA-256 hex of the connection
+ * string that built it (design decision D10, issue #21). This class never
+ * holds the connection string itself: design decision D11 forbids a
+ * connection string in a field of the reader (BLOCKER 1, security review
+ * of issue #16). [MongoAppReader.clientFor] compares [connectionStringHash]
+ * on each cycle, so a changed value closes the old client and builds a
+ * fresh one, and a PATCH of the connection string takes effect at the
+ * next poll cycle.
  */
-private data class CachedClient(val connectionString: String, val client: MongoClient)
+private data class CachedClient(val connectionStringHash: String, val client: MongoClient)
+
+/**
+ * The SHA-256 hex text of [text] (the form of [octometer.monitor.mongo]'s
+ * client cache key, the same rule as the long-key hash of the ingest rate
+ * limiter, issue #33). Every JDK 21 runtime provides SHA-256 (the Java
+ * Cryptography Architecture standard algorithm list), so this never
+ * throws in practice.
+ */
+private fun sha256Hex(text: String): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val hash = digest.digest(text.toByteArray(Charsets.UTF_8))
+    val hex = StringBuilder(hash.size * 2)
+    for (byte in hash) {
+        hex.append(Character.forDigit((byte.toInt() shr 4) and 0xF, 16))
+        hex.append(Character.forDigit(byte.toInt() and 0xF, 16))
+    }
+    return hex.toString()
+}
 
 /**
  * The MongoDB event reader of issue #16 (design decisions D4, D10, and
@@ -222,26 +244,37 @@ class MongoAppReader(
 
     /**
      * Gives the kept client of [appId], or builds a fresh one (design
-     * decision D10, issue #21). A kept client with the same connection
+     * decision D10, issue #21). A kept client of the same connection
      * string stays; each cycle then pays no new connect cost. A kept
-     * client with a different connection string closes at once, and a
+     * client of a different connection string closes at once, and a
      * fresh client of the new string takes its place, so the next cycle
      * after a PATCH of the connection string reads the new source.
+     *
+     * This method compares [connectionString] by its SHA-256 hex only
+     * ([sha256Hex]), never by the string itself (design decision D11,
+     * BLOCKER 1 of the security review of issue #16). [connectionString]
+     * sits in one local variable, and in the closure of the one
+     * [ConcurrentHashMap.compute] call below; the JVM garbage collector
+     * reclaims that closure once this method returns, so no string of
+     * this call survives inside a field of [MongoAppReader] or of
+     * [CachedClient] afterward.
      *
      * [PollScheduler] never starts two polls of the same app id at the
      * same time (its own `activePolls` guard), so this method never
      * runs twice for one [appId] at once; the plain read-and-replace of
      * [ConcurrentHashMap.compute] needs no further lock.
      */
-    private fun clientFor(appId: Long, connectionString: String): MongoClient =
-        clients.compute(appId) { _, cached ->
-            if (cached != null && cached.connectionString == connectionString) {
+    internal fun clientFor(appId: Long, connectionString: String): MongoClient {
+        val hash = sha256Hex(connectionString)
+        return clients.compute(appId) { _, cached ->
+            if (cached != null && cached.connectionStringHash == hash) {
                 cached
             } else {
                 cached?.client?.close()
-                CachedClient(connectionString, clientFactory(connectionString))
+                CachedClient(hash, clientFactory(connectionString))
             }
         }!!.client
+    }
 
     private suspend fun readBound(database: MongoDatabase): ObjectId =
         withMongoFailure {

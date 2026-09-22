@@ -45,6 +45,11 @@ dependencies {
     testImplementation(libs.logback.classic)
     // Issue #17: the virtual-time tests of the poll scheduler.
     testImplementation(libs.kotlinx.coroutines.test)
+    // Issue #21: a Docker-free unit test of the reader's client cache
+    // needs a double of the final class MongoClient. Mockito 5 mocks a
+    // final class with no extra mock maker file (the inline mock maker
+    // is its default since 5.0.0).
+    testImplementation(libs.mockito.core)
 
     // Issue #16: the container test of MongoAppReader needs the full
     // JUnit Jupiter engine and the Testcontainers MongoDB module.

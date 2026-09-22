@@ -1,6 +1,7 @@
 package octometer.monitor.mongo
 
 import ch.qos.logback.classic.Level
+import com.mongodb.kotlin.client.coroutine.MongoClient
 import java.io.File
 import java.nio.file.Files
 import java.util.Date
@@ -14,6 +15,9 @@ import octometer.monitor.store.EventStore
 import octometer.monitor.store.SqliteDatabase
 import org.bson.Document
 import org.bson.types.ObjectId
+import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
+import org.mockito.Mockito.verify
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -454,6 +458,110 @@ class MongoAppReaderUnitTest {
         }.exceptionOrNull()
 
         assertTrue(failure is TimeoutCancellationException, "A page source slower than the cycle timeout must throw. Got $failure.")
+    }
+
+    // --- The client cache of clientFor (design decision D10, issue #21) ---
+    //
+    // These tests call clientFor directly, marked internal for this
+    // purpose (the same rule as runCycle, idFilter, and boundObjectId
+    // above). pollOnce also calls the hello command and the find
+    // command of a real MongoDatabase; a Mockito double of that chain
+    // would prove nothing beyond what clientFor already proves on its
+    // own, at the cost of a large, fragile stub of the driver. Mockito
+    // mocks MongoClient directly: it is a final class, but Mockito 5
+    // mocks a final class with no extra mock maker file (its inline
+    // mock maker is the default since 5.0.0).
+
+    @Test
+    fun `clientFor gives the same client back when the connection string is unchanged`() {
+        val client = mock(MongoClient::class.java)
+        var factoryCalls = 0
+        val cachingReader = MongoAppReader(eventStore, settleLagSeconds = 1, clientFactory = { _ ->
+            factoryCalls += 1
+            client
+        })
+
+        val first = cachingReader.clientFor(appId, "mongodb://host-a:27017/exampledb")
+        val second = cachingReader.clientFor(appId, "mongodb://host-a:27017/exampledb")
+
+        assertEquals(1, factoryCalls, "The same connection string must build the client only one time.")
+        assertTrue(first === second, "clientFor must give the kept client back, not a fresh one.")
+        verify(client, never()).close()
+        cachingReader.close()
+    }
+
+    // The acceptance proof of the maintainer's correction: two calls
+    // with two connection strings give two factory calls and one
+    // close() of the first client; a third call with the second string
+    // gives no new client (design decision D10).
+    @Test
+    fun `clientFor closes the old client on a changed connection string, and builds one client for each distinct string`() {
+        val firstClient = mock(MongoClient::class.java)
+        val secondClient = mock(MongoClient::class.java)
+        val builtClients = listOf(firstClient, secondClient)
+        var factoryCalls = 0
+        val cachingReader = MongoAppReader(eventStore, settleLagSeconds = 1, clientFactory = { _ ->
+            builtClients[factoryCalls].also { factoryCalls += 1 }
+        })
+
+        cachingReader.clientFor(appId, "mongodb://host-a:27017/exampledb")
+        cachingReader.clientFor(appId, "mongodb://host-b:27017/exampledb")
+        cachingReader.clientFor(appId, "mongodb://host-b:27017/exampledb")
+
+        assertEquals(
+            2,
+            factoryCalls,
+            "A changed connection string must build one fresh client; the repeat of the second string must reuse it.",
+        )
+        verify(firstClient).close()
+        verify(secondClient, never()).close()
+        cachingReader.close()
+    }
+
+    // Design decision D11 (BLOCKER 1 of the security review of issue
+    // #16): a connection string never sits in a field. This reads every
+    // declared field of the reader, and of each cached client entry,
+    // through reflection, and it asserts that no string field holds the
+    // marker of the connection string that clientFor just built a
+    // client from.
+    @Test
+    fun `no field of the reader or of a cached client entry holds the connection string after clientFor runs`() {
+        val marker = "octomarkerconnstringc9a2"
+        val markedConnectionString = "mongodb://$marker-host:27017/exampledb?tls=true"
+        val client = mock(MongoClient::class.java)
+        val reflectingReader = MongoAppReader(eventStore, settleLagSeconds = 1, clientFactory = { client })
+
+        reflectingReader.clientFor(appId, markedConnectionString)
+
+        assertNoMarkerField(reflectingReader, marker)
+        reflectingReader.close()
+    }
+
+    private fun assertNoMarkerField(reader: MongoAppReader, marker: String) {
+        for (field in reader.javaClass.declaredFields) {
+            field.isAccessible = true
+            val value = field.get(reader)
+            assertFieldHoldsNoMarker(field.name, value, marker)
+            if (value is Map<*, *>) {
+                for (entry in value.values) {
+                    if (entry == null) continue
+                    for (entryField in entry.javaClass.declaredFields) {
+                        entryField.isAccessible = true
+                        assertFieldHoldsNoMarker(
+                            "${field.name}.${entryField.name}",
+                            entryField.get(entry),
+                            marker,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun assertFieldHoldsNoMarker(fieldName: String, value: Any?, marker: String) {
+        if (value is String) {
+            assertFalse(value.contains(marker), "The field $fieldName must hold no connection string.")
+        }
     }
 
     private fun fakePage(pageIndex: Int, size: Int): List<Document> =

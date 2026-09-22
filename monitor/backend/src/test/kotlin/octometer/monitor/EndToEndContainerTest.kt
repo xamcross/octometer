@@ -79,12 +79,14 @@ import kotlin.test.assertTrue
  * connection string (design decision D10 asks for a close "after a
  * PATCH of the connection string"). This test found that gap: a PATCH
  * had no effect on the next poll cycle. `MongoAppReader.clientFor` now
- * compares the connection string on each cycle, and it closes the old
- * client and opens a fresh one when the string changed. This class
- * proved the gap once (a manual, temporary revert of that change, with
- * the assertion of the PATCH criterion failing with a clear message),
- * then proved the fix (the same assertion passing), before this file
- * reached the pull request.
+ * compares the connection string on each cycle, by its SHA-256 hex only
+ * (design decision D11 forbids a connection string in a field), and it
+ * closes the old client and opens a fresh one when the hash changed.
+ * This class proved the gap once (a manual, temporary revert of that
+ * change, with the assertion of the PATCH criterion failing with a
+ * clear message), then proved the fix (the same assertion passing),
+ * before this file reached the pull request. `MongoAppReaderUnitTest`
+ * holds the matching Docker-free unit tests of the cache itself.
  */
 @Testcontainers(disabledWithoutDocker = true)
 class EndToEndContainerTest {
