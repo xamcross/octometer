@@ -31,8 +31,8 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "jsdom": "^28.0.0",
+    "jsdom": "^30.1.0",
     "typescript": "~6.0.2",
-    "vitest": "^4.0.8"
+    "vitest": "^5.0.1"
   }
 }
