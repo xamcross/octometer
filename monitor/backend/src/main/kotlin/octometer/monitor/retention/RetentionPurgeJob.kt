@@ -8,11 +8,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("octometer.monitor.retention.RetentionPurgeJob")
@@ -21,6 +21,13 @@ private val log = LoggerFactory.getLogger("octometer.monitor.retention.Retention
 private const val PURGE_INTERVAL_MILLIS = 24L * 60 * 60 * 1000
 
 private const val THREAD_NAME = "octometer-retention-purge"
+
+// A bound on stop(), so a slow run (a slow disk, a full checkpoint) never
+// holds up the application stop event for long. MonitorServices.close()
+// runs this before it closes the database, and a Ktor test stop call
+// carries its own short timeout. A run that outlives this bound finishes
+// on its own; stop() moves on and closes the dispatcher regardless.
+private const val STOP_JOIN_TIMEOUT_MILLIS = 300L
 
 /**
  * The scheduled purge of issue #59, step 4 (D15). [start] runs [action]
@@ -55,11 +62,16 @@ class RetentionPurgeJob(
         }
     }
 
-    /** Cancels the run and closes the thread. Safe when [start] never ran. */
+    /**
+     * Cancels the run and closes the thread. Safe when [start] never ran.
+     * It waits a short time for the current run to end, then moves on
+     * regardless, so a slow run never holds up the caller for long.
+     */
     fun stop() {
         val currentJob = job
         if (currentJob != null) {
-            runBlocking { currentJob.cancelAndJoin() }
+            currentJob.cancel()
+            runBlocking { withTimeoutOrNull(STOP_JOIN_TIMEOUT_MILLIS) { currentJob.join() } }
         }
         scope.cancel()
         dispatcher.close()
