@@ -70,23 +70,37 @@ fun testDataDir(root: File): String {
 // A test that gives testDataDir() its nested "data" folder thus keeps its
 // backups inside the one registered root, never at the system temp root.
 
+// Correction round 1 of issue #59 (MAJOR 3, SQLite review): MonitorServices
+// now runs a retention purge at each open call, on the real clock. A large
+// default keeps each fixed test fixture. A test of the purge itself passes
+// its own small retentionDays.
+private const val LARGE_TEST_RETENTION_DAYS = 3_650_000
+
 /** The dev mode config of the tests, with the configured port 7431. */
-fun devConfig(dataDir: String = testDataDir(), backupDir: String = backupsDir(dataDir).absolutePath) = MonitorConfig(
+fun devConfig(
+    dataDir: String = testDataDir(),
+    backupDir: String = backupsDir(dataDir).absolutePath,
+    retentionDays: Int = LARGE_TEST_RETENTION_DAYS,
+) = MonitorConfig(
     mode = "dev",
     port = 7431,
     dataDir = dataDir,
     settleLagSeconds = 2,
-    retentionDays = 395,
+    retentionDays = retentionDays,
     backupDir = backupDir,
 )
 
 /** The prod mode config of the tests, with the configured port 7431. */
-fun prodConfig(dataDir: String = testDataDir(), backupDir: String = backupsDir(dataDir).absolutePath) = MonitorConfig(
+fun prodConfig(
+    dataDir: String = testDataDir(),
+    backupDir: String = backupsDir(dataDir).absolutePath,
+    retentionDays: Int = LARGE_TEST_RETENTION_DAYS,
+) = MonitorConfig(
     mode = "prod",
     port = 7431,
     dataDir = dataDir,
     settleLagSeconds = 60,
-    retentionDays = 395,
+    retentionDays = retentionDays,
     backupDir = backupDir,
 )
 

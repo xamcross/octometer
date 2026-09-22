@@ -2,6 +2,8 @@ package octometer.monitor
 
 import java.io.File
 import java.nio.file.Files
+import java.sql.DriverManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import octometer.monitor.registry.SecretStore
 import octometer.monitor.registry.allowlistedSrvUri
@@ -15,6 +17,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private const val WRITER_THREAD_NAME = "octometer-sqlite-writer"
+private const val PURGE_THREAD_NAME = "octometer-retention-purge"
 
 /**
  * MAJOR 4 of the security review: a secret whose app id has no app row
@@ -74,40 +77,196 @@ class MonitorServicesTest {
     // Throwable around the sweep. A database defect then only skipped
     // the sweep; it never stopped the start. open() must now let a
     // database defect reach the outer catch, close the store, and throw.
+    //
+    // Issue #59: the purge job now starts before the sweep runs, so this
+    // failure also proves that a throw in open() stops the purge job, not
+    // only the database. It leaves neither thread behind.
     @Test
-    fun `open throws and leaves no writer thread, when the app table is missing`() = runBlocking {
-        val baseline = awaitWriterThreadCount(0)
+    fun `open throws and leaves no writer thread and no purge thread, when the app table is missing`() =
+        runBlocking {
+            val writerBaseline = awaitThreadCount(WRITER_THREAD_NAME, 0)
+            val purgeBaseline = awaitThreadCount(PURGE_THREAD_NAME, 0)
+            val database = SqliteDatabase.open(dataDir)
+            try {
+                database.write { writer ->
+                    writer.createStatement().use { statement -> statement.execute("DROP TABLE app") }
+                }
+            } finally {
+                database.close()
+            }
+            val writerBefore = awaitThreadCount(WRITER_THREAD_NAME, writerBaseline)
+            val purgeBefore = awaitThreadCount(PURGE_THREAD_NAME, purgeBaseline)
+
+            assertFailsWith<SQLiteException> {
+                MonitorServices.open(prodConfig(dataDir = dataDir))
+            }
+
+            assertEquals(
+                writerBefore,
+                awaitThreadCount(WRITER_THREAD_NAME, writerBefore),
+                "a failed open must leave no writer thread",
+            )
+            assertEquals(
+                purgeBefore,
+                awaitThreadCount(PURGE_THREAD_NAME, purgeBefore),
+                "a failed open must leave no purge thread",
+            )
+        }
+
+    // Issue #59, step 4: open() starts the purge job, and close() stops it.
+    // The purge thread starts on its own coroutine, a short time after
+    // open() returns, not at once, so this polls for its arrival too, not
+    // only for its exit after close().
+    @Test
+    fun `open starts the purge thread, and close stops it`() = runBlocking {
+        val baseline = awaitThreadCount(PURGE_THREAD_NAME, 0)
+
+        val services = MonitorServices.open(prodConfig(dataDir = dataDir))
+        val duringOpen = awaitThreadCount(PURGE_THREAD_NAME, baseline + 1)
+
+        services.close()
+
+        assertEquals(baseline + 1, duringOpen, "open() starts exactly one purge thread")
+        assertEquals(
+            baseline,
+            awaitThreadCount(PURGE_THREAD_NAME, baseline),
+            "close() stops the purge thread",
+        )
+    }
+
+    // Correction round 1 of issue #59, decision 1: close() cancels the
+    // purge, then joins it, with no fixed time bound. A second raw
+    // connection holds an exclusive lock, so the first purge batch of
+    // 100 000 old rows blocks inside SQLite. close() then runs while
+    // that batch write is still in progress. The old 300 ms bound let
+    // close() return early, and a stray write then reached the closed
+    // connection after close() had already returned. This test asserts
+    // that no ERROR line comes after close() returns, that no thread
+    // stays, and that PRAGMA quick_check still answers "ok".
+    @Test
+    fun `close during a purge of 100 000 old rows ends without an exception, with no stale thread, and quick_check gives ok`() =
+        runBlocking {
+            seedOldEventRows(100_000)
+            val writerBaseline = awaitThreadCount(WRITER_THREAD_NAME, 0)
+            val purgeBaseline = awaitThreadCount(PURGE_THREAD_NAME, 0)
+
+            val dbFile = File(dataDir, "octometer.db")
+            val lockConnection = DriverManager.getConnection("jdbc:sqlite:" + dbFile.absolutePath)
+            lockConnection.createStatement().use { it.execute("BEGIN EXCLUSIVE") }
+
+            val services = MonitorServices.open(prodConfig(dataDir = dataDir, retentionDays = 1))
+            // Gives the purge time to dispatch its first batch, and to
+            // block on the lock above.
+            delay(200)
+
+            val (closeReturnedAt, errorEvents) = captureErrorLogEvents {
+                services.close()
+                val returnedAt = System.currentTimeMillis()
+                // The blocked batch throws only once busy_timeout elapses
+                // (5000 ms, from SqlitePragmas). This waits past that
+                // point, so a stray write that outlives close() has time
+                // to log its error before the assertion below runs.
+                delay(5_300)
+                returnedAt
+            }
+
+            lockConnection.createStatement().use { it.execute("COMMIT") }
+            lockConnection.close()
+
+            val strayErrors = errorEvents.filter { event -> event.timeStamp > closeReturnedAt }
+            assertTrue(strayErrors.isEmpty(), "close() must leave no ERROR log line logged after it returns")
+            assertEquals(
+                writerBaseline,
+                awaitThreadCount(WRITER_THREAD_NAME, writerBaseline),
+                "close() must leave no writer thread",
+            )
+            assertEquals(
+                purgeBaseline,
+                awaitThreadCount(PURGE_THREAD_NAME, purgeBaseline),
+                "close() must leave no purge thread",
+            )
+            assertEquals("ok", quickCheck())
+        }
+
+    private suspend fun seedOldEventRows(count: Int) {
         val database = SqliteDatabase.open(dataDir)
         try {
+            val appId = database.write { writer ->
+                writer.prepareStatement(
+                    "INSERT INTO app (name, database_name, collection_name, created_at) VALUES (?, ?, ?, ?)",
+                ).use { insert ->
+                    insert.setString(1, "demo")
+                    insert.setString(2, "db")
+                    insert.setString(3, "octometer_events")
+                    insert.setLong(4, System.currentTimeMillis())
+                    insert.executeUpdate()
+                }
+                writer.createStatement().use { statement ->
+                    statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+                        result.next()
+                        result.getLong(1)
+                    }
+                }
+            }
             database.write { writer ->
-                writer.createStatement().use { statement -> statement.execute("DROP TABLE app") }
+                writer.autoCommit = false
+                try {
+                    writer.prepareStatement(
+                        "INSERT INTO event (app_id, event_id, ts, element, session_id, user_id, kind) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    ).use { insert ->
+                        for (index in 0 until count) {
+                            insert.setLong(1, appId)
+                            insert.setString(2, "old-$index")
+                            insert.setLong(3, 0L)
+                            insert.setString(4, "checkout.save")
+                            insert.setString(5, "session-1")
+                            insert.setString(6, "user-1")
+                            insert.setInt(7, index % 2)
+                            insert.addBatch()
+                        }
+                        insert.executeBatch()
+                    }
+                    writer.commit()
+                } finally {
+                    writer.autoCommit = true
+                }
             }
         } finally {
             database.close()
         }
-        val before = awaitWriterThreadCount(baseline)
+    }
 
-        assertFailsWith<SQLiteException> {
-            MonitorServices.open(prodConfig(dataDir = dataDir))
+    private suspend fun quickCheck(): String {
+        val database = SqliteDatabase.open(dataDir)
+        return try {
+            database.write { writer ->
+                writer.createStatement().use { statement ->
+                    statement.executeQuery("PRAGMA quick_check").use { result ->
+                        result.next()
+                        result.getString(1)
+                    }
+                }
+            }
+        } finally {
+            database.close()
         }
-
-        assertEquals(before, awaitWriterThreadCount(before), "a failed open must leave no writer thread")
     }
 
     // SQLite MAJOR 3 of correction round 1: startsWith, not ==. See the
     // comment of the same helper in ApplicationLifecycleTest.
-    private fun writerThreadCount(): Int =
-        Thread.getAllStackTraces().keys.count { it.name.startsWith(WRITER_THREAD_NAME) }
+    private fun threadCount(name: String): Int =
+        Thread.getAllStackTraces().keys.count { it.name.startsWith(name) }
 
     // A closed dispatcher ends its thread a short time after close()
     // returns, not at once. This polls for up to two seconds, so the
     // count settles before the test reads it, and the check stays exact.
-    private fun awaitWriterThreadCount(expected: Int, timeoutMillis: Long = 2_000): Int {
+    private fun awaitThreadCount(name: String, expected: Int, timeoutMillis: Long = 2_000): Int {
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000
-        var count = writerThreadCount()
+        var count = threadCount(name)
         while (count != expected && System.nanoTime() < deadline) {
             Thread.sleep(20)
-            count = writerThreadCount()
+            count = threadCount(name)
         }
         return count
     }
