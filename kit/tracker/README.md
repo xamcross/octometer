@@ -35,6 +35,46 @@ example `OCTO:foo`). A click on such a value records no click, and the
 tracker writes one console warning for the first dropped value (contract
 rule C38).
 
+## The session start
+
+For a new session id, `start()` sends one entry `octo:session-start` at
+once, in its own request, before any click and with no wait for
+`flushIntervalMs` (contract rule C38, design decision D41). The entry
+holds `ageMs: 0` and, with the `routes` option, the `path` of the page.
+The request uses `fetch` with `keepalive: true`, so a visitor who leaves
+the page at once still delivers it. A failed request follows the retry
+rule of the timer flush, not of the page lifecycle flush: one retry, after
+a wait (see "The retry rule" below).
+
+A session id counts as new when `sessionStorage` holds no id, or when the
+stored id fails the UUID rule of contract rule C5. A page reload with a
+valid stored id sends no session start. A blocked `sessionStorage` keeps
+the id in a module variable, thus the tracker still sends one session
+start for the life of the document, also across a `stop()` call and a
+later `start()` call.
+
+`start()` waits for a visible, non-prerendering document before it sends
+the session start:
+
+- While `document.prerendering` is `true`, it waits for the event
+  `prerenderingchange`.
+- While `document.visibilityState` is `hidden`, it waits for the event
+  `visibilitychange`.
+
+It then sends the session start one time. A `stop()` call before that
+moment cancels the wait, and no session start goes out.
+
+The tracker sends nothing, no click and no session start, while
+`navigator.webdriver` is `true`. Set the option `ignoreWebdriver` to
+`true` only for an end-to-end test of the app itself; it turns this
+filter off. Issue #117 adds the server-side robot filter, which is the
+real control; this client-side filter only keeps test traffic out of
+normal use.
+
+A `data-octo="octo:session-start"` value on a page element still records
+no click (contract rule C38). Only the call inside `start()` sends the
+session start.
+
 ## Options
 
 | Option | Default | Purpose |
@@ -44,6 +84,7 @@ rule C38).
 | `headers` | none | A function that returns extra request headers. |
 | `flushIntervalMs` | `5000` | The delay before the tracker sends a filled queue. |
 | `routes` | none | The ordered route pattern list of the app. With this option, each click entry holds `path`. |
+| `ignoreWebdriver` | `false` | Turns off the `navigator.webdriver` filter. Set it to `true` only for an end-to-end test. |
 
 ## The page lifecycle flush
 
@@ -192,10 +233,8 @@ for the call, with no click text in it.
 
 ## Out of scope
 
-This package holds the tracker core, the page lifecycle flush, and the
-retry rule. Issue #107 owns the session start call (`start()` sending the
-entry `octo:session-start`) and the consent-gated wait rules of design
-decision D41. Issue #108 owns the `referrerHost` field. The present
-tracker reads no `document.referrer` value, thus it sends no
-`referrerHost` field on any entry (design decision D42, contract rule
-C40).
+This package holds the tracker core, the page lifecycle flush, the retry
+rule, and the session start of design decision D41. Issue #108 owns the
+`referrerHost` field. The present tracker reads no `document.referrer`
+value, thus it sends no `referrerHost` field on any entry (design
+decision D42, contract rule C40).

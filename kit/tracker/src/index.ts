@@ -31,6 +31,13 @@ export interface TrackerOptions {
    * the same result as a missing option: no click entry holds `path`.
    */
   routes?: readonly string[];
+  /**
+   * Turns off the `navigator.webdriver` filter (design decision D41). The
+   * default is `false`. A browser sets `navigator.webdriver` to `true`
+   * for an automated tool. Set this option to `true` only for an
+   * end-to-end test of the app itself.
+   */
+  ignoreWebdriver?: boolean;
 }
 
 /** The tracker instance. Call `start()` after consent, and `stop()` to end tracking. */
@@ -55,6 +62,8 @@ const ELEMENT_PATTERN = /^[A-Za-z0-9_.:-]{1,100}$/;
  * through its own call, never through a click on a page element.
  */
 const RESERVED_ELEMENT_PREFIX = /^octo:/i;
+/** The element value of the session start (contract rule C38, design decision D41). */
+const SESSION_START_ELEMENT = 'octo:session-start';
 /**
  * The queue holds a maximum of 200 entries (design decision D24).
  *
@@ -95,6 +104,15 @@ const RETRY_JITTER_429_MS = 2000;
 /** The `sessionId` rule of the contract, rule C5: a canonical 36-character UUID. */
 const SESSION_ID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+/**
+ * The fallback session id, for a blocked `sessionStorage` (issue #107,
+ * step 4). It lives at the module level, outside one tracker instance.
+ * A `stop()` call and a later `start()` call thus still reuse it. The
+ * session start then goes out one time for the life of the document. A
+ * working `sessionStorage` never reads or writes this variable.
+ */
+let moduleFallbackSessionId: string | null = null;
+
 interface QueueEntry {
   element: string;
   queuedAt: number;
@@ -115,6 +133,7 @@ export function createTracker(options: TrackerOptions): Tracker {
   // One bad entry stops the whole list, and the tracker then sends no
   // path field. Rule C42 of the contract gives the server the same rule.
   const preparedRoutes = prepareRoutesOption(options.routes);
+  const ignoreWebdriver = options.ignoreWebdriver === true;
 
   let queue: QueueEntry[] = [];
   let timerId: ReturnType<typeof setTimeout> | null = null;
@@ -125,6 +144,10 @@ export function createTracker(options: TrackerOptions): Tracker {
   let clickListener: ((event: Event) => void) | null = null;
   let pageHideListener: (() => void) | null = null;
   let visibilityChangeListener: (() => void) | null = null;
+  /** The prerender-end listener, held for the session start (issue #107). */
+  let pendingPrerenderingListener: (() => void) | null = null;
+  /** The visibility listener, held for the session start (issue #107). */
+  let pendingVisibilityStartListener: (() => void) | null = null;
   /**
    * The run token of the tracker (MAJOR 1 of the TypeScript review). Each
    * `start()` call and each `stop()` call raises this number by one. A
@@ -141,9 +164,27 @@ export function createTracker(options: TrackerOptions): Tracker {
       // The tracker takes no action during server-side rendering.
       return;
     }
+    if (isBlockedByWebdriver()) {
+      // Design decision D41: the tracker sends nothing, no click and no
+      // session start, while navigator.webdriver is true. The option
+      // ignoreWebdriver turns this filter off for an end-to-end test.
+      return;
+    }
     started = true;
     runId += 1;
     everStarted = true;
+    // Issue #107, step 1: the tracker resolves the session id here, in
+    // start(), not at the first flush. This early resolve tells a new
+    // session from an existing one. Only a new session sends the session
+    // start, at once, before any click.
+    let isNewSession = false;
+    try {
+      isNewSession = resolveSessionId().isNew;
+    } catch {
+      // generateUuid() found no Web Crypto API. sessionId stays null.
+      // This start() call sends no session start. A later flush() retries
+      // through getOrCreateSessionId().
+    }
     clickListener = (event: Event) => handleClick(event);
     document.addEventListener('click', clickListener, true);
     // Issue #36, steps 1 and 2: the tracker sends the queue before the
@@ -158,6 +199,9 @@ export function createTracker(options: TrackerOptions): Tracker {
       window.addEventListener('pagehide', pageHideListener);
     }
     document.addEventListener('visibilitychange', visibilityChangeListener);
+    if (isNewSession) {
+      trySendSessionStart(runId);
+    }
   }
 
   function stop(): void {
@@ -178,6 +222,14 @@ export function createTracker(options: TrackerOptions): Tracker {
     pageHideListener = null;
     if (visibilityChangeListener !== null && typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', visibilityChangeListener);
+    }
+    if (pendingPrerenderingListener !== null && typeof document !== 'undefined') {
+      document.removeEventListener('prerenderingchange', pendingPrerenderingListener);
+      pendingPrerenderingListener = null;
+    }
+    if (pendingVisibilityStartListener !== null && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', pendingVisibilityStartListener);
+      pendingVisibilityStartListener = null;
     }
     visibilityChangeListener = null;
     sessionId = null;
@@ -229,6 +281,77 @@ export function createTracker(options: TrackerOptions): Tracker {
       return matchPreparedPath(routes, location.pathname);
     } catch {
       return '/other';
+    }
+  }
+
+  /**
+   * Checks `navigator.webdriver` (design decision D41). A browser sets
+   * this property to `true` for an automated tool. The option
+   * ignoreWebdriver turns this filter off, for an end-to-end test of the
+   * app itself.
+   */
+  function isBlockedByWebdriver(): boolean {
+    return !ignoreWebdriver && typeof navigator !== 'undefined' && navigator.webdriver === true;
+  }
+
+  /**
+   * Sends the session start at once, for a visible, non-prerendering
+   * document (issue #107, step 5). For a prerendering or a hidden
+   * document, it waits for the right event, one time. `token` is the run
+   * token of the `start()` call that began this wait. A later `stop()`
+   * call raises `runId`. This function then sends nothing, also from a
+   * pending event.
+   */
+  function trySendSessionStart(token: number): void {
+    if (token !== runId) {
+      return;
+    }
+    if (typeof document !== 'undefined' && isDocumentPrerendering()) {
+      const listener = (): void => {
+        pendingPrerenderingListener = null;
+        trySendSessionStart(token);
+      };
+      pendingPrerenderingListener = listener;
+      document.addEventListener('prerenderingchange', listener, { once: true });
+      return;
+    }
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      const listener = (): void => {
+        pendingVisibilityStartListener = null;
+        trySendSessionStart(token);
+      };
+      pendingVisibilityStartListener = listener;
+      document.addEventListener('visibilitychange', listener, { once: true });
+      return;
+    }
+    sendSessionStart(token);
+  }
+
+  /**
+   * Sends the one entry `octo:session-start`, in its own request, with
+   * `ageMs: 0` and the `path` of the page (contract rule C38, issue
+   * #107). The request uses `keepalive: true`, so a visitor who leaves
+   * the page at once still delivers it. It follows the retry rule of the
+   * timer flush, not the lifecycle rule (issue #36): one retry, after a
+   * wait.
+   */
+  function sendSessionStart(token: number): void {
+    if (token !== runId || sessionId === null) {
+      // A later stop() ran first, or generateUuid() found no session id.
+      return;
+    }
+    const path = computePath(preparedRoutes);
+    const click: { element: string; ageMs: number; path?: string } = {
+      element: SESSION_START_ELEMENT,
+      ageMs: 0,
+    };
+    if (path !== undefined) {
+      click.path = path;
+    }
+    try {
+      void sendBatch(sessionId, [click], true, TIMER_RETRY_COUNT, token);
+    } catch {
+      // The tracker gives no error to the page. It drops the entry instead.
     }
   }
 
@@ -425,22 +548,40 @@ export function createTracker(options: TrackerOptions): Tracker {
     if (sessionId !== null) {
       return sessionId;
     }
+    return resolveSessionId().id;
+  }
+
+  /**
+   * Reads the stored session id, or creates a new one (issue #107). It
+   * sets the closure session id either way. A stored value that is
+   * absent, or that fails the UUID rule of rule C5, counts as new. The
+   * caller then sends the session start. `start()` calls this function
+   * once, to send the session start at once. `getOrCreateSessionId()`
+   * calls it again only when `start()` found no session id, for example
+   * with no Web Crypto API yet.
+   */
+  function resolveSessionId(): { id: string; isNew: boolean } {
     const stored = readStoredSessionId();
     // MINOR 5 of the TypeScript review: a stored value must pass the C5
     // rule of the contract, a UUID, before use. A wrong value gets a new
     // id, so the ingest route never rejects the whole batch for it.
-    const id = stored !== null && SESSION_ID_PATTERN.test(stored) ? stored : generateUuid();
+    const isValidStored = stored !== null && SESSION_ID_PATTERN.test(stored);
+    const id = isValidStored ? (stored as string) : generateUuid();
     sessionId = id;
-    writeStoredSessionId(id);
-    return id;
+    if (!isValidStored) {
+      // A reused, valid id needs no rewrite: the value does not change.
+      writeStoredSessionId(id);
+    }
+    return { id, isNew: !isValidStored };
   }
 
   function readStoredSessionId(): string | null {
     try {
       return window.sessionStorage.getItem(SESSION_STORAGE_KEY);
     } catch {
-      // A private window or a blocked store keeps the id in memory only.
-      return null;
+      // A private window or a blocked store keeps the id in a module
+      // variable, for the life of the document (issue #107, step 4).
+      return moduleFallbackSessionId;
     }
   }
 
@@ -448,7 +589,9 @@ export function createTracker(options: TrackerOptions): Tracker {
     try {
       window.sessionStorage.setItem(SESSION_STORAGE_KEY, id);
     } catch {
-      // A private window or a blocked store keeps the id in memory only.
+      // A private window or a blocked store keeps the id in a module
+      // variable, for the life of the document (issue #107, step 4).
+      moduleFallbackSessionId = id;
     }
   }
 
@@ -531,6 +674,16 @@ function retryDelayMs(status: number | undefined): number {
     return RETRY_DELAY_429_MS + Math.random() * RETRY_JITTER_429_MS;
   }
   return RETRY_DELAY_MS + Math.random() * RETRY_JITTER_MS;
+}
+
+/**
+ * Reads `document.prerendering` (design decision D41). The TypeScript DOM
+ * library has no type for this property yet. This function reads it
+ * through a narrow cast. It gives `false` for a browser with no such
+ * property. Call this only after a check of `typeof document`.
+ */
+function isDocumentPrerendering(): boolean {
+  return (document as unknown as { prerendering?: boolean }).prerendering === true;
 }
 
 /** A monotonic clock. It ignores a change of the system clock (MAJOR 1 of the review). */
