@@ -16,6 +16,7 @@ Run each script from this folder.
 - `npm start` — starts the dev server on port 4200.
 - `npm test` — runs the unit tests one time, then stops.
 - `npm run test:watch` — runs the unit tests, and watches each file change.
+- `npm run test:changed` — runs only the specs of a file changed against `origin/main`.
 - `npm run lint` — checks the code style with ESLint.
 - `npm run build` — builds the app into `dist/frontend`.
 - `npm run format` — writes each file in the Prettier code style.
