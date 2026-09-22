@@ -286,10 +286,15 @@ describe('createTracker', () => {
     fetchMock.mockClear();
     tracker.stop();
 
+    // Reliability review MINOR 3 and TypeScript review MINOR 1: a direct
+    // check of the timer count pins the clearTimeout() call of stop().
+    // Without it, jsdom still holds one pending timer here.
+    expect(vi.getTimerCount()).toBe(0);
+
     // stop() also removes the stored session id (a real write). A raw
     // jsdom timer count then no longer isolates the flush timer alone
-    // (issue #107). This test checks the flush timer through its effect.
-    // It never fires after stop().
+    // (issue #107). This test also checks the flush timer through its
+    // effect. It never fires after stop().
     vi.advanceTimersByTime(5000);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -719,7 +724,21 @@ describe('createTracker', () => {
     expect(body.sessionId.length).toBeGreaterThan(0);
   });
 
-  it('falls back to an in-memory sessionId when sessionStorage.setItem throws', () => {
+  it('falls back to an in-memory sessionId when sessionStorage.setItem throws', async () => {
+    // TypeScript review MINOR 2: window.sessionStorage holds a valid
+    // stored id from the outer beforeEach hook, so a test with no clear()
+    // here never reaches the catch block that this test names: the id
+    // needs no rewrite, and setItem never runs. The clear() call below
+    // forces a new session, so the write, and its catch block, both run.
+    //
+    // This write also sets the module-level fallback id
+    // (moduleFallbackSessionId), because setItem always throws here. A
+    // fresh module instance keeps that write out of every later test in
+    // this file (see "a blocked sessionStorage" below, the same
+    // pattern).
+    vi.resetModules();
+    const { createTracker: freshCreateTracker } = await import('./index.js');
+    window.sessionStorage.clear();
     vi.spyOn(window.sessionStorage.__proto__, 'setItem').mockImplementation(() => {
       throw new DOMException('blocked');
     });
@@ -727,15 +746,23 @@ describe('createTracker', () => {
     host.setAttribute('data-octo', 'save');
     document.body.appendChild(host);
 
-    tracker = createTracker({ endpoint: ENDPOINT });
+    tracker = freshCreateTracker({ endpoint: ENDPOINT });
     tracker.start();
     clickElement(host);
     vi.advanceTimersByTime(5000);
 
     const calls = parseCalls(fetchMock);
-    const body = at(calls, 0).body;
-    expect(typeof body.sessionId).toBe('string');
-    expect(body.sessionId.length).toBeGreaterThan(0);
+    const sessionStartCall = calls.find(
+      (call) => call.body.clicks[0]?.element === 'octo:session-start',
+    );
+    expect(sessionStartCall).toBeDefined();
+    const sentId = (sessionStartCall as FetchCall).body.sessionId;
+    expect(sentId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    // setItem always throws, thus the id never reaches the real store.
+    expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+
+    const clickCall = clickBatchCalls(calls)[0];
+    expect(clickCall?.body.sessionId).toBe(sentId);
   });
 
   it('does not throw when sessionStorage.removeItem throws during stop()', () => {
@@ -1834,7 +1861,7 @@ describe('createTracker', () => {
         expect(fetchMock).toHaveBeenCalledTimes(1);
       });
 
-      it('waits for a hidden document, then sends one time after visibilitychange to visible', () => {
+      it('waits for a hidden document, then sends one time after visibilitychange to visible, and no more after a later hide-show cycle', () => {
         setVisibilityState('hidden');
         window.sessionStorage.clear();
 
@@ -1842,6 +1869,14 @@ describe('createTracker', () => {
         tracker.start();
         expect(fetchMock).not.toHaveBeenCalled();
 
+        setVisibilityState('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        // TypeScript review MINOR 3: the { once: true } listener option
+        // must matter here. A later hide-show cycle sends no second entry.
+        setVisibilityState('hidden');
+        document.dispatchEvent(new Event('visibilitychange'));
         setVisibilityState('visible');
         document.dispatchEvent(new Event('visibilitychange'));
         expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -1861,6 +1896,53 @@ describe('createTracker', () => {
         expect(fetchMock).not.toHaveBeenCalled();
       });
 
+      it('stop() cancels the pending session start while it waits for prerenderingchange', () => {
+        setPrerendering(true);
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        tracker.stop();
+
+        setPrerendering(false);
+        expect(() => document.dispatchEvent(new Event('prerenderingchange'))).not.toThrow();
+
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
+
+      // Reliability review MINOR 2: no test held the run token and the
+      // listener removal of stop() together, for a session that begins a
+      // second wait right after the first one is cancelled.
+      it('sends exactly one session start when start() runs again after stop(), for a document that stays hidden through the first wait', () => {
+        setVisibilityState('hidden');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        tracker.stop();
+        tracker.start();
+
+        setVisibilityState('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+
+      it('sends exactly one session start when start() runs again after stop(), for a document that stays in a prerender through the first wait', () => {
+        setPrerendering(true);
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        tracker.stop();
+        tracker.start();
+
+        setPrerendering(false);
+        document.dispatchEvent(new Event('prerenderingchange'));
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+
       it('sends at once when the document is already visible and not prerendering', () => {
         setVisibilityState('visible');
         setPrerendering(false);
@@ -1870,6 +1952,68 @@ describe('createTracker', () => {
         tracker.start();
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    // Maintainer decision of 2026-09-22 (MAJOR 1 of the reliability
+    // review): a new id enters sessionStorage only at the moment the
+    // session start request goes out, after the wait for the visible
+    // state and the end of a prerender. A page that never becomes
+    // visible stores nothing, thus the next document of the same tab
+    // starts a fresh session.
+    describe('the storage write timing (MAJOR 1)', () => {
+      it('leaves no stored id when a hidden document ends before it becomes visible (a pagehide while hidden)', () => {
+        setVisibilityState('hidden');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        window.dispatchEvent(new Event('pagehide'));
+
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+      });
+
+      it('stores the id at the moment the session start goes out, when the document becomes visible', () => {
+        setVisibilityState('hidden');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+
+        setVisibilityState('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+
+        const sentId = at(parseCalls(fetchMock), 0).body.sessionId;
+        expect(window.sessionStorage.getItem(SESSION_STORAGE_KEY)).toBe(sentId);
+      });
+
+      it('sends no second session start on a reload after the id enters storage at the send, for a document that started hidden', () => {
+        setVisibilityState('hidden');
+        window.sessionStorage.clear();
+
+        const firstLoad = createTracker({ endpoint: ENDPOINT });
+        firstLoad.start();
+        setVisibilityState('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const storedId = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+
+        // A real page reload never calls stop(). This call only removes
+        // the listeners of firstLoad, so it touches no later test.
+        firstLoad.stop();
+        window.sessionStorage.setItem(SESSION_STORAGE_KEY, storedId as string);
+        fetchMock.mockClear();
+
+        // A second createTracker() call simulates the fresh module state
+        // of a reloaded page.
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        expect(fetchMock).not.toHaveBeenCalled();
       });
     });
 
@@ -1999,6 +2143,29 @@ describe('createTracker', () => {
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
         expect(at(parseCalls(fetchMock), 0).body.clicks[0]?.element).toBe('save');
+      });
+
+      // Reliability review MINOR 1: a store that reads null (no throw)
+      // but fails each write is a different case from a full block. The
+      // old readStoredSessionId() returned the real null here, thus a
+      // second start() made a second, different id.
+      it('gives one session start with one id, not two, when sessionStorage reads succeed but each write fails', () => {
+        vi.spyOn(window.sessionStorage.__proto__, 'setItem').mockImplementation(() => {
+          throw new DOMException('blocked');
+        });
+        window.sessionStorage.clear();
+
+        tracker = freshCreateTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const firstId = at(parseCalls(fetchMock), 0).body.sessionId;
+
+        tracker.stop();
+        tracker.start();
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const secondId = at(parseCalls(fetchMock), 0).body.sessionId;
+        expect(secondId).toBe(firstId);
       });
     });
   });
