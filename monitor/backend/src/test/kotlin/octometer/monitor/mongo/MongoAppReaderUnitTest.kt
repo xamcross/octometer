@@ -23,16 +23,19 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * The tests of issue #16 that need no Docker: the parse of one event
- * document (contract rules C1 to C6, C9), the filter of section 4.3,
- * the bound of section 4.3, and the page loop of
- * [MongoAppReader.runCycle] with a fake page source.
- * `MongoAppReaderContainerTest` covers the real MongoDB read and the
- * client reuse of design decision D10.
+ * This class holds the tests of issue #16 that need no Docker. They
+ * cover the parse of one event document (contract rules C1 to C6, C9),
+ * the filter of section 4.3, and the bound of section 4.3. They also
+ * cover the page loop of [MongoAppReader.runCycle] with a fake page
+ * source. `MongoAppReaderContainerTest` covers the real MongoDB read
+ * and the client reuse of design decision D10.
  *
  * This class also holds the tests of correction round 1 of pull
- * request #160: BLOCKER 1 and MAJOR 2 of the security review, and
- * BLOCKER 1, BLOCKER 2, and MAJOR 1 of the Kotlin review.
+ * request #160: BLOCKER 1 and MAJOR 2 of the security review. It also
+ * holds BLOCKER 1, BLOCKER 2, and MAJOR 1 of the Kotlin review.
+ *
+ * Issue #27 adds the tests of [invalidReason], the `skipped_event` row,
+ * and the status of a poll cycle (design decisions D5, D8).
  */
 class MongoAppReaderUnitTest {
 
@@ -197,6 +200,7 @@ class MongoAppReaderUnitTest {
         }
 
         assertEquals(2, outcome.eventsStored, "The reader must skip the one invalid document.")
+        assertEquals(1, outcome.eventsSkipped, "The outcome must count the one skipped document.")
         assertEquals(page.last().getObjectId("_id").toHexString(), outcome.cursor, "The cursor must move past the invalid document.")
         assertEquals(2, countEvents(database, appId))
         val warnLines = events.filter { it.level == Level.WARN && it.loggerName.contains("MongoAppReader") }
@@ -228,6 +232,101 @@ class MongoAppReaderUnitTest {
 
         assertEquals(1, secondOutcome.eventsStored, "The cycle after the skip must still read the new event.")
         assertEquals(3, countEvents(database, appId))
+    }
+
+    // --- invalidReason (design decision D5, decision 1 of issue #27) ---
+
+    @Test
+    fun `invalidReason accepts a valid document`() {
+        assertNull(invalidReason(goodDocument("checkout.save")))
+    }
+
+    @Test
+    fun `invalidReason accepts an absent userId field as an anonymous event`() {
+        val document = Document("_id", ObjectId())
+            .append("ts", Date(1_700_000_000_000L))
+            .append("element", "checkout.save")
+            .append("sessionId", "session-1")
+
+        assertNull(invalidReason(document), "An absent userId must be a valid anonymous event (contract rule C6).")
+    }
+
+    @Test
+    fun `invalidReason accepts an explicit null userId as an anonymous event`() {
+        val document = goodDocument("checkout.save").append("userId", null)
+
+        assertNull(invalidReason(document))
+    }
+
+    @Test
+    fun `invalidReason names each missing field`() {
+        val noElement = Document("_id", ObjectId()).append("ts", Date(1_700_000_000_000L)).append("sessionId", "session-1")
+        val noTs = Document("_id", ObjectId()).append("element", "checkout.save").append("sessionId", "session-1")
+        val noSessionId = Document("_id", ObjectId()).append("ts", Date(1_700_000_000_000L)).append("element", "checkout.save")
+
+        assertEquals("element missing", invalidReason(noElement))
+        assertEquals("ts missing", invalidReason(noTs))
+        assertEquals("sessionId missing", invalidReason(noSessionId))
+    }
+
+    @Test
+    fun `invalidReason names a wrong BSON type`() {
+        val wrongTs = goodDocument("checkout.save").append("ts", "not-a-date")
+        val wrongElement = Document("_id", ObjectId())
+            .append("ts", Date(1_700_000_000_000L))
+            .append("element", 42)
+            .append("sessionId", "session-1")
+        val wrongSessionId = Document("_id", ObjectId())
+            .append("ts", Date(1_700_000_000_000L))
+            .append("element", "checkout.save")
+            .append("sessionId", 42)
+        val wrongUserId = goodDocument("checkout.save").append("userId", 42)
+
+        assertEquals("ts wrong type", invalidReason(wrongTs))
+        assertEquals("element wrong type", invalidReason(wrongElement))
+        assertEquals("sessionId wrong type", invalidReason(wrongSessionId))
+        assertEquals("userId wrong type", invalidReason(wrongUserId))
+    }
+
+    @Test
+    fun `invalidReason names an empty userId`() {
+        val emptyUserId = goodDocument("checkout.save").append("userId", "")
+
+        assertEquals("userId empty", invalidReason(emptyUserId))
+    }
+
+    // --- The skipped_event row of runCycle (design decision D5, issue #27) ---
+
+    @Test
+    fun `runCycle writes a skipped_event row with the fixed reason`() = runBlocking {
+        val bad = Document("_id", ObjectId())
+            .append("element", "checkout.save")
+            .append("sessionId", "session-1")
+            .append("userId", "user-1")
+        val good = goodDocument("good.click")
+        val page = listOf(bad, good)
+
+        val outcome = reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> page }
+
+        assertEquals(1, outcome.eventsStored)
+        assertEquals(1, outcome.eventsSkipped)
+        assertEquals("ts missing", readSkippedReason(database, appId, bad.getObjectId("_id").toHexString()))
+    }
+
+    @Test
+    fun `the skipped_event reason holds no field value of the document`() = runBlocking {
+        val marker = "octomarkerfieldc9a1"
+        val bad = Document("_id", ObjectId())
+            .append("ts", marker)
+            .append("element", marker)
+            .append("sessionId", marker)
+            .append("userId", marker)
+
+        reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(bad) }
+
+        val reason = readSkippedReason(database, appId, bad.getObjectId("_id").toHexString())
+        assertEquals("ts wrong type", reason)
+        assertFalse(reason!!.contains(marker), "The reason must hold no field value of the document: $reason")
     }
 
     // --- The cancellation guard of lesson 2 (MAJOR 2 of the security review, MAJOR 1 of the Kotlin review) ---
@@ -290,9 +389,9 @@ class MongoAppReaderUnitTest {
     fun `the connection string check of the registry runs again before the driver, for a value edited by hand`() = runBlocking {
         val target = PollTarget(appId, "db", "octometer_events", cursor = null)
         // "readPreference" is a real driver option that the driver itself
-        // accepts with no complaint, but it is outside the D11 allow-list
+        // accepts with no complaint. It is outside the D11 allow-list
         // (the code sets the read preference itself). The registry
-        // rejects it at save time; this string stands for a value that a
+        // rejects it at save time. This string stands for a value that a
         // person edited by hand in the secrets file afterward (D10: a
         // second check before the driver).
         val connectionString = "mongodb://127.0.0.1:1/exampledb?readPreference=secondary"
@@ -422,6 +521,18 @@ private suspend fun countEvents(database: SqliteDatabase, appId: Long): Int =
             select.executeQuery().use { result ->
                 result.next()
                 result.getInt(1)
+            }
+        }
+    }
+
+/** Reads the reason of one `skipped_event` row (issue #27, D5). */
+private suspend fun readSkippedReason(database: SqliteDatabase, appId: Long, eventId: String): String? =
+    database.read { reader ->
+        reader.prepareStatement("SELECT reason FROM skipped_event WHERE app_id = ? AND event_id = ?").use { select ->
+            select.setLong(1, appId)
+            select.setString(2, eventId)
+            select.executeQuery().use { result ->
+                if (result.next()) result.getString(1) else null
             }
         }
     }
