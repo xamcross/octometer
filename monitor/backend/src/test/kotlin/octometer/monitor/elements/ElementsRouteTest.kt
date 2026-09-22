@@ -2,6 +2,7 @@ package octometer.monitor.elements
 
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
 import io.ktor.server.testing.testApplication
@@ -13,6 +14,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import octometer.monitor.allowedHost
 import octometer.monitor.captureErrorLogEvents
+import octometer.monitor.captureLogEvents
 import octometer.monitor.devConfig
 import octometer.monitor.module
 import octometer.monitor.store.SqliteDatabase
@@ -45,19 +47,26 @@ class ElementsRouteTest {
 
     // -- The level 3 statement (step 3) -----------------------------------
 
+    // MAJOR 1 of the SQL review: the earlier form of this test gave
+    // `clicks` and `sessions` the same number, 2, thus the two columns
+    // were not separate. The third click of `user-1`, in the same
+    // session `s1` as the first click, keeps `sessions` at 2 while
+    // `clicks` rises to 3. A statement that counts session rows instead
+    // of distinct sessions now fails this test.
     @Test
     fun `two users of one app give one row for their shared element, with the right clicks and sessions`() =
         runBlocking {
             val appId = insertApp(database, "shop")
             insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
             insertEvent(database, appId, "e2", "s2", "user-1", element = "checkout.save", kind = 0)
-            insertEvent(database, appId, "e3", "s3", "user-2", element = "checkout.save", kind = 0)
+            insertEvent(database, appId, "e3", "s1", "user-1", element = "checkout.save", kind = 0)
+            insertEvent(database, appId, "e4", "s3", "user-2", element = "checkout.save", kind = 0)
 
             val userOneRows = successRows(database, appId, ElementsFilter.ByUser("user-1"))
             val row = userOneRows.single()
 
             assertEquals("checkout.save", row.element)
-            assertEquals(2L, row.clicks)
+            assertEquals(3L, row.clicks)
             assertEquals(2L, row.sessions)
         }
 
@@ -98,7 +107,6 @@ class ElementsRouteTest {
 
             assertEquals(1, rows.size)
             assertEquals("checkout.save", rows.single().element)
-            assertTrue(rows.none { it.element == "octo:session-start" })
         }
 
     @Test
@@ -149,12 +157,18 @@ class ElementsRouteTest {
             val rows = successRows(database, appId, ElementsFilter.ByUser(hostileUserId))
 
             assertEquals(1L, rows.single().clicks)
-            val tableStillExists = database.read { reader ->
+            // MINOR 1 of the SQL review: COUNT(*) always returns one row,
+            // thus `next()` always returns true, and the old assertion
+            // could never fail. Read the number, and assert the number.
+            val count = database.read { reader ->
                 reader.createStatement().use { statement ->
-                    statement.executeQuery("SELECT COUNT(*) FROM event").use { it.next() }
+                    statement.executeQuery("SELECT COUNT(*) FROM event").use { result ->
+                        result.next()
+                        result.getInt(1)
+                    }
                 }
             }
-            assertTrue(tableStillExists, "the event table survives a hostile user id value")
+            assertEquals(2, count, "the event table keeps both rows")
         }
 
     @Test
@@ -170,8 +184,8 @@ class ElementsRouteTest {
     // index for a DISTINCT aggregate or for a sort on the aggregate
     // clicks: "USE TEMP B-TREE FOR count(DISTINCT)" and
     // "USE TEMP B-TREE FOR ORDER BY". Both steps run on the small,
-    // already-filtered row set of one app and one user, not on the whole
-    // table, so the covering index still does the heavy filter work.
+    // already-filtered row set of one app and one user. The covering
+    // index still selects the rows, and not the whole table.
     @Test
     fun `EXPLAIN QUERY PLAN shows the covering index event_agg for the level 3 statement`() = runBlocking {
         val appId = insertApp(database, "shop")
@@ -226,6 +240,29 @@ class ElementsRouteTest {
         assertEquals(null, parseFilter(paramsOf("sessionId" to "11111111-1111-1111-1111-111111111111")))
     }
 
+    // MAJOR 2 of the SQL review, and the matching MINOR of the security
+    // review: parseFilter must count each value of a repeated parameter,
+    // not each distinct key.
+    @Test
+    fun `a repeated userId is invalid, even though the key appears once`() {
+        val repeated = Parameters.build {
+            append("userId", "user-1")
+            append("userId", "user-2")
+        }
+
+        assertEquals(null, parseFilter(repeated))
+    }
+
+    @Test
+    fun `anonymous=true and anonymous=false together are invalid`() {
+        val repeated = Parameters.build {
+            append("anonymous", "true")
+            append("anonymous", "false")
+        }
+
+        assertEquals(null, parseFilter(repeated))
+    }
+
     // -- The HTTP layer (steps 1, 2, 5) -------------------------------------
 
     @Test
@@ -246,6 +283,82 @@ class ElementsRouteTest {
             assertEquals(1, row.getValue("clicks").jsonPrimitive.content.toInt())
             assertEquals(1, row.getValue("sessions").jsonPrimitive.content.toInt())
             assertTrue(row.containsKey("lastInteractionAt"))
+        }
+        database = SqliteDatabase.open(dataDir)
+    }
+
+    // MINOR 6 of the SQL review, and MINOR 3 of the security review: D13
+    // asks each route of D44 for the Host check, `Cache-Control:
+    // no-store`, and no CORS header. `installRequestGuard` sets these for
+    // each `/api/` path, but no test of this route locked the fact. The
+    // JSON content type carries no charset parameter on the other routes
+    // of this module either (`HealthRouteTest` strips parameters before
+    // its own comparison), so this route matches the existing form.
+    @Test
+    fun `GET with userId answers with Cache-Control no-store, no CORS header, and application-json`() =
+        runBlocking {
+            val appId = insertApp(database, "shop")
+            insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
+            database.close()
+
+            testApplication {
+                application { module(devConfig(dataDir)) }
+
+                val response = client.get("/api/apps/$appId/elements?userId=user-1") { allowedHost() }
+
+                assertEquals(HttpStatusCode.OK, response.status)
+                assertEquals("no-store", response.headers[HttpHeaders.CacheControl])
+                assertEquals(null, response.headers[HttpHeaders.AccessControlAllowOrigin])
+                assertEquals("application/json", response.headers[HttpHeaders.ContentType])
+            }
+            database = SqliteDatabase.open(dataDir)
+        }
+
+    // MINOR 4 of the security review: an element text with HTML must
+    // reach the client as one JSON string value. The security review
+    // confirmed at run time that the body carries no raw HTML tag, that
+    // the content type stays application/json, and that
+    // X-Content-Type-Options: nosniff stops a browser sniff. This test
+    // locks the JSON round trip of the value.
+    @Test
+    fun `an element with HTML text reaches the response as one JSON string value`() = runBlocking {
+        val appId = insertApp(database, "shop")
+        val hostileElement = "<script>alert(1)</script>"
+        insertEvent(database, appId, "e1", "s1", "user-1", element = hostileElement, kind = 0)
+        database.close()
+
+        testApplication {
+            application { module(devConfig(dataDir)) }
+
+            val response = client.get("/api/apps/$appId/elements?userId=user-1") { allowedHost() }
+
+            assertEquals("application/json", response.headers[HttpHeaders.ContentType])
+            assertEquals("nosniff", response.headers["X-Content-Type-Options"])
+            val rows = Json.parseToJsonElement(response.bodyAsText()).jsonObject.getValue("rows").jsonArray
+            val row = rows.single().jsonObject
+            assertEquals(hostileElement, row.getValue("element").jsonPrimitive.content)
+        }
+        database = SqliteDatabase.open(dataDir)
+    }
+
+    // MINOR 6 of the security review: `toLongOrNull()` accepts a leading
+    // zero and a leading plus sign. The monitor has no login, thus
+    // neither form raises a privilege; this test records the accepted
+    // behaviour instead of silently allowing it.
+    @Test
+    fun `an app id with a leading zero or a leading plus sign still reaches the same app`() = runBlocking {
+        val appId = insertApp(database, "shop")
+        insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
+        database.close()
+
+        testApplication {
+            application { module(devConfig(dataDir)) }
+
+            val leadingZero = client.get("/api/apps/0$appId/elements?userId=user-1") { allowedHost() }
+            val leadingPlus = client.get("/api/apps/+$appId/elements?userId=user-1") { allowedHost() }
+
+            assertEquals(HttpStatusCode.OK, leadingZero.status)
+            assertEquals(HttpStatusCode.OK, leadingPlus.status)
         }
         database = SqliteDatabase.open(dataDir)
     }
@@ -296,8 +409,11 @@ class ElementsRouteTest {
         database = SqliteDatabase.open(dataDir)
     }
 
-    // MINOR: D15 forbids a user id in the captured log. A request that
-    // carries one in the query string must still write no such line.
+    // MAJOR 1 of the security review: the earlier form of this test read
+    // `captureErrorLogEvents`, which keeps the ERROR level only. An INFO
+    // line or a WARN line with the user id passed that test. D15 forbids
+    // a user id in a log line at any level, thus this test now reads
+    // `captureLogEvents`, which keeps every level.
     @Test
     fun `a request with a userId query string writes no log line that holds that value`() = runBlocking {
         val appId = insertApp(database, "shop")
@@ -307,11 +423,12 @@ class ElementsRouteTest {
         testApplication {
             application { module(devConfig(dataDir)) }
 
-            val (_, errorEvents) = captureErrorLogEvents {
+            val (_, events) = captureLogEvents {
                 client.get("/api/apps/$appId/elements?userId=the-secret-user-id") { allowedHost() }
             }
 
-            assertTrue(errorEvents.none { it.formattedMessage.contains("the-secret-user-id") })
+            assertTrue(events.none { it.formattedMessage.contains("the-secret-user-id") })
+            assertTrue(events.none { it.formattedMessage.contains("userId=") })
         }
         database = SqliteDatabase.open(dataDir)
     }

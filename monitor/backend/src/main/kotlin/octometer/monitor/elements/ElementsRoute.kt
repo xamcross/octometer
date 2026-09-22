@@ -48,10 +48,11 @@ private const val APP_NOT_FOUND_MESSAGE = "The app is not registered."
 private const val FILTER_MESSAGE = "Send exactly one of userId or anonymous=true."
 
 // Rule M4 of the design (D14, section 6, issue #109): the literal
-// `kind = 0` keeps the partial index `event_agg`. A bound parameter does
-// not give the same plan on each SQLite build, so the filter stays in
-// the SQL text. Visibility: internal, so the test of the query plan can
-// reuse the exact text that the route runs.
+// `kind = 0` keeps the partial index `event_agg`. A statement without
+// the `kind` filter falls to the index `event_session`. Rule M4 keeps
+// the literal in the SQL text for that reason. Visibility: internal, so
+// the test of the query plan can reuse the exact text that the route
+// runs.
 internal const val ELEMENT_TOTALS_SQL =
     "SELECT element, COUNT(*) AS clicks, COUNT(DISTINCT session_id) AS sessions, " +
         "MAX(ts) AS last_interaction FROM event " +
@@ -102,12 +103,19 @@ internal suspend fun loadElementTotals(
     }
 
 // Exactly one of the three parameters of D13 must reach this function:
-// `userId`, `anonymous`, or `sessionId`. Issue #113 owns `sessionId`; a
-// request with that parameter gets 400 today, the same as a request
-// with zero or with two of the three parameters.
+// `userId`, `anonymous`, or `sessionId`. Issue #113 owns `sessionId`. A
+// request with that parameter gets 400 today. The same is true for a
+// request with zero or with two of the three parameters.
+//
+// MAJOR 2 of the SQL review, and the matching MINOR of the security
+// review: this function counts each value, not each key. `Parameters`
+// reports one key for `?userId=a&userId=b`, thus a count of the keys
+// missed the second value, and the route answered 200 with one of the
+// two user ids. A count of the values gives 400 for that request.
 internal fun parseFilter(parameters: Parameters): ElementsFilter? {
-    val presentKeys = listOf("userId", "anonymous", "sessionId").count { parameters.contains(it) }
-    if (presentKeys != 1) return null
+    val presentValues = listOf("userId", "anonymous", "sessionId")
+        .sumOf { key -> parameters.getAll(key)?.size ?: 0 }
+    if (presentValues != 1) return null
     return when {
         parameters.contains("sessionId") -> null
         parameters.contains("anonymous") ->
