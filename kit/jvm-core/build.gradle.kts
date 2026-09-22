@@ -15,13 +15,10 @@ java {
     }
 }
 
-// JUnit Jupiter 6.1.3: confirmed on Maven Central on 2026-09-21
-// (repo1.maven.org/maven2/org/junit/jupiter/junit-jupiter/maven-metadata.xml,
-// <release>6.1.3</release>). monitor/backend has no JUnit Jupiter entry yet,
-// thus this module states its own version.
-// Follow-up: move this version to gradle/libs.versions.toml after issue #4 merges.
+// JUnit Jupiter: gradle/libs.versions.toml holds the version, confirmed
+// on Maven Central on 2026-09-21 (issue #138).
 dependencies {
-    testImplementation(platform("org.junit:junit-bom:6.1.3"))
+    testImplementation(platform(libs.junit.bom))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

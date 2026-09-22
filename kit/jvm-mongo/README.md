@@ -19,5 +19,7 @@ Raise `mongodb-sync-newest` in `gradle/libs.versions.toml` by hand each
 quarter. Dependabot never raises it, because the `ignore` rule of
 `.github/dependabot.yml` covers each version of
 `org.mongodb:mongodb-driver-sync`, and Dependabot cannot separate the two
-catalog entries by name alone. The compile version 5.0.1 stays fixed
-each time.
+catalog entries by name alone. The `mongodb-driver-sync` entry of the
+`[libraries]` table carries the compile version, so Dependabot reads it
+and then skips it through the `ignore` rule. The compile version 5.0.1
+stays fixed each time.
