@@ -274,7 +274,11 @@ private suspend fun insertEvent(
     ).use { insert ->
         insert.setLong(1, appId)
         insert.setString(2, eventId)
-        insert.setLong(3, 1_700_000_000_000L)
+        // Issue #59: the real time, not a fixed past instant.
+        // MonitorServices now runs a retention purge at each open call, on
+        // the real clock. A test with a real server needs a recent ts.
+        // Else the purge deletes the event first.
+        insert.setLong(3, System.currentTimeMillis())
         insert.setString(4, "checkout.save")
         insert.setString(5, sessionId)
         insert.setString(6, userId)
