@@ -45,10 +45,11 @@ class MonitorServices private constructor(
     companion object {
 
         /**
-         * Opens the store and the secret store, then runs the orphan
-         * sweep of MAJOR 4 (security review). A secret can stay on the
-         * disk with no app row, after a delete that stopped between its
-         * two steps. The sweep removes each such secret.
+         * Opens the store and the secret store. It first removes each
+         * leftover `apps-*.json.tmp` file of issue #141, then it runs the
+         * orphan sweep of MAJOR 4 (security review). A secret can stay on
+         * the disk with no app row, after a delete that stopped between
+         * its two steps. The sweep removes each such secret.
          *
          * The sweep writes one log line with the removed count. It never
          * writes an app id, and it never writes a connection string.
@@ -74,6 +75,10 @@ class MonitorServices private constructor(
             var retentionPurgeJob: RetentionPurgeJob? = null
             try {
                 val secretStore = SecretStore(config.dataDir)
+                // Issue #141: this runs before the first write of the
+                // secret store, thus before the orphan sweep below.
+                val removedLeftoverTempFiles = runBlocking { secretStore.removeLeftoverTempFiles() }
+                log.info("The start removed {} leftover temporary secret file(s).", removedLeftoverTempFiles)
                 retentionPurgeJob = newRetentionPurgeJob(database, config.retentionDays)
                 retentionPurgeJob.start()
                 val removedOrphans = try {
