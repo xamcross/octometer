@@ -11,11 +11,11 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
  * that the rewrite ran. This test reads the generated file and fails
  * when the wildcard class path line is missing.
  *
- * I broke the regex of `build.gradle.kts` for a moment (a text that
- * matches no line of the template), ran
- * `./gradlew :monitor:backend:startScripts`, ran this test, and saw it
- * fail: the file held the long explicit class path instead. I restored
- * the regex, reran `startScripts`, and saw this test pass.
+ * I broke the regex of `build.gradle.kts` for a moment, with a text
+ * that matches no line of the template. I ran
+ * `./gradlew :monitor:backend:startScripts` and this test. The test
+ * failed: the file held the long explicit class path instead. I
+ * restored the regex, reran `startScripts`, and saw this test pass.
  *
  * It skips when nobody has run `installDist` yet.
  */

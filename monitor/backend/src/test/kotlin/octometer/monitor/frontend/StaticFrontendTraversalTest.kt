@@ -19,15 +19,15 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
  * The traversal guard of `resolveRequestedFile` in StaticFrontend.kt,
  * correction round 1 of issue #38 (BLOCKER 2, security review; MAJOR 3,
  * release review). The Ktor test client normalises a raw target such as
- * "/%2e%2e/" before it leaves the client, the same limit that
- * RequestGuardRawSocketTest names, so each test here sends a raw socket
- * request instead.
+ * "/%2e%2e/" before it leaves the client. RequestGuardRawSocketTest
+ * names the same limit. Each test here sends a raw socket request
+ * instead.
  *
- * I removed the `isInside` check of `resolveRequestedFile` for a moment
- * (`realCandidate.takeIf { Files.isRegularFile(it) }`, with no root
- * check), ran the first test of this file, and saw it fail: the answer
- * for "/../marker.txt" held the marker body. I restored the check
- * before this run.
+ * I removed the `isInside` check of `resolveRequestedFile` for a
+ * moment: `realCandidate.takeIf { Files.isRegularFile(it) }`, with no
+ * root check. I then ran the first test of this file. It failed: the
+ * answer for "/../marker.txt" held the marker body. I restored the
+ * check before this run.
  */
 class StaticFrontendTraversalTest {
 
@@ -61,9 +61,9 @@ class StaticFrontendTraversalTest {
                 )
                 assertFalse(response.contains(markerBody), "target $target leaked the marker:\n$response")
                 // A target of 5000 "a" characters gives a Netty 400 on
-                // the request line itself, over HTTP/1.0, before the
-                // routing of this module ever runs (a safe answer, and
-                // not one this test can shape).
+                // the request line itself, over HTTP/1.0. This happens
+                // before this module matches a route. The test cannot
+                // shape this safe answer.
                 val statusLine = response.substringBefore("\r\n")
                 val safeAnswer = response.contains(indexBody) ||
                     statusLine.contains(" 404 ") ||
@@ -119,11 +119,12 @@ private fun createWindowsJunction(link: File, target: File): Boolean {
     return process.exitValue() == 0 && link.exists()
 }
 
-// Starts a real server on a free loopback port, with staticDir wired in,
-// hands the caller one function to send a raw request and read the raw
-// response, then always stops the server. The Ktor test client cannot
-// send a malformed or a pre-encoded target as-is (RequestGuardRawSocketTest
-// names the same limit), so this helper mirrors it for the static route.
+// Starts a real server on a free loopback port, with staticDir wired
+// in. Hands the caller one function to send a raw request and read the
+// raw response. Always stops the server after. The Ktor test client
+// cannot send a malformed or a pre-encoded target as-is.
+// RequestGuardRawSocketTest names the same limit. This helper mirrors
+// it for the static route.
 private fun withServerOn(staticDir: File, block: (port: Int, send: (String) -> String) -> Unit) {
     val port = ServerSocket(0).use { it.localPort }
     val config = prodConfig().copy(port = port)

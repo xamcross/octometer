@@ -117,10 +117,10 @@ private fun hasBody(request: ApplicationRequest): Boolean {
 // on a non-API response costs nothing, and a missing header on an API
 // response can leak a cached copy of personal data.
 //
-// Correction round 1 of issue #38 (MINOR 1, security review): internal,
-// not private, so octometer.monitor.frontend.staticFrontend can use the
-// same rule and give a 404 of its own, instead of a second Cache-Control
-// header and the wrong body.
+// Correction round 1 of issue #38 (MINOR 1, security review): this
+// function is internal, not private. octometer.monitor.frontend.staticFrontend
+// can then use the same rule. It gives a 404 of its own, not a second
+// Cache-Control header and the wrong body.
 internal fun isApiPath(rawPath: String): Boolean {
     val decoded = try {
         rawPath.decodeURLPart()

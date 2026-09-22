@@ -190,10 +190,10 @@ val npmInstall = tasks.register<Exec>("npmInstall") {
     // earlier comment named a broken node-gyp file as the reason for
     // "--ignore-scripts". That file exists on this machine, and a plain
     // "npm ci" also works here. npm 11 skips an install script by
-    // default. The five packages of package-lock.json with an install
-    // script (@parcel/watcher, esbuild, fsevents, lmdb,
-    // msgpackr-extract) each read a prebuilt binary of their own
-    // platform at run time, so the script adds nothing on this build.
+    // default. Five packages of package-lock.json hold an install
+    // script: @parcel/watcher, esbuild, fsevents, lmdb, and
+    // msgpackr-extract. Each one reads a prebuilt binary of its own
+    // platform at run time. The script adds nothing on this build.
     // "--ignore-scripts" stays as a deliberate security choice: a
     // dependency update cannot add a life cycle script that this task
     // then runs.
@@ -202,9 +202,10 @@ val npmInstall = tasks.register<Exec>("npmInstall") {
     inputs.file(frontendDir.file("package.json"))
     // Correction round 1 (MINOR 3, security review): the whole
     // node_modules tree is not a Gradle output. npm writes and reads
-    // many files there with no build meaning, so Gradle fingerprinted
-    // the whole tree on each build. The lock file that npm itself
-    // writes at the end of a successful install marks the task done.
+    // many files there with no meaning for the build, so Gradle
+    // fingerprinted the whole tree on each build. The lock file that
+    // npm itself writes at the end of a successful install marks the
+    // task done.
     outputs.file(frontendDir.file("node_modules/.package-lock.json"))
 }
 
@@ -262,14 +263,24 @@ distributions {
 // later plugin that adds its own artifact to "assemble" keeps it. I
 // tried that exact call and it threw "Removing a task dependency from a
 // task instance is not supported" (Gradle 9.7.1). I then read
-// dependsOn.toList() at this point: the distribution plugin wires
+// dependsOn.toList() at this point. The distribution plugin wires
 // distTar and distZip into "assemble" as one merged, opaque
-// TaskDependency object, not as separate entries, so no public Gradle
-// API can pull the two of them back out of it. setDependsOn(jar) stays,
+// TaskDependency object. It holds no separate entries, so no public
+// Gradle API can pull the two back out of it. setDependsOn(jar) stays,
 // now with this record of why. A later plugin that adds to "assemble"
 // needs a fresh look at this line; nothing here can protect it from
 // this override today.
+//
+// Correction round 2 (MINOR 3, second security review): no public API
+// can remove one entry from the merged TaskDependency, but this build
+// can still read it before the override. The check below fails the
+// build when assemble later gets a different dependency set, from a
+// new Gradle version or a new plugin.
 tasks.named("assemble") {
+    val dependencyNames = taskDependencies.getDependencies(this).map { it.name }.toSet()
+    check(dependencyNames == setOf("jar", "distTar", "distZip")) {
+        "assemble now depends on $dependencyNames. Read this override before it drops a new artifact."
+    }
     setDependsOn(listOf(tasks.named("jar")))
 }
 // README.md of this module names ":monitor:backend:distZip" as the
