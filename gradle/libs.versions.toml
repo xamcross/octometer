@@ -21,6 +21,10 @@ mongodb-sync-newest = "5.12.0"
 # version 5.0.1 exists for this artifact too.
 mongodb-driver-kotlin-coroutine = "5.0.1"
 sqlite-jdbc = "3.53.4.0"
+# The version of the three kit publications of JitPack (design decision
+# D25, issue #37). A release bump (D26, issue #39) changes this entry
+# only.
+octometer-kit = "0.1.0"
 # Test-only versions of kit/jvm-mongo. Each one is the current release on
 # Maven Central, confirmed on 2026-09-21.
 junit = "6.1.3"
@@ -41,6 +45,16 @@ logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "lo
 typesafe-config = { module = "com.typesafe:config", version.ref = "typesafe-config" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
 mongodb-driver-kotlin-coroutine = { module = "org.mongodb:mongodb-driver-kotlin-coroutine", version.ref = "mongodb-driver-kotlin-coroutine" }
+# Test-only libraries of the kit modules. Dependabot reads each entry
+# through this [libraries] table (issue #138).
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
+mockito-junit-jupiter = { module = "org.mockito:mockito-junit-jupiter", version.ref = "mockito" }
+testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }
+# The compile version of kit/jvm-mongo (design decision D22). Dependabot
+# reads this entry, and the ignore rule of .github/dependabot.yml stops
+# an update of it.
+mongodb-driver-sync = { module = "org.mongodb:mongodb-driver-sync", version.ref = "mongodb-driver-sync" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

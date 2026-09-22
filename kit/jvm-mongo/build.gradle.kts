@@ -26,36 +26,36 @@ import org.gradle.api.tasks.testing.TestResult
 
 plugins {
     `java-library`
+    `maven-publish`
 }
 
-group = "octometer"
-version = "0.1.0"
+group = "com.github.xamcross.octometer"
+version = libs.versions.octometer.kit.get()
 
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
     }
+    // A source jar for the JitPack publication (finding MINOR 2, PR #155).
+    withSourcesJar()
 }
 
 val mongoDriverSyncVersion = libs.versions.mongodb.driver.sync.get()
 val mongoDriverSyncNewestVersion = libs.versions.mongodb.sync.newest.get()
-val junitVersion = libs.versions.junit.get()
-val testcontainersVersion = libs.versions.testcontainers.get()
-val mockitoVersion = libs.versions.mockito.get()
 
 dependencies {
     api(project(":kit:jvm-core"))
-    compileOnly("org.mongodb:mongodb-driver-sync:$mongoDriverSyncVersion")
+    compileOnly(libs.mongodb.driver.sync)
 
-    testImplementation(platform("org.junit:junit-bom:$junitVersion"))
+    testImplementation(platform(libs.junit.bom))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    testImplementation("org.mongodb:mongodb-driver-sync:$mongoDriverSyncVersion")
-    testImplementation(platform("org.testcontainers:testcontainers-bom:$testcontainersVersion"))
+    testImplementation(libs.mongodb.driver.sync)
+    testImplementation(platform(libs.testcontainers.bom))
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testImplementation("org.testcontainers:testcontainers-mongodb")
-    testImplementation("org.mockito:mockito-core:$mockitoVersion")
-    testImplementation("org.mockito:mockito-junit-jupiter:$mockitoVersion")
+    testImplementation(libs.mockito.core)
+    testImplementation(libs.mockito.junit.jupiter)
 }
 
 tasks.test {
@@ -121,4 +121,36 @@ val testMongoSyncNewest = tasks.register<Test>("testMongoSyncNewest") {
 
 tasks.check {
     dependsOn(testMongoSyncNewest)
+}
+
+// The publication for JitPack (design decision D25, issue #37). The
+// artifact id "octometer-kit-mongo" comes from D25.
+//
+// The Gradle `java-library` component omits a compileOnly dependency
+// from a published POM. This is the Gradle default, and this build
+// keeps it: the published POM has no entry for
+// org.mongodb:mongodb-driver-sync. The app gives the driver itself
+// (see the file header of this module).
+//
+// See kit/jvm-core/build.gradle.kts for the note on the missing
+// license.
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+            artifactId = "octometer-kit-mongo"
+
+            pom {
+                name.set("Octometer Kit Mongo")
+                description.set("The MongoDB event store of the Octometer JVM kit. The app gives the MongoDatabase and the mongodb-driver-sync jar.")
+                url.set("https://github.com/xamcross/octometer")
+
+                scm {
+                    connection.set("scm:git:https://github.com/xamcross/octometer.git")
+                    developerConnection.set("scm:git:https://github.com/xamcross/octometer.git")
+                    url.set("https://github.com/xamcross/octometer")
+                }
+            }
+        }
+    }
 }
