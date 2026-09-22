@@ -14,14 +14,15 @@ import java.time.Instant;
  * <p><strong>{@code path} holds only the match result of rules C39 and
  * C42, never the raw client value.</strong> Rule C39 says the server
  * never stores the raw client value, and rule C42 says the server
- * stores no `path` field without a route pattern list. This module has
- * no such list yet, so {@link IngestPipeline#process} always sets this
- * component to {@code null}, also for a click whose `path` value passed
- * the shape check of rule C39. Issue #104 adds the route pattern list
- * and the match, and it then fills this component with the match
- * result. The raw client value, after the shape check of rule C39,
- * stays in {@link ParsedClick} only; a store must never receive it. A
- * caller must not read this component as the raw client `path`.
+ * stores no `path` field without a route pattern list. {@code
+ * IngestPipeline#process} fills this component with the route pattern
+ * match of {@code IngestSettings#pathPatternMatcher()}, for a click
+ * whose `path` value passed the shape check of rule C39 (issue #104).
+ * Without a matcher, this component is {@code null}, also for a
+ * shape-valid client value. The raw client value, after the shape check
+ * of rule C39, stays in {@link ParsedClick} only; a store must never
+ * receive it. A caller must not read this component as the raw client
+ * `path`.
  *
  * <p>{@code referrerHost} holds the matched source of rule C40; it is
  * {@code null} on an entry other than `octo:session-start`, and on a

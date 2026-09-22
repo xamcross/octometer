@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import octometer.kit.core.path.PathPatternMatcher;
 import octometer.kit.core.store.EventLogStore;
 import octometer.kit.core.user.UserIdResolver;
 
@@ -24,10 +25,7 @@ import octometer.kit.core.user.UserIdResolver;
  *       reserved prefix `octo:` in each letter case, except the exact
  *       text `octo:session-start` (rule C38);</li>
  *   <li>the server checks `path` against rule C39, and drops an invalid
- *       value while it keeps the entry (rule C41). A valid value is not
- *       stored yet: this module has no route pattern list (rule C42),
- *       so {@link IngestEvent#path()} is always {@code null} until
- *       issue #104 adds the list and the match;</li>
+ *       value while it keeps the entry (rule C41);</li>
  *   <li>the server checks `referrerHost` against rule C40 on the
  *       `octo:session-start` entry only, and drops an invalid value or a
  *       value of another entry while it keeps the entry (rules C40,
@@ -35,6 +33,13 @@ import octometer.kit.core.user.UserIdResolver;
  * </ul>
  * Each drop rule writes a maximum of one warning for the whole batch, and
  * no warning holds a raw path or a raw host (rule C41).
+ *
+ * <p>Issue #104 adds the route pattern match of rule C42. When a shape-
+ * valid `path` value passes rule C39, and {@link IngestSettings} carries
+ * a {@link PathPatternMatcher}, {@link IngestEvent#path()} holds the
+ * match result of that matcher, never the raw client value. Without a
+ * matcher, {@link IngestEvent#path()} is {@code null}, also for a
+ * shape-valid client value.
  */
 public final class IngestPipeline {
 
@@ -47,6 +52,16 @@ public final class IngestPipeline {
     private static final Logger LOGGER = System.getLogger("octometer.kit.core");
 
     private IngestPipeline() {
+    }
+
+    /**
+     * Calls {@link #process(String, Clock, IngestSettings)} with a
+     * setting that carries no route pattern list. Each event of the
+     * result then holds a {@code null} path (rule C42). A caller from
+     * before issue #104 still compiles with this method.
+     */
+    public static List<IngestEvent> process(String rawBody, Clock clock) {
+        return process(rawBody, clock, new IngestSettings(false));
     }
 
     /**
@@ -63,12 +78,18 @@ public final class IngestPipeline {
      * adapter must reject a request above 16 384 bytes. It checks the
      * `Content-Length` header and the byte count, before it decodes the
      * body.
+     *
+     * <p>{@code settings} carries the route pattern matcher of rule C42
+     * (issue #104). This method never reads {@code
+     * OCTOMETER_PATH_PATTERNS} on its own; {@link
+     * IngestSettings#fromEnvironment()} owns that read.
      */
-    public static List<IngestEvent> process(String rawBody, Clock clock) {
+    public static List<IngestEvent> process(String rawBody, Clock clock, IngestSettings settings) {
         ParsedIngestRequest parsed = IngestParser.parse(rawBody);
         EventFieldValidator.validateSessionId(parsed.sessionId());
 
         Instant receivedAt = clock.instant();
+        PathPatternMatcher pathPatternMatcher = settings.pathPatternMatcher();
         List<IngestEvent> events = new ArrayList<>(parsed.clicks().size());
         boolean warnedReservedElement = false;
         boolean warnedInvalidField = false;
@@ -90,20 +111,24 @@ public final class IngestPipeline {
             }
             Instant ts = TsCalculator.computeTs(receivedAt, click.ageMs());
 
-            // This module has no route pattern list yet (rule C42), so
-            // the event record always holds a null path. The shape
-            // check of rule C39 still runs here, only to find an
-            // invalid value for the warning of rule C41. The checked
-            // raw value stays in click (a ParsedClick) and goes no
-            // further; issue #104 adds the match that fills the event
-            // record.
-            if (click.path() != null && !EventFieldValidator.isValidPath(click.path()) && !warnedInvalidField) {
-                LOGGER.log(Level.WARNING, "The batch holds an entry with an invalid path or "
-                        + "referrerHost value. The server drops the field and keeps the entry "
-                        + "(contract rule C41).");
-                warnedInvalidField = true;
-            }
+            // The shape check of rule C39 runs on the raw client value.
+            // A shape-valid value then goes to the matcher of rule C42,
+            // when the app gave one; the match result is the only form
+            // that can reach the event record. The raw value stays in
+            // click (a ParsedClick) and goes no further.
             String path = null;
+            if (click.path() != null) {
+                if (EventFieldValidator.isValidPath(click.path())) {
+                    if (pathPatternMatcher != null) {
+                        path = pathPatternMatcher.match(click.path());
+                    }
+                } else if (!warnedInvalidField) {
+                    LOGGER.log(Level.WARNING, "The batch holds an entry with an invalid path or "
+                            + "referrerHost value. The server drops the field and keeps the entry "
+                            + "(contract rule C41).");
+                    warnedInvalidField = true;
+                }
+            }
 
             String referrerHost = null;
             if (isSessionStart && click.referrerHost() != null) {
@@ -163,7 +188,10 @@ public final class IngestPipeline {
      * holds zero clicks, this method appends nothing and returns; it
      * never calls {@code store.append} with an empty list.
      *
-     * <p>Each parameter must not be {@code null}.
+     * <p>Each parameter must not be {@code null}. This method calls
+     * {@link #process(String, Clock, IngestSettings)}, so it fills each
+     * event's `path` with the route pattern match of rule C42 before it
+     * calls {@code store.append} (issue #104).
      */
     public static void ingest(String rawBody, Clock clock, UserIdResolver userIdResolver,
             EventLogStore store, IngestSettings settings) {
@@ -173,7 +201,7 @@ public final class IngestPipeline {
         Objects.requireNonNull(store, "store must not be null");
         Objects.requireNonNull(settings, "settings must not be null");
 
-        List<IngestEvent> events = process(rawBody, clock);
+        List<IngestEvent> events = process(rawBody, clock, settings);
         if (events.isEmpty()) {
             return;
         }

@@ -21,10 +21,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * rule for an invalid value (rule C41), and the reserved element prefix
  * (rule C38, issue #103).
  *
- * <p>This class does not match a `path` value against a route pattern
- * list; issue #104 owns that (rule C42). Each test here checks only the
- * shape check of rule C39, so {@link IngestEvent#path()} is always
- * {@code null} in this class, also for a valid client value.
+ * <p>Each test here calls the two-argument {@link IngestPipeline#process},
+ * so it gives no {@link IngestSettings} and no route pattern list (rule
+ * C42). It checks only the shape check of rule C39, so {@link
+ * IngestEvent#path()} is always {@code null} in this class, also for a
+ * valid client value. {@code IngestPipelinePathMatchTest} covers the
+ * match of rule C42 against a route pattern list (issue #104).
  */
 class IngestPipelinePathAndSourceTest {
 

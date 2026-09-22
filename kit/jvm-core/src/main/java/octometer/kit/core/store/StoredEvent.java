@@ -11,9 +11,8 @@ import octometer.kit.core.ingest.IngestEvent;
  * `path` (rule C39, issue #103). {@link #of} copies both fields from
  * the {@link IngestEvent}. The `path` component holds only the match
  * result of rules C39 and C42, never the raw client value, the same
- * rule as {@link IngestEvent#path()}. This module has no route pattern
- * list yet, so this component is always {@code null} today. Issue #104
- * adds the list and the match.
+ * rule as {@link IngestEvent#path()}. It is {@code null} when the app
+ * gives no route pattern list, or an invalid one (issue #104).
  */
 public record StoredEvent(String sessionId, String element, Instant ts, String userId, String path,
         String referrerHost) {
