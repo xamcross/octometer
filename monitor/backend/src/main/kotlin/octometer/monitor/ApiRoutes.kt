@@ -3,6 +3,7 @@ package octometer.monitor
 import io.ktor.server.routing.Route
 import octometer.monitor.apps.appTotals
 import octometer.monitor.elements.elementsRoute
+import octometer.monitor.erasure.userErasureRoutes
 import octometer.monitor.registry.appRegistryRoutes
 import octometer.monitor.users.userTotalsRoute
 
@@ -21,4 +22,5 @@ fun Route.apiRoutes(services: MonitorServices) {
     appTotals(services.database)
     userTotalsRoute(services.database)
     elementsRoute(services.database)
+    userErasureRoutes(services.database)
 }
