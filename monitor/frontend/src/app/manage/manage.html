@@ -1,2 +1,60 @@
 <h1 tabindex="-1">Manage</h1>
-<p>This is a placeholder view for the app management page.</p>
+
+@if (apps(); as rows) {
+  @if (rows.length === 0) {
+    <p>No app is registered. Add one below.</p>
+  } @else {
+    <div class="table-scroll" tabindex="0" role="region" aria-labelledby="manage-caption">
+      <table>
+        <caption id="manage-caption">
+          The registered apps, with the status of each app.
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">App</th>
+            <th scope="col">Status</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows; track row.appId) {
+            <tr>
+              <th scope="row">{{ row.name }}</th>
+              <td class="status">
+                <span aria-hidden="true">{{ statusIcon(row.status) }}</span>
+                {{ statusLabel(row.status) }}
+                @if (isFailed(row.status) && row.lastError) {
+                  <p class="error-text">{{ row.lastError }}</p>
+                }
+              </td>
+              <td class="actions">
+                <div class="action-row">
+                  <app-edit-app-form
+                    [app]="row"
+                    (updated)="onAppUpdated()"
+                    (staleList)="reload()"
+                  />
+                  <app-delete-app-dialog
+                    [app]="row"
+                    (deleted)="onAppDeleted()"
+                    (staleList)="reload()"
+                  />
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+} @else if (listError(); as message) {
+  <p class="list-error">{{ message }}</p>
+  <button type="button" (click)="reload()">Try again</button>
+} @else {
+  <p>Octometer reads the app list.</p>
+}
+
+<section class="add-app">
+  <h2>Add an app</h2>
+  <app-add-app-form (added)="onAppAdded()" />
+</section>
