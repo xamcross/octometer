@@ -25,6 +25,7 @@ import octometer.kit.core.ingest.IngestPipeline
 import octometer.kit.core.ingest.IngestRateLimiter
 import octometer.kit.core.ingest.IngestSettings
 import octometer.kit.core.ingest.RateLimitResult
+import octometer.kit.core.store.DeletionResult
 import octometer.kit.core.store.EventLogStore
 import octometer.kit.core.user.UserIdResolver
 import java.time.Clock
@@ -274,8 +275,14 @@ private suspend fun respondWithDefect(call: ApplicationCall, cause: Throwable) {
  * the route as an [IngestException]. Only the parser of `kit/jvm-core` may
  * raise a 400 answer; a store exception always gives 500 (the Javadoc of
  * [EventLogStore.append]).
+ *
+ * The ingest route calls only [append] on this wrapper. It never calls
+ * [deleteByUserId], because issue #35 adds no delete route to this
+ * module. The class is `internal`, not `private`, so
+ * `DefectSafeEventLogStoreTest` can build it and test the delegate rule
+ * of [deleteByUserId] too.
  */
-private class DefectSafeEventLogStore(private val delegate: EventLogStore) : EventLogStore {
+internal class DefectSafeEventLogStore(private val delegate: EventLogStore) : EventLogStore {
 
     override fun append(events: List<IngestEvent>, userId: String?) {
         try {
@@ -285,9 +292,9 @@ private class DefectSafeEventLogStore(private val delegate: EventLogStore) : Eve
         }
     }
 
-    override fun deleteByUserId(userId: String) {
+    override fun deleteByUserId(userId: String): DeletionResult {
         try {
-            delegate.deleteByUserId(userId)
+            return delegate.deleteByUserId(userId)
         } catch (cause: IngestException) {
             throw IllegalStateException("The EventLogStore of the app failed.", cause)
         }
