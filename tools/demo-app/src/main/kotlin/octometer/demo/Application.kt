@@ -1,17 +1,25 @@
 package octometer.demo
 
+import com.mongodb.ConnectionString
+import com.mongodb.MongoClientSettings
+import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.call
+import io.ktor.server.engine.applicationEnvironment
+import io.ktor.server.engine.connector
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
+import io.ktor.server.netty.NettyApplicationEngine
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import java.util.concurrent.TimeUnit
 import octometer.kit.core.ingest.IngestSettings
 import octometer.kit.core.path.PathPatternMatcher
 import octometer.kit.core.store.EventLogStore
@@ -33,6 +41,44 @@ private val DEMO_PATH_PATTERNS: PathPatternMatcher = PathPatternMatcher.of(listO
 private val DEMO_INGEST_SETTINGS: IngestSettings = IngestSettings(false, DEMO_PATH_PATTERNS)
 
 /**
+ * The request read timeout of the Netty engine, in seconds (security
+ * review MAJOR 4). The kit sets no timeout for a slow request body, so
+ * the app must set its own timeout.
+ */
+private const val NETTY_REQUEST_READ_TIMEOUT_SECONDS = 10
+
+/**
+ * The socket read timeout of the MongoDB client, in seconds (security
+ * review MAJOR 4). The driver sets no read timeout by default, so a
+ * blocked primary would hold a store thread for ever.
+ */
+private const val MONGO_SOCKET_READ_TIMEOUT_SECONDS = 5L
+
+/**
+ * Sets the request read timeout of the Netty engine (security review
+ * MAJOR 4). A test applies this function to a fresh configuration
+ * object, then reads the value back.
+ */
+internal fun configureNettyEngine(configuration: NettyApplicationEngine.Configuration) {
+    configuration.requestReadTimeoutSeconds = NETTY_REQUEST_READ_TIMEOUT_SECONDS
+}
+
+/**
+ * Builds the [MongoClientSettings] of the demo app from [mongoUri]. It
+ * adds a socket read timeout, so a blocked primary cannot hold a store
+ * thread for ever (security review MAJOR 4). A test builds an instance
+ * and reads the timeout back; the test opens no real connection.
+ */
+internal fun demoMongoClientSettings(mongoUri: String): MongoClientSettings =
+    MongoClientSettings.builder()
+        .applyConnectionString(ConnectionString(mongoUri))
+        .applyToSocketSettings { it.readTimeout(MONGO_SOCKET_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+        .build()
+
+private fun createMongoClient(settings: DemoSettings): MongoClient =
+    MongoClients.create(demoMongoClientSettings(settings.mongoUri))
+
+/**
  * Starts the demo app (issue #14). The flag `--generate` writes synthetic
  * clicks through the store, then exits; it starts no server. With no
  * flag, this function starts the Ktor server on a loopback address and a
@@ -48,7 +94,7 @@ fun main(args: Array<String>) {
 }
 
 private fun runGenerate(settings: DemoSettings) {
-    MongoClients.create(settings.mongoUri).use { client ->
+    createMongoClient(settings).use { client ->
         val database = client.getDatabase(settings.databaseName)
         val store = MongoEventLogStore(database)
         val written = SyntheticClickGenerator.generate(store)
@@ -59,11 +105,26 @@ private fun runGenerate(settings: DemoSettings) {
 }
 
 private fun runServer(settings: DemoSettings) {
-    val client = MongoClients.create(settings.mongoUri)
+    val client = createMongoClient(settings)
     val database = client.getDatabase(settings.databaseName)
     val store = MongoEventLogStore(database)
-    embeddedServer(Netty, host = settings.host, port = settings.port) {
+    embeddedServer(
+        factory = Netty,
+        environment = applicationEnvironment(),
+        configure = {
+            connector {
+                host = settings.host
+                port = settings.port
+            }
+            configureNettyEngine(this)
+        },
+    ) {
         demoModule(store)
+        // MINOR 11 of the Ktor review: close the client at the stop
+        // event, so a restart of the app leaks no connection.
+        monitor.subscribe(ApplicationStopped) {
+            client.close()
+        }
     }.start(wait = true)
 }
 
