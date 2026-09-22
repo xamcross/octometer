@@ -46,11 +46,20 @@ object DemoIndexPage {
           tracker.start();
 
           const select = document.getElementById('demo-user');
+
+          // MINOR 9 of the Ktor review: read the cookie at load, and set
+          // the select value. The page then shows the real user, also
+          // after a reload.
+          const match = document.cookie.match(/(?:^|; )demo_user=([^;]*)/);
+          if (match) {
+            select.value = decodeURIComponent(match[1]);
+          }
+
           select.addEventListener('change', () => {
             if (select.value === '') {
-              document.cookie = 'demo_user=; path=/; max-age=0';
+              document.cookie = 'demo_user=; path=/; SameSite=Lax; max-age=0';
             } else {
-              document.cookie = 'demo_user=' + select.value + '; path=/; max-age=86400';
+              document.cookie = 'demo_user=' + select.value + '; path=/; SameSite=Lax; max-age=86400';
             }
           });
         </script>
