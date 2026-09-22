@@ -22,16 +22,6 @@ mockito = "5.23.0"
 testcontainers = "2.0.5"
 
 [libraries]
-# Test-only libraries of kit/jvm-mongo. Dependabot reads each entry
-# through this [libraries] table (issue #138).
-junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
-mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
-mockito-junit-jupiter = { module = "org.mockito:mockito-junit-jupiter", version.ref = "mockito" }
-testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }
-# The compile version of kit/jvm-mongo (design decision D22). Dependabot
-# reads this entry, and the ignore rule of .github/dependabot.yml stops
-# an update of it.
-mongodb-driver-sync = { module = "org.mongodb:mongodb-driver-sync", version.ref = "mongodb-driver-sync" }
 ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
 ktor-server-netty = { module = "io.ktor:ktor-server-netty", version.ref = "ktor" }
 ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negotiation", version.ref = "ktor" }
@@ -44,6 +34,16 @@ kotlin-test-junit5 = { module = "org.jetbrains.kotlin:kotlin-test-junit5", versi
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 typesafe-config = { module = "com.typesafe:config", version.ref = "typesafe-config" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
+# Test-only libraries of the kit modules. Dependabot reads each entry
+# through this [libraries] table (issue #138).
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
+mockito-junit-jupiter = { module = "org.mockito:mockito-junit-jupiter", version.ref = "mockito" }
+testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }
+# The compile version of kit/jvm-mongo (design decision D22). Dependabot
+# reads this entry, and the ignore rule of .github/dependabot.yml stops
+# an update of it.
+mongodb-driver-sync = { module = "org.mongodb:mongodb-driver-sync", version.ref = "mongodb-driver-sync" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

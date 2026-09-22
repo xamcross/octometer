@@ -16,10 +16,11 @@ and the kit never creates a client.
   the test suite again against this version.
 
 Raise `mongodb-sync-newest` in `gradle/libs.versions.toml` by hand each
-quarter. Dependabot never raises it, because the `ignore` rule of
-`.github/dependabot.yml` covers each version of
-`org.mongodb:mongodb-driver-sync`, and Dependabot cannot separate the two
-catalog entries by name alone. The `mongodb-driver-sync` entry of the
-`[libraries]` table carries the compile version, so Dependabot reads it
-and then skips it through the `ignore` rule. The compile version 5.0.1
-stays fixed each time.
+quarter. The `[libraries]` table holds one entry for
+`org.mongodb:mongodb-driver-sync`, and that entry carries the compile
+version. Dependabot reads that entry, and the `ignore` rule of
+`.github/dependabot.yml` stops its update. Dependabot reads no
+dependency for `mongodb-sync-newest`, because the `[libraries]` table
+holds no reference to that version. The `ignore` rule covers each
+version of `org.mongodb:mongodb-driver-sync`, so it also guards a later
+`[libraries]` entry. The compile version 5.0.1 stays fixed each time.

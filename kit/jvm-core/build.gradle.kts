@@ -15,8 +15,7 @@ java {
     }
 }
 
-// JUnit Jupiter: gradle/libs.versions.toml holds the version, confirmed
-// on Maven Central on 2026-09-21 (issue #138).
+// JUnit Jupiter: gradle/libs.versions.toml holds the version (issue #138).
 dependencies {
     testImplementation(platform(libs.junit.bom))
     testImplementation("org.junit.jupiter:junit-jupiter")
