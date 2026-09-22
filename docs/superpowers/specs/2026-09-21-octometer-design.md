@@ -486,8 +486,12 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   `octo:session-start` at once, in its own request, with `ageMs: 0` (contract rule C38). While
   `document.prerendering` is true, `start()` waits for the event `prerenderingchange`. While
   `document.visibilityState` is `hidden`, it waits for the event `visibilitychange`. It then
-  runs one time only. It sends nothing when `navigator.webdriver` is true, except when the option
-  `ignoreWebdriver` turns this check off for an end-to-end test. Without `sessionStorage`, the
+  runs one time only. A new id enters `sessionStorage` only at the moment the session start
+  request goes out, after this wait (maintainer decision, 2026-09-22). A document that ends before
+  that moment stores no id, and the next document of the same tab starts a fresh session. It
+  sends nothing when `navigator.webdriver` is true, except when the option `ignoreWebdriver` turns
+  this check off for an end-to-end test. A `true` value of `navigator.webdriver` blocks the whole
+  tracker, the click listener included, not only the session start. Without `sessionStorage`, the
   tracker keeps the id in a module variable, thus it sends one session start for each
   document. The pilot app `investguideua` calls `start()` in the browser only, for example
   from `afterNextRender`, because it uses server-side rendering.
@@ -531,7 +535,9 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   shows the path `(unknown)` and the time of its first click. A row of "First pages" opens
   "Anonymous sessions" with `firstPath`. The row `(anonymous)` of level 2 opens "Anonymous
   sessions" too. A session row opens the element view with `sessionId`. Each level 1 app row
-  gets a link cell "First pages".
+  gets a link cell "First pages". "First pages" counts `COUNT(DISTINCT session_id)`, and
+  "Anonymous sessions" takes one row for each session. A second `octo:session-start` row of one
+  session, from a retry that still reached the store, thus changes no count of either view.
 
 ## 6. Monitor data model (SQLite)
 
