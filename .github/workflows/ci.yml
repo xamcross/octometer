@@ -36,6 +36,12 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
       - name: Build each JVM module
+        # MAJOR 3, Kotlin review of pull request #160. This job always
+        # has Docker, so a skipped container test here is a real
+        # problem. monitor/backend/build.gradle.kts reads this
+        # variable and fails the build on a skip.
+        env:
+          OCTOMETER_REQUIRE_DOCKER: 'true'
         run: ./gradlew build
       - name: Keep the test report
         if: failure()

@@ -1,35 +1,48 @@
 package octometer.monitor.mongo
 
+import com.mongodb.ConnectionString
+import com.mongodb.MongoClientSettings
 import com.mongodb.client.MongoClient
 import com.mongodb.client.MongoClients
+import com.mongodb.event.CommandListener
+import com.mongodb.event.CommandStartedEvent
 import java.io.File
 import java.nio.file.Files
 import java.time.Instant
+import java.util.Collections
+import java.util.Date
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.mongo.store.MongoEventLogStore
+import octometer.monitor.captureLogEvents
 import octometer.monitor.registerTempRoot
 import octometer.monitor.store.EventStore
 import octometer.monitor.store.SqliteDatabase
 import org.testcontainers.containers.MongoDBContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
+import org.testcontainers.utility.DockerImageName
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
  * Integration tests of [MongoAppReader] against a real MongoDB server
- * (issue #16, design decisions D4, D10, section 4.3). Each test needs
- * Docker; a machine with no Docker skips the whole class (the Windows CI
- * job "Monitor backend on Windows" has no Docker, but "JVM modules" on
- * Ubuntu runs it). Each event goes in through
+ * (issue #16, design decisions D4, D10, section 4.3, plus correction
+ * round 1 of pull request #160: BLOCKER 1 and BLOCKER 2 of the Kotlin
+ * review). Each test needs Docker; a machine with no Docker skips the
+ * whole class. The job "JVM modules" on Ubuntu runs it; the job
+ * "Monitor backend on Windows" has no Docker and skips it by design
+ * (`monitor/backend/build.gradle.kts` guards the Ubuntu job only).
+ *
+ * Each event goes in through
  * [octometer.kit.mongo.store.MongoEventLogStore], the store of the app
- * side of the contract (issue #11), so the test reads the exact document
- * shape that a real app writes.
+ * side of the contract (issue #11), so the test reads the exact
+ * document shape that a real app writes.
  */
 @Testcontainers(disabledWithoutDocker = true)
 class MongoAppReaderContainerTest {
@@ -38,7 +51,7 @@ class MongoAppReaderContainerTest {
     companion object {
         @Container
         @JvmStatic
-        private val MONGO = MongoDBContainer("mongo:7.0")
+        private val MONGO = MongoDBContainer(DockerImageName.parse("mongo:7.0"))
     }
 
     private val root = Files.createTempDirectory("octometer-mongo-reader-container-test-").toFile().also { registerTempRoot(it) }
@@ -57,7 +70,7 @@ class MongoAppReaderContainerTest {
         // A lag of 1 second here: most tests of this class check the page
         // loop and the document shape, not the lag itself, so each of
         // them calls settle() below before the first poll. The two lag
-        // tests further down build their own reader with a bigger lag.
+        // tests further down build their own reader with its own lag.
         reader = MongoAppReader(eventStore, settleLagSeconds = 1)
         appId = insertApp(sqlite, "demo")
         databaseName = "octometer_test_" + System.nanoTime()
@@ -96,40 +109,127 @@ class MongoAppReaderContainerTest {
         assertEquals(2500, countEvents(sqlite, appId))
     }
 
+    // BLOCKER 2, Kotlin review of pull request #160. ObjectId's
+    // getSmallestWithDate truncates the server time to a whole second.
+    // A test that inserts and polls at once always gets 0 events from
+    // the truncation alone, with no help from the lag, so it cannot
+    // fail for a broken lag. This test waits past the second of the
+    // insert first, so only the lag can explain the first 0 result.
     @Test
-    fun `an event younger than the lag is absent, and a later cycle reads it`() = runBlocking {
-        val lagReader = MongoAppReader(eventStore, settleLagSeconds = 2)
+    fun `an event younger than the lag is absent, and a shorter lag from the same cursor reads it`() = runBlocking {
         val store = MongoEventLogStore(rawClient.getDatabase(databaseName))
         store.append(listOf(ingestEvent("nav.open")), "user-1")
+        delay(5_000)
 
-        val firstOutcome = lagReader.pollOnce(target(cursor = null), MONGO.connectionString)
-        assertEquals(0, firstOutcome.eventsStored, "An event inserted just now must stay out of a 2-second lag.")
+        val bigLagReader = MongoAppReader(eventStore, settleLagSeconds = 30)
+        val bigLagOutcome = bigLagReader.pollOnce(target(cursor = null), MONGO.connectionString)
+        assertEquals(0, bigLagOutcome.eventsStored, "A lag of 30 seconds must still exclude a 5-second-old event.")
+        bigLagReader.close()
 
-        delay(4_500)
-        val secondOutcome = lagReader.pollOnce(target(cursor = firstOutcome.cursor), MONGO.connectionString)
-
-        assertEquals(1, secondOutcome.eventsStored)
+        val smallLagReader = MongoAppReader(eventStore, settleLagSeconds = 1)
+        val smallLagOutcome = smallLagReader.pollOnce(target(cursor = bigLagOutcome.cursor), MONGO.connectionString)
+        assertEquals(1, smallLagOutcome.eventsStored, "A lag of 1 second must read the same event.")
         assertEquals(1, countEvents(sqlite, appId))
-        lagReader.close()
+        smallLagReader.close()
     }
 
-    // Design decision D6 and section 4.3 give the bound from the server
-    // time of the hello command of the primary, never a local clock. A
-    // large lag of 600 seconds (10 minutes) proves this: the event, only
-    // just written, stays out of the bound of "server time minus 600 s".
-    // A reader that read a local clock 10 minutes ahead, minus the same
-    // lag, would compute a bound close to "now", and it would wrongly
-    // read the event.
+    // BLOCKER 1, Kotlin review of pull request #160. readBound must
+    // follow the serverTimeSource seam of MongoAppReader, never a
+    // value the code computes on its own. A source 10 minutes ahead of
+    // hello proves the seam is live: with the real hello time and a
+    // lag of 1 second, a just-written event would stay out; with the
+    // far-future source, the bound must include it.
     @Test
-    fun `the bound follows the hello localTime of the primary, with a lag of 10 minutes`() = runBlocking {
-        val tenMinuteLagReader = MongoAppReader(eventStore, settleLagSeconds = 600)
+    fun `a server time source ahead of hello reads an event that the default source leaves out`() = runBlocking {
         val store = MongoEventLogStore(rawClient.getDatabase(databaseName))
         store.append(listOf(ingestEvent("nav.open")), "user-1")
 
-        val outcome = tenMinuteLagReader.pollOnce(target(cursor = null), MONGO.connectionString)
+        val aheadReader = MongoAppReader(
+            eventStore,
+            settleLagSeconds = 1,
+            serverTimeSource = { database -> Date(helloLocalTime(database).time + 600_000) },
+        )
+        val outcome = aheadReader.pollOnce(target(cursor = null), MONGO.connectionString)
 
-        assertEquals(0, outcome.eventsStored, "A bound from a local clock 10 minutes ahead would wrongly include this event.")
-        tenMinuteLagReader.close()
+        assertEquals(1, outcome.eventsStored, "A server time source 10 minutes ahead of hello must read the just-written event.")
+        aheadReader.close()
+    }
+
+    // BLOCKER 1, Kotlin review of pull request #160: "Remove the hello
+    // read for a moment and see the test fail." A CommandListener on a
+    // dedicated client proves that one poll cycle always sends a hello
+    // command before the find command of the page.
+    @Test
+    fun `one poll cycle sends a hello command before the find command`() = runBlocking {
+        val commandNames = Collections.synchronizedList(mutableListOf<String>())
+        val listener = object : CommandListener {
+            override fun commandStarted(event: CommandStartedEvent) {
+                commandNames += event.commandName
+            }
+        }
+        val settings = MongoClientSettings.builder()
+            .applyConnectionString(ConnectionString(MONGO.connectionString))
+            .addCommandListener(listener)
+            .build()
+        val listenerReader = MongoAppReader(
+            eventStore,
+            settleLagSeconds = 1,
+            clientFactory = { com.mongodb.kotlin.client.coroutine.MongoClient.create(settings) },
+        )
+
+        listenerReader.pollOnce(target(cursor = null), MONGO.connectionString)
+
+        val helloIndex = commandNames.indexOf("hello")
+        val findIndex = commandNames.indexOf("find")
+        assertTrue(helloIndex != -1, "One pollOnce must send a hello command.")
+        assertTrue(findIndex != -1, "One pollOnce must send a find command.")
+        assertTrue(helloIndex < findIndex, "The hello command must run before the find command.")
+        listenerReader.close()
+    }
+
+    // MAJOR 1, security review of pull request #160. logback.xml sets
+    // org.mongodb to WARN. This test polls with a marker user name and
+    // password, then it reads every captured log line of the cycle,
+    // not only ERROR, and it asserts that no line holds either marker.
+    @Test
+    fun `a marker user name and password in the connection string stay out of every log line at the shipped level`() = runBlocking {
+        val markerUser = "octomarkerloguser4c2b"
+        val markerPassword = "octomarkerlogpass7e91"
+        val host = MONGO.host
+        val port = MONGO.getMappedPort(27017)
+        val markedConnectionString = "mongodb://$markerUser:$markerPassword@$host:$port/exampledb?authSource=admin"
+
+        val (_, logEvents) = captureLogEvents {
+            kotlin.runCatching { reader.pollOnce(target(cursor = null), markedConnectionString) }
+        }
+
+        assertTrue(logEvents.isNotEmpty(), "The cycle must write at least one log line, or this test proves nothing.")
+        logEvents.forEach { event ->
+            assertFalse(event.formattedMessage.contains(markerUser), "A log line must hold no user name: ${event.formattedMessage}")
+            assertFalse(event.formattedMessage.contains(markerPassword), "A log line must hold no password: ${event.formattedMessage}")
+        }
+    }
+
+    // MINOR finding, both reviews of pull request #160: a byte budget
+    // for one page. Six documents of about 2 MB each cross the 8 MB
+    // budget of PAGE_BYTE_BUDGET before the sixth document.
+    @Test
+    fun `a page stops before the byte budget, and the next cycle reads the rest`() = runBlocking {
+        val store = MongoEventLogStore(rawClient.getDatabase(databaseName))
+        val bigElement = "x".repeat(2 * 1024 * 1024)
+        val events = (1..6).map { index -> ingestEvent("$bigElement-$index") }
+        store.append(events, "user-1")
+        settle()
+
+        val firstOutcome = reader.pollOnce(target(cursor = null), MONGO.connectionString)
+
+        assertTrue(
+            firstOutcome.eventsStored in 1..5,
+            "The byte budget must stop the page before all 6 documents arrive. Got ${firstOutcome.eventsStored}.",
+        )
+
+        val secondOutcome = reader.pollOnce(target(cursor = firstOutcome.cursor), MONGO.connectionString)
+        assertEquals(6, firstOutcome.eventsStored + secondOutcome.eventsStored, "The rest must arrive on a later page.")
     }
 
     @Test
@@ -220,13 +320,13 @@ class MongoAppReaderContainerTest {
     /**
      * Waits past the 1-second lag of [reader]. An ObjectId has a
      * resolution of 1 second (contract rule C2), so an insert near the
-     * end of a server second needs a full 2 extra seconds of real wait,
+     * end of a server second needs about 1 extra second of real wait,
      * on top of the 1-second lag, before the bound of section 4.3 is
      * certain to pass it. This wait also covers a small clock gap
      * between the test JVM and the container.
      */
     private suspend fun settle() {
-        delay(3_500)
+        delay(2_500)
     }
 }
 

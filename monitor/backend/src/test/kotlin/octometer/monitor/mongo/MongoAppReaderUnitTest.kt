@@ -1,9 +1,14 @@
 package octometer.monitor.mongo
 
+import ch.qos.logback.classic.Level
 import java.io.File
 import java.nio.file.Files
 import java.util.Date
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.captureLogEvents
 import octometer.monitor.registerTempRoot
 import octometer.monitor.store.EventStore
 import octometer.monitor.store.SqliteDatabase
@@ -19,10 +24,15 @@ import kotlin.test.assertTrue
 
 /**
  * The tests of issue #16 that need no Docker: the parse of one event
- * document (contract rules C1 to C6, C9), the filter of section 4.3, the
- * bound of section 4.3, and the page loop of [MongoAppReader.runCycle]
- * with a fake page source. `MongoAppReaderContainerTest` covers the real
- * MongoDB read and the client reuse of design decision D10.
+ * document (contract rules C1 to C6, C9), the filter of section 4.3,
+ * the bound of section 4.3, and the page loop of
+ * [MongoAppReader.runCycle] with a fake page source.
+ * `MongoAppReaderContainerTest` covers the real MongoDB read and the
+ * client reuse of design decision D10.
+ *
+ * This class also holds the tests of correction round 1 of pull
+ * request #160: BLOCKER 1 and MAJOR 2 of the security review, and
+ * BLOCKER 1, BLOCKER 2, and MAJOR 1 of the Kotlin review.
  */
 class MongoAppReaderUnitTest {
 
@@ -173,7 +183,75 @@ class MongoAppReaderUnitTest {
         assertEquals("cursor-1", outcome.cursor, "An empty cycle must not lose the cursor of the app row.")
     }
 
-    // --- MongoReadFailedException (the security note of the maintainer) ---
+    // --- The invalid-document skip (Kotlin review, MAJOR 2 of pull request #160) ---
+
+    @Test
+    fun `runCycle skips an invalid document, moves the cursor, and stores the rest`() = runBlocking {
+        val good1 = goodDocument("good.first")
+        val bad = Document("_id", ObjectId()).append("element", 42)
+        val good2 = goodDocument("good.second")
+        val page = listOf(good1, bad, good2)
+
+        val (outcome, events) = captureLogEvents {
+            reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> page }
+        }
+
+        assertEquals(2, outcome.eventsStored, "The reader must skip the one invalid document.")
+        assertEquals(page.last().getObjectId("_id").toHexString(), outcome.cursor, "The cursor must move past the invalid document.")
+        assertEquals(2, countEvents(database, appId))
+        val warnLines = events.filter { it.level == Level.WARN && it.loggerName.contains("MongoAppReader") }
+        assertEquals(1, warnLines.size, "One WARN line must name the skipped count.")
+        assertTrue(warnLines.single().formattedMessage.contains("1"), "The line must hold the skipped count.")
+        assertFalse(warnLines.single().formattedMessage.contains("42"), "The line must hold no document content.")
+    }
+
+    @Test
+    fun `an invalid document does not block the events after it, and the next cycle continues`() = runBlocking {
+        val good1 = goodDocument("good.first")
+        val bad = Document("_id", ObjectId()).append("element", 42)
+        val good2 = goodDocument("good.second")
+        val good3 = goodDocument("good.third")
+        val firstPage = listOf(good1, bad, good2)
+        val secondPage = listOf(good3)
+
+        val firstOutcome = reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { cursor ->
+            assertEquals(null, cursor)
+            firstPage
+        }
+        assertEquals(2, firstOutcome.eventsStored)
+        assertEquals(firstPage.last().getObjectId("_id").toHexString(), firstOutcome.cursor)
+
+        val secondOutcome = reader.runCycle(appId, firstOutcome.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { cursor ->
+            assertEquals(firstOutcome.cursor, cursor)
+            secondPage
+        }
+
+        assertEquals(1, secondOutcome.eventsStored, "The cycle after the skip must still read the new event.")
+        assertEquals(3, countEvents(database, appId))
+    }
+
+    // --- The cancellation guard of lesson 2 (MAJOR 2 of the security review, MAJOR 1 of the Kotlin review) ---
+
+    @Test
+    fun `a foreign CancellationException from inside the driver becomes a MongoReadFailedException`() = runBlocking {
+        val marker = "octomarkercancel8a1f"
+        val throwingReader = MongoAppReader(
+            eventStore,
+            settleLagSeconds = 2,
+            serverTimeSource = { throw CancellationException(marker) },
+        )
+        val target = PollTarget(appId, "db", "octometer_events", cursor = null)
+
+        val failure = kotlin.runCatching {
+            throwingReader.pollOnce(target, "mongodb://127.0.0.1:1/exampledb")
+        }.exceptionOrNull()
+
+        assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
+        assertFalse(failure.message!!.contains(marker), "The message must hold no text of the foreign cancellation.")
+        throwingReader.close()
+    }
+
+    // --- MongoReadFailedException (the security note of the maintainer, BLOCKER 1 of the security review) ---
 
     @Test
     fun `a failed connect gives one fixed sentence and the exception class, with no host in the message`() = runBlocking {
@@ -190,6 +268,92 @@ class MongoAppReaderUnitTest {
         shortTimeoutReader.close()
     }
 
+    @Test
+    fun `a failed connect through the default client path keeps the user name, the password, and the port out of the message`() = runBlocking {
+        val markerUser = "octomarkeruser7f3a"
+        val markerPassword = "octomarkerpass9d2e"
+        val target = PollTarget(appId, "db", "octometer_events", cursor = null)
+
+        val failure = kotlin.runCatching {
+            reader.pollOnce(target, "mongodb://$markerUser:$markerPassword@127.0.0.1:1/exampledb")
+        }.exceptionOrNull()
+
+        assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
+        assertTrue(failure.message!!.startsWith("The reader could not read MongoDB."))
+        assertFalse(failure.message!!.contains(markerUser), "The message must hold no user name.")
+        assertFalse(failure.message!!.contains(markerPassword), "The message must hold no password.")
+        assertFalse(failure.message!!.contains("127.0.0.1"), "The message must hold no host.")
+        assertFalse(failure.message!!.contains(":1/"), "The message must hold no port.")
+    }
+
+    @Test
+    fun `the connection string check of the registry runs again before the driver, for a value edited by hand`() = runBlocking {
+        val target = PollTarget(appId, "db", "octometer_events", cursor = null)
+        // "readPreference" is a real driver option that the driver itself
+        // accepts with no complaint, but it is outside the D11 allow-list
+        // (the code sets the read preference itself). The registry
+        // rejects it at save time; this string stands for a value that a
+        // person edited by hand in the secrets file afterward (D10: a
+        // second check before the driver).
+        val connectionString = "mongodb://127.0.0.1:1/exampledb?readPreference=secondary"
+
+        val (failure, logEvents) = captureLogEvents {
+            kotlin.runCatching { reader.pollOnce(target, connectionString) }.exceptionOrNull()
+        }
+
+        assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
+        val warnLine = logEvents.single { it.loggerName.contains("MongoAppReader") && it.level == Level.WARN }
+        assertEquals(
+            "The MongoDB read failed. IllegalArgumentException",
+            warnLine.formattedMessage,
+            "The registry check, not a driver connect failure, must reject this string.",
+        )
+    }
+
+    @Test
+    fun `a raw slash in the SRV password gives the fixed sentence, with no marker in the message, the cause chain, or a log line`() = runBlocking {
+        val markerUser = "octomarkeruserb3f1"
+        val markerPassword = "octomarkerpassword9d2e"
+        // The unescaped "/" of the password breaks the driver's own parse
+        // of the URI (BLOCKER 1 of the security review of pull request
+        // #160). ConnectionStringValidator.check lets this text through,
+        // because a raw "/" inside the user-info part is a gap of that
+        // allow-list check, not of this test.
+        val connectionString = "mongodb+srv://$markerUser:$markerPassword/withslash@cluster0.example.mongodb.net/exampledb"
+        val target = PollTarget(appId, "db", "octometer_events", cursor = null)
+
+        val (failure, logEvents) = captureLogEvents {
+            kotlin.runCatching { reader.pollOnce(target, connectionString) }.exceptionOrNull()
+        }
+
+        assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
+        assertEquals("The reader could not read MongoDB. IllegalArgumentException", failure.message)
+        assertNoMarker(failure, markerUser, markerPassword)
+        logEvents.forEach { event -> assertNoMarkerInText(event.formattedMessage, markerUser, markerPassword) }
+    }
+
+    // --- The cycle timeout of D6 (MINOR finding, both reviews) ---
+
+    @Test
+    fun `the cycle timeout of D6 is pinned at 45 seconds`() {
+        assertEquals(45_000L, CYCLE_TIMEOUT_MILLIS)
+    }
+
+    @Test
+    fun `a page source slower than the cycle timeout trips the timeout`() = runBlocking {
+        val shortTimeoutReader = MongoAppReader(eventStore, settleLagSeconds = 2, cycleTimeoutMillis = 50)
+        val slowFetch: suspend (String?) -> List<Document> = { _ ->
+            delay(500)
+            fakePage(1, PAGE_LIMIT)
+        }
+
+        val failure = kotlin.runCatching {
+            shortTimeoutReader.runCycleWithTimeout(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, slowFetch)
+        }.exceptionOrNull()
+
+        assertTrue(failure is TimeoutCancellationException, "A page source slower than the cycle timeout must throw. Got $failure.")
+    }
+
     private fun fakePage(pageIndex: Int, size: Int): List<Document> =
         (1..size).map { itemIndex ->
             Document("_id", ObjectId())
@@ -198,6 +362,30 @@ class MongoAppReaderUnitTest {
                 .append("sessionId", "session-1")
                 .append("userId", "user-1")
         }
+
+    private fun goodDocument(element: String): Document =
+        Document("_id", ObjectId())
+            .append("ts", Date(1_700_000_000_000L))
+            .append("element", element)
+            .append("sessionId", "session-1")
+            .append("userId", "user-1")
+
+    private fun assertNoMarker(throwable: Throwable, vararg markers: String) {
+        var current: Throwable? = throwable
+        val seen = mutableSetOf<Throwable>()
+        while (current != null && seen.add(current)) {
+            assertNoMarkerInText(current.toString(), *markers)
+            assertNoMarkerInText(current.message ?: "", *markers)
+            current.stackTrace.forEach { frame -> assertNoMarkerInText(frame.toString(), *markers) }
+            current = current.cause
+        }
+    }
+
+    private fun assertNoMarkerInText(text: String, vararg markers: String) {
+        markers.forEach { marker ->
+            assertFalse(text.contains(marker), "The text must hold no marker ($marker): $text")
+        }
+    }
 }
 
 private fun shortTimeoutClient(connectionString: String): com.mongodb.kotlin.client.coroutine.MongoClient {
