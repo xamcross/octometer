@@ -25,9 +25,8 @@ kotlin {
     }
 }
 
-// JUnit Jupiter 6.1.3: confirmed on Maven Central on 2026-09-21
-// (repo1.maven.org/maven2/org/junit/jupiter/junit-jupiter/maven-metadata.xml,
-// <release>6.1.3</release>), the same version as kit/jvm-core.
+// JUnit Jupiter: gradle/libs.versions.toml holds the version, the same
+// version as kit/jvm-core (issue #138).
 dependencies {
     api(project(":kit:jvm-core"))
 
@@ -44,7 +43,7 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.logback.classic)
-    testImplementation(platform("org.junit:junit-bom:6.1.3"))
+    testImplementation(platform(libs.junit.bom))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

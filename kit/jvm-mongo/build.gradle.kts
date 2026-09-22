@@ -40,23 +40,20 @@ java {
 
 val mongoDriverSyncVersion = libs.versions.mongodb.driver.sync.get()
 val mongoDriverSyncNewestVersion = libs.versions.mongodb.sync.newest.get()
-val junitVersion = libs.versions.junit.get()
-val testcontainersVersion = libs.versions.testcontainers.get()
-val mockitoVersion = libs.versions.mockito.get()
 
 dependencies {
     api(project(":kit:jvm-core"))
-    compileOnly("org.mongodb:mongodb-driver-sync:$mongoDriverSyncVersion")
+    compileOnly(libs.mongodb.driver.sync)
 
-    testImplementation(platform("org.junit:junit-bom:$junitVersion"))
+    testImplementation(platform(libs.junit.bom))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    testImplementation("org.mongodb:mongodb-driver-sync:$mongoDriverSyncVersion")
-    testImplementation(platform("org.testcontainers:testcontainers-bom:$testcontainersVersion"))
+    testImplementation(libs.mongodb.driver.sync)
+    testImplementation(platform(libs.testcontainers.bom))
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testImplementation("org.testcontainers:testcontainers-mongodb")
-    testImplementation("org.mockito:mockito-core:$mockitoVersion")
-    testImplementation("org.mockito:mockito-junit-jupiter:$mockitoVersion")
+    testImplementation(libs.mockito.core)
+    testImplementation(libs.mockito.junit.jupiter)
 }
 
 tasks.test {

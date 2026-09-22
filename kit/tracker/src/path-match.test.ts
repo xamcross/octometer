@@ -32,59 +32,57 @@ describe('prepareRoutes and matchPreparedPath', () => {
     }
   });
 
-  it('drops an entry that is not a string, with one warning that names its index', () => {
-    const { routes, warnings } = prepareRoutes(['/articles', 42, '/history/:id']);
+  it('drops an entry that is not a string, and names its index in invalidIndexes', () => {
+    const { routes, invalidIndexes } = prepareRoutes(['/articles', 42, '/history/:id']);
     expect(routes.map((route) => route.pattern)).toEqual(['/articles', '/history/:id']);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain('entry 1');
+    expect(invalidIndexes).toEqual([1]);
   });
 
-  it('drops an entry with no leading slash, with one warning', () => {
-    const { routes, warnings } = prepareRoutes(['articles']);
+  it('drops an entry with no leading slash, and names its index', () => {
+    const { routes, invalidIndexes } = prepareRoutes(['articles']);
     expect(routes).toHaveLength(0);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain('entry 0');
+    expect(invalidIndexes).toEqual([0]);
   });
 
   it('drops an entry whose literal segment holds a double quote', () => {
-    const { routes, warnings } = prepareRoutes(['/articles/"']);
+    const { routes, invalidIndexes } = prepareRoutes(['/articles/"']);
     expect(routes).toHaveLength(0);
-    expect(warnings).toHaveLength(1);
+    expect(invalidIndexes).toEqual([0]);
   });
 
-  it('drops an entry whose literal segment holds a question mark or a hash', () => {
-    const { routes, warnings } = prepareRoutes(['/a?b', '/a#b']);
+  it('names the index of each invalid entry, in list order', () => {
+    const { routes, invalidIndexes } = prepareRoutes(['/a?b', '/a#b']);
     expect(routes).toHaveLength(0);
-    expect(warnings).toHaveLength(2);
+    expect(invalidIndexes).toEqual([0, 1]);
   });
 
   it('keeps an entry whose literal segment holds an apostrophe, a valid C39 character', () => {
-    const { routes, warnings } = prepareRoutes(["/it's-fine"]);
+    const { routes, invalidIndexes } = prepareRoutes(["/it's-fine"]);
     expect(routes).toHaveLength(1);
-    expect(warnings).toHaveLength(0);
+    expect(invalidIndexes).toEqual([]);
   });
 
   it('drops a :name segment with a character outside the set of rule C39', () => {
-    const { routes, warnings } = prepareRoutes(['/history/:<id>']);
+    const { routes, invalidIndexes } = prepareRoutes(['/history/:<id>']);
     expect(routes).toHaveLength(0);
-    expect(warnings).toHaveLength(1);
+    expect(invalidIndexes).toEqual([0]);
   });
 
-  it('gives no warning when every entry is valid', () => {
-    const { routes, warnings } = prepareRoutes(['/', '/articles', '/articles/*', '/history/:id']);
+  it('gives an empty invalidIndexes list when every entry is valid', () => {
+    const { routes, invalidIndexes } = prepareRoutes(['/', '/articles', '/articles/*', '/history/:id']);
     expect(routes).toHaveLength(4);
-    expect(warnings).toHaveLength(0);
+    expect(invalidIndexes).toEqual([]);
   });
 
   it('keeps an entry whose literal segment holds a well-formed percent escape (rule C39)', () => {
-    const { routes, warnings } = prepareRoutes(['/caf%C3%A9']);
+    const { routes, invalidIndexes } = prepareRoutes(['/caf%C3%A9']);
     expect(routes.map((route) => route.pattern)).toEqual(['/caf%C3%A9']);
-    expect(warnings).toHaveLength(0);
+    expect(invalidIndexes).toEqual([]);
   });
 
   it('drops an entry with a bad percent escape', () => {
-    const { routes, warnings } = prepareRoutes(['/a%zz']);
+    const { routes, invalidIndexes } = prepareRoutes(['/a%zz']);
     expect(routes).toHaveLength(0);
-    expect(warnings).toHaveLength(1);
+    expect(invalidIndexes).toEqual([0]);
   });
 });
