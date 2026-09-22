@@ -2,7 +2,12 @@ package octometer.monitor.retention
 
 import java.io.File
 import java.nio.file.Files
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.registerTempRoot
 import octometer.monitor.store.SqliteDatabase
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -18,13 +23,13 @@ private const val RETENTION_DAYS = 395
 private const val NOW = 1_700_000_000_000L
 
 // Issue #59, steps 2 and 3 (D15): the purge deletes each event older than
-// retentionDays, and it deletes a click row (kind = 0) and a session start
-// row (kind = 1) alike. It runs in chunks, and it checkpoints the WAL
-// after. Each test uses its own temporary folder, never the real data
-// folder.
+// retentionDays. It deletes a click row (kind = 0) and a session start
+// row (kind = 1) alike. It runs in chunks, then checkpoints the wal file.
+// Each test uses its own temporary folder, never the real data folder.
 class RetentionPurgeTest {
 
     private val tempDir = Files.createTempDirectory("octometer-retention-purge-test-").toFile()
+        .also { registerTempRoot(it) }
     private lateinit var database: SqliteDatabase
     private var appId: Long = 0
 
@@ -47,19 +52,19 @@ class RetentionPurgeTest {
         insertEvent("old-start", cutoff - DAY_MILLIS, kind = 1)
         insertEvent("new-click", NOW, kind = 0)
 
-        RetentionPurge(database, FakeClock(NOW)).purgeOnce(RETENTION_DAYS)
+        RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
 
         assertEquals(setOf("new-click"), remainingEventIds())
     }
 
     // Boundary rule of issue #59, step 5 of the report: an event of exactly
-    // retentionDays age is not "older than" the limit, so the purge keeps it.
+    // retentionDays age is not "older than" the limit. The purge keeps it.
     @Test
     fun `an event of exactly retentionDays age stays`() = runBlocking {
         val cutoff = NOW - RETENTION_DAYS * DAY_MILLIS
         insertEvent("at-cutoff", cutoff, kind = 0)
 
-        RetentionPurge(database, FakeClock(NOW)).purgeOnce(RETENTION_DAYS)
+        RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
 
         assertEquals(setOf("at-cutoff"), remainingEventIds())
     }
@@ -69,7 +74,7 @@ class RetentionPurgeTest {
         val cutoff = NOW - RETENTION_DAYS * DAY_MILLIS
         insertEvent("one-second-older", cutoff - 1_000, kind = 0)
 
-        RetentionPurge(database, FakeClock(NOW)).purgeOnce(RETENTION_DAYS)
+        RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
 
         assertTrue(remainingEventIds().isEmpty())
     }
@@ -79,14 +84,14 @@ class RetentionPurgeTest {
         val cutoff = NOW - RETENTION_DAYS * DAY_MILLIS
         insertEvent("one-second-younger", cutoff + 1_000, kind = 0)
 
-        RetentionPurge(database, FakeClock(NOW)).purgeOnce(RETENTION_DAYS)
+        RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
 
         assertEquals(setOf("one-second-younger"), remainingEventIds())
     }
 
     // Issue #59, step 2 and its acceptance criterion: the purge deletes in
-    // chunks of 10 000 rows. This inserts more than one chunk of old rows,
-    // so the test proves the loop runs more than one batch.
+    // chunks of 10 000 rows. This inserts more than one chunk of old rows.
+    // The test then proves the loop runs more than one batch.
     @Test
     fun `purgeOnce deletes every old row, across more than one batch of 10 000`() = runBlocking {
         val cutoff = NOW - RETENTION_DAYS * DAY_MILLIS
@@ -94,19 +99,38 @@ class RetentionPurgeTest {
         repeat(oldCount) { index -> insertEvent("old-$index", cutoff - DAY_MILLIS, kind = index % 2) }
         insertEvent("new-click", NOW, kind = 0)
 
-        RetentionPurge(database, FakeClock(NOW)).purgeOnce(RETENTION_DAYS)
+        RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
 
         assertEquals(setOf("new-click"), remainingEventIds())
     }
 
+    // Correction round 1, decision 3: the batch size is 10 000. This test
+    // fails when that value changes, because the row count and the
+    // expected write count each name 10 000 in a literal, not a shared
+    // constant. Two batches of 10 000 and 1 rows delete 10 001 old rows,
+    // plus one write call for the checkpoint, for 3 calls in total.
+    @Test
+    fun `purgeOnce writes exactly 3 times for 10 001 old rows, with a batch size of 10 000`() = runBlocking {
+        val cutoff = NOW - RETENTION_DAYS * DAY_MILLIS
+        val oldCount = 10_001
+        repeat(oldCount) { index -> insertEvent("old-$index", cutoff - DAY_MILLIS, kind = index % 2) }
+
+        val writeCount = AtomicInteger(0)
+        RetentionPurge(database, fixedClock(NOW), onWrite = { writeCount.incrementAndGet() })
+            .purgeOnce(RETENTION_DAYS)
+
+        assertEquals(3, writeCount.get(), "two delete batches, plus one checkpoint call")
+        assertTrue(remainingEventIds().isEmpty())
+    }
+
     // Issue #59, step 3: the purge runs PRAGMA wal_checkpoint(TRUNCATE)
-    // after. That pragma sets the wal file back to 0 bytes, so this checks
+    // after. That pragma sets the wal file back to 0 bytes. This checks
     // the file on the disk, not only the return value of the pragma.
     @Test
     fun `purgeOnce empties the wal file after the checkpoint`() = runBlocking {
         insertEvent("old-click", NOW - (RETENTION_DAYS + 1) * DAY_MILLIS, kind = 0)
 
-        RetentionPurge(database, FakeClock(NOW)).purgeOnce(RETENTION_DAYS)
+        RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
 
         val walFile = File(tempDir, "octometer.db-wal")
         assertTrue(walFile.exists(), "the wal file exists after a write")
@@ -114,9 +138,10 @@ class RetentionPurgeTest {
     }
 
     // Issue #59, "the delete statement uses an index": this records the
-    // query plan of the batch delete for the pull request text.
+    // query plan of the batch delete for the pull request text, and it
+    // fails when the plan stops using the covering index.
     @Test
-    fun `the delete statement query plan is recorded`() = runBlocking {
+    fun `the delete statement scans the covering index event_session`() = runBlocking {
         val plan = database.write { writer ->
             writer.prepareStatement(
                 "EXPLAIN QUERY PLAN SELECT rowid FROM event WHERE ts < ? LIMIT 10000",
@@ -130,8 +155,13 @@ class RetentionPurgeTest {
             }
         }
         println("EXPLAIN QUERY PLAN for the purge delete: $plan")
-        assertTrue(plan.isNotEmpty(), "the query plan has at least one line")
+        assertTrue(
+            plan.any { line -> line.contains("COVERING INDEX event_session") },
+            "the plan must scan the covering index event_session",
+        )
     }
+
+    private fun fixedClock(millis: Long): Clock = Clock.fixed(Instant.ofEpochMilli(millis), ZoneOffset.UTC)
 
     private suspend fun remainingEventIds(): Set<String> =
         database.read { reader ->

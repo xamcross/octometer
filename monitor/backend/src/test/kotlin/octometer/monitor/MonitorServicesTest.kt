@@ -2,6 +2,8 @@ package octometer.monitor
 
 import java.io.File
 import java.nio.file.Files
+import java.sql.DriverManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import octometer.monitor.registry.SecretStore
 import octometer.monitor.registry.allowlistedSrvUri
@@ -130,6 +132,125 @@ class MonitorServicesTest {
             awaitThreadCount(PURGE_THREAD_NAME, baseline),
             "close() stops the purge thread",
         )
+    }
+
+    // Correction round 1 of issue #59, decision 1: close() cancels the
+    // purge, then joins it, with no fixed time bound. A second raw
+    // connection holds an exclusive lock, so the first purge batch of
+    // 100 000 old rows blocks inside SQLite. close() then runs while
+    // that batch write is still in progress. The old 300 ms bound let
+    // close() return early, and a stray write then reached the closed
+    // connection after close() had already returned. This test asserts
+    // that no ERROR line comes after close() returns, that no thread
+    // stays, and that PRAGMA quick_check still answers "ok".
+    @Test
+    fun `close during a purge of 100 000 old rows ends without an exception, with no stale thread, and quick_check gives ok`() =
+        runBlocking {
+            seedOldEventRows(100_000)
+            val writerBaseline = awaitThreadCount(WRITER_THREAD_NAME, 0)
+            val purgeBaseline = awaitThreadCount(PURGE_THREAD_NAME, 0)
+
+            val dbFile = File(dataDir, "octometer.db")
+            val lockConnection = DriverManager.getConnection("jdbc:sqlite:" + dbFile.absolutePath)
+            lockConnection.createStatement().use { it.execute("BEGIN EXCLUSIVE") }
+
+            val services = MonitorServices.open(prodConfig(dataDir = dataDir, retentionDays = 1))
+            // Gives the purge time to dispatch its first batch, and to
+            // block on the lock above.
+            delay(200)
+
+            val (closeReturnedAt, errorEvents) = captureErrorLogEvents {
+                services.close()
+                val returnedAt = System.currentTimeMillis()
+                // The blocked batch throws only once busy_timeout elapses
+                // (5000 ms, from SqlitePragmas). This waits past that
+                // point, so a stray write that outlives close() has time
+                // to log its error before the assertion below runs.
+                delay(5_300)
+                returnedAt
+            }
+
+            lockConnection.createStatement().use { it.execute("COMMIT") }
+            lockConnection.close()
+
+            val strayErrors = errorEvents.filter { event -> event.timeStamp > closeReturnedAt }
+            assertTrue(strayErrors.isEmpty(), "close() must leave no ERROR log line logged after it returns")
+            assertEquals(
+                writerBaseline,
+                awaitThreadCount(WRITER_THREAD_NAME, writerBaseline),
+                "close() must leave no writer thread",
+            )
+            assertEquals(
+                purgeBaseline,
+                awaitThreadCount(PURGE_THREAD_NAME, purgeBaseline),
+                "close() must leave no purge thread",
+            )
+            assertEquals("ok", quickCheck())
+        }
+
+    private suspend fun seedOldEventRows(count: Int) {
+        val database = SqliteDatabase.open(dataDir)
+        try {
+            val appId = database.write { writer ->
+                writer.prepareStatement(
+                    "INSERT INTO app (name, database_name, collection_name, created_at) VALUES (?, ?, ?, ?)",
+                ).use { insert ->
+                    insert.setString(1, "demo")
+                    insert.setString(2, "db")
+                    insert.setString(3, "octometer_events")
+                    insert.setLong(4, System.currentTimeMillis())
+                    insert.executeUpdate()
+                }
+                writer.createStatement().use { statement ->
+                    statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+                        result.next()
+                        result.getLong(1)
+                    }
+                }
+            }
+            database.write { writer ->
+                writer.autoCommit = false
+                try {
+                    writer.prepareStatement(
+                        "INSERT INTO event (app_id, event_id, ts, element, session_id, user_id, kind) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    ).use { insert ->
+                        for (index in 0 until count) {
+                            insert.setLong(1, appId)
+                            insert.setString(2, "old-$index")
+                            insert.setLong(3, 0L)
+                            insert.setString(4, "checkout.save")
+                            insert.setString(5, "session-1")
+                            insert.setString(6, "user-1")
+                            insert.setInt(7, index % 2)
+                            insert.addBatch()
+                        }
+                        insert.executeBatch()
+                    }
+                    writer.commit()
+                } finally {
+                    writer.autoCommit = true
+                }
+            }
+        } finally {
+            database.close()
+        }
+    }
+
+    private suspend fun quickCheck(): String {
+        val database = SqliteDatabase.open(dataDir)
+        return try {
+            database.write { writer ->
+                writer.createStatement().use { statement ->
+                    statement.executeQuery("PRAGMA quick_check").use { result ->
+                        result.next()
+                        result.getString(1)
+                    }
+                }
+            }
+        } finally {
+            database.close()
+        }
     }
 
     private fun threadCount(name: String): Int =
