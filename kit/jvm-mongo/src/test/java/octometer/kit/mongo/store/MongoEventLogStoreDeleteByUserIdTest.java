@@ -19,7 +19,6 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -67,6 +66,7 @@ class MongoEventLogStoreDeleteByUserIdTest {
         assertEquals(2, result.userEventCount(), "The two events of user-1 must be counted.");
         assertEquals(1, result.anonymousEventCount(), "The one anonymous event of session-a must be counted.");
         assertEquals(3, result.totalCount());
+        assertTrue(result.complete(), "The call found no new session id on its last pass.");
 
         List<Document> remaining = rawCollection().find().into(new java.util.ArrayList<>());
         assertEquals(2, remaining.size(), "Only the second user's event and the other session's anonymous event stay.");
@@ -89,22 +89,19 @@ class MongoEventLogStoreDeleteByUserIdTest {
 
         assertEquals(0, result.userEventCount());
         assertEquals(0, result.anonymousEventCount());
+        assertTrue(result.complete());
         assertEquals(1, rawCollection().countDocuments());
     }
 
-    @Test
-    void deleteByUserIdRejectsANullValue() {
-        MongoEventLogStore store = new MongoEventLogStore(database, 30);
-
-        assertThrows(NullPointerException.class, () -> store.deleteByUserId(null));
-    }
-
-    @Test
-    void deleteByUserIdRejectsAnEmptyText() {
-        MongoEventLogStore store = new MongoEventLogStore(database, 30);
-
-        assertThrows(IllegalArgumentException.class, () -> store.deleteByUserId(""));
-    }
+    // deleteByUserIdRejectsANullValue and deleteByUserIdRejectsAnEmptyText
+    // moved to MongoEventLogStoreDeleteErrorTest, which needs no Docker
+    // (MINOR 3 of the MongoDB review of pull request #157).
+    //
+    // MongoEventLogStoreDeleteErrorTest also holds the pass-loop tests
+    // of the BLOCKER of pull request #157 (a new session between step
+    // (a) and step (c), and a throw before step (c)). A Mockito mock
+    // gives exact control over the session id list of each pass; a real
+    // server gives no such control with no added race code.
 
     /**
      * Confirms the cost of contract rule C8: the collection holds only
@@ -112,6 +109,13 @@ class MongoEventLogStoreDeleteByUserIdTest {
      * (issue #35 step 5, no new index). The query plan of each filter
      * shape that {@code deleteByUserId} runs is a full collection scan,
      * never an index seek. The PR text of issue #35 records this plan.
+     *
+     * <p>This test explains a {@code find} with the two filter shapes of
+     * {@code deleteByUserId}, not the {@code deleteMany} commands
+     * themselves. The MongoDB planner picks a plan from the filter
+     * alone, and a {@code find} and a {@code deleteMany} with the same
+     * filter share the same plan, so the find plan is a correct proxy
+     * for the delete plan.
      */
     @Test
     void theQueryPlanOfEachDeleteFilterIsACollectionScanWithNoIndex() {
@@ -119,14 +123,15 @@ class MongoEventLogStoreDeleteByUserIdTest {
         store.append(event("session-a", "checkout.save"), "user-1");
         store.append(event("session-a", "nav.menu.open"), null);
 
-        Document userIdPlan = rawCollection().find(Filters.eq("userId", "user-1"))
+        Document userIdPlan = rawCollection()
+                .find(Filters.and(Filters.eq("userId", "user-1"), Filters.in("sessionId", List.of("session-a"))))
                 .explain();
         Document anonymousPlan = rawCollection()
                 .find(Filters.and(Filters.eq("userId", null), Filters.in("sessionId", List.of("session-a"))))
                 .explain();
 
         assertEquals("COLLSCAN", winningPlanStage(userIdPlan),
-                "A filter on userId alone must scan the collection; contract rule C8 indexes only _id and ts.");
+                "A filter on userId and sessionId must scan the collection; contract rule C8 indexes only _id and ts.");
         assertEquals("COLLSCAN", winningPlanStage(anonymousPlan),
                 "A filter on userId and sessionId must scan the collection; contract rule C8 indexes only _id and ts.");
     }
