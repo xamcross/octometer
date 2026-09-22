@@ -4,7 +4,9 @@ import java.io.File
 import java.sql.Connection
 import java.sql.DriverManager
 import java.time.Clock
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -16,6 +18,15 @@ import octometer.monitor.backup.backupsDir
 import org.sqlite.SQLiteConfig
 
 private const val DATABASE_FILE_NAME = "octometer.db"
+private const val WRITER_SHUTDOWN_TIMEOUT_SECONDS = 5L
+
+// Issue #55: a plain ExecutorCoroutineDispatcher.close() only asks the
+// executor to shut down; it does not wait for the thread to end. This
+// waits, so the writer thread never outlives close(), on a success or
+// on a failed open().
+private fun awaitWriterShutdown(executor: ExecutorService) {
+    runCatching { executor.awaitTermination(WRITER_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+}
 
 /**
  * The SQLite store of D3. The writer connection is private. Each write
@@ -27,6 +38,7 @@ private const val DATABASE_FILE_NAME = "octometer.db"
 class SqliteDatabase private constructor(
     private val writer: Connection,
     private val reader: Connection,
+    private val writerExecutor: ExecutorService,
     private val writerDispatcher: ExecutorCoroutineDispatcher,
 ) : AutoCloseable {
 
@@ -46,6 +58,7 @@ class SqliteDatabase private constructor(
         runCatching { writer.close() }
         runCatching { reader.close() }
         writerDispatcher.close()
+        awaitWriterShutdown(writerExecutor)
     }
 
     companion object {
@@ -70,16 +83,18 @@ class SqliteDatabase private constructor(
             try {
                 val reader = openConnection(url, readOnly = true)
                 try {
-                    val writerDispatcher = newWriterDispatcher()
+                    val writerExecutor = newWriterExecutor()
+                    val writerDispatcher = writerExecutor.asCoroutineDispatcher()
                     try {
                         // MAJOR 2 (Kotlin backend engineer): the migration
                         // runs on the writer thread, not on the caller.
                         runBlocking(writerDispatcher) { MigrationRunner.run(writer, backupsDir(dataDir), clock) }
                     } catch (error: Throwable) {
                         writerDispatcher.close()
+                        awaitWriterShutdown(writerExecutor)
                         throw error
                     }
-                    return SqliteDatabase(writer, reader, writerDispatcher)
+                    return SqliteDatabase(writer, reader, writerExecutor, writerDispatcher)
                 } catch (error: Throwable) {
                     // MAJOR 3 (Kotlin backend engineer): close each opened
                     // part on a throw, so a Windows handle never leaks.
@@ -92,10 +107,10 @@ class SqliteDatabase private constructor(
             }
         }
 
-        private fun newWriterDispatcher(): ExecutorCoroutineDispatcher =
+        private fun newWriterExecutor(): ExecutorService =
             Executors.newSingleThreadExecutor { runnable ->
                 Thread(runnable, "octometer-sqlite-writer")
-            }.asCoroutineDispatcher()
+            }
 
         // MAJOR 1 (SQLite and data engineer): the reader connection opens
         // read-only, so a write off the writer thread fails at the driver.

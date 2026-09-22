@@ -5,6 +5,7 @@ import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 import java.sql.DriverManager
+import org.junit.jupiter.api.Assumptions
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -88,6 +89,14 @@ class DatabaseBackupTest {
 
     @Test
     fun `the backup leaves no temporary file behind on Windows, when the final name is locked`() {
+        // Windows enforces a byte-range lock against every other handle,
+        // this JVM included. A Linux advisory lock does not block a move
+        // of a different process, so this test would pass by accident
+        // there, and it would prove nothing (rule of SecretStoreTest).
+        Assumptions.assumeTrue(
+            System.getProperty("os.name").orEmpty().startsWith("Windows", ignoreCase = true),
+            "the OS must enforce a byte-range lock against a move",
+        )
         val sourceFile = File(tempDir, "source.db")
         val connection = DriverManager.getConnection("jdbc:sqlite:${sourceFile.absolutePath}")
         connection.createStatement().use { it.execute("CREATE TABLE event (id INTEGER PRIMARY KEY)") }
