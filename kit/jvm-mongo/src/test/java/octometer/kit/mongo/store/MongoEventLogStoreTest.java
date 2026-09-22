@@ -19,6 +19,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -134,11 +135,52 @@ class MongoEventLogStoreTest {
 
         store.append(event, "user-1");
 
-        List<Document> indexes = new ArrayList<>();
+        Set<String> indexNames = new HashSet<>();
         for (Document index : rawCollection().listIndexes()) {
-            indexes.add(index);
+            indexNames.add(index.getString("name"));
         }
-        assertEquals(2, indexes.size(), "The collection must hold only the _id index and the ts TTL index.");
+        assertEquals(Set.of("_id_", "ts_ttl"), indexNames,
+                "The collection must hold only the _id index and the ts TTL index.");
+    }
+
+    @Test
+    void appendWritesAMixedBatchWithEachEventKeepingItsOwnFields() {
+        MongoEventLogStore store = new MongoEventLogStore(database);
+        IngestEvent clickWithPath = new IngestEvent("99999999-9999-9999-9999-999999999999", "checkout.save",
+                Instant.now(), "/checkout", null);
+        IngestEvent sessionStartWithSource = new IngestEvent("99999999-9999-9999-9999-999999999999",
+                "octo:session-start", Instant.now(), null, "bing.com");
+        IngestEvent eventWithNeitherField = new IngestEvent("99999999-9999-9999-9999-999999999999", "nav.open",
+                Instant.now());
+
+        store.append(List.of(clickWithPath, sessionStartWithSource, eventWithNeitherField), "user-1");
+
+        List<Document> stored = new ArrayList<>();
+        for (Document document : rawCollection().find()) {
+            stored.add(document);
+        }
+        assertEquals(3, stored.size());
+
+        Document clickDocument = documentWithElement(stored, "checkout.save");
+        assertEquals("/checkout", clickDocument.getString("path"));
+        assertFalse(clickDocument.containsKey("referrerHost"), "The click event must store no referrerHost key.");
+
+        Document sessionStartDocument = documentWithElement(stored, "octo:session-start");
+        assertFalse(sessionStartDocument.containsKey("path"), "The session-start event must store no path key.");
+        assertEquals("bing.com", sessionStartDocument.getString("referrerHost"));
+
+        Document plainDocument = documentWithElement(stored, "nav.open");
+        assertFalse(plainDocument.containsKey("path"), "The plain event must store no path key.");
+        assertFalse(plainDocument.containsKey("referrerHost"), "The plain event must store no referrerHost key.");
+    }
+
+    private static Document documentWithElement(List<Document> documents, String element) {
+        for (Document document : documents) {
+            if (element.equals(document.getString("element"))) {
+                return document;
+            }
+        }
+        throw new AssertionError("No stored document holds the element \"" + element + "\".");
     }
 
     @Test
