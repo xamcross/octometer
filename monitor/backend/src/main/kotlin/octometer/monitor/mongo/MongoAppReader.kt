@@ -187,7 +187,13 @@ class MongoAppReader(
 
     /** Closes each kept client, for example when the monitor stops. */
     override fun close() {
-        val toClose = clients.values.toList()
+        // MINOR 4 of the third Kotlin review (issue #17): clients is a
+        // ConcurrentHashMap. Iterable.toList() can throw
+        // NoSuchElementException for a size of one. A concurrent remove
+        // can land between its size read and its iterator read (the
+        // same defect as PollScheduler.stop, MAJOR 1). ArrayList's
+        // constructor takes one safe copy instead.
+        val toClose = ArrayList(clients.values)
         clients.clear()
         toClose.forEach { it.close() }
     }

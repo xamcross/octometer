@@ -11,6 +11,7 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -419,40 +420,48 @@ class PollSchedulerTest {
 
         val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler)
         scheduler.start()
-        testScheduler.runCurrent()
-        awaitCondition(testScheduler) { cycle.calls.size == 1 }
-
-        val stopJob = launch(Dispatchers.Default) {
-            scheduler.stop()
-            order += "stop-finished"
-        }
-
         try {
-            // `stop()` cancels the tick loop, and then waits for the
-            // poll that the gate still holds. Pump the virtual
-            // scheduler so that cancellation can complete, and confirm
-            // stop() has not returned yet, because the poll is still
-            // gated.
-            repeat(20) {
-                testScheduler.advanceUntilIdle()
-                yield()
-            }
-            assertTrue(order.isEmpty(), "stop() must still wait for the poll in progress")
-        } finally {
-            // A finally block: MAJOR 2 of the second Kotlin review. A
-            // failed assertion above must still release the gate, so
-            // the gated poll ends and stopJob does not outlive the
-            // test.
-            gate.complete(Unit)
-        }
-        // The loop cancel() of stop() races, on a real thread, against
-        // the advanceUntilIdle() pumps above. The tick loop can still
-        // fire a few more times before that cancel() lands. This waits
-        // for any write, not for one exact clock value.
-        awaitCondition(testScheduler) { store.nextPollAtOf(appId) != 0L }
-        withContext(Dispatchers.Default) { stopJob.join() }
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 1 }
 
-        assertEquals(listOf("poll-finished", "stop-finished"), order, "stop() waits for the running poll first")
+            val stopJob = launch(Dispatchers.Default) {
+                scheduler.stop()
+                order += "stop-finished"
+            }
+
+            try {
+                // `stop()` cancels the tick loop, and then waits for the
+                // poll that the gate still holds. Pump the virtual
+                // scheduler so that cancellation can complete, and confirm
+                // stop() has not returned yet, because the poll is still
+                // gated.
+                repeat(20) {
+                    testScheduler.advanceUntilIdle()
+                    yield()
+                }
+                assertTrue(order.isEmpty(), "stop() must still wait for the poll in progress")
+            } finally {
+                // A finally block: MAJOR 2 of the second Kotlin review. A
+                // failed assertion above must still release the gate, so
+                // the gated poll ends and stopJob does not outlive the
+                // test.
+                gate.complete(Unit)
+            }
+            // The loop cancel() of stop() races, on a real thread, against
+            // the advanceUntilIdle() pumps above. The tick loop can still
+            // fire a few more times before that cancel() lands. This waits
+            // for any write, not for one exact clock value.
+            awaitCondition(testScheduler) { store.nextPollAtOf(appId) != 0L }
+            withContext(Dispatchers.Default) { stopJob.join() }
+
+            assertEquals(listOf("poll-finished", "stop-finished"), order, "stop() waits for the running poll first")
+        } finally {
+            // MINOR 5 of the third Kotlin review: awaitCondition above
+            // can throw before the stop job even starts. This outer
+            // finally still stops the loop, so a failed assertion never
+            // strands the tick loop on the test dispatcher.
+            scheduler.stop()
+        }
     }
 
     // Issue #17, decision 2 (MAJOR 1 of the security review): a poll that
@@ -480,22 +489,104 @@ class PollSchedulerTest {
             stopGraceMillis = 200,
         )
         scheduler.start()
-        testScheduler.runCurrent()
-        awaitCondition(testScheduler) { cycle.calls.size == 1 }
+        try {
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 1 }
 
-        val stopJob = launch(Dispatchers.Default) { scheduler.stop() }
+            val stopJob = launch(Dispatchers.Default) { scheduler.stop() }
 
-        // Pump the virtual scheduler so the grace bound can elapse, and
-        // wait for stop() to return on its own, with no real wait.
-        repeat(30) {
-            testScheduler.advanceUntilIdle()
-            yield()
+            // Pump the virtual scheduler so the grace bound can elapse, and
+            // wait for stop() to return on its own, with no real wait.
+            repeat(30) {
+                testScheduler.advanceUntilIdle()
+                yield()
+            }
+            withContext(Dispatchers.Default) { stopJob.join() }
+
+            assertEquals(1, cycle.calls.size, "the stuck poll ran exactly once")
+            assertEquals(0L, store.nextPollAtOf(appId), "a cancelled poll never records a result")
+        } finally {
+            // MINOR 5 of the third Kotlin review: same outer guard as
+            // the previous test, against a failed awaitCondition above.
+            scheduler.stop()
         }
-        withContext(Dispatchers.Default) { stopJob.join() }
-
-        assertEquals(1, cycle.calls.size, "the stuck poll ran exactly once")
-        assertEquals(0L, store.nextPollAtOf(appId), "a cancelled poll never records a result")
     }
+
+    // MINOR 6 of the third Kotlin review: commit 90cf4e7 added an
+    // isActive guard for a false CancellationException. Only the real
+    // cancellation side had a test. This case covers the false side: a
+    // foreign CancellationException, thrown while the scheduler is
+    // still active, must count as a failed cycle, not as a shutdown.
+    @Test
+    fun `a foreign CancellationException from the cycle, while active, still moves next_poll_at`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(nextPollAt = 0L)
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle(failure = CancellationException("a probe cancellation, not a real one"))
+
+        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5)
+
+        val (_, events) = captureLogEvents {
+            scheduler.start()
+            try {
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 1 }
+                // The tick loop must still be alive: a real cancellation
+                // would have ended it, and this next tick would not run.
+                // The next due time is 5 000 ms away (pollIntervalSeconds
+                // = 5), so this advances the virtual clock past it.
+                testScheduler.advanceTimeBy(5_000)
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 2 }
+            } finally {
+                scheduler.stop()
+            }
+        }
+
+        // Each failed cycle moves next_poll_at by the interval, from
+        // its own tick time. The first cycle moves it to 5 000. The
+        // second cycle, the proof that the loop stayed alive, moves it
+        // on to 10 000.
+        assertEquals(10_000L, store.nextPollAtOf(appId), "a false cancellation still moves next_poll_at")
+        val warnings = events.filter { it.level == Level.WARN }
+        assertTrue(
+            warnings.count { it.formattedMessage.contains("CancellationException") } == 2,
+            "one WARN line per false cancellation names the cancellation class",
+        )
+    }
+
+    // MAJOR 1 of the third Kotlin review: a plain toList() call reads
+    // size, then calls iterator().next() for a size of one. A
+    // Collection whose size lies about its iterator then throws
+    // NoSuchElementException. snapshot() must survive this same
+    // Collection, because ArrayList's constructor calls toArray(),
+    // never iterator().next(). This test fails against a snapshot()
+    // written as `source.toList()`, and it passes against the real
+    // `ArrayList(source)` form.
+    @Test
+    fun `snapshot copies a collection whose size outruns its own iterator`() {
+        val deceptive = DeceptiveSizeCollection<Long>()
+
+        val copy = snapshot(deceptive)
+
+        assertEquals(emptyList(), copy, "snapshot must return the elements the iterator gives, not throw")
+    }
+}
+
+/**
+ * A [Collection] whose [size] reports one element, and whose
+ * [iterator] gives none. This mimics one instant of a
+ * `ConcurrentHashMap` value view (MAJOR 1 of the third Kotlin
+ * review). A concurrent remove can land between a `size` read and an
+ * `iterator` read of the same view.
+ */
+private class DeceptiveSizeCollection<T> : Collection<T> {
+    override val size: Int = 1
+    override fun isEmpty(): Boolean = false
+    override fun iterator(): Iterator<T> = emptyList<T>().iterator()
+    override fun contains(element: T): Boolean = false
+    override fun containsAll(elements: Collection<T>): Boolean = false
 }
 
 private fun pollScheduler(

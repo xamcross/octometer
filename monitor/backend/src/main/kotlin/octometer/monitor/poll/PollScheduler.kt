@@ -113,7 +113,14 @@ class PollScheduler(
      */
     suspend fun stop() {
         loopJob?.cancelAndJoin()
-        val running = activePolls.values.toList()
+        // MAJOR 1 of the third Kotlin review: activePolls is a
+        // ConcurrentHashMap. Iterable.toList() reads size first, then
+        // calls iterator().next(). A poll that finishes, and removes
+        // its own entry, between those two reads leaves the iterator
+        // empty, and next() throws NoSuchElementException. snapshot()
+        // takes one copy instead, through the constructor of ArrayList,
+        // which never races the map this way.
+        val running = snapshot(activePolls.values)
         val allJoinedInTime = withTimeoutOrNull(stopGraceMillis) {
             running.forEach { it.join() }
         }
@@ -263,9 +270,25 @@ class PollScheduler(
         try {
             write()
         } catch (cancellation: CancellationException) {
-            throw cancellation
+            // MINOR 3 of the third Kotlin review, lesson 2 of the
+            // backend brief: re-throw only a real cancellation of this
+            // coroutine. A false one, from a still-active coroutine, is
+            // a failed write instead.
+            if (!currentCoroutineContext().isActive) throw cancellation
+            log.warn("The poll result write failed. {}", cancellation.javaClass.simpleName)
         } catch (failure: Exception) {
             log.warn("The poll result write failed. {}", failure.javaClass.simpleName)
         }
     }
 }
+
+/**
+ * Copies [source] into one new list. MAJOR 1 of the third Kotlin
+ * review: `Iterable.toList()` reads `size`, then calls
+ * `iterator().next()`. A `Collection` that changes between those two
+ * reads, for example the value view of a `ConcurrentHashMap`, can then
+ * throw `NoSuchElementException` for no real error. `ArrayList`'s own
+ * constructor calls `toArray()` instead, one call that a concurrent
+ * collection writes to stay correct under a concurrent change.
+ */
+internal fun <V> snapshot(source: Collection<V>): List<V> = ArrayList(source)
