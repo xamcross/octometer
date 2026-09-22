@@ -89,7 +89,7 @@ A click on a level 1 row opens level 2. A click on a level 2 row opens level 3.
 ## 3. Components and repository layout
 
 ```
-contract/            Event log contract v1.1: README.md, examples/*.json, fixtures/
+contract/            Event log contract v1.2: README.md, examples/*.json, fixtures/
 monitor/backend/     Ktor server: registry, MongoDB reader, SQLite store, totals API
 monitor/frontend/    Angular app: five table views, the app management page
 kit/jvm-core/        Java 21, no run-time dependency: the ingest logic
@@ -110,7 +110,7 @@ One Gradle build is at the root, with one toolchain (JDK 21), the foojay toolcha
 and the version catalog `gradle/libs.versions.toml`. Each npm project has its own
 `package.json`.
 
-## 4. Event log contract v1.1
+## 4. Event log contract v1.2
 
 ### 4.1 The event document
 
@@ -502,10 +502,10 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   - an IP literal;
   - a host without a dot.
 
-  This is a rule of the tracker. Contract rule C40 states no such case. An absent field marks
-  a direct visit: a typed address, a bookmark, or a source that sends no referrer. The monitor
-  shows the text `(direct)` for it. The set holds three fixed values, thus the column needs no
-  purge.
+  This is a rule of the tracker. Contract rule C40 states the same five cases. An absent
+  field marks a direct visit: a typed address, a bookmark, or a source that sends no
+  referrer. The monitor shows the text `(direct)` for it. The set holds three fixed values,
+  thus the column needs no purge.
 - **D43. Anonymous caps.** With anonymous events on (D19), the kit applies three counters to
   one key in a window of 60 seconds. The counters are 300 requests, 900 click entries, and
   120 entries `octo:session-start` (`OCTOMETER_ANON_REQ_PER_MIN`,
