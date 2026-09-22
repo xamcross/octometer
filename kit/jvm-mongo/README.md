@@ -37,9 +37,14 @@ anonymous events of those sessions, then it deletes the events of the
 user in those sessions. It reads the session ids again. It repeats the
 delete pair while a new session id appears, up to 3 passes. A pass
 never deletes a user event before it deletes the anonymous events of
-the same session. A failure of the second delete of a pass leaves the
-anonymous events reachable; a caller runs the method again to erase
-them.
+the same session, so no anonymous event ever loses its link to the
+user. A failed user delete of a pass leaves the user events of that
+pass in place; a caller runs the method again, and the retry finds
+their session ids and finishes the erasure.
+
+A session id list of more than 1 000 entries goes to one command in
+batches of 1 000, so one command never nears the 16 MB command limit
+of the server.
 
 Contract rule C8 gives the collection only two indexes: one on `_id`,
 and the TTL index on `ts`. This module adds no new index for the

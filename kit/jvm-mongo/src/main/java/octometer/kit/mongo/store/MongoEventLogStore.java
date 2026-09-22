@@ -2,6 +2,8 @@ package octometer.kit.mongo.store;
 
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoCommandException;
+import com.mongodb.MongoWriteConcernException;
+import com.mongodb.MongoWriteException;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
@@ -69,27 +71,45 @@ import org.bson.conversions.Bson;
  * socket read timeout plus a write concern with a {@code wtimeout} with
  * driver 5.0.
  *
- * <p>{@link #deleteByUserId} implements contract rule C43 (issue #35). A
- * call reads the distinct {@code sessionId} values of the given user id
- * first, then it runs two {@code deleteMany} calls: one for each event
- * of that user id, and one for each anonymous event of those sessions.
- * The read and the two deletes are three separate MongoDB commands, not
- * one transaction; the class comment above states why this store opens
- * no transaction. The Javadoc of {@link EventLogStore#deleteByUserId}
- * states the risk of a write between the steps.
+ * <p>{@link #deleteByUserId} implements contract rule C43 (issue #35,
+ * correction round 1). A call reads the distinct {@code sessionId}
+ * values of the given user id, deletes each anonymous event of those
+ * sessions, then deletes each event of the given user id of those
+ * sessions. It reads the session ids again, and it repeats the two
+ * deletes for a new session id, up to 3 passes in total. The anonymous
+ * delete of a pass always runs before the user delete of the same pass:
+ * a user event is the only link from a session id to the user id, so a
+ * pass never deletes that link before it deletes the anonymous events
+ * that the link finds. Each command of a pass is a separate MongoDB
+ * command, not one transaction; the class comment above states why this
+ * store opens no transaction. The Javadoc of {@link
+ * EventLogStore#deleteByUserId} states the pass loop and the retry
+ * rule in full. A session id list of more than 1 000 entries goes to
+ * {@code deleteMany} in batches of 1 000, to keep each command well
+ * under the 16 MB command limit of the server.
+ *
+ * <p>Each {@code deleteMany} result passes through {@link
+ * #deletedCount}, which reads {@link DeleteResult#getDeletedCount()}
+ * only when {@link DeleteResult#wasAcknowledged()} is {@code true}. An
+ * unacknowledged write concern gives a clear {@link
+ * EventLogDeleteException} instead of the {@link
+ * UnsupportedOperationException} of the driver.
  *
  * <p>Contract rule C8 gives the collection only two indexes: one on
  * {@code _id}, and the TTL index on {@code ts}. Issue #35 adds no new
- * index, because the erasure is a rare, owner-triggered action. Each of
- * the three MongoDB commands of {@code deleteByUserId} is therefore a
- * full collection scan, never an index seek. Design decision D21 caps
- * the collection at 200 000 documents, so the scan cost stays bounded.
- * {@code MongoEventLogStoreDeleteByUserIdTest} runs {@code explain} on
- * the two filter shapes and asserts the {@code COLLSCAN} stage.
+ * index, because the erasure is a rare, owner-triggered action. Each
+ * MongoDB command of {@code deleteByUserId} is therefore a full
+ * collection scan, never an index seek. Design decision D21 caps the
+ * collection at 200 000 documents, so the scan cost stays bounded.
+ * Issue #34 adds this cap to the store; the kit does not enforce it
+ * yet. {@code MongoEventLogStoreDeleteByUserIdTest} runs {@code
+ * explain} on the two filter shapes and asserts the {@code COLLSCAN}
+ * stage; a delete command shares the query plan of a find command with
+ * the same filter.
  *
  * <p><strong>The erasure order for an app team (design decision
  * D15).</strong> Call this method first, in the app. Wait for one full
- * poll cycle of the monitor (the refresh time of its mode). Then call
+ * poll cycle of the monitor (the refresh time of the mode). Then call
  * the erasure route of the monitor, {@code DELETE
  * /api/apps/{appId}/events?userId=<id>} (issue #61). A call to the
  * monitor route before that wait lets the poll cycle read the erased
@@ -104,6 +124,20 @@ public final class MongoEventLogStore implements EventLogStore {
     private static final String TTL_INDEX_NAME = "ts_ttl";
     private static final int DEFAULT_RETENTION_DAYS = 30;
     private static final int INDEX_OPTIONS_CONFLICT_ERROR_CODE = 85;
+
+    /** The bound on the pass count of {@link #deleteByUserId}. */
+    private static final int MAX_DELETE_PASSES = 3;
+
+    /** The largest count of session ids that one {@code deleteMany} filter holds. */
+    private static final int SESSION_ID_BATCH_SIZE = 1000;
+
+    /**
+     * The error code of {@link EventLogDeleteException} for an
+     * unacknowledged write concern. This value is not a MongoDB server
+     * error code; the driver gives no code for this case, and -1 is
+     * already the code for an unknown driver failure.
+     */
+    private static final int UNACKNOWLEDGED_WRITE_ERROR_CODE = -2;
 
     /**
      * The largest retention that the TTL index field of the server
@@ -183,9 +217,10 @@ public final class MongoEventLogStore implements EventLogStore {
 
     /**
      * Implements {@link EventLogStore#deleteByUserId} (contract rule
-     * C43). See the class comment above for the three-command shape,
-     * the collection-scan cost, and the erasure order of design decision
-     * D15.
+     * C43, correction round 1 of issue #35). See the class comment
+     * above for the pass loop, the batch size, the write-concern guard,
+     * the collection-scan cost, and the erasure order of design
+     * decision D15.
      */
     @Override
     public DeletionResult deleteByUserId(String userId) {
@@ -194,11 +229,21 @@ public final class MongoEventLogStore implements EventLogStore {
             throw new IllegalArgumentException("userId must not be an empty text");
         }
         try {
-            List<String> sessionIds = collection.distinct("sessionId", Filters.eq("userId", userId), String.class)
-                    .into(new ArrayList<>());
-            long userEventCount = collection.deleteMany(Filters.eq("userId", userId)).getDeletedCount();
-            long anonymousEventCount = sessionIds.isEmpty() ? 0L : deleteAnonymousEvents(sessionIds);
-            return new DeletionResult(userEventCount, anonymousEventCount);
+            long userEventCount = 0;
+            long anonymousEventCount = 0;
+            List<String> sessionIds = readSessionIds(userId);
+            for (int pass = 0; !sessionIds.isEmpty() && pass < MAX_DELETE_PASSES; pass++) {
+                anonymousEventCount += deleteAnonymousEvents(sessionIds);
+                userEventCount += deleteUserEvents(userId, sessionIds);
+                sessionIds = readSessionIds(userId);
+            }
+            return new DeletionResult(userEventCount, anonymousEventCount, sessionIds.isEmpty());
+        } catch (EventLogDeleteException e) {
+            throw e;
+        } catch (MongoWriteException e) {
+            throw new EventLogDeleteException(e.getError().getCode());
+        } catch (MongoWriteConcernException e) {
+            throw new EventLogDeleteException(e.getWriteConcernError().getCode());
         } catch (MongoCommandException e) {
             throw new EventLogDeleteException(e.getErrorCode());
         } catch (RuntimeException e) {
@@ -207,12 +252,68 @@ public final class MongoEventLogStore implements EventLogStore {
     }
 
     /**
+     * Reads the distinct {@code sessionId} values of {@code userId}:
+     * step (a) of {@link EventLogStore#deleteByUserId}, and step (d) at
+     * the end of each pass.
+     */
+    private List<String> readSessionIds(String userId) {
+        return collection.distinct("sessionId", Filters.eq("userId", userId), String.class).into(new ArrayList<>());
+    }
+
+    /**
      * Deletes each event with {@code userId: null} whose {@code
-     * sessionId} is one of {@code sessionIds} (contract rule C43).
+     * sessionId} is one of {@code sessionIds}: step (b) of one pass of
+     * {@link EventLogStore#deleteByUserId} (contract rule C43).
      */
     private long deleteAnonymousEvents(List<String> sessionIds) {
-        Bson filter = Filters.and(Filters.eq("userId", null), Filters.in("sessionId", sessionIds));
-        DeleteResult result = collection.deleteMany(filter);
+        long deletedCount = 0;
+        for (List<String> batch : batches(sessionIds)) {
+            Bson filter = Filters.and(Filters.eq("userId", null), Filters.in("sessionId", batch));
+            deletedCount += deletedCount(collection.deleteMany(filter));
+        }
+        return deletedCount;
+    }
+
+    /**
+     * Deletes each event with {@code userId} whose {@code sessionId} is
+     * one of {@code sessionIds}: step (c) of one pass of {@link
+     * EventLogStore#deleteByUserId} (contract rule C43).
+     */
+    private long deleteUserEvents(String userId, List<String> sessionIds) {
+        long deletedCount = 0;
+        for (List<String> batch : batches(sessionIds)) {
+            Bson filter = Filters.and(Filters.eq("userId", userId), Filters.in("sessionId", batch));
+            deletedCount += deletedCount(collection.deleteMany(filter));
+        }
+        return deletedCount;
+    }
+
+    /**
+     * Splits {@code sessionIds} into a list of batches of {@link
+     * #SESSION_ID_BATCH_SIZE} entries each, so one {@code deleteMany}
+     * command never sends more than that many session ids.
+     */
+    private static List<List<String>> batches(List<String> sessionIds) {
+        List<List<String>> batches = new ArrayList<>();
+        for (int start = 0; start < sessionIds.size(); start += SESSION_ID_BATCH_SIZE) {
+            int end = Math.min(start + SESSION_ID_BATCH_SIZE, sessionIds.size());
+            batches.add(sessionIds.subList(start, end));
+        }
+        return batches;
+    }
+
+    /**
+     * Reads the deleted count of {@code result} only when the write is
+     * acknowledged (MAJOR 2 of the MongoDB review of pull request #157).
+     * {@link DeleteResult#getDeletedCount()} throws {@link
+     * UnsupportedOperationException} with {@link
+     * com.mongodb.WriteConcern#UNACKNOWLEDGED}; this method turns that
+     * case into a clear {@link EventLogDeleteException} instead.
+     */
+    private static long deletedCount(DeleteResult result) {
+        if (!result.wasAcknowledged()) {
+            throw new EventLogDeleteException(UNACKNOWLEDGED_WRITE_ERROR_CODE);
+        }
         return result.getDeletedCount();
     }
 
@@ -370,19 +471,26 @@ public final class MongoEventLogStore implements EventLogStore {
      * fixed text and the numeric MongoDB error code. It holds no host,
      * no port, no database name, no user id, and no session id, and it
      * holds no cause (design decision D15). The error code is -1 when
-     * the driver gives no code.
+     * the driver gives no code, and -2 when a write concern was
+     * unacknowledged.
      */
     public static final class EventLogDeleteException extends RuntimeException {
 
         private final int errorCode;
 
         EventLogDeleteException(int errorCode) {
-            super("The store could not delete the events of one user id. "
-                    + "The MongoDB error code is " + errorCode + ".");
+            super(errorCode == UNACKNOWLEDGED_WRITE_ERROR_CODE
+                    ? "The store could not delete the events of one user id. "
+                            + "The write concern of the database gave no acknowledgment."
+                    : "The store could not delete the events of one user id. "
+                            + "The MongoDB error code is " + errorCode + ".");
             this.errorCode = errorCode;
         }
 
-        /** The numeric MongoDB error code, or -1 when the driver gives no code. */
+        /**
+         * The numeric MongoDB error code, -1 when the driver gives no
+         * code, or -2 when a write concern was unacknowledged.
+         */
         public int errorCode() {
             return errorCode;
         }

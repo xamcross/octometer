@@ -55,38 +55,53 @@ public interface EventLogStore {
     /**
      * Deletes each stored event with the given user id, and each stored
      * event with {@code userId: null} of a session of that user
-     * (contract rule C43, the design change of 2026-09-21 for issue
-     * #35). An event of a second user id in the same session stays.
+     * (contract rule C43, the design change of 2026-09-22 for issue #35,
+     * correction round 1). An event of a second user id in the same
+     * session stays.
      *
-     * <p>An implementation reads the distinct session ids of the given
-     * user id first, then deletes the two groups of events: each event
-     * with that user id, and each anonymous event of one of those
-     * sessions. A MongoDB store must not run these steps as one
-     * transaction; its constructor takes only a {@code MongoDatabase},
-     * with no client session (design decision D22). A write for this
-     * user id, between the session read and the two deletes, can leave
-     * an event behind: a new session of this user, started during the
-     * call, keeps its anonymous events, because the call never reads
-     * that new session id. A caller runs this method again to catch
-     * that case.
+     * <p>An implementation runs these steps in order: (a) it reads the
+     * session ids of the given user id; (b) it deletes each anonymous
+     * event of those sessions; (c) it deletes each event with the given
+     * user id of those sessions; (d) it reads the session ids again.
+     * When a new session id appears at step (d), the implementation
+     * repeats steps (b) to (d), up to 3 passes in total. The anonymous
+     * delete of a pass always runs before the user delete of the same
+     * pass.
+     *
+     * <p>This order protects the anonymous events. A user event is the
+     * only link from a session id to the given user id. A pass never
+     * deletes that link before it deletes the anonymous events that the
+     * link finds. A failed delete, or a new session of this user that
+     * starts during the call, can therefore never strand an anonymous
+     * event beyond the reach of a retry.
+     *
+     * <p>A MongoDB store must not run these steps as one transaction;
+     * its constructor takes only a {@code MongoDatabase}, with no client
+     * session (design decision D22).
+     *
+     * <p>The return value holds {@link DeletionResult#complete()}. The
+     * value is {@code false} when the pass bound stopped the call while
+     * a new session id still existed. A caller runs this method again
+     * when the value is {@code false}, and also after a failed call.
      *
      * <p>The value of {@code userId} must not be {@code null}, and it
      * must not be an empty text. An implementation throws {@link
      * NullPointerException} for a {@code null} value, and {@link
      * IllegalArgumentException} for an empty text.
      *
-     * <p>The return value holds only the two counts of {@link
-     * DeletionResult}. A store must never put a user id or a session id
-     * into a log line, an exception message, or the return value.
+     * <p>The return value holds only the two counts and the flag of
+     * {@link DeletionResult}. A store must never put a user id or a
+     * session id into a log line, an exception message, or the return
+     * value.
      *
-     * <p>A store throws an unchecked exception when the delete fails. An
+     * <p>A store throws an unchecked exception when a delete fails. An
      * adapter maps that exception to status 500.
      *
      * <p>For an app team: run this call before the erasure route of the
      * monitor. Wait for one full poll cycle of the monitor after this
      * call, then call the monitor route. Design decision D15 states this
-     * order; a call to the monitor route before that wait can read the
-     * erased events again from this store.
+     * order. A call to the monitor route before that wait lets a poll
+     * cycle read the erased events again from this store.
      */
     DeletionResult deleteByUserId(String userId);
 }
