@@ -2,14 +2,19 @@ package octometer.monitor
 
 import java.io.IOException
 import java.time.Clock
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import octometer.monitor.backup.DailyBackupJob
 import octometer.monitor.config.MonitorConfig
+import octometer.monitor.mongo.MongoAppReader
+import octometer.monitor.poll.PollCycle
+import octometer.monitor.poll.PollScheduler
 import octometer.monitor.registry.AppRegistryService
 import octometer.monitor.registry.SecretStore
 import octometer.monitor.registry.SecretStoreUnavailableException
 import octometer.monitor.retention.RetentionPurge
 import octometer.monitor.retention.RetentionPurgeJob
+import octometer.monitor.store.EventStore
 import octometer.monitor.store.SqliteDatabase
 import org.slf4j.LoggerFactory
 
@@ -29,16 +34,21 @@ class MonitorServices private constructor(
     val secretStore: SecretStore,
     private val dailyBackupJob: DailyBackupJob,
     private val retentionPurgeJob: RetentionPurgeJob,
+    private val pollScheduler: PollScheduler,
+    private val mongoAppReader: MongoAppReader,
 ) : AutoCloseable {
 
     val appRegistryService: AppRegistryService = AppRegistryService(database, secretStore)
 
     // Issue #55: close() waits for a backup that runs, so the caller
     // never sees a half-written backup file. Issue #59: close() also
-    // stops the retention purge job.
+    // stops the retention purge job. Issue #17: close() also stops the
+    // poll scheduler, and closes each kept MongoDB client of the reader.
     override fun close() {
         runBlocking { dailyBackupJob.stop() }
         retentionPurgeJob.stop()
+        runBlocking { pollScheduler.stop() }
+        mongoAppReader.close()
         database.close()
     }
 
@@ -73,6 +83,8 @@ class MonitorServices private constructor(
             val database = SqliteDatabase.open(config.dataDir, backupDir = config.backupDir, clock = clock)
             var dailyBackupJob: DailyBackupJob? = null
             var retentionPurgeJob: RetentionPurgeJob? = null
+            var pollScheduler: PollScheduler? = null
+            var mongoAppReader: MongoAppReader? = null
             try {
                 val secretStore = SecretStore(config.dataDir)
                 // Issue #141: this runs before the first write of the
@@ -96,10 +108,34 @@ class MonitorServices private constructor(
                 // below.
                 dailyBackupJob = DailyBackupJob(database, config.dataDir, clock, backupDir = config.backupDir)
                     .also { it.start() }
-                return MonitorServices(config, database, secretStore, dailyBackupJob, retentionPurgeJob)
+                // Issue #17: the poll scheduler of D6. It starts last, so
+                // a throw before this line never starts it, and a throw
+                // after this line still stops it in the catch block below.
+                val eventStore = EventStore(database)
+                mongoAppReader = MongoAppReader(eventStore, settleLagSeconds = config.settleLagSeconds.toLong())
+                pollScheduler = PollScheduler(
+                    database = database,
+                    secretStore = secretStore,
+                    pollCycle = PollCycle(mongoAppReader::pollOnce),
+                    closeClient = mongoAppReader::closeClient,
+                    clock = clock,
+                    dispatcher = Dispatchers.Default,
+                    pollIntervalSeconds = config.pollIntervalSeconds.toLong(),
+                ).also { it.start() }
+                return MonitorServices(
+                    config,
+                    database,
+                    secretStore,
+                    dailyBackupJob,
+                    retentionPurgeJob,
+                    pollScheduler,
+                    mongoAppReader,
+                )
             } catch (startFailure: Throwable) {
                 dailyBackupJob?.let { runBlocking { it.stop() } }
                 retentionPurgeJob?.stop()
+                pollScheduler?.let { runBlocking { it.stop() } }
+                mongoAppReader?.close()
                 database.close()
                 throw startFailure
             }

@@ -88,6 +88,7 @@ fun devConfig(
     settleLagSeconds = 2,
     retentionDays = retentionDays,
     backupDir = backupDir,
+    pollIntervalSeconds = 5,
 )
 
 /** The prod mode config of the tests, with the configured port 7431. */
@@ -102,6 +103,7 @@ fun prodConfig(
     settleLagSeconds = 60,
     retentionDays = retentionDays,
     backupDir = backupDir,
+    pollIntervalSeconds = 60,
 )
 
 /**

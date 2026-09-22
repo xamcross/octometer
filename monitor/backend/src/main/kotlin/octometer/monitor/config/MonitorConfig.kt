@@ -15,5 +15,6 @@ data class MonitorConfig(
     val dataDir: String,
     val settleLagSeconds: Int,
     val retentionDays: Int,
+    val pollIntervalSeconds: Int,
     val backupDir: String = backupsDir(dataDir).absolutePath,
 )

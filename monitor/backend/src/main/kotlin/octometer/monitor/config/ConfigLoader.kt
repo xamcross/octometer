@@ -18,6 +18,7 @@ private val ENVIRONMENT_VARIABLE_NAMES = mapOf(
     "settleLagSeconds" to "OCTOMETER_SETTLE_LAG_SECONDS",
     "retentionDays" to "OCTOMETER_STORE_RETENTION_DAYS",
     "backupDir" to "OCTOMETER_BACKUP_DIR",
+    "pollIntervalSeconds" to "OCTOMETER_POLL_INTERVAL_SECONDS",
 )
 
 private val KNOWN_KEYS = ENVIRONMENT_VARIABLE_NAMES.keys
@@ -97,6 +98,15 @@ fun loadConfig(
             userConfig,
             bundled.getString("octometer.retentionDays"),
         )
+        // Issue #17: pollIntervalSeconds follows the mode, the same rule
+        // as settleLagSeconds (5 s dev, 60 s prod, design decision D6).
+        val pollIntervalSeconds = resolveValue(
+            "pollIntervalSeconds",
+            arguments,
+            env,
+            userConfig,
+            modeDefaults.getString("pollIntervalSeconds"),
+        )
         val validatedDataDir = validateDataDir(dataDir.value)
         // Issue #55: the bundled default is the folder "backups" beside
         // dataDir. The value depends on the resolved dataDir, so this
@@ -116,6 +126,12 @@ fun loadConfig(
             settleLagSeconds = toValidInt("settleLagSeconds", settleLagSeconds.value, 0..Int.MAX_VALUE, "0 or more"),
             retentionDays = toValidInt("retentionDays", retentionDays.value, 1..Int.MAX_VALUE, "1 or more"),
             backupDir = validateBackupDir(backupDir.value),
+            pollIntervalSeconds = toValidInt(
+                "pollIntervalSeconds",
+                pollIntervalSeconds.value,
+                1..Int.MAX_VALUE,
+                "1 or more",
+            ),
         )
 
         return ResolvedConfig(
@@ -127,6 +143,7 @@ fun loadConfig(
                 ResolvedValue("settleLagSeconds", config.settleLagSeconds.toString(), settleLagSeconds.source),
                 ResolvedValue("retentionDays", config.retentionDays.toString(), retentionDays.source),
                 ResolvedValue("backupDir", File(config.backupDir).absolutePath, backupDir.source),
+                ResolvedValue("pollIntervalSeconds", config.pollIntervalSeconds.toString(), pollIntervalSeconds.source),
             ),
             warnings = warnings,
         )

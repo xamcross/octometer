@@ -39,6 +39,8 @@ dependencies {
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.kotlin.test.junit5)
     testImplementation(libs.logback.classic)
+    // Issue #17: the virtual-time tests of the poll scheduler.
+    testImplementation(libs.kotlinx.coroutines.test)
 
     // Issue #16: the container test of MongoAppReader needs the full
     // JUnit Jupiter engine and the Testcontainers MongoDB module.

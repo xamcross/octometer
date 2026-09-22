@@ -91,6 +91,60 @@ class ConfigLoaderTest {
         assertEquals(395, prodResolved.config.retentionDays)
     }
 
+    // Issue #17, decision 4: pollIntervalSeconds follows the mode, the
+    // same rule as settleLagSeconds. The test proves the two bundled
+    // values of design decision D6: 5 s in dev mode, 60 s in prod mode.
+    @Test
+    fun `the bundled default of pollIntervalSeconds depends on the resolved mode`() {
+        val userFile = missingUserConfigFile()
+
+        val devResolved = loadConfig(
+            args = arrayOf("-P:octometer.mode=dev"),
+            env = emptyMap(),
+            userConfigFile = userFile,
+        )
+        val prodResolved = loadConfig(
+            args = emptyArray(),
+            env = emptyMap(),
+            userConfigFile = userFile,
+        )
+
+        assertEquals(5, devResolved.config.pollIntervalSeconds)
+        assertEquals(60, prodResolved.config.pollIntervalSeconds)
+    }
+
+    @Test
+    fun `the OCTOMETER_POLL_INTERVAL_SECONDS variable overrides the bundled default`() {
+        val userFile = missingUserConfigFile()
+
+        val resolved = loadConfig(
+            args = emptyArray(),
+            env = mapOf("OCTOMETER_POLL_INTERVAL_SECONDS" to "15"),
+            userConfigFile = userFile,
+        )
+
+        assertEquals(15, resolved.config.pollIntervalSeconds)
+        assertEquals(
+            ConfigSource.ENVIRONMENT_VARIABLE,
+            resolved.values.single { it.key == "pollIntervalSeconds" }.source,
+        )
+    }
+
+    // A tick of 0 s or less gives a poll loop with no gap between two
+    // ticks. The loader rejects that value, unlike settleLagSeconds.
+    @Test
+    fun `a pollIntervalSeconds of 0 is invalid`() {
+        val userFile = missingUserConfigFile()
+
+        assertFailsWith<InvalidConfigException> {
+            loadConfig(
+                args = arrayOf("-P:octometer.pollIntervalSeconds=0"),
+                env = emptyMap(),
+                userConfigFile = userFile,
+            )
+        }
+    }
+
     // BLOCKER 1 (pull request #86 review): the prod dataDir default comes
     // from the injected env map, and a test controls it without touching
     // the real environment.

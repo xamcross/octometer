@@ -84,6 +84,16 @@ open class SecretStore(dataDir: String) {
         }
 
     /**
+     * Reads the connection string of one app id, or `null` when no entry
+     * exists (issue #17, the poll scheduler). No caller of this method
+     * may put the result into a log line or an exception message.
+     */
+    suspend fun get(appId: Long): String? =
+        mutex.withLock {
+            withContext(Dispatchers.IO) { readAll()[appId.toString()] }
+        }
+
+    /**
      * Removes each entry whose app id is not in [existingAppIds] (the
      * sweep of MAJOR 4 of the security review, at the application
      * start). Returns the count of removed entries; the caller writes

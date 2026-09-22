@@ -59,6 +59,7 @@ class ApplicationLifecycleTest {
                 dataDir = dataDir.absolutePath,
                 settleLagSeconds = 60,
                 retentionDays = 395,
+                pollIntervalSeconds = 60,
             )
             val server = embeddedServer(Netty, host = "127.0.0.1", port = port) { module(config) }
             server.start(wait = false)
@@ -101,6 +102,7 @@ class ApplicationLifecycleTest {
             dataDir = ownDataDir,
             settleLagSeconds = 60,
             retentionDays = 395,
+            pollIntervalSeconds = 60,
         )
         val server = embeddedServer(Netty, host = "127.0.0.1", port = port) { module(config) }
         server.start(wait = false)
@@ -140,6 +142,7 @@ class ApplicationLifecycleTest {
                 dataDir = dataDir.absolutePath,
                 settleLagSeconds = 60,
                 retentionDays = 395,
+                pollIntervalSeconds = 60,
             )
             val server = embeddedServer(Netty, host = "127.0.0.1", port = port) { module(config) }
             server.start(wait = false)
