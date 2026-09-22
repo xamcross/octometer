@@ -73,6 +73,75 @@ class MongoEventLogStoreTest {
     }
 
     @Test
+    void appendStoresPathAndReferrerHostWithTheSameNamesWhenTheEventRecordHoldsThem() {
+        MongoEventLogStore store = new MongoEventLogStore(database);
+        IngestEvent event = new IngestEvent("33333333-3333-3333-3333-333333333333", "octo:session-start",
+                Instant.parse("2026-09-22T10:00:00Z"), "/checkout", "google.com");
+
+        store.append(event, "user-1");
+
+        Document stored = rawCollection().find().first();
+        assertEquals(Set.of("_id", "ts", "element", "sessionId", "userId", "path", "referrerHost"),
+                stored.keySet());
+        assertEquals("/checkout", stored.getString("path"));
+        assertEquals("google.com", stored.getString("referrerHost"));
+        assertFalse(stored.containsKey("_class"));
+    }
+
+    @Test
+    void appendStoresNoKeyForAFieldThatTheEventRecordDoesNotHold() {
+        MongoEventLogStore store = new MongoEventLogStore(database);
+        IngestEvent event = new IngestEvent("44444444-4444-4444-4444-444444444444", "nav.open", Instant.now());
+
+        store.append(event, "user-1");
+
+        Document stored = rawCollection().find().first();
+        assertFalse(stored.containsKey("path"), "The document must hold no path key.");
+        assertFalse(stored.containsKey("referrerHost"), "The document must hold no referrerHost key.");
+    }
+
+    @Test
+    void aClickEventStoresPathAndNoReferrerHostField() {
+        MongoEventLogStore store = new MongoEventLogStore(database);
+        IngestEvent event = new IngestEvent("55555555-5555-5555-5555-555555555555", "checkout.save",
+                Instant.now(), "/checkout", null);
+
+        store.append(event, "user-1");
+
+        Document stored = rawCollection().find().first();
+        assertEquals("/checkout", stored.getString("path"));
+        assertFalse(stored.containsKey("referrerHost"), "A click event must store no referrerHost field.");
+    }
+
+    @Test
+    void theStoreWritesThePathValueOfTheEventRecordAsItIsWithNoOwnRule() {
+        MongoEventLogStore store = new MongoEventLogStore(database);
+        IngestEvent event = new IngestEvent("66666666-6666-6666-6666-666666666666", "checkout.Save",
+                Instant.now(), "/Checkout/ABC", null);
+
+        store.append(event, "user-1");
+
+        Document stored = rawCollection().find().first();
+        assertEquals("/Checkout/ABC", stored.getString("path"),
+                "The store must write the path value of the event record as it is.");
+    }
+
+    @Test
+    void theCollectionKeepsExactlyTheTwoIndexesAfterAWriteWithTheNewFields() {
+        MongoEventLogStore store = new MongoEventLogStore(database, 30);
+        IngestEvent event = new IngestEvent("77777777-7777-7777-7777-777777777777", "octo:session-start",
+                Instant.now(), "/checkout", "bing.com");
+
+        store.append(event, "user-1");
+
+        List<Document> indexes = new ArrayList<>();
+        for (Document index : rawCollection().listIndexes()) {
+            indexes.add(index);
+        }
+        assertEquals(2, indexes.size(), "The collection must hold only the _id index and the ts TTL index.");
+    }
+
+    @Test
     void appendAcceptsANullUserIdForAnAnonymousClick() {
         MongoEventLogStore store = new MongoEventLogStore(database);
         IngestEvent event = new IngestEvent("22222222-2222-2222-2222-222222222222", "nav.open", Instant.now());
