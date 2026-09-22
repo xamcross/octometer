@@ -233,7 +233,10 @@ class IngestSettingsTest {
                 () -> IngestSettings.positiveWholeNumberFromValue("0", "OCTOMETER_MAX_ANON_EVENTS_PER_DAY", 20_000));
 
         assertTrue(exception.getMessage().contains("OCTOMETER_MAX_ANON_EVENTS_PER_DAY"));
-        assertFalse(exception.getMessage().contains("\"0\""));
+        // Security review M6: a check for "0" in quotation marks missed a
+        // message that adds the raw value with no quotation marks. This
+        // check now reads the digit itself, with no quotation marks.
+        assertFalse(exception.getMessage().contains("0"));
     }
 
     @Test

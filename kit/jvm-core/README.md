@@ -25,18 +25,23 @@ each day bounds how much such an evicted key can add back in one day.
 
 `AnonymousKey` derives the key of design decision D43: one IPv4
 address stays as it is, and one IPv6 address becomes its first 64
-bits. Issue #116 reuses this class for its per-minute counters. This
-key form is separate from the client address key of the rate limiter
-of design decision D20.
+bits. An embedded IPv4 tail expands to two hex groups before that
+cut. An IPv4-mapped address (`::ffff:a.b.c.d`) gives the plain IPv4
+text, so it shares one key with the plain IPv4 form. Issue #116
+reuses this class for its per-minute counters. This key form is
+separate from the client address key of the rate limiter of design
+decision D20.
 
 ## The user-agent filter
 
 `BotUserAgentFilter` marks a request as a robot when its `User-Agent`
-header value matches `bot|crawl|spider|slurp|headless|preview|monitor|
-Go-http-client|python-requests|curl`, in any letter case, at any
-position of the value (design decision D43, issue #117). An absent
-header passes the filter. The kit stores no header value: no log line,
-no exception message, and no stored event holds a `User-Agent` value.
+value matches a fixed pattern (design decision D43, issue #117). The
+match ignores the letter case. It matches at any position of the
+value. The pattern is
+`bot|crawl|spider|slurp|headless|preview|monitor|Go-http-client|python-requests|curl`.
+An absent header passes the filter. The kit stores no header value: no
+log line, no exception message, and no stored event holds a
+`User-Agent` value.
 
 ## The ingest rate limit
 
