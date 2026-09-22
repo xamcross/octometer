@@ -45,4 +45,18 @@ class BotUserAgentFilterTest {
         assertTrue(BotUserAgentFilter.isBot("Go-http-client/1.1"));
         assertTrue(BotUserAgentFilter.isBot("curl/8.4.0"));
     }
+
+    // The two tests below close the test gap of Java review MINOR 4.
+
+    @Test
+    void anEmptyUserAgentValuePassesTheFilter() {
+        assertFalse(BotUserAgentFilter.isBot(""));
+    }
+
+    @Test
+    void anEightKilobyteValueWithABotTokenIsStillABot() {
+        String eightKilobyteValue = "x".repeat(8 * 1024) + "bot";
+
+        assertTrue(BotUserAgentFilter.isBot(eightKilobyteValue));
+    }
 }
