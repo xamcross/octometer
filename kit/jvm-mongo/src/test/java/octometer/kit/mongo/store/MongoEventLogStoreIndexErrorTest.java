@@ -137,19 +137,9 @@ class MongoEventLogStoreIndexErrorTest {
         assertTrue(exception.getMessage().contains("1 or more"));
     }
 
-    @Test
-    void deleteByUserIdThrowsAnUnsupportedOperationExceptionAndDeletesNoEvent() {
-        MongoDatabase database = mock(MongoDatabase.class);
-        MongoCollection<Document> collection = mock(MongoCollection.class);
-        when(database.getCollection("octometer_events")).thenReturn(collection);
-
-        MongoEventLogStore store = new MongoEventLogStore(database, 30);
-
-        UnsupportedOperationException exception = assertThrows(UnsupportedOperationException.class,
-                () -> store.deleteByUserId("user-1"));
-        assertTrue(exception.getMessage().contains("#35"));
-        assertTrue(exception.getMessage().contains("No event was deleted"));
-    }
+    // deleteByUserId now implements contract rule C43 (issue #35). See
+    // MongoEventLogStoreDeleteByUserIdTest for its tests, against a real
+    // server.
 
     private static MongoCommandException commandException(int code, String codeName) {
         BsonDocument response = new BsonDocument();
