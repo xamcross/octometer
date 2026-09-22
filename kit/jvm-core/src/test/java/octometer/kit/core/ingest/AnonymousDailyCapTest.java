@@ -128,12 +128,58 @@ class AnonymousDailyCapTest {
         for (int i = 0; i < AnonymousDailyCap.MAX_KEYS; i++) {
             assertTrue(cap.check("key-" + i, 1), "key-" + i + " must pass.");
         }
+        assertEquals(AnonymousDailyCap.MAX_KEYS, cap.keyCount());
+
         // key-0 is now the oldest key. One more distinct key evicts it.
         assertTrue(cap.check("one-key-too-many", 1));
+        assertEquals(AnonymousDailyCap.MAX_KEYS, cap.keyCount());
 
         // key-0 lost its counter through the eviction, so it starts a
         // fresh count, and one more entry of it still passes.
         assertTrue(cap.check("key-0", 1));
+    }
+
+    @Test
+    void aDroppedBatchOfANewKeyTakesNoSlotOfTheKeyMap() {
+        MutableClock clock = new MutableClock(START);
+        AnonymousDailyCap cap = new AnonymousDailyCap(clock, 5, 5);
+
+        assertFalse(cap.check("key-1", 6));
+        assertFalse(cap.check("key-2", 6));
+
+        assertEquals(0, cap.keyCount(), "A dropped batch of a new key must take no map slot.");
+    }
+
+    @Test
+    void aBatchThatGoesAboveTheGlobalCapAndTheKeyCapTogetherDropsOnce() {
+        MutableClock clock = new MutableClock(START);
+        AnonymousDailyCap cap = new AnonymousDailyCap(clock, 5, 5);
+
+        assertFalse(cap.check("key-1", 6));
+
+        // The batch went above the global cap (5) and the key cap (5)
+        // at the same time. The drop still counts nothing, and the map
+        // still takes no slot for the new key (Java review MINOR 4).
+        assertEquals(0, cap.keyCount());
+        assertTrue(cap.check("key-2", 5));
+    }
+
+    @Test
+    void aClockThatStepsBackwardsStillResetsTheCounterAtTheOriginalWindowEnd() {
+        MutableClock clock = new MutableClock(START);
+        AnonymousDailyCap cap = new AnonymousDailyCap(clock, 1, 100);
+
+        assertTrue(cap.check("key-1", 1));
+        assertFalse(cap.check("key-2", 1));
+
+        // An NTP correction, or a resume from an older snapshot, steps
+        // the clock backwards. With no guard, the counter would then
+        // never see now >= windowStart + WINDOW_MILLIS again, and it
+        // would hold the global cap closed forever (Java review MINOR
+        // 2).
+        clock.stepBackTo(START.minus(Duration.ofHours(1)));
+
+        assertTrue(cap.check("key-3", 1));
     }
 
     @Test
@@ -184,6 +230,11 @@ class AnonymousDailyCapTest {
 
         void advance(Duration duration) {
             instant = instant.plus(duration);
+        }
+
+        /** Moves this clock to an earlier instant, for a backward-step test. */
+        void stepBackTo(Instant earlierInstant) {
+            instant = earlierInstant;
         }
 
         @Override

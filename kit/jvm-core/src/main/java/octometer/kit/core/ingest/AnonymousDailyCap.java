@@ -11,29 +11,33 @@ import java.util.Objects;
 /**
  * The daily anonymous cap of design decision D43 and issue #117. One
  * global counter and one counter for each key limit the anonymous
- * events of one day. A batch that goes above either cap drops in full;
- * no part of a dropped batch reaches the store, and a dropped batch
- * changes no counter (design decision of issue #117, review round 1).
+ * events of one day. A batch above either cap drops in full. No part
+ * of a dropped batch reaches the store, and a dropped batch changes no
+ * counter.
  *
  * <p><strong>The window form.</strong> Each counter uses a fixed window
  * of 24 hours from its own first counted event, not a window aligned to
- * the clock. A counter resets at the first check after its window ends.
- * The global counter and each key counter keep their own window this
- * way, each one independent of the other.
+ * the clock. A counter resets at the first check after its window ends,
+ * also when the clock steps backwards (for example after an NTP
+ * correction). The global counter and each key counter keep their own
+ * window this way, each one independent of the other.
  *
  * <p><strong>The key map.</strong> It holds a maximum of
  * {@value #MAX_KEYS} keys, with an LRU eviction, the form of the key map
- * of {@link IngestRateLimiter}. A key above its cap can leave the map
- * through that eviction and start a new window with a fresh counter; the
- * global cap of one day bounds how much an evicted key can add back
- * (see `kit/jvm-core/README.md`).
+ * of {@link IngestRateLimiter}. A dropped batch of a new key takes no
+ * slot of this map. A kept batch of a new key takes one slot, and it
+ * can evict the least recent key. An evicted key starts a fresh window
+ * at its next kept batch; the global cap of one day bounds how much
+ * such a key can add back (see `kit/jvm-core/README.md`).
  *
  * <p><strong>The warning.</strong> This class writes a maximum of one
- * WARN line for each elapsed hour since the last one, measured from the
- * last warning and not from the clock hour (issue #117, after the
- * defect that a review of pull request #165 found for a clock-hour
- * throttle). The line names the cap that dropped the batch, and it
- * never holds a key, an address, a user agent, or the count of one key.
+ * WARN line for each elapsed hour since the last one. It measures the
+ * hour from the last warning, not from the clock hour (issue #117,
+ * after a defect that a review of pull request #165 found for a
+ * clock-hour throttle). The line names the cap that dropped the batch.
+ * It never holds a key, an address, a user agent, or the count of one
+ * key. This class holds the log call outside its lock, so a slow log
+ * write never stalls a check of a different request.
  *
  * <p>This class is thread-safe. One lock guards the global counter and
  * the key map together, so a check of the two caps and the count of a
@@ -92,8 +96,9 @@ public final class AnonymousDailyCap {
      * cap and the cap of {@code key}. It drops the whole batch when the
      * global counter, or the counter of {@code key}, plus {@code
      * entryCount}, would go above its cap. A dropped batch changes no
-     * counter. A kept batch adds {@code entryCount} to the global
-     * counter and to the counter of {@code key}.
+     * counter, and it takes no slot of the key map for a key this map
+     * has not tracked yet. A kept batch adds {@code entryCount} to the
+     * global counter and to the counter of {@code key}.
      *
      * @param key the anonymous key of design decision D43 (see
      *   {@link AnonymousKey#of(String)}).
@@ -108,38 +113,71 @@ public final class AnonymousDailyCap {
             throw new IllegalArgumentException("entryCount must be 1 or more");
         }
         long now = clock.millis();
+        boolean passed;
+        boolean overGlobal;
+        boolean dueForWarning = false;
         synchronized (lock) {
             global.resetIfWindowEnded(now);
             Counter keyCounter = keyCounters.get(key);
-            if (keyCounter == null) {
-                keyCounter = new Counter();
-                keyCounters.put(key, keyCounter);
-            } else {
+            if (keyCounter != null) {
                 keyCounter.resetIfWindowEnded(now);
             }
+            long keyCount = keyCounter == null ? 0 : keyCounter.count;
 
-            boolean overGlobal = global.count + entryCount > maxGlobalEventsPerDay;
-            boolean overKey = keyCounter.count + entryCount > maxEventsPerKeyPerDay;
-            if (overGlobal || overKey) {
-                warnOncePerHour(now, overGlobal);
-                return false;
+            overGlobal = global.count + entryCount > maxGlobalEventsPerDay;
+            boolean overKey = keyCount + entryCount > maxEventsPerKeyPerDay;
+            passed = !overGlobal && !overKey;
+            if (passed) {
+                if (keyCounter == null) {
+                    keyCounter = new Counter();
+                    keyCounters.put(key, keyCounter);
+                }
+                global.add(now, entryCount);
+                keyCounter.add(now, entryCount);
+            } else {
+                dueForWarning = dueForWarning(now);
             }
-            global.add(now, entryCount);
-            keyCounter.add(now, entryCount);
-            return true;
+        }
+        // The log call runs after the lock ends, so a slow log write
+        // never stalls a check of a different request (Java review
+        // MINOR 1, security review M2).
+        if (dueForWarning) {
+            logWarning(overGlobal);
+        }
+        return passed;
+    }
+
+    /**
+     * Returns the key count of the key map. A test uses this method to
+     * confirm the size of the map after an eviction; the class itself
+     * needs no such count.
+     */
+    int keyCount() {
+        synchronized (lock) {
+            return keyCounters.size();
         }
     }
 
     /**
-     * Writes one warning, at most one time for each elapsed hour since
-     * the last one. The message names the cap that dropped the batch,
-     * and it never holds a key, an address, a user agent, or a count.
+     * True at most one time for each elapsed hour since the last true
+     * result, measured from {@code now}. This method also records
+     * {@code now} as the last warned instant, so it must run inside
+     * {@link #lock}; only the log write itself may run outside it.
      */
-    private void warnOncePerHour(long now, boolean overGlobal) {
+    private boolean dueForWarning(long now) {
         if (lastWarnedAtMillis != Long.MIN_VALUE && now - lastWarnedAtMillis < WARN_THROTTLE_MILLIS) {
-            return;
+            return false;
         }
         lastWarnedAtMillis = now;
+        return true;
+    }
+
+    /**
+     * Writes one warning. The message names the cap that dropped the
+     * batch. It never holds a key, an address, a user agent, or a
+     * count.
+     */
+    private void logWarning(boolean overGlobal) {
         String capName = overGlobal ? "OCTOMETER_MAX_ANON_EVENTS_PER_DAY" : "OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY";
         LOGGER.log(Level.WARNING, "The daily anonymous cap " + capName + " drops one or more batches "
                 + "(design decision D43). The log holds no key, no address, and no user agent.");
@@ -155,12 +193,15 @@ public final class AnonymousDailyCap {
 
         /**
          * Resets this counter to zero, with no window, when {@code now}
-         * is at or after the end of the live window. This counter never
-         * resets while its window still runs, also for a counter that
-         * never counted an event yet.
+         * is at or after the end of the live window, or before the
+         * start of the live window. The second case guards a clock
+         * that steps backwards, for example after an NTP correction
+         * (Java review MINOR 2): with no guard, such a step would hold
+         * this counter past its 24-hour window forever. This counter
+         * never resets while {@code now} still sits inside its window.
          */
         void resetIfWindowEnded(long now) {
-            if (windowStart != Long.MIN_VALUE && now >= windowStart + WINDOW_MILLIS) {
+            if (windowStart != Long.MIN_VALUE && (now >= windowStart + WINDOW_MILLIS || now < windowStart)) {
                 windowStart = Long.MIN_VALUE;
                 count = 0;
             }
