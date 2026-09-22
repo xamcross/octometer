@@ -56,6 +56,7 @@ import kotlinx.coroutines.withTimeout
 import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestSettings
+import octometer.kit.core.store.DeletionResult
 import octometer.kit.core.store.EventLogStore
 import octometer.kit.core.store.InMemoryEventLogStore
 import org.slf4j.LoggerFactory
@@ -364,8 +365,9 @@ class IngestRouteTest {
                 recordedThreadName.set(Thread.currentThread().name)
             }
 
-            override fun deleteByUserId(userId: String) {
+            override fun deleteByUserId(userId: String): DeletionResult {
                 // Not used by this test.
+                return DeletionResult(0, 0)
             }
         }
         val testDispatcher = newSingleThreadContext("octo-store-test-thread")
@@ -407,8 +409,9 @@ class IngestRouteTest {
                 Thread.sleep(200)
             }
 
-            override fun deleteByUserId(userId: String) {
+            override fun deleteByUserId(userId: String): DeletionResult {
                 // Not used by this test.
+                return DeletionResult(0, 0)
             }
         }
         application {
@@ -511,8 +514,9 @@ class IngestRouteTest {
                 throw IllegalStateException("SENTINEL-store-host-octo-shard-00 user victim-42")
             }
 
-            override fun deleteByUserId(userId: String) {
+            override fun deleteByUserId(userId: String): DeletionResult {
                 // Not used by this test.
+                return DeletionResult(0, 0)
             }
         }
         application {
@@ -541,8 +545,9 @@ class IngestRouteTest {
                 throw IngestException(IngestException.Reason.INVALID_JSON, "the store throws this by mistake")
             }
 
-            override fun deleteByUserId(userId: String) {
+            override fun deleteByUserId(userId: String): DeletionResult {
                 // Not used by this test.
+                return DeletionResult(0, 0)
             }
         }
         application {
@@ -573,8 +578,9 @@ class IngestRouteTest {
                     throw CancellationException("SENTINEL-cancel-marker-host-octo-shard-00")
                 }
 
-                override fun deleteByUserId(userId: String) {
+                override fun deleteByUserId(userId: String): DeletionResult {
                     // Not used by this test.
+                    return DeletionResult(0, 0)
                 }
             }
             application {
@@ -606,8 +612,9 @@ class IngestRouteTest {
                 }
             }
 
-            override fun deleteByUserId(userId: String) {
+            override fun deleteByUserId(userId: String): DeletionResult {
                 // Not used by this test.
+                return DeletionResult(0, 0)
             }
         }
         application {
@@ -637,8 +644,9 @@ class IngestRouteTest {
                         future.get()
                     }
 
-                    override fun deleteByUserId(userId: String) {
+                    override fun deleteByUserId(userId: String): DeletionResult {
                         // Not used by this test.
+                        return DeletionResult(0, 0)
                     }
                 }
                 application {

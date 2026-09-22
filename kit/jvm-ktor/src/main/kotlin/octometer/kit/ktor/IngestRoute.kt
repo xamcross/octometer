@@ -23,6 +23,7 @@ import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestPipeline
 import octometer.kit.core.ingest.IngestSettings
+import octometer.kit.core.store.DeletionResult
 import octometer.kit.core.store.EventLogStore
 import octometer.kit.core.user.UserIdResolver
 import java.time.Clock
@@ -201,9 +202,9 @@ private class DefectSafeEventLogStore(private val delegate: EventLogStore) : Eve
         }
     }
 
-    override fun deleteByUserId(userId: String) {
+    override fun deleteByUserId(userId: String): DeletionResult {
         try {
-            delegate.deleteByUserId(userId)
+            return delegate.deleteByUserId(userId)
         } catch (cause: IngestException) {
             throw IllegalStateException("The EventLogStore of the app failed.", cause)
         }
