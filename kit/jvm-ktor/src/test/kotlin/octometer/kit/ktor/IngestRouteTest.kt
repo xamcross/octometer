@@ -366,8 +366,10 @@ class IngestRouteTest {
             }
 
             override fun deleteByUserId(userId: String): DeletionResult {
-                // Not used by this test.
-                return DeletionResult(0, 0)
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         val testDispatcher = newSingleThreadContext("octo-store-test-thread")
@@ -410,8 +412,10 @@ class IngestRouteTest {
             }
 
             override fun deleteByUserId(userId: String): DeletionResult {
-                // Not used by this test.
-                return DeletionResult(0, 0)
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         application {
@@ -515,8 +519,10 @@ class IngestRouteTest {
             }
 
             override fun deleteByUserId(userId: String): DeletionResult {
-                // Not used by this test.
-                return DeletionResult(0, 0)
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         application {
@@ -546,8 +552,10 @@ class IngestRouteTest {
             }
 
             override fun deleteByUserId(userId: String): DeletionResult {
-                // Not used by this test.
-                return DeletionResult(0, 0)
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         application {
@@ -579,8 +587,10 @@ class IngestRouteTest {
                 }
 
                 override fun deleteByUserId(userId: String): DeletionResult {
-                    // Not used by this test.
-                    return DeletionResult(0, 0)
+                    // This test never calls deleteByUserId. A call by
+                    // mistake must fail loudly, not pass with a quiet
+                    // DeletionResult(0, 0, true).
+                    throw UnsupportedOperationException()
                 }
             }
             application {
@@ -613,8 +623,10 @@ class IngestRouteTest {
             }
 
             override fun deleteByUserId(userId: String): DeletionResult {
-                // Not used by this test.
-                return DeletionResult(0, 0)
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         application {
@@ -645,8 +657,10 @@ class IngestRouteTest {
                     }
 
                     override fun deleteByUserId(userId: String): DeletionResult {
-                        // Not used by this test.
-                        return DeletionResult(0, 0)
+                        // This test never calls deleteByUserId. A call
+                        // by mistake must fail loudly, not pass with a
+                        // quiet DeletionResult(0, 0, true).
+                        throw UnsupportedOperationException()
                     }
                 }
                 application {
