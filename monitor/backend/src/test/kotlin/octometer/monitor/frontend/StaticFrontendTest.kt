@@ -147,6 +147,40 @@ class StaticFrontendTest {
         assertEquals("no-cache", response.headers[HttpHeaders.CacheControl])
     }
 
+    // Correction round 2 (MINOR 1, second security review): the earlier
+    // pattern matched a plain asset with a dash and 8 characters before
+    // its extension. I broke HASHED_FILE_NAME back to that pattern, ran
+    // this test, and saw it fail: "expected:<no-cache> but
+    // was:<public, max-age=...>". I restored the pattern before this
+    // run.
+    @Test
+    fun `a plain asset name with a dash and 8 characters, such as logo-abcdefgh png, gets the short Cache-Control`() =
+        testApplication {
+            val root = Files.createTempDirectory("octometer-static-test-").toFile().also { registerTempRoot(it) }
+            File(root, "index.html").writeText(indexBody)
+            File(root, "logo-abcdefgh.png").writeText(hashedAssetBody)
+            application { module(prodConfig(), root) }
+
+            val response = client.get("/logo-abcdefgh.png") { allowedHost() }
+
+            assertEquals("no-cache", response.headers[HttpHeaders.CacheControl])
+        }
+
+    // Correction round 2 (MINOR 2, second security review): a request
+    // for a hashed name with no matching file used to fall through to
+    // index.html with 200. I removed the looksLikeMissingHashedAsset
+    // check, ran this test, and saw it fail: "expected:<404> but
+    // was:<200>". I restored the check before this run.
+    @Test
+    fun `a hashed name with no matching file gives 404, not index html`() = testApplication {
+        application { module(prodConfig(), staticDirWithFrontend()) }
+
+        val response = client.get("/chunk-ZZZZZZZZ.js") { allowedHost() }
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+        assertEquals(false, response.bodyAsText().contains("octometer"))
+    }
+
     // Correction round 1 (MINOR 3, security review; MINOR 5, release
     // review): I deleted index.html from respondIndexOrMissing, ran this
     // test with no such check, and saw it fail with 500 (the default

@@ -24,18 +24,25 @@ private const val INDEX_FILE_NAME = "index.html"
 private const val INDEX_CACHE_CONTROL = "no-cache"
 private const val HASHED_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
-// The Angular production build (design decision D27, outputHashing "all")
-// names a bundle file with a dash and exactly 8 base64url characters
-// before the extension, for example "main-GES6WX3U.js". base64url holds
-// "-" and "_" too, for example "chunk-C-Ty_1Re.js". A plain asset, for
-// example "public/favicon.ico", keeps its own name and matches no such
+// The Angular production build (design decision D27, outputHashing
+// "all") names each bundle file with a hash. The name holds a dash,
+// then 8 base64url characters, before the extension, for example
+// "main-GES6WX3U.js". base64url holds "-" and "_" too, for example
+// "chunk-C-Ty_1Re.js". A plain asset, for example
+// "public/favicon.ico", keeps its own name and matches no such
 // pattern.
 //
 // Correction round 1 (MAJOR 2, security review; MAJOR 1, release
-// review): the earlier pattern used the class [0-9A-Za-z] and a length
-// of 8 or more, so it missed a hash with "-" or "_", and it matched a
-// plain file name such as "logo-something.png" by mistake.
-private val HASHED_FILE_NAME = Regex("""^.+-[0-9A-Za-z_-]{8}\.[0-9a-z]+$""")
+// review): the earlier pattern used the class [0-9A-Za-z] and a
+// length of 8 or more. It missed a hash with "-" or "_". It also
+// matched a plain file name such as "logo-something.png" by mistake.
+//
+// Correction round 2 (MINOR 1, second security review): the pattern
+// above still matched a plain asset with a dash and 8 characters
+// before its extension, for example "logo-abcdefgh.png". The
+// extension is now bound to "js" or "css", the two real bundle
+// types.
+private val HASHED_FILE_NAME = Regex("""^.+-[0-9A-Za-z_-]{8}\.(?:js|css)$""")
 
 /**
  * Serves the Angular build of `monitor/frontend` (issue #38, D28). The
@@ -61,10 +68,21 @@ fun Route.staticFrontend(staticDir: File) {
         val fileToServe = resolveRequestedFile(staticDir, segments)
         if (fileToServe != null) {
             respondStaticFile(call, fileToServe)
+        } else if (looksLikeMissingHashedAsset(segments)) {
+            call.respond(HttpStatusCode.NotFound, ErrorBody(UNKNOWN_API_ROUTE_MESSAGE))
         } else {
             respondIndexOrMissing(call, staticDir)
         }
     }
+}
+
+// Correction round 2 (MINOR 2, second security review): a request for a
+// hashed asset name with no matching file is a stale reference to a
+// removed release, not an Angular route. It now gets a plain 404, not
+// index.html.
+private fun looksLikeMissingHashedAsset(segments: List<String>): Boolean {
+    val lastSegment = segments.lastOrNull() ?: return false
+    return HASHED_FILE_NAME.matches(lastSegment)
 }
 
 private suspend fun respondStaticFile(call: ApplicationCall, file: File) {
@@ -138,9 +156,10 @@ fun defaultStaticDir(): File? {
     return staticDirBesideJar(codeSourceFile)
 }
 
-// Split out of defaultStaticDir so a test can give its own codeSourceFile
-// (correction round 1, corrections item 3): a real jar in a test folder
-// proves the sibling-folder rule, with no need to package a real jar.
+// This function is split out of defaultStaticDir (correction round 1,
+// item 3). A test can then give its own codeSourceFile. A real jar in
+// a test folder proves the sibling-folder rule, with no need to
+// package a real jar.
 internal fun staticDirBesideJar(codeSourceFile: File): File? {
     if (!codeSourceFile.isFile) return null
     val installRoot = codeSourceFile.parentFile?.parentFile ?: return null
