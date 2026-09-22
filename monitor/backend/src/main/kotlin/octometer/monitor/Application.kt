@@ -21,9 +21,12 @@ import octometer.monitor.config.MonitorConfig
 import octometer.monitor.config.ResolvedConfig
 import octometer.monitor.config.escapeForLog
 import octometer.monitor.config.loadConfig
+import octometer.monitor.frontend.defaultStaticDir
+import octometer.monitor.frontend.staticFrontend
 import octometer.monitor.security.installRequestGuard
 import octometer.monitor.security.requireLoopbackBindAddress
 import org.slf4j.LoggerFactory
+import java.io.File
 import java.util.Properties
 import kotlin.system.exitProcess
 
@@ -64,7 +67,7 @@ fun main(args: Array<String>) {
     ).start(wait = true)
 }
 
-fun Application.module(config: MonitorConfig) {
+fun Application.module(config: MonitorConfig, staticDir: File? = defaultStaticDir()) {
     // Step 6 of issue #15: this is the first user of the store of #9, thus
     // this issue owns the open call and the close call. MonitorServices
     // opens the store, the secret store, and runs the orphan-secret sweep
@@ -103,6 +106,12 @@ fun Application.module(config: MonitorConfig) {
             )
         }
         apiRoutes(services)
+        // Issue #38, step 4: the Angular build, when the distribution
+        // has one. A dev-mode run through Gradle has none; ng serve
+        // then serves the UI on its own port (D27).
+        if (staticDir != null) {
+            staticFrontend(staticDir)
+        }
     }
 }
 

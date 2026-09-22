@@ -1,7 +1,13 @@
 package octometer.monitor
 
+import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.call
+import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.get
 import octometer.monitor.registry.appRegistryRoutes
+
+private const val UNKNOWN_API_ROUTE_MESSAGE = "The route does not exist."
 
 /**
  * The one entry point for each API route beyond health (MAJOR 4 of the
@@ -15,4 +21,11 @@ import octometer.monitor.registry.appRegistryRoutes
  */
 fun Route.apiRoutes(services: MonitorServices) {
     appRegistryRoutes(services.appRegistryService)
+    // Issue #38, step 4: a request below "/api/" never gets index.html.
+    // Ktor tries a constant path segment before this wildcard segment,
+    // so this route matches only after each specific "/api/" route
+    // above fails to match. It gives the 404 of the API instead.
+    get("/api/{path...}") {
+        call.respond(HttpStatusCode.NotFound, ErrorBody(UNKNOWN_API_ROUTE_MESSAGE))
+    }
 }
