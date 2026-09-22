@@ -94,8 +94,10 @@ class MonitorServicesTest {
         assertEquals(before, awaitWriterThreadCount(before), "a failed open must leave no writer thread")
     }
 
+    // SQLite MAJOR 3 of correction round 1: startsWith, not ==. See the
+    // comment of the same helper in ApplicationLifecycleTest.
     private fun writerThreadCount(): Int =
-        Thread.getAllStackTraces().keys.count { it.name == WRITER_THREAD_NAME }
+        Thread.getAllStackTraces().keys.count { it.name.startsWith(WRITER_THREAD_NAME) }
 
     // A closed dispatcher ends its thread a short time after close()
     // returns, not at once. This polls for up to two seconds, so the

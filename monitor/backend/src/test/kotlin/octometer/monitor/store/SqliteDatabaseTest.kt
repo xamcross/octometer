@@ -6,6 +6,7 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.SQLException
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.registerTempRoot
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -49,18 +50,22 @@ class SqliteDatabaseTest {
 // request never gives an impossible row.
 class SqliteDatabaseReadTransactionTest {
 
-    private val tempDir = Files.createTempDirectory("octometer-read-transaction-test-").toFile()
+    // SQLite MAJOR 1 of correction round 1: dataDir sits under root, so
+    // the sibling backups folder of issue #55 stays inside root.
+    private val root =
+        Files.createTempDirectory("octometer-read-transaction-test-").toFile().also { registerTempRoot(it) }
+    private val dataDir = File(root, "data")
     private lateinit var database: SqliteDatabase
 
     @BeforeTest
     fun setUp() = runBlocking {
-        database = SqliteDatabase.open(tempDir.absolutePath)
+        database = SqliteDatabase.open(dataDir.absolutePath)
     }
 
     @AfterTest
     fun tearDown() {
         database.close()
-        tempDir.deleteRecursively()
+        root.deleteRecursively()
     }
 
     @Test

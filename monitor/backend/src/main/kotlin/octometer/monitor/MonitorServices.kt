@@ -59,7 +59,7 @@ class MonitorServices private constructor(
          * store or a locked file.
          */
         fun open(config: MonitorConfig, clock: Clock = Clock.systemDefaultZone()): MonitorServices {
-            val database = SqliteDatabase.open(config.dataDir, clock)
+            val database = SqliteDatabase.open(config.dataDir, backupDir = config.backupDir, clock = clock)
             var dailyBackupJob: DailyBackupJob? = null
             try {
                 val secretStore = SecretStore(config.dataDir)
@@ -75,7 +75,8 @@ class MonitorServices private constructor(
                 log.info("The start removed {} orphan secret(s).", removedOrphans)
                 // Issue #55: the daily backup job of D36. A throw after
                 // this line stops the job in the catch block below.
-                dailyBackupJob = DailyBackupJob(database, config.dataDir, clock).also { it.start() }
+                dailyBackupJob = DailyBackupJob(database, config.dataDir, clock, backupDir = config.backupDir)
+                    .also { it.start() }
                 return MonitorServices(config, database, secretStore, dailyBackupJob)
             } catch (startFailure: Throwable) {
                 dailyBackupJob?.let { runBlocking { it.stop() } }

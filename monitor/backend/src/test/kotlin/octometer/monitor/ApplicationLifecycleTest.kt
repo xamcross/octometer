@@ -35,11 +35,15 @@ private const val WRITER_THREAD_NAME = "octometer-sqlite-writer"
  */
 class ApplicationLifecycleTest {
 
-    private val dataDir = Files.createTempDirectory("octometer-lifecycle-test-").toFile().also { registerTempRoot(it) }
+    // SQLite MAJOR 1 of correction round 1: dataDir sits under root, a
+    // nested folder, so the sibling backups folder of issue #55 stays
+    // inside root and never lands at the system temp root.
+    private val root = Files.createTempDirectory("octometer-lifecycle-test-").toFile().also { registerTempRoot(it) }
+    private val dataDir = File(root, "data")
 
     @AfterTest
     fun tearDown() {
-        dataDir.deleteRecursively()
+        root.deleteRecursively()
     }
 
     @Test
@@ -181,7 +185,14 @@ class ApplicationLifecycleTest {
 
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 
-    private fun writerThreadCount(): Int = Thread.getAllStackTraces().keys.count { it.name == WRITER_THREAD_NAME }
+    // SQLite MAJOR 3 of correction round 1: the coroutine debug mode of
+    // the test JVM renames the writer thread to
+    // "octometer-sqlite-writer @coroutine#N" while a coroutine runs on
+    // it, for example the daily backup. The old exact match then read 0
+    // during a slow backup. startsWith reads the thread whichever
+    // coroutine, or none, runs on it.
+    private fun writerThreadCount(): Int =
+        Thread.getAllStackTraces().keys.count { it.name.startsWith(WRITER_THREAD_NAME) }
 
     // Issue #55: a busy CI runner needs a short moment to schedule the
     // writer thread's first task, or to end that thread after close().

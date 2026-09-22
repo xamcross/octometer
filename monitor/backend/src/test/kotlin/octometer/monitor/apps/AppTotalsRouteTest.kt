@@ -5,6 +5,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
+import java.io.File
 import java.nio.file.Files
 import java.sql.Connection
 import kotlinx.coroutines.runBlocking
@@ -15,6 +16,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import octometer.monitor.allowedHost
 import octometer.monitor.devConfig
 import octometer.monitor.module
+import octometer.monitor.registerTempRoot
 import octometer.monitor.store.SqliteDatabase
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -30,18 +32,21 @@ import kotlin.test.assertTrue
 // request #121.
 class AppTotalsRouteTest {
 
-    private val tempDir = Files.createTempDirectory("octometer-app-totals-test-").toFile()
+    // SQLite MAJOR 1 of correction round 1: dataDir sits under root, so
+    // the sibling backups folder of issue #55 stays inside root.
+    private val root = Files.createTempDirectory("octometer-app-totals-test-").toFile().also { registerTempRoot(it) }
+    private val dataDir = File(root, "data")
     private lateinit var database: SqliteDatabase
 
     @BeforeTest
     fun setUp() = runBlocking {
-        database = SqliteDatabase.open(tempDir.absolutePath)
+        database = SqliteDatabase.open(dataDir.absolutePath)
     }
 
     @AfterTest
     fun tearDown() {
         database.close()
-        tempDir.deleteRecursively()
+        root.deleteRecursively()
     }
 
     @Test
@@ -175,7 +180,7 @@ class AppTotalsRouteTest {
             )
             database.close()
 
-            application { module(devConfig(dataDir = tempDir.absolutePath)) }
+            application { module(devConfig(dataDir = dataDir.absolutePath)) }
 
             val response = client.get("/api/apps") { allowedHost() }
 
@@ -212,7 +217,7 @@ class AppTotalsRouteTest {
         insertEvent(database, appId, eventId = "e1", sessionId = "s1", userId = "user-1", kind = 0)
         database.close()
 
-        application { module(devConfig(dataDir = tempDir.absolutePath)) }
+        application { module(devConfig(dataDir = dataDir.absolutePath)) }
 
         val response = client.get("/api/apps") { allowedHost() }
 

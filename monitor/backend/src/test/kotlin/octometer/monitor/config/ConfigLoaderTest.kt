@@ -124,6 +124,37 @@ class ConfigLoaderTest {
         assertEquals(expected, resolved.config.dataDir)
     }
 
+    // SQLite MAJOR 1 of correction round 1 for issue #55: backupDir
+    // defaults to the sibling folder "backups" of the resolved dataDir,
+    // the rule of the issue.
+    @Test
+    fun `the bundled default of backupDir is the sibling folder backups of dataDir`() {
+        val userFile = missingUserConfigFile()
+
+        val resolved = loadConfig(
+            args = arrayOf("-P:octometer.dataDir=C:/example/data"),
+            env = emptyMap(),
+            userConfigFile = userFile,
+        )
+
+        assertEquals(File("C:/example/backups").absolutePath, resolved.config.backupDir)
+        assertEquals(ConfigSource.BUNDLED_DEFAULT, resolved.values.single { it.key == "backupDir" }.source)
+    }
+
+    @Test
+    fun `the environment variable OCTOMETER_BACKUP_DIR overrides the bundled default of backupDir`() {
+        val userFile = missingUserConfigFile()
+
+        val resolved = loadConfig(
+            args = arrayOf("-P:octometer.dataDir=C:/example/data"),
+            env = mapOf("OCTOMETER_BACKUP_DIR" to "D:/example/own-backups"),
+            userConfigFile = userFile,
+        )
+
+        assertEquals("D:/example/own-backups", resolved.config.backupDir)
+        assertEquals(ConfigSource.ENVIRONMENT_VARIABLE, resolved.values.single { it.key == "backupDir" }.source)
+    }
+
     @Test
     fun `an invalid value gives an InvalidConfigException`() {
         val userFile = missingUserConfigFile()

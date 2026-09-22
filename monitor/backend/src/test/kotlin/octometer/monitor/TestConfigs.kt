@@ -5,6 +5,7 @@ import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import java.io.File
 import java.nio.file.Files
+import octometer.monitor.backup.backupsDir
 import octometer.monitor.config.MonitorConfig
 
 // One shared config pair for the tests of this module. HealthRouteTest and
@@ -52,22 +53,29 @@ fun testDataDir(): String {
     return File(root, "data").absolutePath
 }
 
+// SQLite MAJOR 1 of correction round 1: backupDir defaults to the sibling
+// "backups" folder of dataDir, the same rule as the production default.
+// A test that gives testDataDir() its nested "data" folder thus keeps its
+// backups inside the one registered root, never at the system temp root.
+
 /** The dev mode config of the tests, with the configured port 7431. */
-fun devConfig(dataDir: String = testDataDir()) = MonitorConfig(
+fun devConfig(dataDir: String = testDataDir(), backupDir: String = backupsDir(dataDir).absolutePath) = MonitorConfig(
     mode = "dev",
     port = 7431,
     dataDir = dataDir,
     settleLagSeconds = 2,
     retentionDays = 395,
+    backupDir = backupDir,
 )
 
 /** The prod mode config of the tests, with the configured port 7431. */
-fun prodConfig(dataDir: String = testDataDir()) = MonitorConfig(
+fun prodConfig(dataDir: String = testDataDir(), backupDir: String = backupsDir(dataDir).absolutePath) = MonitorConfig(
     mode = "prod",
     port = 7431,
     dataDir = dataDir,
     settleLagSeconds = 60,
     retentionDays = 395,
+    backupDir = backupDir,
 )
 
 /**
