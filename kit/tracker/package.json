@@ -24,7 +24,8 @@
     "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.types.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:changed": "vitest run --changed origin/main"
   },
   "engines": {
     "node": ">=24"
