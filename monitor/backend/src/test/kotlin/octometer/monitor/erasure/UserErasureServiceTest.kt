@@ -1,24 +1,32 @@
 package octometer.monitor.erasure
 
+import ch.qos.logback.classic.Level
 import java.io.File
 import java.nio.file.Files
 import java.sql.Connection
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.captureLogEvents
+import octometer.monitor.registerTempRoot
 import octometer.monitor.store.SqliteDatabase
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 // Issue #61, steps 1 and 2. Rule E1: the erasure deletes the rows of the
-// user, and the anonymous rows (user_id IS NULL) of each session that
-// holds a row of that user. A row of a second user, and a row of a
-// second app, stay. Rule E2: the function reads the session list of the
-// user first, then it deletes.
+// user. It also deletes the anonymous rows (user_id IS NULL) of each
+// session that holds a row of that user. A row of a second user, and a
+// row of a second app, stay. Rule E2: the function reads the session
+// list of the user first, then it deletes.
 class UserErasureServiceTest {
 
-    private val tempDir = Files.createTempDirectory("octometer-user-erasure-test-").toFile()
+    private val tempDir = Files.createTempDirectory("octometer-user-erasure-test-").toFile().also { registerTempRoot(it) }
     private lateinit var database: SqliteDatabase
 
     @BeforeTest
@@ -113,17 +121,76 @@ class UserErasureServiceTest {
         assertEquals(2, result.total)
     }
 
+    // MAJOR 3 (privacy review) and MAJOR 2 (SQL review) of #61 found a
+    // gap. A row of the user with a kind other than 0 or 1 stayed.
+    // This test failed before SQL_DELETE_USER_OTHER_KIND existed. It
+    // was broken for a moment (the guard delete removed), it failed on
+    // the count and on the remaining row, and it was then restored.
     @Test
-    fun `the erasure runs a WAL checkpoint after the commit`() = runBlocking {
+    fun `the erasure removes a row of a kind other than 0 or 1, and counts it`() = runBlocking {
+        val appId = insertApp(database, "demo")
+        insertEvent(database, appId, "e1", sessionId = "s1", userId = "user-a", kind = 0)
+        insertEvent(database, appId, "e2", sessionId = "s1", userId = "user-a", kind = 2)
+
+        val result = eraseUserEvents(database, appId, "user-a")
+
+        assertEquals(2, result.total)
+        assertEquals(0, countEvents(database, appId))
+    }
+
+    @Test
+    fun `a checkpoint with no other reader completes and reports checkpointed true`() = runBlocking {
         val appId = insertApp(database, "demo")
         insertEvent(database, appId, "e1", sessionId = "s1", userId = "user-a")
 
-        eraseUserEvents(database, appId, "user-a")
+        val result = eraseUserEvents(database, appId, "user-a")
 
+        assertTrue(result.checkpointed, "expected the checkpoint to complete with no other reader")
         // A TRUNCATE checkpoint moves each WAL frame into the main file, so
         // the WAL file goes back to an empty state.
         val walFile = File(tempDir, "octometer.db-wal")
         assertTrue(!walFile.exists() || walFile.length() == 0L, "expected an empty or an absent WAL file")
+    }
+
+    // BLOCKER 1 (privacy review) and MAJOR 1 (SQL review) of #61. A
+    // second reader holds a read transaction open on the reader
+    // connection of the same store, through database.read. The writer
+    // thread then cannot truncate the WAL file.
+    //
+    // The old code was restored for a moment (call the pragma, read no
+    // row, always report success). This test then failed on
+    // `result.checkpointed`. The fix was restored, and the suite passed.
+    @Test
+    fun `a busy checkpoint retries, then reports checkpointed false with one warning`() = runBlocking {
+        val appId = insertApp(database, "demo")
+        insertEvent(database, appId, "e1", sessionId = "s1", userId = "user-a")
+
+        val readerStarted = CountDownLatch(1)
+        val releaseReader = CountDownLatch(1)
+        val readerJob = launch(Dispatchers.IO) {
+            database.read { reader ->
+                reader.createStatement().use { statement ->
+                    statement.executeQuery("SELECT 1 FROM app").use { it.next() }
+                }
+                readerStarted.countDown()
+                releaseReader.await(30, TimeUnit.SECONDS)
+            }
+        }
+        assertTrue(readerStarted.await(5, TimeUnit.SECONDS), "the reader did not start its transaction in time")
+
+        val (result, events) = captureLogEvents { eraseUserEvents(database, appId, "user-a") }
+
+        releaseReader.countDown()
+        readerJob.join()
+
+        assertFalse(result.checkpointed, "expected the busy checkpoint to report checkpointed = false")
+        assertEquals(1, result.total)
+
+        val warnings = events.filter { it.level == Level.WARN }
+        assertEquals(1, warnings.size, "expected exactly one warning line")
+        val warning = warnings.single().formattedMessage
+        assertTrue(warning.contains(appId.toString()), "expected the warning to name the app id: $warning")
+        assertFalse(warning.contains("user-a"), "the warning held the user id: $warning")
     }
 
     @Test
@@ -139,15 +206,46 @@ class UserErasureServiceTest {
         assertTrue(plan1.contains("event_start"), "expected the plan of the kind-1 query to name event_start: $plan1")
     }
 
+    // SQL review MINOR 2: the previous form of this test could not fail
+    // from a removed INDEXED BY clause. The planner already picks the
+    // same index with no hint. Each plan text is now exact, so a later
+    // change of the index shape shows here.
     @Test
     fun `the delete statements use an index`() = runBlocking {
         val plan0 = database.read { queryPlan(it, SQL_DELETE_USER_KIND0) }
         val plan1 = database.read { queryPlan(it, SQL_DELETE_USER_KIND1) }
+        val planOther = database.read { queryPlan(it, SQL_DELETE_USER_OTHER_KIND) }
         val planAnon = database.read { queryPlan(it, SQL_DELETE_ANONYMOUS_OF_SESSION) }
 
-        assertTrue(plan0.contains("event_agg"), "expected the kind-0 delete plan to name event_agg: $plan0")
-        assertTrue(plan1.contains("event_start"), "expected the kind-1 delete plan to name event_start: $plan1")
-        assertTrue(planAnon.contains("event_session"), "expected the anonymous delete plan to name event_session: $planAnon")
+        assertEquals("SEARCH event USING COVERING INDEX event_agg (app_id=? AND user_id=?)\n", plan0)
+        assertEquals("SEARCH event USING COVERING INDEX event_start (app_id=? AND user_id=?)\n", plan1)
+        assertEquals("SEARCH event USING COVERING INDEX event_session (app_id=?)\n", planOther)
+        assertEquals("SEARCH event USING COVERING INDEX event_session (app_id=? AND session_id=?)\n", planAnon)
+    }
+
+    // SQL review, "keep INDEXED BY": a schema change that drops or
+    // renames one of these three indexes must fail the build. It must
+    // not fail the erasure at run time. This test names each index.
+    @Test
+    fun `the three indexes of the erasure exist in sqlite_master`() = runBlocking {
+        val names = database.read { connection ->
+            val found = mutableSetOf<String>()
+            connection.prepareStatement(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN (?, ?, ?)",
+            ).use { select ->
+                select.setString(1, "event_agg")
+                select.setString(2, "event_start")
+                select.setString(3, "event_session")
+                select.executeQuery().use { result ->
+                    while (result.next()) {
+                        found += result.getString(1)
+                    }
+                }
+            }
+            found
+        }
+
+        assertEquals(setOf("event_agg", "event_start", "event_session"), names)
     }
 
     private fun queryPlan(connection: Connection, sql: String): String {

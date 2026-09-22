@@ -28,9 +28,9 @@ import kotlin.test.assertTrue
 // of a session of that user. It never quotes the user id in a log line.
 //
 // Each test opens the store one time to create its rows with a plain
-// JDBC connection, and closes it before testApplication opens its own
-// SqliteDatabase on the same folder. Two open writer connections on one
-// SQLite file at the same time would give a lock error.
+// JDBC connection. It closes that connection before testApplication
+// opens its own SqliteDatabase on the same folder. Two open writer
+// connections on one SQLite file at the same time give a lock error.
 class UserErasureRoutesTest {
 
     @Test
@@ -44,7 +44,23 @@ class UserErasureRoutesTest {
 
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals(1, response.deletedField())
+        assertTrue(response.checkpointedField(), "expected checkpointed = true with no other reader")
         assertEquals(listOf("user-b"), remainingUserIds(dataDir, appId))
+    }
+
+    // MINOR 2 of the privacy review: contract rule C6 caps a userId at
+    // 254 characters. A longer value gives 400, not a silent 0-row
+    // match.
+    @Test
+    fun `DELETE with a userId over 254 characters gives 400`() {
+        val dataDir = prepareStore()
+        val appId = insertApp(dataDir, "demo")
+        val tooLong = "u".repeat(255)
+
+        val response = runErase(dataDir, appId, tooLong)
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals("The user id must have at most 254 characters.", response.errorField())
     }
 
     @Test
@@ -125,20 +141,55 @@ class UserErasureRoutesTest {
 
     // Acceptance criteria of #61: the user id is a bound parameter, and it
     // appears in no line of the captured log. The captured log holds no
-    // query string either.
+    // query string either. MINOR 3 of the privacy review: the check
+    // reads the exception message too, on the 200, the 400, and the 404
+    // path.
     @Test
-    fun `no log line holds the user id or the query string of the request`() {
+    fun `no log line holds the user id or the query string of the request, on 200`() {
         val dataDir = prepareStore()
         val appId = insertApp(dataDir, "demo")
         val marker = "secret-user-id-f3c9a1"
         insertEvent(dataDir, appId, "e1", sessionId = "s1", userId = marker)
 
+        val (status, events) = deleteAndCaptureLog(dataDir, "/api/apps/$appId/events?userId=${urlEncode(marker)}")
+
+        assertEquals(HttpStatusCode.OK, status)
+        assertNoLogLineHoldsMarker(events, marker)
+    }
+
+    @Test
+    fun `no log line holds the user id or the query string of the request, on 400`() {
+        val dataDir = prepareStore()
+        val appId = insertApp(dataDir, "demo")
+        val marker = "secret-user-id-" + "u".repeat(255)
+
+        val (status, events) = deleteAndCaptureLog(dataDir, "/api/apps/$appId/events?userId=${urlEncode(marker)}")
+
+        assertEquals(HttpStatusCode.BadRequest, status)
+        assertNoLogLineHoldsMarker(events, marker)
+    }
+
+    @Test
+    fun `no log line holds the user id or the query string of the request, on 404`() {
+        val dataDir = prepareStore()
+        val marker = "secret-user-id-on-unknown-app"
+
+        val (status, events) = deleteAndCaptureLog(dataDir, "/api/apps/999999/events?userId=${urlEncode(marker)}")
+
+        assertEquals(HttpStatusCode.NotFound, status)
+        assertNoLogLineHoldsMarker(events, marker)
+    }
+
+    private fun deleteAndCaptureLog(
+        dataDir: String,
+        path: String,
+    ): Pair<HttpStatusCode, List<ch.qos.logback.classic.spi.ILoggingEvent>> {
         lateinit var status: HttpStatusCode
         var events = emptyList<ch.qos.logback.classic.spi.ILoggingEvent>()
         testApplication {
             application { module(prodConfig(dataDir = dataDir)) }
             val (response, capturedEvents) = captureLogEvents {
-                client.delete("/api/apps/$appId/events?userId=${urlEncode(marker)}") {
+                client.delete(path) {
                     allowedHost()
                     header(HttpHeaders.Origin, "http://localhost:7431")
                 }
@@ -146,17 +197,26 @@ class UserErasureRoutesTest {
             status = response.status
             events = capturedEvents
         }
+        return status to events
+    }
 
-        assertEquals(HttpStatusCode.OK, status)
+    private fun assertNoLogLineHoldsMarker(events: List<ch.qos.logback.classic.spi.ILoggingEvent>, marker: String) {
         for (event in events) {
             assertFalse(event.formattedMessage.contains(marker), "a log line held the user id: ${event.formattedMessage}")
             assertFalse(
                 event.formattedMessage.contains("userId="),
                 "a log line held the query string: ${event.formattedMessage}",
             )
+            val exceptionMessage = event.throwableProxy?.message
+            if (exceptionMessage != null) {
+                assertFalse(exceptionMessage.contains(marker), "an exception message held the user id: $exceptionMessage")
+            }
         }
     }
 
+    // MINOR 5 of the privacy review: the checkpoint assertion checks the
+    // WAL file size and the byte search, not the call alone. A call with
+    // no effect could still leave `checkpointed = true` unchecked.
     @Test
     fun `a byte search of the store files finds no user id after the erasure`() {
         val dataDir = prepareStore()
@@ -166,6 +226,10 @@ class UserErasureRoutesTest {
 
         val response = runErase(dataDir, appId, marker)
         assertEquals(HttpStatusCode.OK, response.status)
+        assertTrue(response.checkpointedField(), "expected checkpointed = true with no other reader")
+
+        val walFile = File(dataDir, "octometer.db-wal")
+        assertTrue(!walFile.exists() || walFile.length() == 0L, "expected an empty or an absent WAL file")
 
         val needle = marker.toByteArray(Charsets.UTF_8)
         val storeFiles = File(dataDir).listFiles { file -> file.name.startsWith("octometer.db") }
@@ -193,6 +257,9 @@ class UserErasureRoutesTest {
 
 private data class CapturedResponse(val status: HttpStatusCode, val body: String) {
     fun deletedField(): Int = Json.parseToJsonElement(body).jsonObject["deleted"]!!.jsonPrimitive.content.toInt()
+    fun checkpointedField(): Boolean =
+        Json.parseToJsonElement(body).jsonObject["checkpointed"]!!.jsonPrimitive.content.toBoolean()
+    fun errorField(): String = Json.parseToJsonElement(body).jsonObject["error"]!!.jsonPrimitive.content
 }
 
 /** Opens the store one time, so the schema exists, then closes it. */

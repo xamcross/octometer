@@ -9,15 +9,23 @@ import kotlinx.serialization.Serializable
 import octometer.monitor.ErrorBody
 import octometer.monitor.store.SqliteDatabase
 
-/** The answer of the erasure route. It never holds the user id, only the count (D15). */
+/** Contract rule C6: a `userId` string has 1 to 254 characters. */
+internal const val USER_ID_MAX_LENGTH = 254
+
+/**
+ * The answer of the erasure route. It never holds the user id. [deleted]
+ * is the row count. [checkpointed] is `true` when the WAL checkpoint
+ * completed (BLOCKER 1, privacy review of #61).
+ */
 @Serializable
-data class UserErasureResponse(val deleted: Int)
+data class UserErasureResponse(val deleted: Int, val checkpointed: Boolean)
 
 /**
  * The erasure route of issue #61: `DELETE /api/apps/{appId}/events?userId=<id>`
- * (design D13). An unknown app id gives 404. A missing or a blank
- * `userId` value gives 400. Each other case runs [eraseUserEvents] and
- * gives 200 with the field `deleted`.
+ * (design D13). An unknown app id gives 404. A missing, a blank, or an
+ * over-long `userId` value gives 400. Each other case runs
+ * [eraseUserEvents] and gives 200 with the fields `deleted` and
+ * `checkpointed`.
  *
  * The handler never logs the user id, and it never puts it into an
  * exception message. The database layer treats it as a bound parameter
@@ -35,12 +43,16 @@ fun Route.userErasureRoutes(database: SqliteDatabase) {
             call.respond(HttpStatusCode.BadRequest, ErrorBody("Give a user id in the query parameter userId."))
             return@delete
         }
+        if (userId.length > USER_ID_MAX_LENGTH) {
+            call.respond(HttpStatusCode.BadRequest, ErrorBody("The user id must have at most 254 characters."))
+            return@delete
+        }
         val found = database.read { reader -> appExists(reader, appId) }
         if (!found) {
             call.respond(HttpStatusCode.NotFound, ErrorBody("The app is not registered."))
             return@delete
         }
         val result = eraseUserEvents(database, appId, userId)
-        call.respond(HttpStatusCode.OK, UserErasureResponse(result.total))
+        call.respond(HttpStatusCode.OK, UserErasureResponse(result.total, result.checkpointed))
     }
 }
