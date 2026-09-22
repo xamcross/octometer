@@ -24,15 +24,34 @@
         </encoder>
     </appender>
 
-    <!-- Issue #150: this plugin writes a TRACE line with the full request
-         URL, so it holds the query string too. This runs for a response
-         with no registered status handler, and for a response with no
-         status set at all, thus a handler for one status cannot close the
-         line for every route (proof: StatusPagesTraceTest and the
-         evidence in the pull request text). The level OFF stops the line
-         at each level, also when a diagnosis raises the root level to
-         TRACE. -->
+    <!-- Issue #150: StatusPages writes a TRACE line with the full request
+         URL. The line holds the query string too. This happens for a
+         response with no status handler. It also happens for a response
+         with no status set at all. A status() handler cannot close the
+         second case, because no status code exists yet at that point.
+         StatusPagesTraceTest proves this claim. The level OFF stops the
+         line at each level, also when a diagnosis raises the root level
+         to TRACE. -->
     <logger name="io.ktor.server.plugins.statuspages.StatusPages" level="OFF" />
+
+    <!-- Pull request #170 review, BLOCKER 1: ContentNegotiation also
+         writes a TRACE line with the full request URI. The source is
+         ResponseConverter.kt of ktor-server-content-negotiation. Each
+         call sits at the TRACE level. One call names the URI in its
+         text. Two calls name the response body object in its text. A
+         body of the level 2 route holds each user id of a page. The
+         level OFF stops each of these lines too. -->
+    <logger name="io.ktor.server.plugins.contentnegotiation.ContentNegotiation" level="OFF" />
+
+    <!-- Pull request #170 review, MAJOR 2: io.ktor.server.routing.Routing
+         writes a TRACE line for each request, on a real Netty server, in
+         each mode. This happens when the root level is at TRACE before
+         the server starts. The line names each path segment. It also
+         names the value of a path parameter. No route of the monitor
+         holds a user id in a path segment today. D13 keeps the user id,
+         the session id, and firstPath in the query string. A later
+         route with a user id in a path segment needs this logger at OFF
+         too. -->
 
     <root level="INFO">
         <appender-ref ref="STDOUT" />

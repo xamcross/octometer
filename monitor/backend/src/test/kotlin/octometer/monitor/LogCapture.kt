@@ -26,9 +26,12 @@ suspend fun <T> captureErrorLogEvents(block: suspend () -> T): Pair<T, List<ILog
  * each call, from the client side, not the server side.
  *
  * Issue #150 removed the earlier entry for
- * `io.ktor.server.plugins.statuspages.StatusPages`. That logger is now
- * OFF in `logback.xml` (MINOR 9, second SQL review of #61), so it
- * writes no line at any level, and this list needs no filter for it.
+ * `io.ktor.server.plugins.statuspages.StatusPages` (MINOR 9, second SQL
+ * review of #61). Pull request #170 removed the entry for
+ * `io.ktor.server.plugins.contentnegotiation.ContentNegotiation` too
+ * (BLOCKER 1 of that review). Each logger is now OFF in `logback.xml`.
+ * Each one writes no line at any level. This list needs no filter for
+ * either one.
  */
 private val KNOWN_URL_LOGGER_PREFIXES = listOf(
     "io.ktor.client",
