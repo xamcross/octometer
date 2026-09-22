@@ -35,6 +35,61 @@ example `OCTO:foo`). A click on such a value records no click, and the
 tracker writes one console warning for the first dropped value (contract
 rule C38).
 
+## The session start
+
+For a new session id, `start()` sends one entry `octo:session-start` at
+once. The request is its own request, before any click. It waits for no
+`flushIntervalMs` (contract rule C38, design decision D41). The entry
+holds `ageMs: 0` and, with the `routes` option, the `path` of the page.
+The request uses `fetch` with `keepalive: true`, so a visitor who leaves
+the page at once still delivers it. A failed request follows the retry
+rule of the timer flush, not of the page lifecycle flush. It sends the
+entry again one time, after a wait (see "The retry rule" below).
+
+A session id counts as new when `sessionStorage` holds no id, or when the
+stored id fails the UUID rule of contract rule C5. A page reload with a
+valid stored id sends no session start.
+
+**The storage write timing (maintainer decision, 2026-09-22).** `start()`
+keeps a new id in a variable, not yet in `sessionStorage`. The id enters
+`sessionStorage` only at the moment the session start request goes out,
+after the wait below. A hidden document that ends before that moment
+stores no id. The next document of the same tab then starts a new
+session of its own, with its own id and its own session start. The first
+page of that session is then the first visible page. A click that is
+queued before the send still carries the right id, from the variable.
+
+A blocked `sessionStorage` keeps the id in a module variable instead. The
+tracker still sends one session start for the life of the document, also
+across a `stop()` call and a later `start()` call.
+
+`start()` waits for a visible, non-prerendering document before it sends
+the session start:
+
+- While `document.prerendering` is `true`, it waits for the event
+  `prerenderingchange`.
+- While `document.visibilityState` is `hidden`, it waits for the event
+  `visibilitychange`.
+
+It then sends the session start one time. A `stop()` call before that
+moment cancels the wait, and no session start goes out.
+
+The wait holds back the session start alone, not the click queue. A
+click on a hidden or on a prerendering document can thus reach the app
+before the session start. A real visitor almost never clicks such a
+document, before it becomes visible.
+
+The tracker sends nothing, no click and no session start, while
+`navigator.webdriver` is `true`. Set the option `ignoreWebdriver` to
+`true` only for an end-to-end test of the app itself. The option turns
+the filter off. Issue #117 adds the server-side robot filter, the real
+control. This client-side filter removes the traffic of a test tool
+only.
+
+A `data-octo="octo:session-start"` value on a page element still records
+no click (contract rule C38). Only the call inside `start()` sends the
+session start.
+
 ## Options
 
 | Option | Default | Purpose |
@@ -44,6 +99,7 @@ rule C38).
 | `headers` | none | A function that returns extra request headers. |
 | `flushIntervalMs` | `5000` | The delay before the tracker sends a filled queue. |
 | `routes` | none | The ordered route pattern list of the app. With this option, each click entry holds `path`. |
+| `ignoreWebdriver` | `false` | Turns off the `navigator.webdriver` filter. Set it to `true` only for an end-to-end test. |
 
 ## The page lifecycle flush
 
@@ -59,6 +115,12 @@ limits the **sum** of the bodies of each `keepalive` request in flight
 for one page, not each single body. A full queue of 200 entries, at the
 maximum sizes of the contract, gives about 58 KB in total. This stays
 below the 64 KB quota, with a small margin.
+
+The session start of the previous section also uses `keepalive: true`,
+and it shares the same page budget. Its body holds 266 bytes at most: a
+36-byte session id, plus a path of 150 bytes under contract rule C39.
+The worst case sum, with a full queue in flight at the same time, is
+`4 * 15000 + 266 = 60266` bytes. This still stays below the 64 KB quota.
 
 The 64 KB quota belongs to the page, not to the tracker. An app that
 sends its own `keepalive` request, or a `sendBeacon` call, at the page
@@ -192,10 +254,8 @@ for the call, with no click text in it.
 
 ## Out of scope
 
-This package holds the tracker core, the page lifecycle flush, and the
-retry rule. Issue #107 owns the session start call (`start()` sending the
-entry `octo:session-start`) and the consent-gated wait rules of design
-decision D41. Issue #108 owns the `referrerHost` field. The present
-tracker reads no `document.referrer` value, thus it sends no
-`referrerHost` field on any entry (design decision D42, contract rule
-C40).
+This package holds the tracker core, the page lifecycle flush, the retry
+rule, and the session start of design decision D41. Issue #108 owns the
+`referrerHost` field. The present tracker reads no `document.referrer`
+value, thus it sends no `referrerHost` field on any entry (design
+decision D42, contract rule C40).
