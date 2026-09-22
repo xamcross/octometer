@@ -15,6 +15,9 @@ const FILTER_DEBOUNCE_MS = 400;
 /** Formats a count in the locale of the browser (D30). */
 const numberFormat = new Intl.NumberFormat();
 
+/** The general text for a data request that fails for a reason other than a 400 answer. */
+const NETWORK_FAILURE_TEXT = 'Octometer cannot reach the API. Check the network connection.';
+
 /**
  * The route "/apps/:appId/users" (D28, level 2 of the design). It shows
  * one row for each app user, and it reads
@@ -35,9 +38,18 @@ const numberFormat = new Intl.NumberFormat();
  * A click on a data cell of a row opens the link of the user cell
  * (D28), the same way as the level 1 view.
  *
+ * The router keeps one component instance for a change of `appId` alone,
+ * for example a move from `/apps/7/users` to `/apps/8/users` (correction
+ * round 1 of pull request #159, MAJOR 2). The query-key effect below
+ * detects that change, resets the poll store, and sends a fresh request.
+ * A late answer of the old app id cannot reach the view: the poll store
+ * tags each request with a generation number, and it drops an answer of
+ * an older generation.
+ *
  * A 404 answer means the app is not registered. The view then goes to
  * the parent view `/apps`, with the app id in the query parameter
- * `notFoundAppId` (D30).
+ * `notFoundAppId` (D30). This check runs on the first load and on a
+ * later 404, for example after the appId change above.
  */
 @Component({
   selector: 'app-users',
@@ -88,24 +100,102 @@ export class Users {
    */
   protected readonly currentPage = computed(() => this.store.data()?.page ?? this.pageNumber());
 
+  /**
+   * The text of a failed data request (correction round 1 of pull request
+   * #159, MAJOR 1). A 400 answer shows the fixed sentence of the API. A
+   * different failure, for example a lost network connection, shows one
+   * general sentence. `dataError` alone feeds this text, so a failed
+   * health request never shows here: the shell banner of `app.ts` already
+   * covers that state.
+   */
+  protected readonly errorText = computed<string | null>(() => {
+    const error = this.store.dataError();
+    if (error === undefined) {
+      return null;
+    }
+    if (error instanceof HttpErrorResponse) {
+      if (error.status === 404) {
+        return null; // redirectOnAppNotFound() moves the view away instead.
+      }
+      if (error.status === 400) {
+        const body = error.error as { error?: string } | null;
+        return body?.error ?? 'The request is not valid.';
+      }
+    }
+    return NETWORK_FAILURE_TEXT;
+  });
+
   /** The key of the last request that the effect below sent, so it skips the first run. */
   private previousQueryKey: string | null = null;
 
+  /** The `appId` of the last request that the effect below sent. */
+  private previousAppId: string | null = null;
+
+  /**
+   * True after a query-key change sends a fresh request, until that
+   * request answers. The announce effect below reads this flag, so it
+   * speaks the result after the answer, and never before the request
+   * (correction round 1 of pull request #159, accessibility BLOCKER 1
+   * and MINOR 4).
+   */
+  private readonly pendingAnnouncement = signal(false);
+
+  /**
+   * The `data` and `dataError` of the store at the moment a query-key
+   * change starts a fresh request. Old rows stay on the screen while
+   * that request is in flight (D30), so the announce effect below cannot
+   * tell a fresh answer from the old one by definedness alone. It
+   * compares each signal against these fields instead, and it waits
+   * until one of them holds a new reference.
+   */
+  private pendingBaselineData: UserTotalsResponse | undefined = undefined;
+  private pendingBaselineError: unknown = undefined;
+
   constructor() {
-    // Keeps the filter field in step with the q query parameter, for
-    // example after the Back button, without touching text the user
-    // still types (the value does not change while q does not change).
+    // Copies the q query parameter into the filter field, for example
+    // after the Back button. The value does not change while q does not
+    // change, thus the text of the user stays.
     effect(() => this.filterDraft.set(this.qValue()));
 
     // Calls refresh() once for each user action that changes appId,
     // page, or q: a filter submit, a pager click, a reload, or the Back
-    // button. The store itself already sends the first request.
+    // button. The store itself already sends the first request. A
+    // change of appId also resets the store first, so the rows, the
+    // page, and the error of the old app leave the view at once, and a
+    // late answer of the old app cannot fill it (MAJOR 2).
     effect(() => {
-      const key = `${this.appId()}|${this.pageNumber()}|${this.qValue()}`;
+      const appId = this.appId();
+      const key = `${appId}|${this.pageNumber()}|${this.qValue()}`;
       if (this.previousQueryKey !== null && this.previousQueryKey !== key) {
+        if (this.previousAppId !== null && this.previousAppId !== appId) {
+          this.store.reset();
+        }
+        this.pendingBaselineData = this.store.data();
+        this.pendingBaselineError = this.store.dataError();
+        this.pendingAnnouncement.set(true);
         this.store.refresh();
       }
+      this.previousAppId = appId;
       this.previousQueryKey = key;
+    });
+
+    // Announces the result of a request that a user action started, once
+    // that request answers. It stays silent for the first load, for an
+    // automatic poll tick, and for a failed request (the error-text
+    // region of MAJOR 1 already carries a role="status" for that case).
+    effect(() => {
+      const page = this.store.data();
+      const error = this.store.dataError();
+      if (!this.pendingAnnouncement()) {
+        return;
+      }
+      if (page === this.pendingBaselineData && error === this.pendingBaselineError) {
+        return; // The request of this action has not answered yet.
+      }
+      this.pendingAnnouncement.set(false);
+      if (page !== undefined && page !== this.pendingBaselineData) {
+        this.announceResult(page);
+      }
     });
 
     effect(() => this.redirectOnAppNotFound());
@@ -184,28 +274,52 @@ export class Users {
     });
   }
 
-  /** Navigates to the given page, and announces the change through the status region. */
+  /**
+   * Navigates to the given page. The query-key effect above announces the
+   * result once the answer of the new page arrives (MINOR 4): this method
+   * itself announces nothing, so the region never speaks a page number
+   * before the server confirms it.
+   */
   private goToPage(page: number): void {
-    this.announcer.announce(`Page ${page} of ${this.pageCount()}.`);
     void this.router.navigate(['/apps', this.appId(), 'users'], {
       queryParams: { page, q: this.qValue() || null },
     });
   }
 
   /**
+   * Announces the row count of a fresh answer, plus the page it belongs
+   * to (accessibility BLOCKER 1 and MINOR 4 of the correction round 1 of
+   * pull request #159).
+   */
+  private announceResult(page: UserTotalsResponse): void {
+    this.announcer.announce(
+      `${this.matchCountText(page.rows.length)} Page ${page.page} of ${page.pageCount}.`,
+    );
+  }
+
+  /** The count part of the announce text: "No user matches." or "N users match." */
+  private matchCountText(count: number): string {
+    if (count === 0) {
+      return 'No user matches.';
+    }
+    if (count === 1) {
+      return '1 user matches.';
+    }
+    return `${count} users match.`;
+  }
+
+  /**
    * Goes to the parent view `/apps` on a 404 answer (D30). The app id
    * travels in the query parameter `notFoundAppId`, so the parent view
-   * can show a message. It checks `data()` too, so a 404 after a good
-   * answer, for example a deleted app, does not clear the table under
-   * the user.
+   * can show a message. It reads `dataError` alone, so a failed health
+   * request never triggers this redirect. It fires on the first load and
+   * on a later 404, for example a deleted app, or a change of appId to
+   * an app id that does not exist (MAJOR 2 of the correction round 1 of
+   * pull request #159).
    */
   private redirectOnAppNotFound(): void {
-    const error = this.store.error();
-    if (
-      error instanceof HttpErrorResponse &&
-      error.status === 404 &&
-      this.store.data() === undefined
-    ) {
+    const error = this.store.dataError();
+    if (error instanceof HttpErrorResponse && error.status === 404) {
       void this.router.navigate(['/apps'], { queryParams: { notFoundAppId: this.appId() } });
     }
   }

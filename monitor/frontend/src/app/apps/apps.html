@@ -1,7 +1,7 @@
 <h1 tabindex="-1">Apps</h1>
 <app-refresh-bar />
 
-@if (notFoundAppId(); as id) {
+@if (shownNotFoundAppId(); as id) {
   <p class="not-found-message">App {{ id }} is not registered.</p>
 }
 

@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
+import { Announcer } from '../announcer';
 import type { AppRow } from './app-row';
 import { Apps } from './apps';
 
@@ -138,6 +139,41 @@ describe('Apps', () => {
 
     expect(headingIndex).toBe(0);
     expect(refreshBarIndex).toBe(1);
+  });
+
+  it('announces the not-found message through the shared status region (accessibility MAJOR 1 of the correction round 1 of #159)', () => {
+    const announcer = TestBed.inject(Announcer);
+    vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    fixture.componentRef.setInput('notFoundAppId', '9');
+    fixture.detectChanges();
+    vi.advanceTimersByTime(200);
+
+    expect(announcer.message()).toBe('App 9 is not registered.');
+    startStore();
+    flushApps([]);
+  });
+
+  it('clears notFoundAppId from the URL after the message shows, but keeps the message on the screen (accessibility MINOR 5 of the correction round 1 of #159)', () => {
+    const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    fixture.componentRef.setInput('notFoundAppId', '9');
+    fixture.detectChanges();
+
+    expect(navigateSpy).toHaveBeenCalledWith([], {
+      queryParams: { notFoundAppId: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+
+    // Simulates the router echoing the cleared query parameter back as the route input.
+    fixture.componentRef.setInput('notFoundAppId', null);
+    fixture.detectChanges();
+
+    const message = root().querySelector('.not-found-message');
+    expect(message?.textContent?.trim()).toBe('App 9 is not registered.');
+    startStore();
+    flushApps([]);
   });
 
   describe('once the app list answers', () => {

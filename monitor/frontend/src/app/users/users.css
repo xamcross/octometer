@@ -71,6 +71,11 @@ tbody tr:focus-within {
   margin: 0.75rem 0;
 }
 
+.filter-form input {
+  min-height: 24px;
+  box-sizing: border-box;
+}
+
 .filter-form button,
 .pager button {
   display: inline-flex;
@@ -86,4 +91,25 @@ tbody tr:focus-within {
   align-items: center;
   gap: 1rem;
   margin: 0.75rem 0;
+}
+
+/*
+ * A disabled pager button keeps aria-disabled, not the native disabled
+ * attribute, so it stays in the tab order (the reviewer confirmed this
+ * choice). This rule gives it a visible state too: a lower-contrast text,
+ * no pointer cursor, and a lighter border. #595959 on #f8f8f8 keeps a
+ * contrast of 7.0:1, above the 3:1 floor of WCAG 1.4.3.
+ */
+.pager button[aria-disabled='true'] {
+  color: #595959;
+  background-color: #f8f8f8;
+  border-color: #767676;
+  cursor: default;
+}
+
+@media (forced-colors: active) {
+  .pager button[aria-disabled='true'] {
+    color: GrayText;
+    border-color: GrayText;
+  }
 }

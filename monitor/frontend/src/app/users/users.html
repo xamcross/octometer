@@ -8,11 +8,16 @@
     name="q"
     type="search"
     autocomplete="off"
+    maxlength="200"
     [value]="filterDraft()"
     (input)="onFilterInput($event)"
   />
   <button type="submit">Filter</button>
 </form>
+
+@if (errorText(); as text) {
+  <p class="error-text" role="status">{{ text }}</p>
+}
 
 @if (store.data(); as page) {
   @if (page.rows.length === 0) {
@@ -63,7 +68,7 @@
       </table>
     </div>
 
-    <nav class="pager" aria-label="Pager">
+    <nav class="pager" aria-label="Pages of the user list">
       <button
         type="button"
         (click)="onPreviousPage()"
@@ -71,7 +76,7 @@
       >
         Previous
       </button>
-      <span aria-current="page">Page {{ currentPage() }} of {{ page.pageCount }}</span>
+      <span aria-current="true">Page {{ currentPage() }} of {{ page.pageCount }}</span>
       <button
         type="button"
         (click)="onNextPage()"

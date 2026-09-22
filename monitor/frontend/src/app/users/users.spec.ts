@@ -476,6 +476,63 @@ describe('Users', () => {
       expect(style.minWidth).toBe('24px');
       expect(style.minHeight).toBe('24px');
     });
+
+    it('gives the filter field a minimum height of 24 CSS px (MAJOR 3 of the accessibility review of #159)', () => {
+      const input = root().querySelector('#user-filter') as HTMLElement;
+      expect(getComputedStyle(input).minHeight).toBe('24px');
+    });
+
+    it('limits the filter field to 200 characters, the maximum length the API accepts (MINOR 1 of the Angular review of #159)', () => {
+      const input = root().querySelector('#user-filter') as HTMLInputElement;
+      expect(input.maxLength).toBe(200);
+    });
+
+    it('does not navigate again when the filter is submitted with the unchanged value (MINOR 2 of the Angular review of #159)', () => {
+      fixture.componentRef.setInput('q', 'carol');
+      fixture.detectChanges();
+      startStore();
+      httpMock.expectOne('/api/apps/7/users?page=1&q=carol').flush(buildPage());
+      fixture.detectChanges();
+      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+      const form = root().querySelector('form') as HTMLFormElement;
+      form.dispatchEvent(new Event('submit', { cancelable: true }));
+
+      expect(navigateSpy).not.toHaveBeenCalled();
+    });
+
+    it('announces the number of users that match, after the answer arrives (accessibility BLOCKER 1 of #159)', () => {
+      startStore();
+      flushUsers(buildPage());
+      const announcer = TestBed.inject(Announcer);
+
+      fixture.componentRef.setInput('q', 'dan');
+      fixture.detectChanges();
+      vi.advanceTimersByTime(200);
+      expect(announcer.message()).toBe('');
+
+      httpMock
+        .expectOne('/api/apps/7/users?page=1&q=dan')
+        .flush(buildPage({ rows: [buildRow(), buildRow({ userId: 'other' })] }));
+      fixture.detectChanges();
+      vi.advanceTimersByTime(200);
+
+      expect(announcer.message()).toContain('2 users match');
+    });
+
+    it('announces "No user matches" when the filter finds no row (accessibility BLOCKER 1 of #159)', () => {
+      startStore();
+      flushUsers(buildPage());
+      const announcer = TestBed.inject(Announcer);
+
+      fixture.componentRef.setInput('q', 'zzz');
+      fixture.detectChanges();
+      httpMock.expectOne('/api/apps/7/users?page=1&q=zzz').flush(buildPage({ rows: [] }));
+      fixture.detectChanges();
+      vi.advanceTimersByTime(200);
+
+      expect(announcer.message()).toContain('No user matches');
+    });
   });
 
   describe('the pager', () => {
@@ -489,12 +546,21 @@ describe('Users', () => {
       expect(nav.textContent).toContain('Page 2 of 100');
     });
 
-    it('gives the current page text aria-current="page"', () => {
+    it('gives the current page text aria-current="true", so only the breadcrumb holds aria-current="page" (MINOR 1 of the accessibility review of #159)', () => {
       startStore();
       flushUsers(buildPage({ page: 2, pageCount: 100 }));
 
-      const current = root().querySelector('[aria-current="page"]');
+      const current = root().querySelector('[aria-current="true"]');
       expect(current?.textContent).toContain('Page 2 of 100');
+      expect(root().querySelector('nav.pager [aria-current="page"]')).toBeNull();
+    });
+
+    it('gives the pager landmark a name that says what it is (MINOR 2 of the accessibility review of #159)', () => {
+      startStore();
+      flushUsers(buildPage());
+
+      const nav = root().querySelector('nav.pager') as HTMLElement;
+      expect(nav.getAttribute('aria-label')).toBe('Pages of the user list');
     });
 
     it('disables Previous with aria-disabled on page 1, and does not navigate on a click', () => {
@@ -508,6 +574,20 @@ describe('Users', () => {
 
       previous.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       expect(navigateSpy).not.toHaveBeenCalled();
+    });
+
+    it('gives a disabled pager button a different color and cursor than an enabled one (MAJOR 2 of the accessibility review of #159)', () => {
+      startStore();
+      flushUsers(buildPage({ page: 1, pageCount: 5 }));
+
+      const buttons = Array.from(root().querySelectorAll('nav.pager button'));
+      const previous = buttons.find((b) => b.textContent?.trim() === 'Previous') as HTMLElement;
+      const next = buttons.find((b) => b.textContent?.trim() === 'Next') as HTMLElement;
+
+      expect(previous.getAttribute('aria-disabled')).toBe('true');
+      expect(next.hasAttribute('aria-disabled')).toBe(false);
+      expect(getComputedStyle(previous).cursor).toBe('default');
+      expect(getComputedStyle(previous).color).not.toBe(getComputedStyle(next).color);
     });
 
     it('disables Next with aria-disabled on the last page, and does not navigate on a click', () => {
@@ -563,21 +643,39 @@ describe('Users', () => {
       });
     });
 
-    it('announces the page change to the status region on a click on Next', () => {
+    it('announces the new page only after the answer arrives, not before the request (MINOR 4 of the accessibility review of #159)', () => {
       fixture.componentRef.setInput('page', '2');
       fixture.detectChanges();
       startStore();
       httpMock.expectOne('/api/apps/7/users?page=2').flush(buildPage({ page: 2, pageCount: 5 }));
       fixture.detectChanges();
       const announcer = TestBed.inject(Announcer);
-      vi.spyOn(router, 'navigate').mockResolvedValue(true);
+      // Drains the announcement of this first load of page 2, so it does
+      // not confuse the check below, which is about the click on Next.
+      vi.advanceTimersByTime(200);
+      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
 
       const buttons = Array.from(root().querySelectorAll('nav.pager button'));
       const next = buttons.find((b) => b.textContent?.trim() === 'Next') as HTMLElement;
       next.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(navigateSpy).toHaveBeenCalledWith(['/apps', '7', 'users'], {
+        queryParams: { page: 3, q: null },
+      });
+      vi.advanceTimersByTime(200);
+      // The click itself changes no route input (navigate is mocked), so
+      // the region still holds the text of the last real answer: page 2.
+      // It never jumps to "Page 3" before the server confirms it.
+      expect(announcer.message()).toContain('Page 2 of 5');
+
+      // Simulates the router echoing the navigated page back as the route input.
+      fixture.componentRef.setInput('page', '3');
+      fixture.detectChanges();
+      httpMock.expectOne('/api/apps/7/users?page=3').flush(buildPage({ page: 3, pageCount: 5 }));
+      fixture.detectChanges();
       vi.advanceTimersByTime(200);
 
-      expect(announcer.message()).toContain('Page 3');
+      expect(announcer.message()).toContain('Page 3 of 5');
     });
 
     it('re-sends the request after a query-parameter navigation moves the page', () => {
@@ -598,11 +696,112 @@ describe('Users', () => {
 
       httpMock
         .expectOne('/api/apps/7/users?page=1')
-        .flush({ message: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+        .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
       fixture.detectChanges();
 
       expect(navigateSpy).toHaveBeenCalledWith(['/apps'], { queryParams: { notFoundAppId: '7' } });
       expect(root().querySelector('table')).toBeNull();
+    });
+  });
+
+  describe('a failed data request (MAJOR 1 of the Angular review of #159)', () => {
+    it('shows the fixed sentence of the API for a 400 answer', () => {
+      startStore();
+      httpMock
+        .expectOne('/api/apps/7/users?page=1')
+        .flush({ error: 'The filter q is too long.' }, { status: 400, statusText: 'Bad Request' });
+      fixture.detectChanges();
+
+      expect(root().querySelector('.error-text')?.getAttribute('role')).toBe('status');
+      expect(root().querySelector('.error-text')?.textContent?.trim()).toBe(
+        'The filter q is too long.',
+      );
+    });
+
+    it('shows a general sentence for a network failure, and clears it after a good answer', () => {
+      startStore(10);
+      httpMock.expectOne('/api/apps/7/users?page=1').error(new ProgressEvent('error'));
+      fixture.detectChanges();
+
+      expect(root().querySelector('.error-text')?.textContent?.trim()).toBe(
+        'Octometer cannot reach the API. Check the network connection.',
+      );
+
+      vi.advanceTimersByTime(10_000);
+      httpMock.expectOne('/api/apps/7/users?page=1').flush(buildPage());
+      fixture.detectChanges();
+
+      expect(root().querySelector('.error-text')).toBeNull();
+    });
+  });
+
+  describe('a change of appId on the same component instance (MAJOR 2 of the Angular review of #159)', () => {
+    it('resets the table at once, and ignores a late answer of the old app', () => {
+      startStore(10);
+      flushUsers(buildPage({ rows: [buildRow({ userId: 'app-7-user' })] }));
+
+      // A poll tick starts a new app-7 request that stays in flight.
+      vi.advanceTimersByTime(10_000);
+      const staleRequest = httpMock.expectOne('/api/apps/7/users?page=1');
+
+      // The route moves to app 8, on the same component instance.
+      fixture.componentRef.setInput('appId', '8');
+      fixture.detectChanges();
+
+      expect(root().querySelector('table')).toBeNull();
+      expect(root().textContent).not.toContain('app-7-user');
+
+      // The app-7 request in flight is cancelled at once, so a late answer
+      // of app 7 can never reach the view.
+      expect(staleRequest.cancelled).toBe(true);
+
+      const freshRequest = httpMock.expectOne('/api/apps/8/users?page=1');
+      freshRequest.flush(buildPage({ rows: [buildRow({ userId: 'app-8-user' })] }));
+      fixture.detectChanges();
+
+      expect(root().textContent).toContain('app-8-user');
+      expect(root().textContent).not.toContain('app-7-user');
+    });
+
+    it('redirects to /apps when a 404 answer arrives for the new app', () => {
+      startStore(10);
+      flushUsers(buildPage({ rows: [buildRow({ userId: 'app-7-user' })] }));
+      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+      fixture.componentRef.setInput('appId', '8');
+      fixture.detectChanges();
+
+      httpMock
+        .expectOne('/api/apps/8/users?page=1')
+        .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+
+      expect(navigateSpy).toHaveBeenCalledWith(['/apps'], { queryParams: { notFoundAppId: '8' } });
+    });
+  });
+
+  describe('sending a request during a request in flight (MAJOR 3 of the Angular review of #159)', () => {
+    it('sends the request of a page change while the previous poll request is still in flight', () => {
+      startStore(10);
+      flushUsers(buildPage({ page: 1, pageCount: 5, rows: [buildRow({ userId: 'page-1-user' })] }));
+
+      // A poll tick starts a new request that stays in flight.
+      vi.advanceTimersByTime(10_000);
+      const staleRequest = httpMock.expectOne('/api/apps/7/users?page=1');
+
+      // The user moves to page 2 while that request is still pending.
+      fixture.componentRef.setInput('page', '2');
+      fixture.detectChanges();
+
+      // The page-1 request in flight is cancelled at once: the page-2
+      // request of the user action does not wait for it (MAJOR 3).
+      expect(staleRequest.cancelled).toBe(true);
+
+      const freshRequest = httpMock.expectOne('/api/apps/7/users?page=2');
+      freshRequest.flush(buildPage({ page: 2, pageCount: 5, rows: [buildRow({ userId: 'page-2-user' })] }));
+      fixture.detectChanges();
+
+      expect(root().textContent).toContain('page-2-user');
     });
   });
 });
