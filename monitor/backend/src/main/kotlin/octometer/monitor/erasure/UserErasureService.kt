@@ -1,6 +1,7 @@
 package octometer.monitor.erasure
 
 import java.sql.Connection
+import octometer.monitor.store.DEFAULT_BUSY_TIMEOUT_MILLIS
 import octometer.monitor.store.SqliteDatabase
 import org.slf4j.LoggerFactory
 
@@ -44,6 +45,17 @@ internal const val SQL_SESSION_IDS_KIND0 =
     "SELECT DISTINCT session_id FROM event INDEXED BY event_agg WHERE app_id = ? AND user_id = ? AND kind = 0"
 internal const val SQL_SESSION_IDS_KIND1 =
     "SELECT DISTINCT session_id FROM event INDEXED BY event_start WHERE app_id = ? AND user_id = ? AND kind = 1"
+
+// MINOR 8 (second SQL review of #61). A session whose only row of the
+// user has a kind other than 0 or 1 stayed out of the session list, so
+// its anonymous rows kept the user id inside the session (contract rule
+// C43 covers each kind, not only 0 and 1). event_session is not
+// partial, so this statement carries no kind literal. Its plan is
+// `SEARCH event USING COVERING INDEX event_session (app_id=?)`, the
+// same scan as the guard delete, measured at 26 ms on 110 000 rows.
+internal const val SQL_SESSION_IDS_OTHER_KIND =
+    "SELECT DISTINCT session_id FROM event INDEXED BY event_session WHERE app_id = ? AND user_id = ? AND kind NOT IN (0, 1)"
+
 internal const val SQL_DELETE_USER_KIND0 =
     "DELETE FROM event INDEXED BY event_agg WHERE app_id = ? AND user_id = ? AND kind = 0"
 internal const val SQL_DELETE_USER_KIND1 =
@@ -87,12 +99,22 @@ data class UserErasureResult(
  * `user_id IS NULL` of a session of that user. A row of a second user
  * in the same session stays (contract rule C43).
  *
- * A `PRAGMA wal_checkpoint(TRUNCATE)` call runs on the writer
- * connection right after the commit, inside the same
- * [SqliteDatabase.write] call. No other write can then run between the
- * commit and the checkpoint. A busy reader can block the checkpoint.
- * The call retries, and [UserErasureResult.checkpointed] states the
- * final result (BLOCKER 1, privacy review of #61).
+ * The whole delete runs in one transaction, with no chunk limit. The
+ * second SQL review of #61 measured 538 ms and 15.6 MB of WAL for
+ * 50 000 events of one user in one call. A chunk form needs a second
+ * transaction, and a second reader could then see a half-erased user
+ * between the two chunks. The erasure is a rare, manual call, so the
+ * single-transaction cost stays; a purge of a whole app already uses
+ * chunks of 10 000 rows for a different reason (design decision D15).
+ *
+ * `checkpointAfterCommit` runs on the writer connection right after the
+ * commit, inside the same [SqliteDatabase.write] call. No other write
+ * can then run between the commit and the checkpoint. A `PASSIVE`
+ * checkpoint gives the privacy result: it moves each WAL frame that no
+ * reader still needs into the main file, and it never waits. A
+ * `TRUNCATE` checkpoint only resets the file length after, and it can
+ * report `busy` for an unrelated reason. [UserErasureResult.checkpointed]
+ * states the `PASSIVE` result (MAJOR A, second SQL review of #61).
  *
  * The answer never quotes [userId]. A caller must keep it out of a log
  * line and out of an exception message too.
@@ -108,7 +130,7 @@ suspend fun eraseUserEvents(database: SqliteDatabase, appId: Long, userId: Strin
             val deletedAnonymousRows = deleteAnonymousRowsOfSessions(writer, appId, sessionIds)
             writer.createStatement().use { it.execute("COMMIT") }
             committed = true
-            val checkpointed = checkpointTruncate(writer)
+            val checkpointed = checkpointAfterCommit(writer)
             if (!checkpointed) {
                 log.warn("The WAL checkpoint after the erasure of app {} did not complete.", appId)
             }
@@ -123,31 +145,61 @@ suspend fun eraseUserEvents(database: SqliteDatabase, appId: Long, userId: Strin
         }
     }
 
+/** The three columns of one `PRAGMA wal_checkpoint(...)` answer row. */
+private data class CheckpointRow(val busy: Int, val log: Int, val checkpointed: Int)
+
 /**
- * Runs `PRAGMA wal_checkpoint(TRUNCATE)` on [writer], and reads its
- * answer row. The pragma never throws. Its first column is `busy`. A
- * value of 1 means a reader still holds an old snapshot. The old pages
- * then stay in the WAL file (BLOCKER 1, privacy review of #61).
+ * Sets `busy_timeout=0` on [writer] for the whole checkpoint block, and
+ * restores it to [DEFAULT_BUSY_TIMEOUT_MILLIS] in `finally`. The old
+ * form left the default timeout in place, so five `TRUNCATE` tries held
+ * the one writer thread for 28 seconds; the poll loop of design
+ * decision D6 shares that thread (MAJOR A, second SQL review of #61).
  *
- * The call retries up to [CHECKPOINT_MAX_ATTEMPTS] times, with a pause
- * of [CHECKPOINT_RETRY_DELAY_MILLIS] between two tries. It returns
- * `true` only when one try answers `busy = 0`. The caller must log a
- * warning, with no user data, when the result is `false`.
+ * The privacy result comes from a `PASSIVE` checkpoint: it never waits,
+ * and it moves every WAL frame that no reader still needs into the main
+ * file. The copy is complete when column `log` equals column
+ * `checkpointed`; the erased bytes then left `octometer.db`. A
+ * `TRUNCATE` checkpoint runs once after, only to reset the file length.
+ * Its `busy` result does not change the answer (maintainer decision).
  */
-private fun checkpointTruncate(writer: Connection): Boolean {
+internal fun checkpointAfterCommit(writer: Connection): Boolean {
+    setBusyTimeout(writer, 0)
+    try {
+        val moved = passiveCheckpointUntilMoved(writer)
+        runCheckpoint(writer, "TRUNCATE")
+        return moved
+    } finally {
+        setBusyTimeout(writer, DEFAULT_BUSY_TIMEOUT_MILLIS)
+    }
+}
+
+/**
+ * Runs `PRAGMA wal_checkpoint(PASSIVE)` up to [CHECKPOINT_MAX_ATTEMPTS]
+ * times, with a pause of [CHECKPOINT_RETRY_DELAY_MILLIS] between two
+ * tries. It returns `true` on the first try whose `log` column equals
+ * its `checkpointed` column: every frame is then in the main file.
+ */
+private fun passiveCheckpointUntilMoved(writer: Connection): Boolean {
     repeat(CHECKPOINT_MAX_ATTEMPTS) { attempt ->
-        val busy = writer.createStatement().use { statement ->
-            statement.executeQuery("PRAGMA wal_checkpoint(TRUNCATE)").use { result ->
-                check(result.next()) { "PRAGMA wal_checkpoint gave no row." }
-                result.getInt(1)
-            }
-        }
-        if (busy == 0) return true
+        val row = runCheckpoint(writer, "PASSIVE")
+        if (row.log == row.checkpointed) return true
         if (attempt < CHECKPOINT_MAX_ATTEMPTS - 1) {
             Thread.sleep(CHECKPOINT_RETRY_DELAY_MILLIS)
         }
     }
     return false
+}
+
+private fun runCheckpoint(writer: Connection, mode: String): CheckpointRow =
+    writer.createStatement().use { statement ->
+        statement.executeQuery("PRAGMA wal_checkpoint($mode)").use { result ->
+            check(result.next()) { "PRAGMA wal_checkpoint gave no row." }
+            CheckpointRow(result.getInt(1), result.getInt(2), result.getInt(3))
+        }
+    }
+
+private fun setBusyTimeout(writer: Connection, millis: Int) {
+    writer.createStatement().use { it.execute("PRAGMA busy_timeout=$millis") }
 }
 
 /** `SELECT 1 FROM app WHERE id = ?`, for the 404 check of the route. */
@@ -161,6 +213,7 @@ private fun sessionIdsOfUser(writer: Connection, appId: Long, userId: String): S
     val sessionIds = mutableSetOf<String>()
     sessionIds += querySessionIds(writer, SQL_SESSION_IDS_KIND0, appId, userId)
     sessionIds += querySessionIds(writer, SQL_SESSION_IDS_KIND1, appId, userId)
+    sessionIds += querySessionIds(writer, SQL_SESSION_IDS_OTHER_KIND, appId, userId)
     return sessionIds
 }
 

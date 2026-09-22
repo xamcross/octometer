@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import octometer.monitor.captureLogEvents
 import octometer.monitor.registerTempRoot
 import octometer.monitor.store.SqliteDatabase
+import kotlin.system.measureTimeMillis
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -138,6 +139,25 @@ class UserErasureServiceTest {
         assertEquals(0, countEvents(database, appId))
     }
 
+    // MINOR 8 (second SQL review of #61). A session whose only row of
+    // the user has kind = 2 stayed out of the session list, so its
+    // anonymous row kept the user id inside the session (contract rule
+    // C43 covers each kind). This test failed before
+    // SQL_SESSION_IDS_OTHER_KIND existed: it counted 1, not 2, and the
+    // anonymous row stayed. It was restored, and the suite passed.
+    @Test
+    fun `the erasure removes an anonymous row of a session whose only user row has a kind other than 0 or 1`() =
+        runBlocking {
+            val appId = insertApp(database, "demo")
+            insertEvent(database, appId, "e1", sessionId = "s1", userId = "user-a", kind = 2)
+            insertEvent(database, appId, "e2", sessionId = "s1", userId = null, kind = 0)
+
+            val result = eraseUserEvents(database, appId, "user-a")
+
+            assertEquals(2, result.total)
+            assertEquals(0, countEvents(database, appId))
+        }
+
     @Test
     fun `a checkpoint with no other reader completes and reports checkpointed true`() = runBlocking {
         val appId = insertApp(database, "demo")
@@ -193,6 +213,83 @@ class UserErasureServiceTest {
         assertFalse(warning.contains("user-a"), "the warning held the user id: $warning")
     }
 
+    // MAJOR A (second SQL review of #61). The old form left
+    // `busy_timeout=5000` in place, so five `TRUNCATE` tries held the
+    // writer thread for about 28 seconds. `busy_timeout=0` on the
+    // checkpoint block makes each try return at once.
+    //
+    // The old form was restored for a moment (the `busy_timeout=0` call
+    // and the `PASSIVE` step removed, with five plain `TRUNCATE` tries
+    // left). This test then failed at about 28 seconds. The fix was
+    // restored, and the suite passed within the 2-second bound.
+    @Test
+    fun `the write block completes within 2 seconds with a busy reader`() = runBlocking {
+        val appId = insertApp(database, "demo")
+        insertEvent(database, appId, "e1", sessionId = "s1", userId = "user-a")
+
+        val readerStarted = CountDownLatch(1)
+        val releaseReader = CountDownLatch(1)
+        val readerJob = launch(Dispatchers.IO) {
+            database.read { reader ->
+                reader.createStatement().use { statement ->
+                    statement.executeQuery("SELECT 1 FROM app").use { it.next() }
+                }
+                readerStarted.countDown()
+                releaseReader.await(30, TimeUnit.SECONDS)
+            }
+        }
+        assertTrue(readerStarted.await(5, TimeUnit.SECONDS), "the reader did not start its transaction in time")
+
+        val elapsedMillis = measureTimeMillis {
+            eraseUserEvents(database, appId, "user-a")
+        }
+
+        releaseReader.countDown()
+        readerJob.join()
+
+        assertTrue(elapsedMillis < 2000, "expected the write block to finish within 2 seconds, took $elapsedMillis ms")
+    }
+
+    // MAJOR A (second SQL review of #61). A reader that opens its
+    // snapshot only after the delete commits (the order of a user
+    // interface poll) must not turn `checkpointed` false. `PASSIVE`
+    // needs no reader to release its snapshot, unlike `TRUNCATE`.
+    @Test
+    fun `a reader on the newest snapshot still lets the checkpoint report checkpointed true`() = runBlocking {
+        val appId = insertApp(database, "demo")
+        insertEvent(database, appId, "e1", sessionId = "s1", userId = "user-a")
+
+        database.write { writer ->
+            writer.createStatement().use { it.execute("BEGIN IMMEDIATE") }
+            writer.prepareStatement(SQL_DELETE_USER_KIND0).use { delete ->
+                delete.setLong(1, appId)
+                delete.setString(2, "user-a")
+                delete.executeUpdate()
+            }
+            writer.createStatement().use { it.execute("COMMIT") }
+        }
+
+        val readerStarted = CountDownLatch(1)
+        val releaseReader = CountDownLatch(1)
+        val readerJob = launch(Dispatchers.IO) {
+            database.read { reader ->
+                reader.createStatement().use { statement ->
+                    statement.executeQuery("SELECT 1 FROM app").use { it.next() }
+                }
+                readerStarted.countDown()
+                releaseReader.await(30, TimeUnit.SECONDS)
+            }
+        }
+        assertTrue(readerStarted.await(5, TimeUnit.SECONDS), "the reader did not start its transaction in time")
+
+        val moved = database.write { writer -> checkpointAfterCommit(writer) }
+
+        releaseReader.countDown()
+        readerJob.join()
+
+        assertTrue(moved, "expected PASSIVE to move every frame although a reader holds the newest snapshot")
+    }
+
     @Test
     fun `the session-id query uses the partial index of its kind`() = runBlocking {
         val appId = insertApp(database, "demo")
@@ -201,9 +298,17 @@ class UserErasureServiceTest {
 
         val plan0 = database.read { queryPlan(it, SQL_SESSION_IDS_KIND0) }
         val plan1 = database.read { queryPlan(it, SQL_SESSION_IDS_KIND1) }
+        val planOther = database.read { queryPlan(it, SQL_SESSION_IDS_OTHER_KIND) }
 
         assertTrue(plan0.contains("event_agg"), "expected the plan of the kind-0 query to name event_agg: $plan0")
         assertTrue(plan1.contains("event_start"), "expected the plan of the kind-1 query to name event_start: $plan1")
+        // event_session is not partial, so the plan carries no kind
+        // literal; the same shape as the guard delete of SQL_DELETE_USER_OTHER_KIND.
+        assertEquals(
+            "SEARCH event USING COVERING INDEX event_session (app_id=?)\n",
+            planOther,
+            "expected the other-kind session query to scan event_session on app_id only",
+        )
     }
 
     // SQL review MINOR 2: the previous form of this test could not fail

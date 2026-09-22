@@ -6,6 +6,13 @@ import java.sql.Statement
 private const val JOURNAL_MODE_PRAGMA = "PRAGMA journal_mode=WAL"
 
 /**
+ * The busy timeout of each connection, in milliseconds (D3, step 4). The
+ * user erasure route sets a value of 0 for its own checkpoint block, and
+ * restores this value after (MAJOR A, second SQL review of #61).
+ */
+const val DEFAULT_BUSY_TIMEOUT_MILLIS = 5000
+
+/**
  * The pragmas of step 4 (D3). Each connection, the writer and the reader,
  * gets the same list, before the migrations run.
  */
@@ -14,7 +21,7 @@ object SqlitePragmas {
     val statements: List<String> = listOf(
         JOURNAL_MODE_PRAGMA,
         "PRAGMA synchronous=NORMAL",
-        "PRAGMA busy_timeout=5000",
+        "PRAGMA busy_timeout=$DEFAULT_BUSY_TIMEOUT_MILLIS",
         "PRAGMA foreign_keys=ON",
         "PRAGMA secure_delete=ON",
         "PRAGMA temp_store=MEMORY",

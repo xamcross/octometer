@@ -25,16 +25,22 @@ Run the three steps in this order:
 A call before step 2 finishes lets a poll cycle read the erased events again from the app
 store. The monitor row of this user then comes back, with no error from this route.
 
-### The WAL checkpoint (BLOCKER 1, privacy review)
+### The WAL checkpoint (BLOCKER 1 and MAJOR A, privacy and SQL review)
 
-The route runs `PRAGMA wal_checkpoint(TRUNCATE)` after the delete, so no erased byte stays in
-the WAL file. A parallel reader can hold the checkpoint back for a short time. The route
-retries the checkpoint, and the answer field `checkpointed` states the result.
+The delete writes new, zeroed pages into the WAL file. The erased bytes stay in the main file,
+`octometer.db`, until a checkpoint copies the new pages over the old ones. The route runs
+`PRAGMA wal_checkpoint(PASSIVE)` after the delete, with `busy_timeout=0` on the connection, so
+the try never waits. `PASSIVE` copies each frame that no reader still needs, and it retries up
+to five times, 100 ms apart. The route then runs one `TRUNCATE` checkpoint to reset the file
+length; that result does not change the answer. The answer field `checkpointed` states the
+`PASSIVE` result.
 
-- `checkpointed: true`: the checkpoint moved every frame into the main file.
+- `checkpointed: true`: the checkpoint moved every frame into the main file. The erased bytes
+  left `octometer.db`.
 - `checkpointed: false`: the checkpoint did not complete after five tries. The rows are still
-  gone, but an old page can stay in the WAL file for a short time. Call the route again with
-  the same user id. A second call deletes 0 rows and retries the checkpoint alone.
+  gone, but an old page with the erased bytes can stay in the store files until a later call
+  completes the checkpoint. Never delete a file `octometer.db*` by hand. Call the route again
+  with the same user id. A second call deletes 0 rows and retries the checkpoint alone.
 
 ### The user id in the URL (MAJOR 2, privacy review)
 
