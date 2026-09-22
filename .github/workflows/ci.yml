@@ -64,6 +64,12 @@ jobs:
           java-version: '21'
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: monitor/frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: monitor/frontend/package-lock.json
       - name: Test the monitor backend
         run: ./gradlew :monitor:backend:test
       - name: Keep the test report
@@ -72,6 +78,29 @@ jobs:
         with:
           name: test-report-monitor-windows
           path: monitor/backend/build/reports/tests/test
+      - name: Build the distribution, with the Angular app inside it
+        run: ./gradlew :monitor:backend:installDist
+      - name: Start the distribution and open its routes
+        run: |
+          ./monitor/backend/build/install/backend/bin/backend &
+          server_pid=$!
+          base_url="http://127.0.0.1:7431"
+          health_ready=""
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error "$base_url/api/health" > /dev/null; then
+              health_ready="yes"
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$health_ready" ]; then
+            echo "The monitor never answered /api/health within 30 seconds."
+            kill "$server_pid" 2> /dev/null || true
+            exit 1
+          fi
+          curl --fail --silent --show-error "$base_url/" > /dev/null
+          kill "$server_pid" 2> /dev/null || true
+          wait "$server_pid" 2> /dev/null || true
 
   frontend:
     name: Frontend
