@@ -1,6 +1,7 @@
 package octometer.monitor
 
 import java.io.IOException
+import java.time.Clock
 import kotlinx.coroutines.runBlocking
 import octometer.monitor.config.MonitorConfig
 import octometer.monitor.registry.AppRegistryService
@@ -8,7 +9,6 @@ import octometer.monitor.registry.SecretStore
 import octometer.monitor.registry.SecretStoreUnavailableException
 import octometer.monitor.retention.RetentionPurge
 import octometer.monitor.retention.RetentionPurgeJob
-import octometer.monitor.retention.SystemClock
 import octometer.monitor.store.SqliteDatabase
 import org.slf4j.LoggerFactory
 
@@ -91,12 +91,12 @@ class MonitorServices private constructor(
     }
 }
 
-// Issue #59, step 4: the purge job of D15 runs at the start, then each 24
-// hours, for the life of the application. The production code uses the
-// real system clock; a RetentionPurgeJobTest gives its own wait function
-// instead, so a test of the job needs no real wait of 24 hours.
+// Issue #59, step 4: the purge job of D15 runs at the start. It runs again
+// each 24 hours, for the life of the application. The production code
+// uses the real system clock. A RetentionPurgeJobTest gives its own wait
+// function instead, so a test of the job needs no real wait of 24 hours.
 private fun newRetentionPurgeJob(database: SqliteDatabase, retentionDays: Int): RetentionPurgeJob {
-    val purge = RetentionPurge(database, SystemClock)
+    val purge = RetentionPurge(database, Clock.systemUTC())
     return RetentionPurgeJob(action = { purge.purgeOnce(retentionDays) })
 }
 
