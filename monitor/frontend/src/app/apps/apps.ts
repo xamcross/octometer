@@ -1,7 +1,8 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, inject } from '@angular/core';
+import { Component, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
+import { Announcer } from '../announcer';
 import { createPollStore } from '../poll/poll-store';
 import { RefreshBar } from '../refresh-bar/refresh-bar';
 import {
@@ -38,12 +39,55 @@ import type { AppRow, AppStatus } from './app-row';
 export class Apps {
   private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
+  private readonly announcer = inject(Announcer);
+
+  /**
+   * The `notFoundAppId` query parameter, bound by the router. The level 2
+   * view of #52 sets this parameter on a 404 answer (D30). The
+   * constructor below copies its value into `shownNotFoundAppId` and then
+   * clears it from the URL, so a reload of `/apps` does not show the
+   * message again.
+   */
+  readonly notFoundAppId = input<string | null>(null);
+
+  /**
+   * The app id of the not-found message that the view shows (accessibility
+   * MINOR 5 of the correction round 1 of pull request #159). It keeps its
+   * value after the constructor clears `notFoundAppId` from the URL, so
+   * the message stays on the screen.
+   */
+  protected readonly shownNotFoundAppId = signal<string | null>(null);
 
   /** The poll store of the app list. */
   protected readonly store = createPollStore<AppRow[]>(() => this.http.get<AppRow[]>('/api/apps'));
 
   /** The zone name for the "Data time" column header (D31). */
   protected readonly zoneName = readZoneName();
+
+  constructor() {
+    // Copies a fresh notFoundAppId into shownNotFoundAppId, announces the
+    // message through the shared status region (accessibility MAJOR 1 of
+    // the correction round 1 of pull request #159), then clears the query
+    // parameter from the URL, so a reload does not repeat the message
+    // (accessibility MINOR 5). The effect runs a second time after the
+    // clear, because the router echoes the missing parameter back as
+    // undefined, not as null (accessibility BLOCKER A of the correction
+    // round 2). The guard below returns on that second run, so the shown
+    // message and the announced text stay in place.
+    effect(() => {
+      const id = this.notFoundAppId();
+      if (!id) {
+        return;
+      }
+      this.shownNotFoundAppId.set(id);
+      this.announcer.announce(`App ${id} is not registered.`);
+      void this.router.navigate([], {
+        queryParams: { notFoundAppId: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+    });
+  }
 
   /** True for each status other than `OK` and `NEVER_POLLED` (D30). */
   protected isFailed(status: AppStatus): boolean {
