@@ -141,7 +141,17 @@ tasks.withType<Test>().configureEach {
                     "octometer.monitor.frontend.FrontendCspTest",
                     "octometer.monitor.windows.WindowsStartScriptTest",
                 )
-                if (className in distTestClassNames && result.skippedTestCount > 0) {
+                if (className !in distTestClassNames) return
+                // Correction round 2 (CI proof): the default Gradle
+                // console prints no per-class line on a pass. This one
+                // line lets the CI log itself prove the skip count of
+                // each dist guard test, for the pull request comment.
+                logger.lifecycle(
+                    "$className: tests=${result.testCount} " +
+                        "failures=${result.failedTestCount} " +
+                        "skipped=${result.skippedTestCount}"
+                )
+                if (result.skippedTestCount > 0) {
                     throw GradleException(
                         "The class \"$className\" of monitor:backend skipped " +
                             "${result.skippedTestCount} test(s) on CI. Run " +
