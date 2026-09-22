@@ -52,9 +52,9 @@ private const val MAX_CLIENT_ADDRESS_LENGTH = 64
 /**
  * The maximum length of the `User-Agent` text that the bot filter reads
  * (design decision D43, issue #117, Java review MAJOR 1). A client can
- * send a header value near the 8 KB header limit of the Netty engine;
- * this cap keeps one call of [BotUserAgentFilter.isBot] cheap, also for
- * a client already at its rate limit.
+ * send a header value near the 8 KB header limit of the Netty engine.
+ * This cap keeps one call of [BotUserAgentFilter.isBot] cheap, also
+ * for a client already at its rate limit.
  */
 private const val MAX_USER_AGENT_LENGTH = 512
 
@@ -145,8 +145,8 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  *
  * 1. the `Content-Type` header (415, contract rule C12);
  * 2. the rate limiter of design decision D20 (429, issue #33) — a
- *    client already at its limit never reaches the bot filter, the
- *    body-size check, the real body read, or the parse below;
+ *    client already at its limit never reaches step 3 or any step
+ *    below;
  * 3. the bot filter of [BotUserAgentFilter] (204), on a maximum of 512
  *    characters of the `User-Agent` value;
  * 4. the body size (400, contract rule C18), the declared
@@ -228,20 +228,20 @@ public fun Route.octometerIngestRoute(
             // resolveUserId runs here, on the coroutine of the call,
             // before the store call moves to storeDispatcher (rule of
             // the app documentation above). It runs before the rate
-            // limit check, so the route still runs it for a rejected
-            // request; keep that function short, as its own KDoc
+            // limit check. The route still runs it for a rejected
+            // request, so keep that function short, as its own KDoc
             // already asks.
             val userId = resolveUserId(call)
 
-            // 2. The rate limiter (429, design decision D20, issue #33).
-            // This runs before the bot filter and the real body read
-            // (steps 3 and 5): a client already at its limit never
-            // reaches the filter, that read, or the parse (issue #117,
-            // correction of 2026-09-22, the original rule of issue
-            // #33). The route reads the client address header only for
-            // a request with no user id; check() never reads it for a
-            // signed-in user, so this call would waste one header
-            // lookup on every request otherwise.
+            // 2. The rate limiter (429, design decision D20, issue
+            // #33). This runs before the bot filter and the real body
+            // read (steps 3 and 5). A client already at its limit
+            // never reaches the filter, that read, or the parse. Issue
+            // #117 restated this original rule of issue #33 on
+            // 2026-09-22. The route reads the client address header
+            // only for a request with no user id. check() never reads
+            // it for a signed-in user, so this call would waste one
+            // header lookup on every request otherwise.
             val rateLimitResult = if (userId != null) {
                 rateLimiter.check(userId, "")
             } else {
@@ -431,9 +431,8 @@ internal class DefectSafeEventLogStore(private val delegate: EventLogStore) : Ev
  * elapsed hour (design decision D43, issue #117, security review M3).
  * With no throttle, a robot flood would write one line for each
  * dropped request, ahead of the rate limiter of step 2. [recordDrop]
- * counts every drop; it returns the count of drops since the last
- * write only on the call that must write a new line, and `null` on
- * every other call.
+ * counts every drop. It reports the drop count only on the one call
+ * that must write a new line.
  *
  * One route builds one instance, held for the life of the route, the
  * form of [AnonymousDailyCap] and [IngestRateLimiter]. This class is
@@ -445,10 +444,10 @@ internal class BotDropLogThrottle(private val clock: Clock) {
     private var dropCountSinceLastLog = 0L
 
     /**
-     * Records one bot-filter drop. Returns the drop count since the
-     * last written line, at most one time for each elapsed hour since
-     * that line; returns `null` on every other call, so the caller
-     * writes no line for it.
+     * Records one bot-filter drop. It returns the drop count since the
+     * last written line, on the one call that must write a new line.
+     * It returns `null` on every other call; the caller then writes no
+     * line.
      */
     fun recordDrop(): Long? {
         val now = clock.millis()

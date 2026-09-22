@@ -94,8 +94,7 @@ and it stops at the first one that answers (design decision D43, issue
 
 1. the `Content-Type` header (415);
 2. the rate limit of design decision D20 (429) — a client already at
-   its limit never reaches the bot filter, the body-size check, the
-   real body read, or the parse below;
+   its limit never reaches step 3 or any step below;
 3. the bot filter (204), on the first 512 characters of the
    `User-Agent` value;
 4. the body size (400), the declared `Content-Length` header only,

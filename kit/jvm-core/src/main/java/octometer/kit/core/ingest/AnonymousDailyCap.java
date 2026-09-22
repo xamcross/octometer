@@ -25,19 +25,19 @@ import java.util.Objects;
  * <p><strong>The key map.</strong> It holds a maximum of
  * {@value #MAX_KEYS} keys, with an LRU eviction, the form of the key map
  * of {@link IngestRateLimiter}. A dropped batch of a new key takes no
- * slot of this map. A kept batch of a new key takes one slot, and it
- * can evict the least recent key. An evicted key starts a fresh window
- * at its next kept batch; the global cap of one day bounds how much
- * such a key can add back (see `kit/jvm-core/README.md`).
+ * slot of this map. A kept batch of a new key takes one slot. It can
+ * evict the least recent key. An evicted key starts a fresh window at
+ * its next kept batch. The global cap of one day bounds how much such
+ * a key can add back (see `kit/jvm-core/README.md`).
  *
  * <p><strong>The warning.</strong> This class writes a maximum of one
  * WARN line for each elapsed hour since the last one. It measures the
- * hour from the last warning, not from the clock hour (issue #117,
- * after a defect that a review of pull request #165 found for a
- * clock-hour throttle). The line names the cap that dropped the batch.
- * It never holds a key, an address, a user agent, or the count of one
- * key. This class holds the log call outside its lock, so a slow log
- * write never stalls a check of a different request.
+ * hour from the last warning, not from the clock hour. Issue #117 adds
+ * this rule, after a review of pull request #165 found a defect in an
+ * earlier clock-hour throttle. The line names the cap that dropped the
+ * batch. It never holds a key, an address, a user agent, or the count
+ * of one key. This class holds the log call outside its lock, so a
+ * slow log write never stalls a check of a different request.
  *
  * <p>This class is thread-safe. One lock guards the global counter and
  * the key map together, so a check of the two caps and the count of a
@@ -149,8 +149,8 @@ public final class AnonymousDailyCap {
 
     /**
      * Returns the key count of the key map. A test uses this method to
-     * confirm the size of the map after an eviction; the class itself
-     * needs no such count.
+     * confirm the map size after an eviction. The class itself needs
+     * no such count.
      */
     int keyCount() {
         synchronized (lock) {
@@ -161,8 +161,8 @@ public final class AnonymousDailyCap {
     /**
      * True at most one time for each elapsed hour since the last true
      * result, measured from {@code now}. This method also records
-     * {@code now} as the last warned instant, so it must run inside
-     * {@link #lock}; only the log write itself may run outside it.
+     * {@code now} as the last warned instant. It must run inside
+     * {@link #lock}. Only the log write itself may run outside it.
      */
     private boolean dueForWarning(long now) {
         if (lastWarnedAtMillis != Long.MIN_VALUE && now - lastWarnedAtMillis < WARN_THROTTLE_MILLIS) {

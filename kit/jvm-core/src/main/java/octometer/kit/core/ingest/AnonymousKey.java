@@ -17,9 +17,9 @@ import java.util.regex.Pattern;
  * text of design decision D20.
  *
  * <p>This class makes no network call and resolves no name. A text
- * with no dot and no colon, and a text with a shape this class cannot
- * parse as an address, each become their own key unchanged; {@link
- * #of} then never throws for such a value.
+ * with no dot and no colon becomes its own key unchanged. A text with
+ * a shape this class cannot parse as an address becomes its own key
+ * too. {@link #of} then never throws for such a value.
  */
 public final class AnonymousKey {
 
