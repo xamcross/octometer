@@ -30,6 +30,7 @@ import octometer.monitor.config.MonitorConfig
 import octometer.monitor.devConfig
 import octometer.monitor.module
 import octometer.monitor.prodConfig
+import octometer.monitor.testDataDir
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -122,7 +123,7 @@ class RequestGuardTest {
         val port80Config = MonitorConfig(
             mode = "prod",
             port = 80,
-            dataDir = "C:/data",
+            dataDir = testDataDir(),
             settleLagSeconds = 60,
             retentionDays = 395,
         )
@@ -142,7 +143,7 @@ class RequestGuardTest {
         val port80Config = MonitorConfig(
             mode = "prod",
             port = 80,
-            dataDir = "C:/data",
+            dataDir = testDataDir(),
             settleLagSeconds = 60,
             retentionDays = 395,
         )

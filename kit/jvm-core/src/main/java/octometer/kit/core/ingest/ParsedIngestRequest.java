@@ -11,4 +11,14 @@ record ParsedIngestRequest(String sessionId, List<ParsedClick> clicks) {
     ParsedIngestRequest {
         clicks = List.copyOf(clicks);
     }
+
+    /**
+     * Returns a text with no personal data (design decision D15). The
+     * session id stays out of this text, and each click prints its own
+     * safe text (see {@link ParsedClick#toString()}).
+     */
+    @Override
+    public String toString() {
+        return "ParsedIngestRequest[clicks=" + clicks + "]";
+    }
 }

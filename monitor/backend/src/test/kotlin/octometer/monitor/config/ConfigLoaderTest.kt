@@ -124,6 +124,37 @@ class ConfigLoaderTest {
         assertEquals(expected, resolved.config.dataDir)
     }
 
+    // SQLite MAJOR 1 of correction round 1 for issue #55: backupDir
+    // defaults to the sibling folder "backups" of the resolved dataDir,
+    // the rule of the issue.
+    @Test
+    fun `the bundled default of backupDir is the sibling folder backups of dataDir`() {
+        val userFile = missingUserConfigFile()
+
+        val resolved = loadConfig(
+            args = arrayOf("-P:octometer.dataDir=C:/example/data"),
+            env = emptyMap(),
+            userConfigFile = userFile,
+        )
+
+        assertEquals(File("C:/example/backups").absolutePath, resolved.config.backupDir)
+        assertEquals(ConfigSource.BUNDLED_DEFAULT, resolved.values.single { it.key == "backupDir" }.source)
+    }
+
+    @Test
+    fun `the environment variable OCTOMETER_BACKUP_DIR overrides the bundled default of backupDir`() {
+        val userFile = missingUserConfigFile()
+
+        val resolved = loadConfig(
+            args = arrayOf("-P:octometer.dataDir=C:/example/data"),
+            env = mapOf("OCTOMETER_BACKUP_DIR" to "D:/example/own-backups"),
+            userConfigFile = userFile,
+        )
+
+        assertEquals("D:/example/own-backups", resolved.config.backupDir)
+        assertEquals(ConfigSource.ENVIRONMENT_VARIABLE, resolved.values.single { it.key == "backupDir" }.source)
+    }
+
     @Test
     fun `an invalid value gives an InvalidConfigException`() {
         val userFile = missingUserConfigFile()
@@ -135,6 +166,60 @@ class ConfigLoaderTest {
                 userConfigFile = userFile,
             )
         }
+    }
+
+    // Issue #59: a wrong retentionDays value must stop the start with a
+    // clear config error, the same way as each other config key.
+    @Test
+    fun `a retentionDays of 0 gives an InvalidConfigException`() {
+        val userFile = missingUserConfigFile()
+
+        assertFailsWith<InvalidConfigException> {
+            loadConfig(
+                args = arrayOf("-P:octometer.retentionDays=0"),
+                env = emptyMap(),
+                userConfigFile = userFile,
+            )
+        }
+    }
+
+    @Test
+    fun `a negative retentionDays gives an InvalidConfigException`() {
+        val userFile = missingUserConfigFile()
+
+        assertFailsWith<InvalidConfigException> {
+            loadConfig(
+                args = arrayOf("-P:octometer.retentionDays=-1"),
+                env = emptyMap(),
+                userConfigFile = userFile,
+            )
+        }
+    }
+
+    @Test
+    fun `a retentionDays that is not a number gives an InvalidConfigException`() {
+        val userFile = missingUserConfigFile()
+
+        assertFailsWith<InvalidConfigException> {
+            loadConfig(
+                args = arrayOf("-P:octometer.retentionDays=many"),
+                env = emptyMap(),
+                userConfigFile = userFile,
+            )
+        }
+    }
+
+    @Test
+    fun `a retentionDays of 1 is valid`() {
+        val userFile = missingUserConfigFile()
+
+        val resolved = loadConfig(
+            args = arrayOf("-P:octometer.retentionDays=1"),
+            env = emptyMap(),
+            userConfigFile = userFile,
+        )
+
+        assertEquals(1, resolved.config.retentionDays)
     }
 
     // BLOCKER 2: a syntax error in the user file, the single-backslash form
