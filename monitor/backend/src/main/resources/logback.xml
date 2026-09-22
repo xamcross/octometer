@@ -24,6 +24,14 @@
         </encoder>
     </appender>
 
+    <!-- MAJOR 1, security review of pull request #160. The MongoDB driver -->
+    <!-- writes the user name and the host into an INFO line, and the -->
+    <!-- credential of a MongoSecurityException into a DEBUG line. Design -->
+    <!-- decision D11 forbids a connection string in a log line. WARN keeps -->
+    <!-- each of these lines out of the log, and it still shows a real -->
+    <!-- driver problem. -->
+    <logger name="org.mongodb" level="WARN" />
+
     <root level="INFO">
         <appender-ref ref="STDOUT" />
         <appender-ref ref="STDERR" />
