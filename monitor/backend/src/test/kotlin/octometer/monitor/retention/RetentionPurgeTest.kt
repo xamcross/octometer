@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
 import octometer.monitor.registerTempRoot
 import octometer.monitor.store.SqliteDatabase
+import octometer.monitor.testDataDir
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -35,7 +36,7 @@ class RetentionPurgeTest {
 
     @BeforeTest
     fun setUp() = runBlocking {
-        database = SqliteDatabase.open(tempDir.absolutePath)
+        database = SqliteDatabase.open(testDataDir(tempDir))
         appId = insertApp(database, "demo")
     }
 
