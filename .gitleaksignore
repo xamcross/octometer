@@ -3,6 +3,13 @@
 # removes a value does not clear an old finding on its own; the exact
 # fingerprint stays needed here.
 #
+# Each fingerprint below names a commit of a pull request branch, not
+# of `main`. The pull request's own secret scan reads the whole branch
+# history, so the entry stays needed until the merge. A squash merge
+# writes one new commit on `main`, with a fingerprint of its own, so
+# each entry below dies at that merge. Issue #171 removes each dead
+# entry after the merge of pull request #185.
+#
 # The two findings below are test fixtures of pull request #160,
 # correction round 1. Each value is a fake, fixed marker in a test
 # file, never a real credential (see the test file for the value and

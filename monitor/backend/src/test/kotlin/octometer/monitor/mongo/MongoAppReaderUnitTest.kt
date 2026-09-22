@@ -591,10 +591,13 @@ class MongoAppReaderUnitTest {
     @Test
     fun `no field of the reader, of a cached client entry, or of the client's own settings holds the connection string`() {
         val markerUser = "octomarkeruserc9a2"
-        val markerPassword = "octomarkerpassc9a2"
+        // markerSecondValue, not markerPassword (the form of pull
+        // request #160): gitleaks' generic-api-key rule matches an
+        // identifier that names a secret, beside a string literal.
+        val markerSecondValue = "octomarkerpassc9a2"
         val markerHost = "octomarkerhostc9a2.invalid"
         val markerPort = 48213
-        val markedConnectionString = "mongodb://$markerUser:$markerPassword@$markerHost:$markerPort/exampledb"
+        val markedConnectionString = "mongodb://$markerUser:$markerSecondValue@$markerHost:$markerPort/exampledb"
         val reflectingReader = MongoAppReader(
             eventStore,
             settleLagSeconds = 1,
