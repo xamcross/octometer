@@ -15,18 +15,22 @@ import java.util.ResourceBundle;
  * <p>{@link #messages()} and {@link #clear()} are {@code public} (issue
  * #34), so a test of a different package of this module, for example
  * {@code octometer.kit.core.store}, can read the same log capture. The
- * module registers one {@link System.LoggerFinder} only.
+ * module registers one {@link System.LoggerFinder} only. {@link
+ * #messages()} returns a copy of the recorded messages, so a caller
+ * cannot change the live capture (MongoDB review of pull request #165,
+ * MINOR 5).
  */
 public final class CapturingLoggerFinder extends System.LoggerFinder {
 
     private static final Deque<String> MESSAGES = new ArrayDeque<>();
 
     /**
-     * Returns each message that a test recorded since the last call of
-     * {@link #clear()}, oldest first.
+     * Returns a copy of each message that a test recorded since the
+     * last call of {@link #clear()}, oldest first. The copy protects
+     * the live capture from a change by the caller.
      */
     public static Deque<String> messages() {
-        return MESSAGES;
+        return new ArrayDeque<>(MESSAGES);
     }
 
     /** Empties the recorded messages, before one test runs. */

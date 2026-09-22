@@ -60,6 +60,7 @@ import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestSettings
 import octometer.kit.core.path.PathPatternMatcher
+import octometer.kit.core.store.DeletionResult
 import octometer.kit.core.store.EventLogStore
 import octometer.kit.core.store.InMemoryEventLogStore
 import org.slf4j.LoggerFactory
@@ -446,8 +447,11 @@ class IngestRouteTest {
                 recordedThreadName.set(Thread.currentThread().name)
             }
 
-            override fun deleteByUserId(userId: String) {
-                // Not used by this test.
+            override fun deleteByUserId(userId: String): DeletionResult {
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         val testDispatcher = newSingleThreadContext("octo-store-test-thread")
@@ -489,8 +493,11 @@ class IngestRouteTest {
                 Thread.sleep(200)
             }
 
-            override fun deleteByUserId(userId: String) {
-                // Not used by this test.
+            override fun deleteByUserId(userId: String): DeletionResult {
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         // A distinct user id for each call (design decision D20, issue #33):
@@ -600,8 +607,11 @@ class IngestRouteTest {
                 throw IllegalStateException("SENTINEL-store-host-octo-shard-00 user victim-42")
             }
 
-            override fun deleteByUserId(userId: String) {
-                // Not used by this test.
+            override fun deleteByUserId(userId: String): DeletionResult {
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         application {
@@ -630,8 +640,11 @@ class IngestRouteTest {
                 throw IngestException(IngestException.Reason.INVALID_JSON, "the store throws this by mistake")
             }
 
-            override fun deleteByUserId(userId: String) {
-                // Not used by this test.
+            override fun deleteByUserId(userId: String): DeletionResult {
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         application {
@@ -662,8 +675,11 @@ class IngestRouteTest {
                     throw CancellationException("SENTINEL-cancel-marker-host-octo-shard-00")
                 }
 
-                override fun deleteByUserId(userId: String) {
-                    // Not used by this test.
+                override fun deleteByUserId(userId: String): DeletionResult {
+                    // This test never calls deleteByUserId. A call by
+                    // mistake must fail loudly, not pass with a quiet
+                    // DeletionResult(0, 0, true).
+                    throw UnsupportedOperationException()
                 }
             }
             application {
@@ -695,8 +711,11 @@ class IngestRouteTest {
                 }
             }
 
-            override fun deleteByUserId(userId: String) {
-                // Not used by this test.
+            override fun deleteByUserId(userId: String): DeletionResult {
+                // This test never calls deleteByUserId. A call by
+                // mistake must fail loudly, not pass with a quiet
+                // DeletionResult(0, 0, true).
+                throw UnsupportedOperationException()
             }
         }
         application {
@@ -726,8 +745,11 @@ class IngestRouteTest {
                         future.get()
                     }
 
-                    override fun deleteByUserId(userId: String) {
-                        // Not used by this test.
+                    override fun deleteByUserId(userId: String): DeletionResult {
+                        // This test never calls deleteByUserId. A call
+                        // by mistake must fail loudly, not pass with a
+                        // quiet DeletionResult(0, 0, true).
+                        throw UnsupportedOperationException()
                     }
                 }
                 application {
