@@ -25,6 +25,31 @@ holds no reference to that version. The `ignore` rule covers each
 version of `org.mongodb:mongodb-driver-sync`, so it also guards a later
 `[libraries]` entry. The compile version 5.0.1 stays fixed each time.
 
+## The event cap (issue #34, design decision D21)
+
+`MongoEventLogStore` drops a batch above `OCTOMETER_MAX_EVENTS`
+(default 200000). The store reads `estimatedDocumentCount()` a maximum
+of one time each 60 seconds. It drops each batch that the cache finds
+at or above the cap. A dropped batch throws no exception. The ingest
+route still answers 204 (contract rule C19). This protects an Atlas M0
+cluster: above the cap, the store stops the ingest. The app then never
+loses a write of its own to a full cluster.
+
+**The database user needs the `find` action.** The minimum role of
+the app database user is a custom role on `octometer_events` with the
+actions `insert`, `createIndex`, `collMod`, and `find`. The action
+`find` lets the store run `estimatedDocumentCount()` for the event
+cap. Without `find` the cap never stops the ingest. The store then
+fails closed after three count errors in a row. It drops each batch
+until a count succeeds. It writes one warning each hour, with the
+MongoDB error code. The built-in role `readWrite` holds `find` and
+`insert`. It holds no `collMod`.
+
+A value of `OCTOMETER_MAX_EVENTS` of zero, a negative value, or a
+value with a character other than an ASCII digit, stops the app start
+with a clear error. A value above 1000000 is clamped at start, with a
+warning.
+
 ## The user erasure (issue #35)
 
 `MongoEventLogStore.deleteByUserId` deletes each event of one user id,
@@ -49,9 +74,8 @@ of the server.
 Contract rule C8 gives the collection only two indexes: one on `_id`,
 and the TTL index on `ts`. This module adds no new index for the
 erasure, so each command is a full collection scan. The event cap of
-design decision D21 (200 000 documents) bounds this cost, because the
-erasure is a rare, owner-triggered action. Issue #34 adds this cap to
-the store. The kit does not enforce it yet.
+design decision D21 (200 000 documents, see above) bounds this cost,
+because the erasure is a rare, owner-triggered action.
 
 ### The erasure order for an app team (design decision D15)
 

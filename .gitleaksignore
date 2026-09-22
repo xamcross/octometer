@@ -1,0 +1,13 @@
+# Each line ignores one gitleaks finding by its fingerprint. gitleaks
+# scans each commit of the history, so a later commit that renames or
+# removes a value does not clear an old finding on its own; the exact
+# fingerprint stays needed here.
+#
+# The two findings below are test fixtures of pull request #160,
+# correction round 1. Each value is a fake, fixed marker in a test
+# file, never a real credential (see the test file for the value and
+# its purpose). The rule "generic-api-key" reads the identifier name
+# "val markerPassword = ...", not real entropy of a real secret. A
+# later commit renamed the identifier to markerSecondValue.
+a8657fbde1d0613c503022741f5542e6f5eb94de:monitor/backend/src/test/kotlin/octometer/monitor/mongo/MongoAppReaderContainerTest.kt:generic-api-key:197
+a8657fbde1d0613c503022741f5542e6f5eb94de:monitor/backend/src/test/kotlin/octometer/monitor/mongo/MongoAppReaderUnitTest.kt:generic-api-key:274
