@@ -6,7 +6,12 @@ import { Announcer } from '../announcer';
 import type { AppRow } from '../apps/app-row';
 import { Manage } from './manage';
 
-/** jsdom has no working `<dialog>`. See delete-app-dialog.spec.ts for the reason. */
+/**
+ * jsdom has no working `<dialog>`. See delete-app-dialog.spec.ts for the
+ * reason. The HTML Standard fires the `close` event from a queued task, and
+ * not at once ("close the dialog", the last step), so this stand-in does the
+ * same: a real `setTimeout` schedules the event on a later task.
+ */
 function installDialogPolyfill(): void {
   const proto = HTMLDialogElement.prototype as unknown as {
     showModal?: (this: HTMLDialogElement) => void;
@@ -17,8 +22,13 @@ function installDialogPolyfill(): void {
   };
   proto.close = function (this: HTMLDialogElement): void {
     this.removeAttribute('open');
-    this.dispatchEvent(new Event('close'));
+    setTimeout(() => this.dispatchEvent(new Event('close')), 0);
   };
+}
+
+/** Waits for one queued task, so a `setTimeout(..., 0)` of the dialog polyfill runs. */
+function flushQueuedTask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function removeDialogPolyfill(): void {
@@ -62,8 +72,11 @@ describe('Manage', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    httpMock.verify();
-    removeDialogPolyfill();
+    try {
+      httpMock.verify();
+    } finally {
+      removeDialogPolyfill();
+    }
   });
 
   function root(): HTMLElement {
@@ -105,6 +118,36 @@ describe('Manage', () => {
     expect(root().querySelector('table')).toBeNull();
   });
 
+  describe('a failed list request', () => {
+    it('shows a general sentence and a "Try again" button for a network failure', () => {
+      const announceSpy = vi.spyOn(announcer, 'announce');
+      httpMock
+        .expectOne({ url: '/api/apps', method: 'GET' })
+        .error(new ProgressEvent('error'), { status: 0, statusText: 'Unknown Error' });
+      fixture.detectChanges();
+
+      expect(root().textContent).toContain('The monitor did not answer. Try again.');
+      expect(root().querySelector('table')).toBeNull();
+      const button = root().querySelector<HTMLButtonElement>('button[type="button"]');
+      expect(button?.textContent?.trim()).toBe('Try again');
+      expect(announceSpy).toHaveBeenCalledWith('The monitor did not answer. Try again.');
+    });
+
+    it('sends a new GET /api/apps when "Try again" is clicked, and shows the list on success', () => {
+      httpMock
+        .expectOne({ url: '/api/apps', method: 'GET' })
+        .error(new ProgressEvent('error'), { status: 0, statusText: 'Unknown Error' });
+      fixture.detectChanges();
+
+      root().querySelector<HTMLButtonElement>('button[type="button"]')!.click();
+      fixture.detectChanges();
+
+      flushList([buildRow()]);
+      expect(root().querySelector('table')).toBeTruthy();
+      expect(root().textContent).not.toContain('The monitor did not answer.');
+    });
+  });
+
   describe('once the list answers', () => {
     it('renders a table with a caption, a scoped row header, and a scoped column header', () => {
       flushList([buildRow()]);
@@ -119,13 +162,26 @@ describe('Manage', () => {
       }
     });
 
-    it('adds no CSS display value on a table element', () => {
+    it('adds no CSS display value on any table element', () => {
       flushList([buildRow()]);
 
       const table = root().querySelector('table') as HTMLElement;
       expect(getComputedStyle(table).display).toBe('table');
-      const tbody = root().querySelector('tbody') as HTMLElement;
-      expect(getComputedStyle(tbody).display).toBe('table-row-group');
+
+      const expected: Record<string, string> = {
+        caption: 'table-caption',
+        thead: 'table-header-group',
+        tbody: 'table-row-group',
+        'tbody tr': 'table-row',
+        'th[scope="row"]': 'table-cell',
+        'td.status': 'table-cell',
+        'td.actions': 'table-cell',
+      };
+      for (const [selector, display] of Object.entries(expected)) {
+        const element = table.querySelector(selector) as HTMLElement;
+        expect(element, selector).toBeTruthy();
+        expect(getComputedStyle(element).display, selector).toBe(display);
+      }
     });
 
     it('puts the table in a scroll container with tabindex 0, role region, and a name from the caption', () => {
@@ -242,10 +298,27 @@ describe('Manage', () => {
       flushList([buildRow({ appId: 4, name: 'traficio-renamed' })]);
       expect(root().querySelector('tbody th')?.textContent?.trim()).toBe('traficio-renamed');
     });
+
+    it('sends a new GET /api/apps when a save answers 404, and drops the stale row', () => {
+      flushList([buildRow({ appId: 4, name: 'traficio' })]);
+
+      root().querySelector<HTMLButtonElement>('button.edit-toggle')!.click();
+      fixture.detectChanges();
+      root()
+        .querySelector('app-edit-app-form form')!
+        .dispatchEvent(new Event('submit', { cancelable: true }));
+      httpMock
+        .expectOne({ url: '/api/apps/4', method: 'PATCH' })
+        .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+
+      flushList([]);
+      expect(root().textContent).toContain('No app is registered.');
+    });
   });
 
   describe('deleting an app', () => {
-    it('reloads the list and moves the focus to the <h1> after a successful delete', () => {
+    it('reloads the list and moves the focus to the <h1> after a successful delete', async () => {
       flushList([buildRow({ appId: 7, name: 'traficio' })]);
 
       root().querySelector<HTMLButtonElement>('button.delete-trigger')!.click();
@@ -264,6 +337,12 @@ describe('Manage', () => {
       flushList([]);
 
       const heading = root().querySelector('h1');
+      expect(document.activeElement).toBe(heading);
+
+      // The dialog fires `close` from a queued task, after the row and its
+      // trigger button leave the DOM. The focus must still be on the <h1>
+      // once that task runs, and not fall to the removed trigger button.
+      await flushQueuedTask();
       expect(document.activeElement).toBe(heading);
     });
 
@@ -286,13 +365,40 @@ describe('Manage', () => {
 
       expect(announceSpy).toHaveBeenCalledWith('App deleted');
     });
+
+    it('sends a new GET /api/apps when a delete answers 404, and drops the stale row', () => {
+      flushList([buildRow({ appId: 7, name: 'traficio' })]);
+
+      root().querySelector<HTMLButtonElement>('button.delete-trigger')!.click();
+      fixture.detectChanges();
+      const confirmName = root().querySelector<HTMLInputElement>('.confirm-name')!;
+      confirmName.value = 'traficio';
+      confirmName.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      root().querySelector<HTMLButtonElement>('button.confirm-delete')!.click();
+      httpMock
+        .expectOne({ url: '/api/apps/7', method: 'DELETE' })
+        .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+
+      flushList([]);
+      expect(root().textContent).toContain('No app is registered.');
+    });
   });
 
-  it('never writes the connection string of the add form to the console, or to the URL', () => {
+  it('never writes the connection string of the add form to the console, to storage, or to the URL', () => {
     const secret = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const methodNames = ['log', 'info', 'warn', 'error', 'debug'] as const;
+    const spies = methodNames.map((name) =>
+      vi.spyOn(console, name).mockImplementation(() => undefined),
+    );
+
+    // Proves the spies capture a real call, so the loop below is not vacuous.
+    console.log('a control line');
+    expect(spies[0].mock.calls.some((call) => call.join(' ').includes('a control line'))).toBe(
+      true,
+    );
+    spies[0].mockClear();
 
     flushList([]);
     const nameField = root().querySelector<HTMLInputElement>('#add-app-name')!;
@@ -319,12 +425,14 @@ describe('Manage', () => {
     fixture.detectChanges();
     flushList([buildRow({ appId: 9, name: 'traficio' })]);
 
-    for (const spy of [logSpy, warnSpy, errorSpy]) {
+    for (const spy of spies) {
       for (const call of spy.mock.calls) {
         expect(call.join(' ')).not.toContain(secret);
       }
     }
     expect(window.location.href).not.toContain(secret);
     expect(root().innerHTML).not.toContain(secret);
+    expect(JSON.stringify(Object.entries(localStorage))).not.toContain(secret);
+    expect(JSON.stringify(Object.entries(sessionStorage))).not.toContain(secret);
   });
 });

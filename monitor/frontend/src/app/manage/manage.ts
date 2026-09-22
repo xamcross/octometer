@@ -1,9 +1,12 @@
 import { HttpClient } from '@angular/common/http';
 import { Component, ElementRef, inject, signal } from '@angular/core';
+import type { Subscription } from 'rxjs';
 
+import { Announcer } from '../announcer';
 import type { AppRow, AppStatus } from '../apps/app-row';
 import { STATUS_ICON, STATUS_LABEL } from '../status-format';
 import { AddAppForm } from './add-app-form';
+import { readApiErrorMessage } from './app-registry-api';
 import { DeleteAppDialog } from './delete-app-dialog';
 import { EditAppForm } from './edit-app-form';
 
@@ -30,20 +33,37 @@ import { EditAppForm } from './edit-app-form';
 export class Manage {
   private readonly http = inject(HttpClient);
   private readonly hostElement: ElementRef<HTMLElement> = inject(ElementRef);
+  private readonly announcer = inject(Announcer);
 
   /** The app list. Undefined before the first answer, good or bad. */
   protected readonly apps = signal<AppRow[] | undefined>(undefined);
+
+  /** The text of a failed list request. Null while the list holds a good answer. */
+  protected readonly listError = signal<string | null>(null);
+
+  /** The request in flight. A new call cancels it, so a late answer cannot overwrite a fresh one. */
+  private reloadSubscription: Subscription | undefined;
 
   constructor() {
     this.reload();
   }
 
-  /** Reads the app list again. A failed request keeps the old list, or the loading text. */
+  /** Reads the app list again. A failed request shows a text and a "Try again" button. */
   protected reload(): void {
-    this.http.get<AppRow[]>('/api/apps').subscribe({
-      next: (rows) => this.apps.set(rows),
-      error: () => undefined,
+    this.reloadSubscription?.unsubscribe();
+    this.reloadSubscription = this.http.get<AppRow[]>('/api/apps').subscribe({
+      next: (rows) => {
+        this.apps.set(rows);
+        this.listError.set(null);
+      },
+      error: (error: unknown) => this.onListFailed(error),
     });
+  }
+
+  private onListFailed(error: unknown): void {
+    const message = readApiErrorMessage(error) ?? 'Octometer cannot read the app list. Try again.';
+    this.listError.set(message);
+    this.announcer.announce(message);
   }
 
   protected statusLabel(status: AppStatus): string {

@@ -1,6 +1,7 @@
 /*
  * No table element gets a `display` value in this file, so the table keeps
- * its native semantics for a screen reader.
+ * its native semantics for a screen reader. `.action-row` gives the flex
+ * box to a `<div>` inside the actions cell, and never to the cell itself.
  */
 caption {
   text-align: left;
@@ -28,18 +29,30 @@ th[scope='row'] {
   margin: 0.25rem 0 0;
 }
 
-/* `position: relative` makes this container the containing block of a hidden span. */
+/* `position: relative` gives this container a containing block for an absolutely positioned child. */
 .table-scroll {
   position: relative;
   overflow-x: auto;
   margin-bottom: 2rem;
 }
 
-.actions {
+.action-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: flex-start;
+}
+
+.list-error {
+  color: #8a1f11;
+}
+
+button[type='button'] {
+  display: inline-flex;
+  align-items: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0.4rem 1rem;
 }
 
 .add-app {

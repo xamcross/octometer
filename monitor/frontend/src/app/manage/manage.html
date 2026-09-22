@@ -28,8 +28,18 @@
                 }
               </td>
               <td class="actions">
-                <app-edit-app-form [app]="row" (updated)="onAppUpdated()" />
-                <app-delete-app-dialog [app]="row" (deleted)="onAppDeleted()" />
+                <div class="action-row">
+                  <app-edit-app-form
+                    [app]="row"
+                    (updated)="onAppUpdated()"
+                    (staleList)="reload()"
+                  />
+                  <app-delete-app-dialog
+                    [app]="row"
+                    (deleted)="onAppDeleted()"
+                    (staleList)="reload()"
+                  />
+                </div>
               </td>
             </tr>
           }
@@ -37,6 +47,9 @@
       </table>
     </div>
   }
+} @else if (listError(); as message) {
+  <p class="list-error">{{ message }}</p>
+  <button type="button" (click)="reload()">Try again</button>
 } @else {
   <p>Octometer reads the app list.</p>
 }
