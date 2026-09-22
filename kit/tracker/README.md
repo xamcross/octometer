@@ -150,12 +150,12 @@ only the character set of rule C39, or a well-formed escape
 
 One bad entry stops the whole list, because a dropped entry would move a
 later pattern into its place and change the match order. The tracker
-then sends no `path` field for the whole list. It writes one console
-warning for each bad entry, with its index in the list. A `routes` value
-that is not an array gives the same result: no `path` field, with one
-console warning. An empty list also sends no `path` field, with one
-console warning. No warning holds the text of a pattern, and no throw
-of a bad `routes` value reaches the page.
+then sends no `path` field for the whole list. It writes exactly one
+console warning for the list, and the warning names the index of each
+bad entry. A `routes` value that is not an array gives the same result:
+no `path` field, with one console warning. An empty list also sends no
+`path` field, with one console warning. No warning holds the text of a
+pattern, and no throw of a bad `routes` value reaches the page.
 
 The matcher itself, `matchPath` in `src/path-match.ts`, is an internal
 module. The package `exports` list holds no entry for it, thus an app
