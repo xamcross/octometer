@@ -83,15 +83,16 @@ import org.bson.conversions.Bson;
  * query on each request. A dropped batch throws no exception; the caller
  * (the ingest route) then answers 204, the same answer as a stored batch
  * (contract rule C19). The store writes one warning for each clock hour,
- * never one for each dropped batch, and the warning holds no user id, no
- * client address, and no session id (design decision D15). The app
- * database user needs the {@code find} action on {@code
+ * never one for each dropped batch. The warning holds no user id, no
+ * client address, and no session id (design decision D15).
+ *
+ * <p>The app database user needs the {@code find} action on {@code
  * octometer_events}, next to {@code insert}, {@code createIndex}, and
- * {@code collMod}: {@link #estimatedEventCount()} sends the MongoDB
- * {@code count} command, and that command needs {@code find}. Without
- * {@code find} the cap never stops the ingest, and the store fails
- * closed after three count errors in a row (see the class comment of
- * {@link EventCapGuard}).
+ * {@code collMod}. {@link #estimatedEventCount()} sends the MongoDB
+ * {@code count} command. That command needs the {@code find} action.
+ * Without {@code find} the cap never stops the ingest. The store then
+ * fails closed after three count errors in a row; see the class
+ * comment of {@link EventCapGuard} for that state.
  *
  * <p>{@link #deleteByUserId} implements contract rule C43 (issue #35,
  * correction round 1). A call reads the distinct {@code sessionId}
@@ -123,11 +124,10 @@ import org.bson.conversions.Bson;
  * MongoDB command of {@code deleteByUserId} is therefore a full
  * collection scan, never an index seek. Design decision D21 caps the
  * collection at 200 000 documents, so the scan cost stays bounded.
- * Issue #34 adds this cap to the store; the kit does not enforce it
- * yet. {@code MongoEventLogStoreDeleteByUserIdTest} runs {@code
- * explain} on the two filter shapes and asserts the {@code COLLSCAN}
- * stage; a delete command shares the query plan of a find command with
- * the same filter.
+ * {@code MongoEventLogStoreDeleteByUserIdTest} runs {@code explain} on
+ * the two filter shapes and asserts the {@code COLLSCAN} stage; a
+ * delete command shares the query plan of a find command with the
+ * same filter.
  *
  * <p><strong>The erasure order for an app team (design decision
  * D15).</strong> Call this method first, in the app. Wait for one full
@@ -181,6 +181,14 @@ public final class MongoEventLogStore implements EventLogStore, EventCountEstima
     /** Only an ASCII digit sets a retention or a cap. A Unicode digit does not. */
     private static final Pattern ASCII_DIGITS = Pattern.compile("[0-9]+");
 
+    /**
+     * The largest event cap that {@link #maxEventsFromValue} accepts with
+     * no clamp. At about 350 bytes for one stored event (design section
+     * 2), this value uses about 350 MB, well under the 512 MB of an
+     * Atlas M0 cluster (security review of pull request #165, MINOR 1).
+     */
+    private static final long MAX_MAX_EVENTS = 1_000_000;
+
     private static final Logger LOGGER = System.getLogger("octometer.kit.mongo");
 
     private final MongoCollection<Document> collection;
@@ -198,13 +206,16 @@ public final class MongoEventLogStore implements EventLogStore, EventCountEstima
 
     /**
      * Builds the store with an explicit retention, with no read of the
-     * process environment for the retention. The event cap still reads
-     * {@code OCTOMETER_MAX_EVENTS} and uses the system clock. A test uses
-     * this constructor. The value of {@code retentionDays} must be 1 or
-     * more.
+     * process environment at all. The event cap takes the default of
+     * {@link #DEFAULT_MAX_EVENTS}, not {@code OCTOMETER_MAX_EVENTS}
+     * (MongoDB review of pull request #165, MINOR 4). A test uses this
+     * constructor for a check that has no concern with the event cap.
+     * A value of {@code OCTOMETER_MAX_EVENTS} in the shell of the
+     * developer who runs the test can then never change the outcome.
+     * The value of {@code retentionDays} must be 1 or more.
      */
     MongoEventLogStore(MongoDatabase database, int retentionDays) {
-        this(database, retentionDays, maxEventsFromEnvironment(), Clock.systemUTC());
+        this(database, retentionDays, DEFAULT_MAX_EVENTS, Clock.systemUTC());
     }
 
     /**
@@ -221,33 +232,60 @@ public final class MongoEventLogStore implements EventLogStore, EventCountEstima
         }
         this.collection = database.getCollection(COLLECTION_NAME);
         ensureTtlIndex(database, retentionDays);
-        this.eventCapGuard = new EventCapGuard(maxEvents, EVENT_CAP_REFRESH_INTERVAL, clock, this);
+        this.eventCapGuard = new EventCapGuard(maxEvents, EVENT_CAP_REFRESH_INTERVAL, clock, this,
+                MongoEventLogStore::mongoErrorCodeOf);
+    }
+
+    /**
+     * Reads the numeric MongoDB error code of a failed count read, for
+     * the fail-closed warning of {@link EventCapGuard} (security review
+     * of pull request #165, BLOCKER 2, and MongoDB review, MAJOR 1). It
+     * never reads the server text, because the server text can hold a
+     * host, a port, or a database name (design decision D15).
+     */
+    private static String mongoErrorCodeOf(RuntimeException cause) {
+        return cause instanceof MongoCommandException commandException
+                ? Integer.toString(commandException.getErrorCode())
+                : "unknown";
     }
 
     /**
      * The cheap event count of {@link EventCountEstimator} (design
      * decision D21, issue #34). {@code estimatedDocumentCount()} reads
-     * collection metadata; it never scans every document.
+     * collection metadata; it never scans every document. After an
+     * unclean shutdown of the server, that metadata count can drift
+     * from the true document count, until an administrator runs
+     * {@code validate} (MongoDB review of pull request #165, MINOR 6).
      */
     @Override
     public long estimatedEventCount() {
         return collection.estimatedDocumentCount();
     }
 
+    /**
+     * Appends the batch, or drops the whole batch above the event cap.
+     * This method checks each event of the batch for {@code null} first.
+     * It checks the cap second (MongoDB review of pull request #165,
+     * MINOR 7). A batch with a {@code null} event always throws, at or
+     * under the cap alike. A dropped batch returns at once, with no
+     * network call, so it returns faster than a stored batch. A client
+     * can measure that timing difference. It learns no user data from
+     * it (security review of pull request #165, MINOR 4).
+     */
     @Override
     public void append(List<IngestEvent> events, String userId) {
         Objects.requireNonNull(events, "events must not be null");
         if (events.isEmpty()) {
             throw new IllegalArgumentException("events must hold one event or more");
         }
-        if (eventCapGuard.isOverCap()) {
-            eventCapGuard.warnDropOncePerHour();
-            return;
-        }
         List<Document> documents = new ArrayList<>(events.size());
         for (IngestEvent event : events) {
             Objects.requireNonNull(event, "event must not be null");
             documents.add(toDocument(event, userId));
+        }
+        if (eventCapGuard.isOverCap()) {
+            eventCapGuard.warnDropOncePerHour();
+            return;
         }
         try {
             collection.insertMany(documents, new InsertManyOptions().ordered(true));
@@ -258,6 +296,7 @@ public final class MongoEventLogStore implements EventLogStore, EventCountEstima
         } catch (RuntimeException e) {
             throw new EventLogWriteException(-1);
         }
+        eventCapGuard.countAppended(documents.size());
     }
 
     /**
@@ -505,10 +544,16 @@ public final class MongoEventLogStore implements EventLogStore, EventCountEstima
     /**
      * Turns the raw text of {@code OCTOMETER_MAX_EVENTS} into the event
      * cap (design decision D21, issue #34). A {@code null} value gives
-     * the default of 200000, with no warning. A value that holds a
-     * character other than an ASCII digit, or that is not a positive
-     * whole number, also gives the default, with one warning; the
-     * warning names the variable and never repeats the value.
+     * the default of 200000, with no warning.
+     *
+     * <p>A value of zero, a negative value, or a value with a character
+     * other than an ASCII digit, stops the app start with a clear error
+     * (correction round 1 of pull request #165). A wrong cap can let the
+     * ingest fill the whole database. This store never guesses a safe
+     * value on its own.
+     *
+     * <p>A value above {@link #MAX_MAX_EVENTS} is clamped at start, with
+     * its own warning (security review of pull request #165, MINOR 1).
      */
     static long maxEventsFromValue(String rawValue) {
         if (rawValue == null) {
@@ -519,16 +564,27 @@ public final class MongoEventLogStore implements EventLogStore, EventCountEstima
             try {
                 long maxEvents = Long.parseLong(trimmed);
                 if (maxEvents > 0) {
-                    return maxEvents;
+                    return clampMaxEvents(maxEvents);
                 }
             } catch (NumberFormatException e) {
                 // A text of only ASCII digits can still overflow a long.
-                // The warning below covers this case too.
+                // The error below covers this case too.
             }
         }
-        LOGGER.log(Level.WARNING, OCTOMETER_MAX_EVENTS + " holds a value that is not a positive "
-                + "whole number of ASCII digits. The store uses the default of 200000 events.");
-        return DEFAULT_MAX_EVENTS;
+        throw new IllegalStateException(OCTOMETER_MAX_EVENTS + " must hold a positive whole number of "
+                + "ASCII digits. The app start stops, because a wrong cap can let the ingest fill the "
+                + "whole database.");
+    }
+
+    private static long clampMaxEvents(long maxEvents) {
+        if (maxEvents > MAX_MAX_EVENTS) {
+            LOGGER.log(Level.WARNING, OCTOMETER_MAX_EVENTS + " asks for " + maxEvents
+                    + " events. The store clamps the value to " + MAX_MAX_EVENTS
+                    + " events, so the collection stays well under the storage limit of a small "
+                    + "MongoDB cluster.");
+            return MAX_MAX_EVENTS;
+        }
+        return maxEvents;
     }
 
     private static int clampRetentionDays(int retentionDays) {

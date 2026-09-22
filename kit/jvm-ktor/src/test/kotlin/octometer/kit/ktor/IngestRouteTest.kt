@@ -129,8 +129,9 @@ class IngestRouteTest {
                 // whole batch and writes no event.
             }
 
-            override fun deleteByUserId(userId: String) {
+            override fun deleteByUserId(userId: String): DeletionResult {
                 // Not used by this test.
+                return DeletionResult(0, 0, true)
             }
         }
         application {

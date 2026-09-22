@@ -3,6 +3,7 @@ package octometer.kit.mongo.store;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -30,33 +31,45 @@ class MongoEventLogStoreMaxEventsTest {
     }
 
     @Test
-    void aZeroValueGivesTheDefaultAndAWarning() {
+    void aZeroValueStopsTheAppStartWithAClearError() {
+        // Correction round 1 of pull request #165: a wrong cap must never
+        // guess a default and let the ingest fill the whole database.
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> MongoEventLogStore.maxEventsFromValue("0"));
+        assertTrue(exception.getMessage().contains("OCTOMETER_MAX_EVENTS"));
+    }
+
+    @Test
+    void aNegativeValueStopsTheAppStartWithAClearError() {
+        assertThrows(IllegalStateException.class, () -> MongoEventLogStore.maxEventsFromValue("-5"));
+    }
+
+    @Test
+    void aTextThatIsNotAWholeNumberStopsTheAppStartWithAClearError() {
+        assertThrows(IllegalStateException.class, () -> MongoEventLogStore.maxEventsFromValue("abc"));
+    }
+
+    @Test
+    void aValueAboveTheClampGivesTheClampAndAWarning() {
+        // Security review of pull request #165, MINOR 1: a huge cap must
+        // not let the collection grow past the storage of a small
+        // MongoDB cluster.
         CapturingLoggerFinder.clear();
 
-        long maxEvents = MongoEventLogStore.maxEventsFromValue("0");
+        long maxEvents = MongoEventLogStore.maxEventsFromValue("100000000000");
 
-        assertEquals(200_000, maxEvents);
+        assertEquals(1_000_000, maxEvents);
         assertOneWarningNaming("OCTOMETER_MAX_EVENTS");
     }
 
     @Test
-    void aNegativeValueGivesTheDefaultAndAWarning() {
+    void aValueAtTheClampGivesItsOwnValueWithNoWarning() {
         CapturingLoggerFinder.clear();
 
-        long maxEvents = MongoEventLogStore.maxEventsFromValue("-5");
+        long maxEvents = MongoEventLogStore.maxEventsFromValue("1000000");
 
-        assertEquals(200_000, maxEvents);
-        assertOneWarningNaming("OCTOMETER_MAX_EVENTS");
-    }
-
-    @Test
-    void aTextThatIsNotAWholeNumberGivesTheDefaultAndAWarning() {
-        CapturingLoggerFinder.clear();
-
-        long maxEvents = MongoEventLogStore.maxEventsFromValue("abc");
-
-        assertEquals(200_000, maxEvents);
-        assertOneWarningNaming("OCTOMETER_MAX_EVENTS");
+        assertEquals(1_000_000, maxEvents);
+        assertTrue(CapturingLoggerFinder.records().isEmpty());
     }
 
     @Test

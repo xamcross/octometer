@@ -21,6 +21,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -77,22 +78,23 @@ class MongoEventLogStoreEventCapTest {
     }
 
     @Test
-    void theStoreReadsTheCountAtMostOneTimeInsideOneRefreshIntervalAndCanOvershootTheCapOnce() {
-        // Design decision D21: the store reads estimatedDocumentCount() a
-        // maximum of one time each 60 seconds, an accepted cost that lets
-        // one refresh interval overshoot the cap by the batches it
-        // accepts before its next read. maxEvents 1, two single-event
-        // batches inside the same clock instant: the guard's first read
-        // (count 0) allows both, so the collection ends with 2 documents,
-        // one above the cap of 1.
+    void aFloodInsideOneRefreshIntervalStopsAtTheCap() {
+        // Security review of pull request #165, MAJOR 1: the guard adds
+        // each accepted batch to the cached estimate, so a flood inside
+        // one refresh interval stops at the cap too, not only the count
+        // that the last read found. maxEvents 1, five single-event
+        // batches inside the same clock instant (no refresh in between):
+        // the guard's first read (count 0) allows the first batch, then
+        // its own running total of accepted events stops each later one.
         MutableClock clock = new MutableClock(START);
         MongoEventLogStore store = new MongoEventLogStore(database, 30, 1, clock);
 
-        store.append(List.of(new IngestEvent("s1", "e1", Instant.now())), "user-1");
-        store.append(List.of(new IngestEvent("s1", "e2", Instant.now())), "user-1");
+        for (int i = 0; i < 5; i++) {
+            store.append(List.of(new IngestEvent("s1", "e" + i, Instant.now())), "user-1");
+        }
 
-        assertEquals(2, rawCollection().countDocuments(),
-                "Inside one refresh interval, the store accepts a batch above the cap once.");
+        assertEquals(1, rawCollection().countDocuments(),
+                "A flood inside one refresh interval must stop at the cap.");
     }
 
     @Test
@@ -114,6 +116,23 @@ class MongoEventLogStoreEventCapTest {
         store.append(List.of(new IngestEvent("s1", "e3", Instant.now())), "user-1");
 
         assertEquals(1, rawCollection().countDocuments(), "The store must accept a batch again after the next count.");
+    }
+
+    @Test
+    void aNullEventThrowsEvenWhenTheStoreIsAlreadyOverTheCap() {
+        // MongoDB review of pull request #165, MINOR 7: the null check
+        // of each event must run before the cap check, so a batch with
+        // a null event always throws, at or above the cap alike.
+        MutableClock clock = new MutableClock(START);
+        MongoEventLogStore store = new MongoEventLogStore(database, 30, 1, clock);
+        store.append(List.of(new IngestEvent("s1", "e1", Instant.now())), "user-1");
+        clock.advance(Duration.ofSeconds(60));
+        // The store is now over the cap (1 document, cap 1).
+
+        List<IngestEvent> batchWithANullEvent = java.util.Arrays.asList(
+                new IngestEvent("s1", "e2", Instant.now()), null);
+
+        assertThrows(NullPointerException.class, () -> store.append(batchWithANullEvent, "user-1"));
     }
 
     @Test
