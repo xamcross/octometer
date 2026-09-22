@@ -9,7 +9,11 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.file.Files
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import octometer.monitor.config.MonitorConfig
+import octometer.monitor.store.SqliteDatabase
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -107,6 +111,64 @@ class ApplicationLifecycleTest {
             brokenBytes.contentEquals(secretsFile.readBytes()),
             "the broken file must stay exactly as it was",
         )
+    }
+
+    // Issue #18: the new route survives a restart. `module()` installs
+    // `GET /api/apps` on each start, with no flag, thus the route reads the
+    // one persisted file across the two starts of one folder.
+    @Test
+    fun `GET api-apps answers across two starts and stops of the server, in one folder`() {
+        val client = HttpClient.newHttpClient()
+
+        repeat(2) { round ->
+            val port = freePort()
+            val config = MonitorConfig(
+                mode = "prod",
+                port = port,
+                dataDir = dataDir.absolutePath,
+                settleLagSeconds = 60,
+                retentionDays = 395,
+            )
+            val server = embeddedServer(Netty, host = "127.0.0.1", port = port) { module(config) }
+            server.start(wait = false)
+            try {
+                val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$port/api/apps")).GET().build()
+                val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+
+                assertEquals(200, response.statusCode())
+                val rowCount = Json.parseToJsonElement(response.body()).jsonArray.size
+                assertEquals(round, rowCount, "the row of the first start must still be there for the second start")
+            } finally {
+                server.stop(gracePeriodMillis = 0, timeoutMillis = 1000)
+            }
+
+            if (round == 0) {
+                insertLifecycleApp()
+            }
+        }
+    }
+
+    // Writes one app row between the two starts, on a fresh SqliteDatabase
+    // handle. The server of round 0 already closed, thus this call opens
+    // no second writer next to a live one.
+    private fun insertLifecycleApp() = runBlocking {
+        val database = SqliteDatabase.open(dataDir.absolutePath)
+        try {
+            database.write { writer ->
+                writer.prepareStatement(
+                    "INSERT INTO app (name, database_name, collection_name, created_at) " +
+                        "VALUES (?, ?, ?, ?)",
+                ).use { insert ->
+                    insert.setString(1, "lifecycle-app")
+                    insert.setString(2, "db")
+                    insert.setString(3, "octometer_events")
+                    insert.setLong(4, 1_700_000_000_000L)
+                    insert.executeUpdate()
+                }
+            }
+        } finally {
+            database.close()
+        }
     }
 
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
