@@ -24,6 +24,16 @@
         </encoder>
     </appender>
 
+    <!-- Issue #150: this plugin writes a TRACE line with the full request
+         URL, so it holds the query string too. This runs for a response
+         with no registered status handler, and for a response with no
+         status set at all, thus a handler for one status cannot close the
+         line for every route (proof: StatusPagesTraceTest and the
+         evidence in the pull request text). The level OFF stops the line
+         at each level, also when a diagnosis raises the root level to
+         TRACE. -->
+    <logger name="io.ktor.server.plugins.statuspages.StatusPages" level="OFF" />
+
     <root level="INFO">
         <appender-ref ref="STDOUT" />
         <appender-ref ref="STDERR" />
