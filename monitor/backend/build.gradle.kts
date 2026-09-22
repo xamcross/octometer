@@ -93,9 +93,10 @@ tasks.withType<Test>().configureEach {
 // Docker state of that run.
 //
 // This module has no Testcontainers class on the build script
-// classpath (only on the test classpath), so the probe below starts
-// a plain "docker info" process, with a 10 second timeout, instead
-// of DockerClientFactory.instance().isDockerAvailable().
+// classpath. Only the test classpath holds it. The probe below runs
+// a plain "docker info" process instead, with a 10 second timeout. A
+// module with Testcontainers on the build classpath can call
+// DockerClientFactory.instance().isDockerAvailable() instead.
 val dockerAvailable = providers.provider {
     try {
         val process = ProcessBuilder("docker", "info").redirectErrorStream(true).start()

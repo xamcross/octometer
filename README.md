@@ -29,9 +29,14 @@ run one module or one changed file, not the whole suite.
 - A JVM module: `./gradlew :monitor:backend:test` or `./gradlew
   :kit:jvm-core:test`.
 - The frontend has no changed-only script. Run `npm test` inside
-  `monitor/frontend`; it always runs the whole suite.
+  `monitor/frontend`. It always runs the whole suite.
 - The tracker, only the specs that a changed file touches: `npm run
   test:changed` inside `kit/tracker`. It compares the working tree
   against `origin/main` by default.
 
 CI still runs the whole suite of each changed module.
+
+The local cache folder has no integrity control. Every process of the
+owner account can write it. Run the last check before a push with
+`./gradlew build --no-build-cache`. This command ignores a crafted or
+a stale cache entry.

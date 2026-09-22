@@ -18,9 +18,9 @@
 // true)), and it skips with no failure when Docker is absent. The CI
 // runner "JVM modules" always has Docker, so a skip there is a real
 // problem, not an absent tool. The listener near the end of this file
-// fails the build when a test skips and OCTOMETER_REQUIRE_DOCKER holds
-// "true" (issue #177, step 4; the same variable that monitor/backend
-// reads, in place of the plain CI variable).
+// fails the build on a skip. It reads OCTOMETER_REQUIRE_DOCKER, the
+// same key that monitor/backend reads, in place of the plain CI
+// variable (issue #177, step 4).
 import org.gradle.api.tasks.testing.TestDescriptor
 import org.gradle.api.tasks.testing.TestListener
 import org.gradle.api.tasks.testing.TestResult
@@ -73,9 +73,10 @@ tasks.test {
 // Docker state of that run.
 //
 // This module has no Testcontainers class on the build script
-// classpath (only on the test classpath), so the probe below starts
-// a plain "docker info" process, with a 10 second timeout, instead
-// of DockerClientFactory.instance().isDockerAvailable().
+// classpath. Only the test classpath holds it. The probe below runs
+// a plain "docker info" process instead, with a 10 second timeout. A
+// module with Testcontainers on the build classpath can call
+// DockerClientFactory.instance().isDockerAvailable() instead.
 val dockerAvailable = providers.provider {
     try {
         val process = ProcessBuilder("docker", "info").redirectErrorStream(true).start()
@@ -98,11 +99,11 @@ tasks.withType<Test>().configureEach {
     inputs.property("octometerRequireDocker", providers.environmentVariable("OCTOMETER_REQUIRE_DOCKER").orElse(""))
 }
 
-// A container test must run on CI, and it must not silently skip. The
+// A container test must run on CI. It must not silently skip. The
 // listener fails the task when OCTOMETER_REQUIRE_DOCKER holds "true"
-// and one test or more of that task skipped. A local run with no
-// Docker, and with no OCTOMETER_REQUIRE_DOCKER, still skips a
-// container test with no failure.
+// and a test of that task skipped. A local run with no Docker, and
+// with no OCTOMETER_REQUIRE_DOCKER, still skips a container test
+// with no failure.
 tasks.withType<Test>().configureEach {
     if (System.getenv("OCTOMETER_REQUIRE_DOCKER") == "true") {
         addTestListener(object : TestListener {
