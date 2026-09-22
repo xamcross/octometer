@@ -2,6 +2,7 @@ package octometer.monitor
 
 import io.ktor.server.routing.Route
 import octometer.monitor.registry.appRegistryRoutes
+import octometer.monitor.users.userTotalsRoute
 
 /**
  * The one entry point for each API route beyond health (MAJOR 4 of the
@@ -15,4 +16,5 @@ import octometer.monitor.registry.appRegistryRoutes
  */
 fun Route.apiRoutes(services: MonitorServices) {
     appRegistryRoutes(services.appRegistryService)
+    userTotalsRoute(services.database)
 }
