@@ -83,10 +83,10 @@ describe('AddAppForm', () => {
     }
   });
 
-  it('gives the connection string field type password and autocomplete off', () => {
+  it('gives the connection string field type password and autocomplete new-password', () => {
     const field = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
     expect(field.type).toBe('password');
-    expect(field.getAttribute('autocomplete')).toBe('off');
+    expect(field.getAttribute('autocomplete')).toBe('new-password');
   });
 
   it('offers the two allowed collection names, with octometer_events as the default', () => {
@@ -126,6 +126,19 @@ describe('AddAppForm', () => {
     );
     fixture.detectChanges();
     expect(submit.disabled).toBe(false);
+  });
+
+  it('sends exactly one POST when the form is submitted three times while a request is pending', () => {
+    fillAndSubmit();
+    const form = root().querySelector('form')!;
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+
+    const req = httpMock.expectOne({ url: '/api/apps', method: 'POST' });
+    req.flush(
+      { appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
+      { status: 201, statusText: 'Created' },
+    );
   });
 
   describe('on a 201 answer', () => {
@@ -207,7 +220,7 @@ describe('AddAppForm', () => {
     expect(root().textContent).toContain('The secret store is not available. Try again.');
   });
 
-  it('shows no inline text for a network failure, and relies on the shell banner', () => {
+  it('shows a general sentence for a network failure, linked with aria-describedby', () => {
     fillAndSubmit();
     httpMock.expectOne({ url: '/api/apps', method: 'POST' }).error(new ProgressEvent('error'), {
       status: 0,
@@ -215,14 +228,24 @@ describe('AddAppForm', () => {
     });
     fixture.detectChanges();
 
-    expect(root().querySelector('#add-app-error')).toBeNull();
+    expect(root().textContent).toContain('The monitor did not answer. Try again.');
+    const connectionString = root().querySelector('#add-app-connection-string');
+    expect(connectionString?.getAttribute('aria-describedby')).toBe('add-app-error');
   });
 
-  it('never writes the connection string to the console, or to the URL, after a save', () => {
+  it('never writes the connection string to the console, to storage, or to the URL, after a save', () => {
     const secret = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const methodNames = ['log', 'info', 'warn', 'error', 'debug'] as const;
+    const spies = methodNames.map((name) =>
+      vi.spyOn(console, name).mockImplementation(() => undefined),
+    );
+
+    // Proves the spies capture a real call, so the loop below is not vacuous.
+    console.log('a control line');
+    expect(spies[0].mock.calls.some((call) => call.join(' ').includes('a control line'))).toBe(
+      true,
+    );
+    spies[0].mockClear();
 
     fillAndSubmit({ connectionString: secret });
     httpMock.expectOne({ url: '/api/apps', method: 'POST' }).flush(
@@ -234,7 +257,7 @@ describe('AddAppForm', () => {
     );
     fixture.detectChanges();
 
-    for (const spy of [logSpy, warnSpy, errorSpy]) {
+    for (const spy of spies) {
       for (const call of spy.mock.calls) {
         expect(call.join(' ')).not.toContain(secret);
       }
@@ -243,5 +266,7 @@ describe('AddAppForm', () => {
     expect(
       root().querySelector<HTMLInputElement>('#add-app-connection-string')!.value,
     ).not.toContain(secret);
+    expect(JSON.stringify(Object.entries(localStorage))).not.toContain(secret);
+    expect(JSON.stringify(Object.entries(sessionStorage))).not.toContain(secret);
   });
 });

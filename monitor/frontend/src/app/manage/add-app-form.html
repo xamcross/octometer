@@ -1,14 +1,7 @@
 <form (submit)="onSubmit($event)">
   <div class="field">
     <label for="add-app-name">Name</label>
-    <input
-      id="add-app-name"
-      type="text"
-      required
-      [value]="name()"
-      (input)="onNameInput($event)"
-      [attr.aria-describedby]="errorMessage() ? 'add-app-error' : null"
-    />
+    <input id="add-app-name" type="text" required [value]="name()" (input)="onNameInput($event)" />
   </div>
 
   <div class="field">
@@ -16,7 +9,7 @@
     <input
       id="add-app-connection-string"
       type="password"
-      autocomplete="off"
+      autocomplete="new-password"
       required
       [value]="connectionString()"
       (input)="onConnectionStringInput($event)"
@@ -32,18 +25,12 @@
       required
       [value]="database()"
       (input)="onDatabaseInput($event)"
-      [attr.aria-describedby]="errorMessage() ? 'add-app-error' : null"
     />
   </div>
 
   <div class="field">
     <label for="add-app-collection">Collection</label>
-    <select
-      id="add-app-collection"
-      [value]="collection()"
-      (change)="onCollectionChange($event)"
-      [attr.aria-describedby]="errorMessage() ? 'add-app-error' : null"
-    >
+    <select id="add-app-collection" [value]="collection()" (change)="onCollectionChange($event)">
       @for (name of allowedCollections; track name) {
         <option [value]="name">{{ name }}</option>
       }

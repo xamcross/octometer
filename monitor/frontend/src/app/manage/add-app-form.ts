@@ -16,8 +16,9 @@ import {
  * form never keeps the typed text after a successful save.
  *
  * A 400 or a 503 answer shows the fixed sentence of the API next to the
- * fields, through one `aria-describedby` id. A network failure shows no
- * text here: the shell banner covers it (D30).
+ * connection string field, through one `aria-describedby` id. A network
+ * failure shows a general sentence in the same place (#164 records that the
+ * shell banner can miss this case).
  */
 @Component({
   selector: 'app-add-app-form',
