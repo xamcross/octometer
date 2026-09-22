@@ -15,6 +15,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private const val WRITER_THREAD_NAME = "octometer-sqlite-writer"
+private const val PURGE_THREAD_NAME = "octometer-retention-purge"
 
 /**
  * MAJOR 4 of the security review: a secret whose app id has no app row
@@ -74,38 +75,75 @@ class MonitorServicesTest {
     // Throwable around the sweep. A database defect then only skipped
     // the sweep; it never stopped the start. open() must now let a
     // database defect reach the outer catch, close the store, and throw.
+    //
+    // Issue #59: the purge job now starts before the sweep runs, so this
+    // failure also proves that a throw in open() stops the purge job, not
+    // only the database. It leaves neither thread behind.
     @Test
-    fun `open throws and leaves no writer thread, when the app table is missing`() = runBlocking {
-        val baseline = awaitWriterThreadCount(0)
-        val database = SqliteDatabase.open(dataDir)
-        try {
-            database.write { writer ->
-                writer.createStatement().use { statement -> statement.execute("DROP TABLE app") }
+    fun `open throws and leaves no writer thread and no purge thread, when the app table is missing`() =
+        runBlocking {
+            val writerBaseline = awaitThreadCount(WRITER_THREAD_NAME, 0)
+            val purgeBaseline = awaitThreadCount(PURGE_THREAD_NAME, 0)
+            val database = SqliteDatabase.open(dataDir)
+            try {
+                database.write { writer ->
+                    writer.createStatement().use { statement -> statement.execute("DROP TABLE app") }
+                }
+            } finally {
+                database.close()
             }
-        } finally {
-            database.close()
-        }
-        val before = awaitWriterThreadCount(baseline)
+            val writerBefore = awaitThreadCount(WRITER_THREAD_NAME, writerBaseline)
+            val purgeBefore = awaitThreadCount(PURGE_THREAD_NAME, purgeBaseline)
 
-        assertFailsWith<SQLiteException> {
-            MonitorServices.open(prodConfig(dataDir = dataDir))
+            assertFailsWith<SQLiteException> {
+                MonitorServices.open(prodConfig(dataDir = dataDir))
+            }
+
+            assertEquals(
+                writerBefore,
+                awaitThreadCount(WRITER_THREAD_NAME, writerBefore),
+                "a failed open must leave no writer thread",
+            )
+            assertEquals(
+                purgeBefore,
+                awaitThreadCount(PURGE_THREAD_NAME, purgeBefore),
+                "a failed open must leave no purge thread",
+            )
         }
 
-        assertEquals(before, awaitWriterThreadCount(before), "a failed open must leave no writer thread")
+    // Issue #59, step 4: open() starts the purge job, and close() stops it.
+    // The purge thread starts on its own coroutine, a short time after
+    // open() returns, not at once, so this polls for its arrival too, not
+    // only for its exit after close().
+    @Test
+    fun `open starts the purge thread, and close stops it`() = runBlocking {
+        val baseline = awaitThreadCount(PURGE_THREAD_NAME, 0)
+
+        val services = MonitorServices.open(prodConfig(dataDir = dataDir))
+        val duringOpen = awaitThreadCount(PURGE_THREAD_NAME, baseline + 1)
+
+        services.close()
+
+        assertEquals(baseline + 1, duringOpen, "open() starts exactly one purge thread")
+        assertEquals(
+            baseline,
+            awaitThreadCount(PURGE_THREAD_NAME, baseline),
+            "close() stops the purge thread",
+        )
     }
 
-    private fun writerThreadCount(): Int =
-        Thread.getAllStackTraces().keys.count { it.name == WRITER_THREAD_NAME }
+    private fun threadCount(name: String): Int =
+        Thread.getAllStackTraces().keys.count { it.name == name }
 
     // A closed dispatcher ends its thread a short time after close()
     // returns, not at once. This polls for up to two seconds, so the
     // count settles before the test reads it, and the check stays exact.
-    private fun awaitWriterThreadCount(expected: Int, timeoutMillis: Long = 2_000): Int {
+    private fun awaitThreadCount(name: String, expected: Int, timeoutMillis: Long = 2_000): Int {
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000
-        var count = writerThreadCount()
+        var count = threadCount(name)
         while (count != expected && System.nanoTime() < deadline) {
             Thread.sleep(20)
-            count = writerThreadCount()
+            count = threadCount(name)
         }
         return count
     }
