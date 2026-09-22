@@ -55,4 +55,66 @@ class AnonymousKeyTest {
 
         assertEquals(keyOne, keyTwo);
     }
+
+    // The tests below cover the fix of Java review MAJOR 2 and security
+    // review M1 (an embedded IPv4 tail and an IPv4-mapped address), and
+    // Java review MINOR 3 (a sign in one hex group).
+
+    @Test
+    void anIpv4MappedAddressGivesThePlainIpv4TextAsTheKey() {
+        assertEquals("203.0.113.9", AnonymousKey.of("::ffff:203.0.113.9"));
+    }
+
+    @Test
+    void anIpv4MappedAddressAndItsPlainIpv4FormShareOneKey() {
+        String plainKey = AnonymousKey.of("203.0.113.9");
+        String mappedKey = AnonymousKey.of("::ffff:203.0.113.9");
+
+        assertEquals(plainKey, mappedKey);
+    }
+
+    @Test
+    void anUpperCaseIpv4MappedPrefixGivesTheSameKeyAsTheLowerCaseForm() {
+        String upperKey = AnonymousKey.of("::FFFF:203.0.113.9");
+        String lowerKey = AnonymousKey.of("::ffff:203.0.113.9");
+
+        assertEquals(upperKey, lowerKey);
+    }
+
+    @Test
+    void anEmbeddedIpv4TailExpandsToTwoHexGroupsBeforeThe64BitCut() {
+        String keyOne = AnonymousKey.of("2001:db8::1.2.3.4");
+        String keyTwo = AnonymousKey.of("2001:db8::1.2.3.5");
+
+        assertEquals(keyOne, keyTwo);
+    }
+
+    @Test
+    void anEmbeddedIpv4TailNeverHoldsTheKeyOfADifferent64Prefix() {
+        String keyOne = AnonymousKey.of("2001:db8:aaaa::1.2.3.4");
+        String keyTwo = AnonymousKey.of("2001:db8:bbbb::1.2.3.4");
+
+        assertNotEquals(keyOne, keyTwo);
+    }
+
+    @Test
+    void aTextThatIsNeitherAnIpv4NorAnIpv6FormBecomesItsOwnKey() {
+        assertEquals("not-an-address", AnonymousKey.of("not-an-address"));
+    }
+
+    @Test
+    void anUpperCaseIpv6GroupGivesTheSameKeyAsItsLowerCaseForm() {
+        String upperKey = AnonymousKey.of("FE80::1");
+        String lowerKey = AnonymousKey.of("fe80::1");
+
+        assertEquals(upperKey, lowerKey);
+    }
+
+    @Test
+    void aLeadingPlusSignInOneGroupGivesADifferentKeyFromTheSameGroupWithNoSign() {
+        String keyWithSign = AnonymousKey.of("+1::1");
+        String keyWithNoSign = AnonymousKey.of("1::1");
+
+        assertNotEquals(keyWithSign, keyWithNoSign);
+    }
 }
