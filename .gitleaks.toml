@@ -36,3 +36,9 @@ description = "One fake URI for a test fixture. This is not a real credential. A
 regexes = [
   '''mongodb\+srv://octotest:S3cr3t-Test-Only@cluster0\.example\.mongodb\.net''',
 ]
+
+[[rules.allowlists]]
+description = "A placeholder URI from an early commit of the app management page (pull request #161, commit a92504b). A later commit of the same pull request replaced the value in the working tree with the fake URI above. The old commit stays on the remote branch: project policy forbids a rewrite of a pushed commit. This value never held a real credential: the host uses the reserved TLD .invalid, and the user name and the password are the literal words 'user' and 'password'."
+regexes = [
+  '''mongodb\+srv://user:password@cluster0\.example\.invalid/exampledb''',
+]
