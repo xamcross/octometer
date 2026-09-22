@@ -3,6 +3,7 @@ package octometer.monitor.store
 import java.io.File
 import java.sql.Connection
 import java.sql.DriverManager
+import java.time.Clock
 import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
@@ -11,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import octometer.monitor.backup.backupsDir
 import org.sqlite.SQLiteConfig
 
 private const val DATABASE_FILE_NAME = "octometer.db"
@@ -52,8 +54,12 @@ class SqliteDatabase private constructor(
          * Opens `octometer.db` in `dataDir`. It applies the pragmas of
          * step 4 to each connection. It runs each pending migration on the
          * writer thread. A failure closes each part that it already opened.
+         *
+         * [clock] names the time of a pre-migration backup file of issue
+         * #55. Production code uses the default, the system clock; a test
+         * gives a fixed clock.
          */
-        fun open(dataDir: String): SqliteDatabase {
+        fun open(dataDir: String, clock: Clock = Clock.systemDefaultZone()): SqliteDatabase {
             val folder = File(dataDir)
             check(folder.mkdirs() || folder.isDirectory) {
                 "The data folder '$dataDir' is not available."
@@ -68,7 +74,7 @@ class SqliteDatabase private constructor(
                     try {
                         // MAJOR 2 (Kotlin backend engineer): the migration
                         // runs on the writer thread, not on the caller.
-                        runBlocking(writerDispatcher) { MigrationRunner.run(writer) }
+                        runBlocking(writerDispatcher) { MigrationRunner.run(writer, backupsDir(dataDir), clock) }
                     } catch (error: Throwable) {
                         writerDispatcher.close()
                         throw error

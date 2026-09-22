@@ -15,22 +15,25 @@ class SqliteDatabaseTest {
 
     @Test
     fun `a failed open closes each connection it already made`() {
-        val tempDir = Files.createTempDirectory("octometer-open-failure-test-").toFile()
+        val root = Files.createTempDirectory("octometer-open-failure-test-").toFile()
         try {
-            val dbFile = File(tempDir, "octometer.db")
+            // The data folder sits under root, so the sibling backups
+            // folder of issue #55 stays inside root and deletes with it.
+            val dataDir = File(root, "data").apply { mkdirs() }
+            val dbFile = File(dataDir, "octometer.db")
             DriverManager.getConnection("jdbc:sqlite:${dbFile.absolutePath}").use { connection ->
                 connection.createStatement().use { it.execute("CREATE TABLE app (id INTEGER)") }
             }
 
             assertFailsWith<SQLException> {
-                SqliteDatabase.open(tempDir.absolutePath)
+                SqliteDatabase.open(dataDir.absolutePath)
             }
 
             // A locked file on Windows blocks this delete. The delete must
             // pass, thus each connection this call opened is closed.
-            assertTrue(tempDir.deleteRecursively(), "the temp folder deletes with no locked file")
+            assertTrue(root.deleteRecursively(), "the temp folder deletes with no locked file")
         } finally {
-            tempDir.deleteRecursively()
+            root.deleteRecursively()
         }
     }
 }
