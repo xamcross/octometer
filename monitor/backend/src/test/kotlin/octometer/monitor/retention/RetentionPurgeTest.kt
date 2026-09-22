@@ -9,7 +9,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
 import octometer.monitor.registerTempRoot
 import octometer.monitor.store.SqliteDatabase
-import octometer.monitor.testDataDir
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -29,21 +28,25 @@ private const val NOW = 1_700_000_000_000L
 // Each test uses its own temporary folder, never the real data folder.
 class RetentionPurgeTest {
 
-    private val tempDir = Files.createTempDirectory("octometer-retention-purge-test-").toFile()
+    // SQLite MAJOR A of correction round 2: dataDir sits under root, a
+    // nested folder, so the sibling backups folder of issue #55 stays
+    // inside root and never lands at the system temp root.
+    private val root = Files.createTempDirectory("octometer-retention-purge-test-").toFile()
         .also { registerTempRoot(it) }
+    private val dataDir = File(root, "data")
     private lateinit var database: SqliteDatabase
     private var appId: Long = 0
 
     @BeforeTest
     fun setUp() = runBlocking {
-        database = SqliteDatabase.open(testDataDir(tempDir))
+        database = SqliteDatabase.open(dataDir.absolutePath)
         appId = insertApp(database, "demo")
     }
 
     @AfterTest
     fun tearDown() {
         database.close()
-        tempDir.deleteRecursively()
+        root.deleteRecursively()
     }
 
     @Test
@@ -133,7 +136,7 @@ class RetentionPurgeTest {
 
         RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
 
-        val walFile = File(tempDir, "octometer.db-wal")
+        val walFile = File(dataDir, "octometer.db-wal")
         assertTrue(walFile.exists(), "the wal file exists after a write")
         assertEquals(0L, walFile.length(), "wal_checkpoint(TRUNCATE) empties the wal file")
     }
