@@ -5,6 +5,9 @@ request body, checks each field rule of the contract, and gives the
 parsed events to the store of the app. This module needs no dependency
 beyond Java 21.
 
+This line is a proof edit for issue #177, step 5, and it holds no
+code change.
+
 ## The daily anonymous caps
 
 `OCTOMETER_MAX_ANON_EVENTS_PER_DAY` (default 20000) and
