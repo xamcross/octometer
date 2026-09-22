@@ -1,6 +1,10 @@
 package octometer.monitor
 
+import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.call
+import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.route
 import octometer.monitor.apps.appTotals
 import octometer.monitor.elements.elementsRoute
 import octometer.monitor.erasure.userErasureRoutes
@@ -23,4 +27,18 @@ fun Route.apiRoutes(services: MonitorServices) {
     userTotalsRoute(services.database)
     elementsRoute(services.database)
     userErasureRoutes(services.database)
+    // Issue #38, step 4: a request below "/api/" never gets index.html.
+    // Ktor tries a constant path segment before this wildcard segment,
+    // so this route matches only after each specific "/api/" route
+    // above fails to match. It gives the 404 of the API instead.
+    //
+    // Correction round 1 (MINOR 4, security review): route(...) with
+    // handle answers each method, not GET alone. A POST or a DELETE on
+    // an unknown API path must also get the fixed JSON body, not an
+    // empty 404 body.
+    route("/api/{path...}") {
+        handle {
+            call.respond(HttpStatusCode.NotFound, ErrorBody(UNKNOWN_API_ROUTE_MESSAGE))
+        }
+    }
 }
