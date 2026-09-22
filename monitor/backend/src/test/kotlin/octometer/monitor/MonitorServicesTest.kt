@@ -5,8 +5,11 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.sql.DriverManager
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.mongo.PollOutcome
+import octometer.monitor.poll.PollCycle
 import octometer.monitor.registry.SecretStore
 import octometer.monitor.registry.allowlistedSrvUri
 import octometer.monitor.store.SqliteDatabase
@@ -50,7 +53,11 @@ class MonitorServicesTest {
         secretStore.put(appId, allowlistedSrvUri())
         secretStore.put(999_999L, allowlistedSrvUri())
 
-        val services = MonitorServices.open(prodConfig(dataDir = dataDir))
+        // appId has no next_poll_at, so it is due at once. A stub
+        // PollCycle gives this test no outbound MongoDB connection
+        // (issue #17, decision 5; MAJOR 4 of the Kotlin review).
+        val stubCycle = PollCycle { _, _ -> PollOutcome(eventsStored = 0, pagesRead = 0, cursor = null) }
+        val services = MonitorServices.open(prodConfig(dataDir = dataDir), pollCycle = stubCycle)
         try {
             assertTrue(services.secretStore.contains(appId), "the secret of an existing app row must stay")
             assertFalse(services.secretStore.contains(999_999L), "the orphan secret must be gone")
@@ -209,6 +216,49 @@ class MonitorServicesTest {
             awaitThreadCount(PURGE_THREAD_NAME, baseline),
             "close() stops the purge thread",
         )
+    }
+
+    // Issue #17, decision 5 (MAJOR 4 and MAJOR 5 of the Kotlin review):
+    // open() binds the poll scheduler to the application lifecycle. A
+    // stub PollCycle proves the binding, with no outbound MongoDB
+    // connection. Since the stub never runs, the real MongoAppReader
+    // that open() still builds keeps no client, so close() has nothing
+    // of it to close.
+    @Test
+    fun `open runs a stub poll cycle for a due app, and close stops it with no further call`() = runBlocking {
+        val appId = seedOneAppRow()
+        val secretStore = SecretStore(dataDir)
+        secretStore.put(appId, allowlistedSrvUri())
+        val calls = AtomicInteger(0)
+        val stubCycle = PollCycle { _, _ ->
+            calls.incrementAndGet()
+            PollOutcome(eventsStored = 0, pagesRead = 0, cursor = null)
+        }
+
+        val (services, events) = captureLogEvents {
+            MonitorServices.open(prodConfig(dataDir = dataDir), pollCycle = stubCycle)
+        }
+        awaitCallCount(calls, 1)
+
+        val countAtClose = calls.get()
+        services.close()
+        // The scheduler ticks each second. This waits past two ticks. A
+        // scheduler that did not stop at close() would raise the count
+        // here.
+        delay(2_500)
+
+        assertEquals(countAtClose, calls.get(), "close() stops the scheduler; the stub runs no more")
+        assertTrue(
+            events.none { event -> event.loggerName.contains("mongo", ignoreCase = true) },
+            "the stub never runs the real reader, so no Mongo log line appears",
+        )
+    }
+
+    private fun awaitCallCount(calls: AtomicInteger, expected: Int, timeoutMillis: Long = 2_000) {
+        val deadline = System.nanoTime() + timeoutMillis * 1_000_000
+        while (calls.get() < expected && System.nanoTime() < deadline) {
+            Thread.sleep(20)
+        }
     }
 
     // Correction round 1 of issue #59, decision 1: close() cancels the

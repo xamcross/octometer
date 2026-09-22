@@ -9,6 +9,7 @@ import octometer.monitor.config.MonitorConfig
 import octometer.monitor.mongo.MongoAppReader
 import octometer.monitor.poll.PollCycle
 import octometer.monitor.poll.PollScheduler
+import octometer.monitor.poll.SqlitePollStore
 import octometer.monitor.registry.AppRegistryService
 import octometer.monitor.registry.SecretStore
 import octometer.monitor.registry.SecretStoreUnavailableException
@@ -78,8 +79,18 @@ class MonitorServices private constructor(
          * The daily backup job of issue #55 starts after the sweep. A
          * later failure of this method stops each started job, in the
          * same catch block that closes the store.
+         *
+         * [pollCycle] is the injectable seam of issue #17, decision 5
+         * (MAJOR 4 of the Kotlin review). The default builds a real
+         * [MongoAppReader] and polls MongoDB. A test gives a stub
+         * instead, so no unit test of this class makes an outbound
+         * connection.
          */
-        fun open(config: MonitorConfig, clock: Clock = Clock.systemDefaultZone()): MonitorServices {
+        fun open(
+            config: MonitorConfig,
+            clock: Clock = Clock.systemDefaultZone(),
+            pollCycle: PollCycle? = null,
+        ): MonitorServices {
             val database = SqliteDatabase.open(config.dataDir, backupDir = config.backupDir, clock = clock)
             var dailyBackupJob: DailyBackupJob? = null
             var retentionPurgeJob: RetentionPurgeJob? = null
@@ -112,12 +123,13 @@ class MonitorServices private constructor(
                 // a throw before this line never starts it, and a throw
                 // after this line still stops it in the catch block below.
                 val eventStore = EventStore(database)
-                mongoAppReader = MongoAppReader(eventStore, settleLagSeconds = config.settleLagSeconds.toLong())
+                val reader = MongoAppReader(eventStore, settleLagSeconds = config.settleLagSeconds.toLong())
+                mongoAppReader = reader
                 pollScheduler = PollScheduler(
-                    database = database,
+                    pollStore = SqlitePollStore(database),
                     secretStore = secretStore,
-                    pollCycle = PollCycle(mongoAppReader::pollOnce),
-                    closeClient = mongoAppReader::closeClient,
+                    pollCycle = pollCycle ?: PollCycle(reader::pollOnce),
+                    closeClient = reader::closeClient,
                     clock = clock,
                     dispatcher = Dispatchers.Default,
                     pollIntervalSeconds = config.pollIntervalSeconds.toLong(),
