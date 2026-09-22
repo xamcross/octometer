@@ -22,6 +22,9 @@ variable, the user file, the bundled default. See `octometer.monitor.config.load
 decision D6). The poll scheduler adds this gap to the clock time after each cycle, on a
 success and on a failure alike.
 
+`pollIntervalSeconds` takes a whole number of 1 or more. A tick of the loop is 1 second
+(the floor), so a value of 1 polls the app at every tick.
+
 ## The daily backup (issue #55)
 
 The monitor writes one backup file each day, and one backup file before a

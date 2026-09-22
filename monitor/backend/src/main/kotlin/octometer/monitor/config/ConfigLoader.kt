@@ -131,6 +131,7 @@ fun loadConfig(
                 pollIntervalSeconds.value,
                 1..Int.MAX_VALUE,
                 "1 or more",
+                includeValueInMessage = false,
             ),
         )
 
@@ -261,7 +262,7 @@ private fun resolveValue(
 
 private fun validateMode(value: String) {
     if (Mode.fromValue(value) == null) {
-        throw InvalidConfigException("The value of mode is '$value'. Set it to 'dev' or 'prod'.")
+        throw InvalidConfigException("The value of mode is '${escapeForLog(value)}'. Set it to 'dev' or 'prod'.")
     }
 }
 
@@ -279,10 +280,33 @@ private fun validateBackupDir(value: String): String {
     return value
 }
 
-private fun toValidInt(key: String, value: String, range: IntRange, rangeText: String): Int {
+/**
+ * Validates one integer config value. A bad value throws
+ * [InvalidConfigException].
+ *
+ * [includeValueInMessage] controls the message form. The default form
+ * repeats the value, escaped through [escapeForLog] (MINOR 1 of the
+ * security review). A newline in the value can then not forge a line
+ * of the start log.
+ *
+ * `pollIntervalSeconds` uses `false` instead (issue #17, decision 8).
+ * Its message never holds the value at all, only the key and the rule.
+ */
+private fun toValidInt(
+    key: String,
+    value: String,
+    range: IntRange,
+    rangeText: String,
+    includeValueInMessage: Boolean = true,
+): Int {
     val parsed = value.toIntOrNull()
     if (parsed == null || parsed !in range) {
-        throw InvalidConfigException("The value of $key is '$value'. Give a whole number of $rangeText.")
+        val message = if (includeValueInMessage) {
+            "The value of $key is '${escapeForLog(value)}'. Give a whole number of $rangeText."
+        } else {
+            "The value of $key is not valid. Give a whole number of $rangeText."
+        }
+        throw InvalidConfigException(message)
     }
     return parsed
 }
