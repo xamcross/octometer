@@ -7,6 +7,7 @@ import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.autohead.AutoHeadResponse
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
@@ -32,6 +33,9 @@ import java.util.Properties
 import kotlin.system.exitProcess
 
 private const val HOST = "127.0.0.1"
+
+// The fixed 400 sentence of issue #148. It names no part of the request.
+private const val REQUEST_NOT_VALID_MESSAGE = "The request is not valid."
 
 @Serializable
 data class HealthResponse(
@@ -99,6 +103,21 @@ fun Application.module(config: MonitorConfig, staticDir: File? = defaultStaticDi
     // inside a store can throw that exact class while this call stays
     // active. Only a real cancellation of this call may skip the response.
     install(StatusPages) {
+        // Issue #148: the URL decoder of Ktor throws BadRequestException
+        // for a bad percent escape, in a query string or in a path, for
+        // example "?x=%zz". RequestGuard checks only the path, so this
+        // exception reaches StatusPages.
+        // Correction round 1: Ktor picks the nearest parent class, so
+        // this handler wins over the catch-all. The message of
+        // BadRequestException can hold the raw request target. The log
+        // line names the exception class only, at a level below ERROR.
+        // App code must throw a different class for a server failure. A
+        // throw of BadRequestException here always means a client
+        // mistake.
+        exception<BadRequestException> { call, cause ->
+            log.info("The request is not valid. {}", cause.javaClass.simpleName)
+            call.respond(HttpStatusCode.BadRequest, ErrorBody(REQUEST_NOT_VALID_MESSAGE))
+        }
         exception<Throwable> { call, cause ->
             if (cause is CancellationException && !call.isActive) throw cause
             log.error("An unhandled exception reached the server. {}", cause.javaClass.simpleName)

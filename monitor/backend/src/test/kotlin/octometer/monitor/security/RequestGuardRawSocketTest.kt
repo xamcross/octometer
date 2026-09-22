@@ -1,12 +1,6 @@
 package octometer.monitor.security
 
-import io.ktor.server.engine.embeddedServer
-import io.ktor.server.netty.Netty
-import octometer.monitor.config.MonitorConfig
-import octometer.monitor.module
-import octometer.monitor.testDataDir
-import java.net.ServerSocket
-import java.net.Socket
+import octometer.monitor.withRawSocketServer
 import java.nio.charset.StandardCharsets
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -82,35 +76,5 @@ class RequestGuardRawSocketTest {
             assertTrue(response.startsWith("HTTP/1.1 415"), "expected 415, first line of:\n$response")
             assertFalse(response.contains(")("), "the body must not echo the header value:\n$response")
         }
-    }
-}
-
-// Finds a free loopback port, starts a real server on it with the guard
-// installed, hands the caller one function to send a raw request and read
-// the raw response, then always stops the server.
-private fun withRawSocketServer(block: (port: Int, send: (String) -> String) -> Unit) {
-    val port = ServerSocket(0).use { it.localPort }
-    val config = MonitorConfig(
-        mode = "prod",
-        port = port,
-        dataDir = testDataDir(),
-        settleLagSeconds = 60,
-        retentionDays = 395,
-    )
-    val server = embeddedServer(Netty, host = "127.0.0.1", port = port) { module(config) }
-    server.start(wait = false)
-    try {
-        block(port) { rawRequest -> sendRawRequest(port, rawRequest) }
-    } finally {
-        server.stop(gracePeriodMillis = 0, timeoutMillis = 1000)
-    }
-}
-
-private fun sendRawRequest(port: Int, rawRequest: String): String {
-    Socket("127.0.0.1", port).use { socket ->
-        socket.soTimeout = 5000
-        socket.getOutputStream().write(rawRequest.toByteArray(StandardCharsets.US_ASCII))
-        socket.getOutputStream().flush()
-        return socket.getInputStream().readBytes().toString(StandardCharsets.US_ASCII)
     }
 }
