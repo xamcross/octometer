@@ -29,7 +29,13 @@ private const val PURGE_THREAD_NAME = "octometer-retention-purge"
  */
 class MonitorServicesTest {
 
+    // Issue #142: open() starts a purge thread and a writer thread. A
+    // native SQLite file handle can outlive close() for a short time on
+    // Windows. The eager delete below can then lose that race. A call to
+    // registerTempRoot gives the folder a second chance for a delete, at
+    // JVM exit.
     private val root = Files.createTempDirectory("octometer-monitor-services-test-").toFile()
+        .also { registerTempRoot(it) }
     private val dataDir = File(root, "data").absolutePath
 
     @AfterTest
