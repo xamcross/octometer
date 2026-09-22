@@ -14,9 +14,10 @@ under rule C9. The collection name stays `octometer_events`. Version 1.1 reserve
 the field `element`. A reader of version 1.0 counts an event `octo:session-start` as a click.
 
 Version 1.2. It corrects the text of the Purpose paragraph, and of rules C19, C38, C40, and
-C42, so each one agrees word for word with design version 1.1. It adds no field and no rule.
-Version 1.2 is a minor change. A reader of version 1.1 already matches each corrected rule,
-because the correction states no new behavior of the tracker or of the server.
+C42. Each one now agrees word for word with design version 1.1. It adds no field and no rule,
+thus it is not a major change under rule C10. A reader of version 1.1 already matches each
+corrected rule, because the correction states no new behavior of the tracker or of the
+server.
 
 Each rule has an ID, `C1` to `C43`. The table at the end maps each rule ID to its example file.
 
@@ -24,8 +25,8 @@ Each rule has an ID, `C1` to `C43`. The table at the end maps each rule ID to it
 
 Octometer is a monitor for the click metrics of the owner's web apps (design section 1). Each
 app writes its clicks to a flat event log. The monitor reads this log and shows five table
-views: an app view, a user view, an element view, the view "First pages", and the view
-"Anonymous sessions" (design decision D44).
+views: an app view, a user view, and an element view. Design decision D44 adds two more
+views, "First pages" and "Anonymous sessions".
 
 ## Definitions
 
@@ -103,11 +104,16 @@ application/json`.
   server returns 400.
 - **C18.** One request body has a maximum size of 16 KB. A body above this limit is invalid;
   the server returns 400.
-- **C19.** The server returns status 204 for a success, for a batch that the event cap drops,
-  and for a batch that a daily anonymous cap drops (design decision D43). It returns 400 for
-  an invalid body, 415 for a content type other than JSON, and 429 for the rate limit (design
-  decision D20). The event cap is `OCTOMETER_MAX_EVENTS`, default 200000 (design decision
-  D21).
+- **C19.** The server returns status 204 for one of three cases:
+
+  - a success;
+  - a batch that the event cap drops;
+  - a batch that a daily anonymous cap drops, or that the bot filter of design decision D43
+    drops.
+
+  It returns 400 for an invalid body, 415 for a content type other than JSON, and 429 for the
+  rate limit (design decision D20). The event cap is `OCTOMETER_MAX_EVENTS`, default 200000
+  (design decision D21).
 - **C32.** The server ignores an unknown field in the ingest request body. A `userId` field
   in the body is such a field. The server ignores it. The stored user id comes only from the
   authentication context (rule C16). The server also ignores an unknown field inside an entry
@@ -121,7 +127,7 @@ application/json`.
 - **C38.** The element prefix `octo:` is reserved for the contract. An app must not use it as
   a `data-octo` value. The server checks rule C33 before it checks this rule. An `element`
   value that breaks rule C33 makes the whole body invalid, also when the value starts with
-  the prefix `octo:`; the server then returns 400 for the whole batch, and this rule drops no
+  the prefix `octo:`. The server then returns 400 for the whole batch, and this rule drops no
   entry. The tracker drops each `data-octo` value with the prefix `octo:` in
   each letter case (for example `OCTO:foo`), also the exact text `octo:session-start`, and it
   writes one console warning for the first dropped value. Only the own call of the tracker
@@ -157,11 +163,16 @@ application/json`.
   rule C41. The server drops a `referrerHost`
   field on an entry with an element other than `octo:session-start`. A free host name can
   name an employer, a tenant, or an internal host, thus the source list is fixed. The tracker
-  sends no `referrerHost` field for one of five cases: an empty referrer; a referrer with a
-  scheme other than `http` or `https`; the origin of the app; an IP literal; a host without a
-  dot (design decision D42). The server never adds a `referrerHost` field on its own. An
-  entry `octo:session-start` without `referrerHost` is a direct visit, or a visit from a
-  source that sends no referrer.
+  sends no `referrerHost` field for one of five cases (design decision D42):
+
+  - an empty referrer;
+  - a referrer with a scheme other than `http` or `https`;
+  - the origin of the app;
+  - an IP literal;
+  - a host without a dot.
+
+  The server never adds a `referrerHost` field on its own. An entry `octo:session-start`
+  without `referrerHost` is a direct visit, or a visit from a source that sends no referrer.
 - **C41.** An invalid `path` or `referrerHost` value does not make the body invalid. The
   server drops that field, it keeps the entry, and it writes a maximum of one warning for
   each batch. No log line holds a raw path or a raw host. This rule holds only for a value
@@ -184,15 +195,21 @@ application/json`.
   match. A path that matches no pattern gives `/other`. The server stores `/other` for that
   path. It does not drop the `path` field. Without a route pattern list, the server stores no
   `path` field, and it writes one warning at startup. **An invalid route pattern.** An entry
-  of the pattern list is invalid in one of four cases: the entry is not a string; the entry
-  is an empty string; the entry has no leading `/`; a segment of the entry holds a character
-  outside the set of rule C39 (a well-formed escape `%XX` is valid there too). A pattern list
-  with one invalid pattern counts as no list: the tracker sends no `path`, and the server
-  stores no `path` and writes one warning at the start. Neither side drops one pattern and
-  keeps the rest, because a dropped pattern would change the match order. **Warning for an
-  app team.** A path can
-  hold an identifier, a token, or a search term. Mark each such segment with `:name` in the
-  route list. Never use `*` for a segment that holds a token, an email address, or a user id.
+  of the pattern list is invalid in one of five cases:
+
+  - the entry is not a string;
+  - the entry is an empty string;
+  - the entry has no leading `/`;
+  - a segment of the entry is empty, for example in `/a/` or in `/a//b`;
+  - a segment of the entry holds a character outside the set of rule C39; a well-formed
+    escape `%XX` is valid there too.
+
+  The root entry `/` stays valid, because it has no segment. A pattern list with one invalid
+  pattern counts as no list: the tracker sends no `path`, and the server stores no `path` and
+  writes one warning at the start. Neither side drops one pattern and keeps the rest, because
+  a dropped pattern would change the match order. **Warning for an app team.** A path can hold
+  an identifier, a token, or a search term. Mark each such segment with `:name` in the route
+  list. Never use `*` for a segment that holds a token, an email address, or a user id.
 
 ## 3. The reader rule (design section 4.3)
 

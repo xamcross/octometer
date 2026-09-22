@@ -60,6 +60,15 @@ class EventFieldValidatorTest {
     }
 
     @Test
+    void rejectsASessionStartMarkerWithATrailingSpace() {
+        String body = ExampleFiles.read("ingest-invalid-C38-session-start-trailing-space.json");
+
+        IngestException error = assertThrows(IngestException.class, () -> IngestPipeline.process(body, Clock.systemUTC()));
+
+        assertEquals(IngestException.Reason.ELEMENT_PATTERN, error.reason());
+    }
+
+    @Test
     void rejectsASessionIdOfTheWrongLength() {
         IngestException error = assertThrows(IngestException.class,
                 () -> EventFieldValidator.validateSessionId("3fa85f64-5717-4562-b3fc-2c963f66afa"));
