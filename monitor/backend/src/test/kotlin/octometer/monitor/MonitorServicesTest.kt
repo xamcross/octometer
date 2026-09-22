@@ -5,6 +5,8 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.sql.DriverManager
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -220,45 +222,50 @@ class MonitorServicesTest {
 
     // Issue #17, decision 5 (MAJOR 4 and MAJOR 5 of the Kotlin review):
     // open() binds the poll scheduler to the application lifecycle. A
-    // stub PollCycle proves the binding, with no outbound MongoDB
+    // stub PollCycle proves the wire-up, with no outbound MongoDB
     // connection. Since the stub never runs, the real MongoAppReader
     // that open() still builds keeps no client, so close() has nothing
     // of it to close.
+    //
+    // BLOCKER 1 of the second Kotlin review: the count must come from a
+    // real event, not from a fixed sleep. pollIntervalSeconds is 1, so
+    // the first tick is due at once, and a second tick is due one
+    // second later. Each latch counts down inside the stub call itself,
+    // so the wait ends on the real event, with a bound, never on a
+    // guess of the clock.
     @Test
     fun `open runs a stub poll cycle for a due app, and close stops it with no further call`() = runBlocking {
         val appId = seedOneAppRow()
         val secretStore = SecretStore(dataDir)
         secretStore.put(appId, allowlistedSrvUri())
         val calls = AtomicInteger(0)
+        val firstCallLatch = CountDownLatch(1)
+        val secondCallLatch = CountDownLatch(1)
         val stubCycle = PollCycle { _, _ ->
-            calls.incrementAndGet()
+            val count = calls.incrementAndGet()
+            if (count == 1) firstCallLatch.countDown()
+            if (count == 2) secondCallLatch.countDown()
             PollOutcome(eventsStored = 0, pagesRead = 0, cursor = null)
         }
 
         val (services, events) = captureLogEvents {
-            MonitorServices.open(prodConfig(dataDir = dataDir), pollCycle = stubCycle)
+            MonitorServices.open(prodConfig(dataDir = dataDir, pollIntervalSeconds = 1), pollCycle = stubCycle)
         }
-        awaitCallCount(calls, 1)
+        val startedInTime = firstCallLatch.await(2, TimeUnit.SECONDS)
+        assertTrue(startedInTime, "open() must start the scheduler within the wait bound")
+        assertEquals(1, calls.get(), "open() starts the scheduler: the stub cycle ran one time")
 
-        val countAtClose = calls.get()
         services.close()
-        // The scheduler ticks each second. This waits past two ticks. A
-        // scheduler that did not stop at close() would raise the count
-        // here.
-        delay(2_500)
-
-        assertEquals(countAtClose, calls.get(), "close() stops the scheduler; the stub runs no more")
+        // A running scheduler would poll a due app again one second
+        // later. This waits, with a bound, for that second call. It
+        // must never arrive, because close() already stopped the loop.
+        val secondCallArrived = secondCallLatch.await(2_500, TimeUnit.MILLISECONDS)
+        assertFalse(secondCallArrived, "close() stops the scheduler; the stub runs no more")
+        assertEquals(1, calls.get(), "close() stops the scheduler; the stub runs no more")
         assertTrue(
             events.none { event -> event.loggerName.contains("mongo", ignoreCase = true) },
             "the stub never runs the real reader, so no Mongo log line appears",
         )
-    }
-
-    private fun awaitCallCount(calls: AtomicInteger, expected: Int, timeoutMillis: Long = 2_000) {
-        val deadline = System.nanoTime() + timeoutMillis * 1_000_000
-        while (calls.get() < expected && System.nanoTime() < deadline) {
-            Thread.sleep(20)
-        }
     }
 
     // Correction round 1 of issue #59, decision 1: close() cancels the

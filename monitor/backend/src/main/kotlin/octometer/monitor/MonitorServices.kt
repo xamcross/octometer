@@ -119,9 +119,9 @@ class MonitorServices private constructor(
                 // below.
                 dailyBackupJob = DailyBackupJob(database, config.dataDir, clock, backupDir = config.backupDir)
                     .also { it.start() }
-                // Issue #17: the poll scheduler of D6. It starts last, so
-                // a throw before this line never starts it, and a throw
-                // after this line still stops it in the catch block below.
+                // Issue #17: the poll scheduler of D6. It starts last. A
+                // throw before this line never starts it. A throw after
+                // this line still stops it, in the catch block below.
                 val eventStore = EventStore(database)
                 val reader = MongoAppReader(eventStore, settleLagSeconds = config.settleLagSeconds.toLong())
                 mongoAppReader = reader
