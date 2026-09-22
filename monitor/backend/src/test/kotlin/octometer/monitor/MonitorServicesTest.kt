@@ -230,8 +230,8 @@ class MonitorServicesTest {
     // BLOCKER 1 of the second Kotlin review: the count must come from a
     // real event, not from a fixed sleep. pollIntervalSeconds is 1, so
     // the first tick is due at once, and a second tick is due one
-    // second later. Each latch counts down inside the stub call itself,
-    // so the wait ends on the real event, with a bound, never on a
+    // second later. Each latch counts down inside the stub call itself.
+    // The wait then ends on the real event, with a bound, never on a
     // guess of the clock.
     @Test
     fun `open runs a stub poll cycle for a due app, and close stops it with no further call`() = runBlocking {
