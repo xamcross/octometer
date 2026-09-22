@@ -30,7 +30,12 @@ import kotlin.system.exitProcess
 private const val HOST = "127.0.0.1"
 
 @Serializable
-data class HealthResponse(val version: String, val mode: String, val refreshSeconds: Int)
+data class HealthResponse(
+    val version: String,
+    val mode: String,
+    val refreshSeconds: Int,
+    val retentionDays: Int,
+)
 
 // The version stays the same for the life of the process, so the route
 // reads the packaged resource one time, at the class load, not on each call.
@@ -99,6 +104,7 @@ fun Application.module(config: MonitorConfig) {
                     version = VERSION,
                     mode = config.mode,
                     refreshSeconds = refreshSeconds(config.mode),
+                    retentionDays = config.retentionDays,
                 ),
             )
         }

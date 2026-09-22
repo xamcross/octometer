@@ -173,5 +173,12 @@ class ApplicationLifecycleTest {
 
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 
-    private fun writerThreadCount(): Int = Thread.getAllStackTraces().keys.count { it.name == WRITER_THREAD_NAME }
+    // SQLite MAJOR 3 of correction round 1: the coroutine debug mode of
+    // the test JVM renames the writer thread to
+    // "octometer-sqlite-writer @coroutine#N" while a coroutine runs on
+    // it, for example the daily backup. The old exact match then read 0
+    // during a slow backup. startsWith reads the thread whichever
+    // coroutine, or none, runs on it.
+    private fun writerThreadCount(): Int =
+        Thread.getAllStackTraces().keys.count { it.name.startsWith(WRITER_THREAD_NAME) }
 }

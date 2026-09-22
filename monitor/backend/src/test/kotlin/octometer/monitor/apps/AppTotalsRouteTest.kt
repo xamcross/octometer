@@ -274,6 +274,10 @@ private suspend fun insertEvent(
     ).use { insert ->
         insert.setLong(1, appId)
         insert.setString(2, eventId)
+        // Correction round 1 of issue #59 (MAJOR 3, SQLite review): back
+        // to the fixed instant. devConfig() now sets a large retentionDays
+        // by default, so the purge at MonitorServices.open() keeps this
+        // fixed row.
         insert.setLong(3, 1_700_000_000_000L)
         insert.setString(4, "checkout.save")
         insert.setString(5, sessionId)
