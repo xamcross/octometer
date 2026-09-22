@@ -98,6 +98,15 @@ data class PollOutcome(
 )
 
 /**
+ * The kept client of one app id, with the connection string that built it
+ * (design decision D10, issue #21). [MongoAppReader.clientFor] compares
+ * [connectionString] on each cycle, so a changed value closes the old
+ * client and builds a fresh one, and a PATCH of the connection string
+ * takes effect at the next poll cycle.
+ */
+private data class CachedClient(val connectionString: String, val client: MongoClient)
+
+/**
  * The MongoDB event reader of issue #16 (design decisions D4, D10, and
  * section 4.3).
  *
@@ -140,7 +149,7 @@ class MongoAppReader(
     private val clock: Clock = Clock.systemUTC(),
 ) : AutoCloseable {
 
-    private val clients = ConcurrentHashMap<Long, MongoClient>()
+    private val clients = ConcurrentHashMap<Long, CachedClient>()
 
     /**
      * Runs one poll cycle for [target], with the connection string
@@ -182,7 +191,7 @@ class MongoAppReader(
 
     /** Closes the kept client of one app id, for example after the app is gone. */
     fun closeClient(appId: Long) {
-        clients.remove(appId)?.close()
+        clients.remove(appId)?.client?.close()
     }
 
     /** Closes each kept client, for example when the monitor stops. */
@@ -195,7 +204,7 @@ class MongoAppReader(
         // constructor takes one safe copy instead.
         val toClose = ArrayList(clients.values)
         clients.clear()
-        toClose.forEach { it.close() }
+        toClose.forEach { it.client.close() }
     }
 
     /**
@@ -211,8 +220,28 @@ class MongoAppReader(
             }
         }
 
+    /**
+     * Gives the kept client of [appId], or builds a fresh one (design
+     * decision D10, issue #21). A kept client with the same connection
+     * string stays; each cycle then pays no new connect cost. A kept
+     * client with a different connection string closes at once, and a
+     * fresh client of the new string takes its place, so the next cycle
+     * after a PATCH of the connection string reads the new source.
+     *
+     * [PollScheduler] never starts two polls of the same app id at the
+     * same time (its own `activePolls` guard), so this method never
+     * runs twice for one [appId] at once; the plain read-and-replace of
+     * [ConcurrentHashMap.compute] needs no further lock.
+     */
     private fun clientFor(appId: Long, connectionString: String): MongoClient =
-        clients.computeIfAbsent(appId) { clientFactory(connectionString) }
+        clients.compute(appId) { _, cached ->
+            if (cached != null && cached.connectionString == connectionString) {
+                cached
+            } else {
+                cached?.client?.close()
+                CachedClient(connectionString, clientFactory(connectionString))
+            }
+        }!!.client
 
     private suspend fun readBound(database: MongoDatabase): ObjectId =
         withMongoFailure {
