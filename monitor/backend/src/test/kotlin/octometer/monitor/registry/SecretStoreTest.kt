@@ -1,9 +1,11 @@
 package octometer.monitor.registry
 
+import ch.qos.logback.classic.Level
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.captureLogEvents
 import org.junit.jupiter.api.Assumptions
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -206,6 +208,87 @@ class SecretStoreTest {
 
                     assertTrue(elapsedMillis >= 150, "expected at least 4 retry pauses of 50 ms, took $elapsedMillis ms")
                     assertFalse(failure.message.orEmpty().contains(allowlistedSrvUri()))
+                } finally {
+                    lock.release()
+                }
+            }
+        }
+
+    // Issue #141: a kill of the process between the temporary write and
+    // the atomic move can leave a leftover apps-<random>.json.tmp file in
+    // the secrets folder. The start sweep of MonitorServices.open calls
+    // removeLeftoverTempFiles() once, before the first write.
+
+    @Test
+    fun `removeLeftoverTempFiles removes a matching leftover file, and apps json stays unchanged byte for byte`() =
+        runBlocking {
+            val secretsDir = File(root, "secrets").apply { mkdirs() }
+            val secretsFile = File(secretsDir, "apps.json")
+            val originalBytes = "{\"1\":\"${allowlistedSrvUri()}\"}".toByteArray(Charsets.UTF_8)
+            secretsFile.writeBytes(originalBytes)
+            val leftoverFile = File(secretsDir, "apps-123.json.tmp")
+            leftoverFile.writeText(allowlistedSrvUri())
+
+            val removed = store.removeLeftoverTempFiles()
+
+            assertEquals(1, removed)
+            assertFalse(leftoverFile.exists(), "the leftover temporary file must be gone")
+            assertTrue(
+                originalBytes.contentEquals(secretsFile.readBytes()),
+                "apps.json must stay unchanged byte for byte",
+            )
+        }
+
+    @Test
+    fun `removeLeftoverTempFiles keeps a file with a different name`() = runBlocking {
+        val secretsDir = File(root, "secrets").apply { mkdirs() }
+        val otherFile = File(secretsDir, "apps-backup.json")
+        otherFile.writeText("keep me")
+
+        val removed = store.removeLeftoverTempFiles()
+
+        assertEquals(0, removed)
+        assertTrue(otherFile.exists(), "a file with a different name must stay")
+    }
+
+    @Test
+    fun `removeLeftoverTempFiles of a secrets folder with no leftover file returns zero, and makes no folder`() =
+        runBlocking {
+            val removed = store.removeLeftoverTempFiles()
+
+            assertEquals(0, removed)
+            assertFalse(File(root, "secrets").exists(), "the sweep must not create the secrets folder by itself")
+        }
+
+    @Test
+    fun `removeLeftoverTempFiles gives one warning and leaves the file, when a lock blocks the delete`() =
+        runBlocking {
+            // Windows refuses to delete a file while a FileChannel lock
+            // holds it open. A Linux advisory lock does not block a
+            // delete, so this test would pass by accident there, and it
+            // would prove nothing.
+            Assumptions.assumeTrue(
+                System.getProperty("os.name").orEmpty().startsWith("Windows", ignoreCase = true),
+                "the OS must refuse to delete a locked file",
+            )
+            val secretsDir = File(root, "secrets").apply { mkdirs() }
+            val leftoverFile = File(secretsDir, "apps-456.json.tmp")
+            leftoverFile.writeText(allowlistedSrvUri())
+
+            RandomAccessFile(leftoverFile, "rw").use { handle ->
+                val lock = handle.channel.lock()
+                try {
+                    val (removed, events) = captureLogEvents { store.removeLeftoverTempFiles() }
+
+                    assertEquals(0, removed)
+                    assertTrue(leftoverFile.exists(), "a locked leftover file must stay")
+                    val warnings = events.filter { event -> event.level == Level.WARN }
+                    assertEquals(1, warnings.size, "expected exactly one warning")
+                    val combinedText = events.joinToString(" ") { event -> event.formattedMessage }
+                    assertFalse(
+                        combinedText.contains(allowlistedSrvUri()),
+                        "no log line may hold a connection string",
+                    )
                 } finally {
                     lock.release()
                 }
