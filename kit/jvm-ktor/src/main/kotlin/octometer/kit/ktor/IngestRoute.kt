@@ -155,10 +155,10 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  *    limit that step 4 could not catch from its declared length alone)
  *    and the parse of the body (400, the field rules of
  *    `kit/jvm-core`);
- * 6. the design decision D19 drop (a request with no user id, with
- *    anonymous recording off, stores nothing and answers 204);
+ * 6. the design decision D19 drop: a request with no user id stores
+ *    nothing and answers 204, when the app records no anonymous click;
  * 7. the daily anonymous caps of design decision D43 (204), for a
- *    request with no user id and with anonymous recording on;
+ *    request with no user id, when the app records an anonymous click;
  * 8. the store, with the event cap of design decision D21 inside it.
  *
  * @param store the event log store of the app.
@@ -275,7 +275,7 @@ public fun Route.octometerIngestRoute(
             // 4. Body size (400, contract rule C18): the declared
             // Content-Length only, with no body read. A request with
             // no declared length, or a length at or under the limit,
-            // passes here; the real read below (step 5) still enforces
+            // passes here. The real read below (step 5) still enforces
             // the same limit for such a request.
             if (!hasAcceptableDeclaredLength(call, MAX_BODY_BYTES)) {
                 call.respond(HttpStatusCode.BadRequest)
@@ -299,16 +299,18 @@ public fun Route.octometerIngestRoute(
             }
 
             // 6. The design decision D19 drop: a request with no user
-            // id, with anonymous recording off, stores nothing.
+            // id stores nothing, when the app records no anonymous
+            // click.
             if (userId == null && !settings.recordAnonymousClicks()) {
                 call.respond(HttpStatusCode.NoContent)
                 return@post
             }
 
             // 7. The daily anonymous caps (204, design decision D43,
-            // issue #117), for a request with no user id and with
-            // anonymous recording on. An empty batch needs no check: it
-            // already stores nothing, the same as a dropped batch.
+            // issue #117), for a request with no user id, when the app
+            // records an anonymous click. An empty batch needs no
+            // check: it already stores nothing, the same as a dropped
+            // batch.
             if (userId == null && events.isNotEmpty()) {
                 val key = AnonymousKey.of(clientAddress(call, clientIpHeaderName))
                 if (!dailyCap.check(key, events.size)) {

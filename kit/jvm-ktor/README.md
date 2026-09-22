@@ -67,55 +67,63 @@ A run of whitespace separates each route pattern of `OCTOMETER_PATH_PATTERNS` (a
 ## The daily anonymous caps and the bot filter
 
 `octometerIngestRoute` applies two more limits of design decision D43
-(issue #117), on top of the per-minute rate limit above.
+(issue #117), with the per-minute rate limit above.
 
 `OCTOMETER_MAX_ANON_EVENTS_PER_DAY` (default 20000) and
 `OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY` (default 2000) cap the
 anonymous events of one day, one global counter and one counter for
 each key (`kit/jvm-core` README.md holds the full state). Only a
-request with no user id, with `OCTOMETER_RECORD_ANONYMOUS=true`, pays
-this check. A batch above either cap drops in full and answers 204.
+request with no user id, when the app records an anonymous click,
+pays this check (`OCTOMETER_RECORD_ANONYMOUS=true`). A batch above
+either cap drops in full and answers 204.
 
-The route also drops a batch when the `User-Agent` header value
-matches `bot|crawl|spider|slurp|headless|preview|monitor|
-Go-http-client|python-requests|curl`, in any letter case (design
-decision D43). This check applies to each request, signed in or not.
-It answers 204 with one DEBUG log line, and it never stores the header
-value. An absent header passes.
+The route also drops a batch when the first 512 characters of the
+`User-Agent` header value match a fixed pattern, in any letter case
+(design decision D43). The pattern is
+`bot|crawl|spider|slurp|headless|preview|monitor|Go-http-client|python-requests|curl`.
+This check applies to each request, signed in or not. It answers 204,
+and it never stores the header value. An absent header passes. A drop
+writes a maximum of one DEBUG log line for each elapsed hour, with the
+drop count of that hour.
 
 ## The order of the checks
 
 `octometerIngestRoute` runs each check of one request in this order,
 and it stops at the first one that answers (design decision D43, issue
-#117; corrected 2026-09-22, so the rate limiter again runs before any
-real body read, the original rule of issue #33; see the KDoc of
-`octometerIngestRoute` for the full detail):
+#117). See the KDoc of `octometerIngestRoute` for the full detail.
 
 1. the `Content-Type` header (415);
-2. the body size (400), the declared `Content-Length` header only,
+2. the rate limit of design decision D20 (429) — a client already at
+   its limit never reaches the bot filter, the body-size check, the
+   real body read, or the parse below;
+3. the bot filter (204), on the first 512 characters of the
+   `User-Agent` value;
+4. the body size (400), the declared `Content-Length` header only,
    with no body read;
-3. the bot filter (204);
-4. the rate limit of design decision D20 (429) — a client already at
-   its limit pays for no real body read and no parse below;
-5. the real body read (400, for a body above the limit that step 2
+5. the real body read (400, for a body above the limit that step 4
    could not catch from its declared length alone) and the parse of
    the body (400);
-6. the design decision D19 drop (a request with no user id, with
-   anonymous recording off, stores nothing);
-7. the daily anonymous caps (204), for a request with no user id and
-   with anonymous recording on;
+6. the design decision D19 drop: a request with no user id stores
+   nothing, when the app records no anonymous click;
+7. the daily anonymous caps (204), for a request with no user id,
+   when the app records an anonymous click;
 8. the store, with the event cap of design decision D21 inside it.
 
-A success and each of the three drops above (the bot filter, a daily
-cap, and the event cap) all answer 204 with an empty body, so a client
-learns nothing about the reason (contract rule C19).
+The route corrected this order twice on 2026-09-22. The rate limiter
+now runs before the bot filter and any real body read, the original
+rule of issue #33.
+
+A success answers 204 with an empty body. Each of the three drops
+above (the bot filter, a daily cap, and the event cap) also answers
+204 with an empty body. A client thus learns nothing about the reason
+(contract rule C19).
 
 **The daily cap key.** The daily anonymous cap reads the same
 normalised client address as the rate limiter above (the same
-`clientIpHeaderName` rule): a header value above 64 characters, or
-with no IPv4 or IPv6 address form, falls back to the remote address.
-The map of `AnonymousDailyCap` never holds a raw header value as a
-key.
+`clientIpHeaderName` rule). A header value above 64 characters, or a
+value with no IPv4 or IPv6 address form, falls back to the remote
+address. The map of `AnonymousDailyCap` never holds a raw header
+value as a key.
 
 ## The store dispatcher
 

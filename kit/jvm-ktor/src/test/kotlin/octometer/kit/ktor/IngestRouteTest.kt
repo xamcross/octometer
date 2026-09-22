@@ -1460,15 +1460,15 @@ class IngestRouteTest {
         // Security review MINOR 2 and concurrency review MINOR 7 of pull
         // request #158: no test held the order of the rate limit check
         // and the body read. An oversized body gives 400 only when the
-        // route reads the body; it must never reach that step once a
+        // route reads the body. It must never reach that step once a
         // client is already limited (issue #33, step 4).
         //
-        // The maintainer named the second correction of 2026-09-22 (the
-        // fix of Java review MAJOR 3): the rate limiter must run before
-        // the declared-length check too, so a limited client with a
-        // declared oversized Content-Length still gets 429, and never
-        // 400. This test sends a plain oversized body with its normal
-        // declared Content-Length, the original form of this test.
+        // The maintainer named a second correction on 2026-09-22 (Java
+        // review MAJOR 3). The rate limiter must also run before the
+        // declared-length check. A limited client with a declared
+        // oversized Content-Length must still get 429, not 400. This
+        // test sends a plain oversized body with its normal declared
+        // Content-Length, the original form of this test.
         val store = InMemoryEventLogStore()
         application {
             routing {
