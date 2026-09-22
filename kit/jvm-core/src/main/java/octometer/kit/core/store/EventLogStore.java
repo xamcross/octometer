@@ -31,6 +31,15 @@ public interface EventLogStore {
      * <p>A store reads the list. It never changes the list, and it
      * never keeps a reference to the list after the call.
      *
+     * <p><strong>A store must not write {@link IngestEvent#path()}.</strong>
+     * That component holds only the match result of rules C39 and C42,
+     * never the raw client path. This module has no route pattern list
+     * yet, so the value is always {@code null} today. Rule C39 says the
+     * server never stores the raw client value, and rule C42 says the
+     * server stores no `path` field without a route pattern list. Issue
+     * #104 adds the list and the match. A raw path can hold an
+     * identifier, a token, or a search term (contract rule C42).
+     *
      * <p>A store throws an unchecked exception when the write fails. An
      * adapter maps that exception to status 500.
      */

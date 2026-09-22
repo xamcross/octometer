@@ -1,5 +1,7 @@
 // The ingest core of the kit. Java 21, no run-time dependency.
 // Issue #26 adds the store interface. Issue #33 adds the rate limit.
+import org.gradle.api.tasks.PathSensitivity
+
 plugins {
     `java-library`
 }
@@ -26,4 +28,13 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    // A test reads contract/README.md and contract/examples/ (rules C39,
+    // C40, C41, C42, issue #103). This input makes the task run again
+    // after a contract edit, also with no source change in this module.
+    inputs.file(rootProject.layout.projectDirectory.file("contract/README.md"))
+        .withPropertyName("contractReadme")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir(rootProject.layout.projectDirectory.dir("contract/examples"))
+        .withPropertyName("contractExamples")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
