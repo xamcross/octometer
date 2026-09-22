@@ -20,6 +20,10 @@ concurrency:
 jobs:
   changes:
     name: Changed paths
+    # The schedule run has no pull request and no diff to compare. Skip
+    # the filter step there, so the weekly run starts no test job by
+    # mistake (release review, MINOR 6).
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -49,14 +53,17 @@ jobs:
               - 'monitor/backend/**'
               - 'tools/demo-app/**'
               - 'kit/tracker/**'
+              - 'contract/**'
               - 'gradle/**'
               - '*.gradle.kts'
               - 'gradle.properties'
               - 'gradlew*'
+              - 'jitpack.yml'
             frontend:
               - 'monitor/frontend/**'
             tracker:
               - 'kit/tracker/**'
+              - 'contract/**'
             ci:
               - '.github/**'
 
@@ -112,9 +119,13 @@ jobs:
   monitor-windows:
     name: Monitor backend on Windows
     needs: changes
+    # This job builds the Angular app and runs FrontendCspTest, so a
+    # frontend-only change must also run it (both reviews, criterion 1).
     if: |
       github.event_name != 'schedule' &&
-      (needs.changes.outputs.jvm == 'true' || needs.changes.outputs.ci == 'true')
+      (needs.changes.outputs.jvm == 'true' ||
+       needs.changes.outputs.frontend == 'true' ||
+       needs.changes.outputs.ci == 'true')
     runs-on: windows-latest
     timeout-minutes: 15
     defaults:
