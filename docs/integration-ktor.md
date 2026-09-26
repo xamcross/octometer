@@ -81,16 +81,31 @@ authentication plugin of your app. The route needs the session (design decision 
 
 ```kotlin
 routing {
-    octometerIngestRoute(store = store) { call ->
+    octometerIngestRoute(
+        store = store,
+        ingestPath = "/api/octometer/v1/clicks",
+    ) { call ->
         call.sessions.get<UserSession>()?.userId
     }
 }
 ```
 
+The parameter `ingestPath` sets the path of the route. The default is
+`/api/octometer/v1/clicks` (contract rule C12). Put this path below the proxied prefix
+of the note near the top of this guide.
+
+**Set an engine timeout.** The route sets no read timeout of its own for a slow body.
+Set `requestReadTimeoutSeconds` on the Netty engine of your app. The demo app sets 10
+seconds.
+
 The last argument is `resolveUserId`, a function `(ApplicationCall) -> String?`. Write
 your own function. It reads the user id from your own session, never from a cookie that
 a client can set on its own. `kit/jvm-core` has a separate interface, `UserIdResolver`.
 This route does not take that interface as an argument.
+
+The returned value must follow contract rule C6. It has 1 to 254 characters, never an
+email address, a username, or an IP address. A bad value gives status 500, not 400. A
+`null` value marks a request with no signed-in user (design decision D19).
 
 The kit reads each setting below from an environment variable.
 
@@ -166,16 +181,22 @@ reserved for the contract. Give each `data-octo` value a name outside that prefi
 
 ## 6. The check
 
-Send one request through the public origin of your app, the same origin the tracker
-uses.
+Sign in to your app in a browser first. Copy the value of your session cookie from the
+browser developer tools.
+
+Send this request through the public origin of your app, the same origin the tracker
+uses. Send your session cookie with the request. `resolveUserId` then returns your user
+id, not `null`.
 
 ```
 curl -i -X POST "https://your-app.example/api/octometer/v1/clicks" \
   -H "Content-Type: application/json" \
+  -H "Cookie: <your session cookie name>=<your session cookie value>" \
   --data-binary '{"sessionId":"3fa85f64-5717-4562-b3fc-2c963f66afa6","clicks":[{"element":"checkout.save","ageMs":1200}]}'
 ```
 
-The answer has status `204`, with an empty body (contract rule C19).
+The answer has status `204`, with an empty body (contract rule C19). A request with no
+session cookie also gives status `204`, but it stores nothing (design decision D19).
 
 Read the event back through the monitor. Read the app row of the monitor API, or open
 the level 1 view of the monitor UI. The new click raises the click count of your app
