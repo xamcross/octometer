@@ -1,0 +1,145 @@
+# The release workflow of Octometer.
+# Source: docs/superpowers/specs/2026-09-21-octometer-design.md, D25, D26.
+# Issue #39. A push of a tag "X.Y.Z" builds the zip and creates the
+# release. The workflow_dispatch trigger gives a dry run with no tag.
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The tag to test, in the form X.Y.Z. A dry run creates no release.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Only this job holds contents: write. Each other permission of the
+    # workflow stays at its read-only default (the owner's decision).
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Determine the release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="${{ inputs.tag }}"
+          fi
+          echo "The workflow uses the tag $tag."
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # Issue #39, step 3. The release needs one clear match between the
+      # tag and the changelog entry that names its content.
+      - name: Compare the tag with the top entry of CHANGELOG.md
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          top_version=$(grep -m1 -E '^## [0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | sed -E 's/^## ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          if [ "$tag" != "$top_version" ]; then
+            echo "The tag $tag does not match the top entry $top_version of CHANGELOG.md." >&2
+            exit 1
+          fi
+          echo "The tag $tag matches the top entry of CHANGELOG.md."
+
+      - name: Set up Temurin 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          # cache-read-only: the same rule as ci.yml. A tag ref is never
+          # the default branch, so this run only reads the cache.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Set up Node for the frontend build inside distZip
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: monitor/frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: monitor/frontend/package-lock.json
+
+      # Issue #39, step 4. distZip packages the Angular build inside the
+      # monitor zip (see monitor/backend/build.gradle.kts, buildFrontend).
+      - name: Build the release zip
+        run: ./gradlew :monitor:backend:distZip
+
+      - name: Find the built zip
+        id: zip
+        run: |
+          zip_path=$(ls monitor/backend/build/distributions/octometer-monitor-*.zip | head -n 1)
+          echo "The build produces the file $zip_path."
+          echo "path=$zip_path" >> "$GITHUB_OUTPUT"
+
+      # The two steps below run only on a real tag push (design decision
+      # D26, issue #39). A dry run through workflow_dispatch stops here.
+      - name: Write the changelog section of the tag to a file
+        if: github.event_name == 'push'
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          awk -v tag="$tag" '
+            $0 ~ "^## " tag { found = 1; next }
+            found && $0 ~ "^## " { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          cat release-notes.md
+
+      - name: Create the GitHub release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.tag.outputs.tag }}" "${{ steps.zip.outputs.path }}" \
+            --title "${{ steps.tag.outputs.tag }}" \
+            --notes-file release-notes.md
+
+      # Issue #39, step 6. The coordinates come from the comment of
+      # issue #37 (group com.github.xamcross.octometer, tag as version).
+      - name: Request the JitPack POM of each kit module
+        if: github.event_name == 'push'
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          group_path="com/github/xamcross/octometer"
+          modules="octometer-kit-core octometer-kit-mongo octometer-kit-ktor"
+          # JitPack builds a coordinate on its first request. Each module
+          # below waits for its build, with a bound of 10 minutes.
+          for module in $modules; do
+            url="https://jitpack.io/$group_path/$module/$tag/$module-$tag.pom"
+            deadline=$((SECONDS + 600))
+            status="000"
+            while [ "$SECONDS" -lt "$deadline" ]; do
+              status=$(curl --silent --output /dev/null --write-out '%{http_code}' "$url" || echo "000")
+              echo "The POM request of $module answers HTTP $status."
+              if [ "$status" = "200" ]; then
+                break
+              fi
+              sleep 15
+            done
+            if [ "$status" != "200" ]; then
+              echo "The POM of $module gives no good answer within 10 minutes." >&2
+              exit 1
+            fi
+            curl --fail --silent --show-error --output /dev/null "$url"
+            echo "The POM request of $module succeeds."
+          done

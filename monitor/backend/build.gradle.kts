@@ -306,6 +306,13 @@ distributions {
     }
 }
 
+// Issue #39, step 4. The project name gives distZip the default file
+// name "backend-0.1.0.zip". The release workflow needs the name
+// "octometer-monitor-0.1.0.zip", so this line sets it from the version.
+tasks.named<Zip>("distZip") {
+    archiveFileName.set("octometer-monitor-${project.version}.zip")
+}
+
 // Issue #38, silent rule 3 (the task brief): "build" and "test" must
 // still pass on a machine with no Node, when nobody asks for the
 // frontend task. The application plugin wires distTar and distZip into
