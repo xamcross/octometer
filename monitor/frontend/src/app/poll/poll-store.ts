@@ -131,14 +131,26 @@ export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
   const error = computed(() => intervalState.error() ?? dataError());
 
   /**
-   * Routes each change of `dataError` into the shared error state of
-   * `RefreshIntervalState`, so the shell banner shows a later failed data
-   * poll, and its recovery, not only a health failure (issue #164). The
-   * destroy hook clears this store's own contribution, so a stale error
-   * never reaches a later view, or a view with no data poll.
+   * Cancels a clear that an old store's destroy scheduled, still
+   * pending in the same task (MAJOR 1 of the review of pull request
+   * #194). A route change between two table views then keeps the old
+   * error, until this store has its own first answer.
    */
-  effect(() => intervalState.setDataError(dataError()));
-  destroyRef.onDestroy(() => intervalState.setDataError(undefined));
+  intervalState.cancelDataErrorClear();
+
+  /**
+   * Routes each change of `dataError` into the shared error state of
+   * `RefreshIntervalState`, once this store has its own first answer
+   * (issue #164, MAJOR 1). The guard stops a fresh store from
+   * overwriting the error of an old one before it answers.
+   */
+  effect(() => {
+    if (firstLoadPending()) {
+      return;
+    }
+    intervalState.setDataError(dataError());
+  });
+  destroyRef.onDestroy(() => intervalState.scheduleDataErrorClear());
 
   const canPoll = (): boolean => !paused() && !document.hidden && !isFocusInTbody();
 

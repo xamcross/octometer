@@ -181,7 +181,7 @@ describe('createPollStore', () => {
     expect(intervalState.error()).toBeUndefined();
   });
 
-  it('clears its own contribution to the shared error of RefreshIntervalState on destroy (issue #164)', () => {
+  it('clears its own contribution to the shared error of RefreshIntervalState on destroy, one microtask later (issue #164)', async () => {
     const parentInjector = TestBed.inject(EnvironmentInjector);
     const childInjector = createEnvironmentInjector([], parentInjector);
     let calls = 0;
@@ -200,6 +200,47 @@ describe('createPollStore', () => {
     expect(intervalState.error()).toBeInstanceOf(Error);
 
     childInjector.destroy();
+    // The clear of MAJOR 1 (review of pull request #194) waits one
+    // microtask, so a new store in the same task can cancel it first.
+    await Promise.resolve();
+    expect(intervalState.error()).toBeUndefined();
+  });
+
+  it('keeps the old error across a route change in one task, until the new store has its own first answer (MAJOR 1 of pull request #194)', async () => {
+    const parentInjector = TestBed.inject(EnvironmentInjector);
+    const oldInjector = createEnvironmentInjector([], parentInjector);
+    oldInjector.runInContext(() => createPollStore(() => throwError(() => new Error('boom'))));
+    vi.advanceTimersByTime(0);
+    flushHealth({ refreshSeconds: 10 });
+    vi.advanceTimersByTime(0);
+    flushEffects();
+
+    const intervalState = TestBed.inject(RefreshIntervalState);
+    expect(intervalState.error()).toBeInstanceOf(Error);
+
+    // A route change destroys the old store, and starts a new one, in
+    // one task, the same order as a table-to-table navigation.
+    oldInjector.destroy();
+    let newCalls = 0;
+    const newInjector = createEnvironmentInjector([], parentInjector);
+    const newStore = newInjector.runInContext(() =>
+      createPollStore(() => {
+        newCalls++;
+        return of('v');
+      }),
+    );
+
+    // The new store has no answer of its own yet: the old error still
+    // stands, and the new store cancels the old store's pending clear.
+    await Promise.resolve();
+    flushEffects();
+    expect(intervalState.error()).toBeInstanceOf(Error);
+    expect(newStore.firstLoadPending()).toBe(true);
+
+    // The new store's own first answer, a good one, then clears it.
+    vi.advanceTimersByTime(0);
+    flushEffects();
+    expect(newCalls).toBe(1);
     expect(intervalState.error()).toBeUndefined();
   });
 

@@ -482,6 +482,47 @@ describe('App', () => {
       expect(bannerText()).toBe('');
     });
 
+    it('keeps the banner error, and the announcer silent, across a route change between two table views during an outage (MAJOR 1 of pull request #194)', async () => {
+      fixture.detectChanges();
+      const region = (fixture.nativeElement as HTMLElement).querySelector(
+        '[role="status"]',
+      ) as HTMLElement;
+
+      await router.navigateByUrl('/apps');
+      fixture.detectChanges();
+      startHealth();
+      succeedHealth(10);
+
+      vi.advanceTimersByTime(0);
+      httpMock
+        .expectOne('/api/apps')
+        .flush(null, { status: 503, statusText: 'Service Unavailable' });
+      fixture.detectChanges();
+      await vi.advanceTimersByTimeAsync(100);
+      fixture.detectChanges();
+      expect(bannerText()).toContain('The monitor API did not answer.');
+      expect(region.textContent).toBe('The monitor API stopped answering.');
+
+      // A route change to a different table view, still during the outage.
+      await router.navigateByUrl('/apps/7/users');
+      fixture.detectChanges();
+      await vi.advanceTimersByTimeAsync(100);
+      fixture.detectChanges();
+
+      // The new view has no answer of its own yet. The banner keeps the
+      // old error. The announcer stays silent: no false recovery message.
+      expect(bannerText()).toContain('The monitor API did not answer.');
+      expect(region.textContent).toBe('The monitor API stopped answering.');
+
+      httpMock.expectOne('/api/apps/7/users?page=1').flush({ page: 1, pageCount: 1, rows: [] });
+      fixture.detectChanges();
+      await vi.advanceTimersByTimeAsync(100);
+      fixture.detectChanges();
+
+      expect(bannerText()).toBe('');
+      expect(region.textContent).toBe('The monitor API answers again.');
+    });
+
     it('clears the banner on a navigation to /manage, a view with no data poll, after a failed data poll of a table view', async () => {
       fixture.detectChanges();
       await router.navigateByUrl('/apps');

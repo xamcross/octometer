@@ -40,10 +40,10 @@ function isPositiveNumber(value: unknown): value is number {
  * later caller, with no new request.
  *
  * `error` also carries a later failed data poll of the active view
- * (issue #164). The health route runs once, so `error` alone cannot
- * show a network failure after the first good health answer; each poll
- * store calls `setDataError` on its own `dataError` change, so the shell
- * banner still follows a later failure, and its recovery.
+ * (issue #164). A poll store calls `setDataError` once it has its own
+ * first answer, good or bad. `scheduleDataErrorClear` and
+ * `cancelDataErrorClear` stop a route change between two table views
+ * from showing a false recovery (MAJOR 1 of pull request #194).
  */
 @Injectable({ providedIn: 'root' })
 export class RefreshIntervalState {
@@ -88,13 +88,38 @@ export class RefreshIntervalState {
     { initialValue: undefined },
   );
 
+  /** The token of the pending clear that `scheduleDataErrorClear` queued last, or 0. */
+  private dataErrorClearToken = 0;
+
   /**
    * Sets the shared error from the data poll of the active view (issue
-   * #164). A poll store calls this on each change of its own `dataError`,
-   * and again with `undefined` on its own destroy, so a stale error of an
-   * old view never reaches a later view, or a view with no data poll.
+   * #164). A poll store calls this once it has its own first answer,
+   * good or bad. A fresh store then never overwrites the error of an
+   * old one before it answers (MAJOR 1 of pull request #194).
    */
   setDataError(error: unknown): void {
+    this.dataErrorClearToken++;
     this.dataErrorState.set(error);
+  }
+
+  /**
+   * Schedules the clear of the data-poll error, one microtask after a
+   * poll store's own destroy. `cancelDataErrorClear` can cancel a clear
+   * still pending. A route change between two table views then keeps
+   * the old error, until the new store has its own first answer (MAJOR
+   * 1).
+   */
+  scheduleDataErrorClear(): void {
+    const token = ++this.dataErrorClearToken;
+    queueMicrotask(() => {
+      if (this.dataErrorClearToken === token) {
+        this.dataErrorState.set(undefined);
+      }
+    });
+  }
+
+  /** Cancels a clear that `scheduleDataErrorClear` queued, still pending. */
+  cancelDataErrorClear(): void {
+    this.dataErrorClearToken++;
   }
 }
