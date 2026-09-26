@@ -314,15 +314,22 @@ within the poll interval of the monitor mode.
 
 ## 9. The integration issues of an app
 
-This section holds two issue templates. Each filed issue belongs to the app repository,
-not to this repository. Copy the fenced block of one template into a file, then run
-`gh issue create --repo <your app repository> --body-file <file>`.
+This section holds two issue templates. Each filed issue belongs to the app
+repository, not to this repository. Copy the fenced block of one template into a
+file. Run `gh label list --repo <your app repository>` first. Create a missing label
+with `gh label create <name> --description "<the meaning>" --color <hex>`.
 
 **The agent template.** The title has the imperative form "Integrate Octometer into
-`<app>`". Add the label `enhancement`.
+`<app>`". Add the label `enhancement`. File the issue with this command:
+
+```
+gh issue create --repo <your app repository> --title "Integrate Octometer into <app>" --label enhancement --body-file <file>
+```
 
 ```markdown
 **Goal.** `<app>` sends its clicks to Octometer, and it shows the privacy text.
+
+**The guide.** https://github.com/xamcross/octometer/blob/main/docs/integration-ktor.md
 
 **Implementation steps.**
 1. Add the dependency of section 1: the JitPack repository with `exclusiveContent`,
@@ -332,8 +339,9 @@ not to this repository. Copy the fenced block of one template into a file, then 
 3. Mount the route of section 5, with a `resolveUserId` lambda. The lambda reads the
    user id from your own session.
 4. Add the account deletion call of section 6: `deleteByUserId(userId)`.
-5. Install the tracker of section 7. The `.tgz` asset needs a release tag after
-   `0.1.0`. Mark each clickable element with `data-octo`.
+5. Install the tracker of section 7, and call `start()`. The `.tgz` asset needs a
+   release tag after `0.1.0`. The moment of the `start()` call follows the decision
+   of `xamcross/octometer#41` (open).
 6. Show the text of `xamcross/octometer#42`
    (https://github.com/xamcross/octometer/blob/main/docs/privacy.md) where `<app>`
    shows its notices. The legal-basis section stays a placeholder until
@@ -347,6 +355,7 @@ not to this repository. Copy the fenced block of one template into a file, then 
 - [ ] The Netty engine of `<app>` sets `requestReadTimeoutSeconds` (section 5).
 - [ ] Each environment variable of section 5 has its own value, or it keeps the
   default value.
+- [ ] Each clickable element of `<app>` holds a `data-octo` name of contract rule C4.
 - [ ] The check of section 8 gives the status `204` for the POST with your session
   cookie.
 - [ ] The test command of `<app>` passes.
@@ -358,16 +367,24 @@ not to this repository. Copy the fenced block of one template into a file, then 
 - `xamcross/octometer#41` holds the open decision on the legal basis and the consent
   method.
 
-**Source.** `xamcross/octometer`, `docs/integration-ktor.md`, sections 1, 2, 5, 6, 7,
-and 8; `docs/privacy.md`.
+**Source.** `xamcross/octometer`; sections 1, 2, 5, 6, 7, and 8 of
+https://github.com/xamcross/octometer/blob/main/docs/integration-ktor.md;
+https://github.com/xamcross/octometer/blob/main/docs/privacy.md.
 ```
 
 **The mixed template.** The title has the imperative form "Put `<app>` on the
-Octometer monitor". Add the labels `enhancement` and `owner-only`.
+Octometer monitor (no cost, about 60 minutes)". Add the labels `enhancement` and
+`owner-only`. File the issue with this command:
+
+```
+gh issue create --repo <your app repository> --title "Put <app> on the Octometer monitor (no cost, about 60 minutes)" --label enhancement --label owner-only --body-file <file>
+```
 
 ```markdown
 **Goal.** The owner adds `<app>` to the Octometer monitor, and an agent confirms the
 first numbers.
+
+**The guide.** https://github.com/xamcross/octometer/blob/main/docs/integration-ktor.md
 
 **Owner steps.**
 1. Create the database role and the read-only user of section 3, with the Atlas CLI
@@ -408,9 +425,10 @@ first numbers.
 - `xamcross/octometer#30`: Check the privileges of the database user.
 - Close each one before the production start.
 
-**Source.** `xamcross/octometer`, `docs/integration-ktor.md`, sections 3, 4, and 8;
-`docs/demo.md`, lines 85-87; design decision D26; the GitHub Release page of
-`xamcross/octometer`.
+**Source.** `xamcross/octometer`; sections 3, 4, and 8 of
+https://github.com/xamcross/octometer/blob/main/docs/integration-ktor.md;
+https://github.com/xamcross/octometer/blob/main/docs/demo.md, lines 85-87; design
+decision D26; the GitHub Release page of `xamcross/octometer`.
 ```
 
 <!--
