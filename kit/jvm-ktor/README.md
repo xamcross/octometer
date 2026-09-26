@@ -54,17 +54,24 @@ address, for example `X-Forwarded-For`. `OCTOMETER_TRUSTED_PROXY_COUNT`
 line (design decision D20, issue #116). **Set the header only behind a
 proxy that appends the real address.**
 
-For example, take a chain of two trusted proxies: the app's own edge
-proxy, behind a CDN. Each proxy of the chain appends its own observed
-peer address as the last element of the header. A client at
-`203.0.113.9` gives the CDN a header with one element,
-`203.0.113.9`. The CDN appends its own address, `198.51.100.1`, before
-it forwards the request to the edge proxy: `203.0.113.9, 198.51.100.1`.
-The edge proxy appends its own address too, `198.51.100.9`, before the
-app reads the header: `203.0.113.9, 198.51.100.1, 198.51.100.9`. The
-address that the edge proxy itself observed, `198.51.100.1`, is the
-second element from the right; `OCTOMETER_TRUSTED_PROXY_COUNT=2` reads
-it.
+For example, take a chain of two trusted proxies. A CDN sits in front
+of the app. The app's own edge proxy sits behind the CDN. The client
+sends no such header of its own. Each proxy appends the address of
+its own peer, as the last element of the header. The CDN's peer is
+the client, so the CDN appends the client's address. The edge proxy's
+peer is the CDN, so the edge proxy appends the CDN's address.
+
+The client is at `203.0.113.9`. The CDN observes the client as its
+peer, and it appends `203.0.113.9`. The header now holds one element:
+`203.0.113.9`. The CDN forwards the request to the edge proxy. The
+edge proxy observes the CDN as its peer, and it appends
+`198.51.100.1`, the CDN's own address. The app reads the header
+`203.0.113.9, 198.51.100.1`.
+
+`OCTOMETER_TRUSTED_PROXY_COUNT=2` names the two trusted proxies of the
+chain. The route then reads the second element from the right,
+`203.0.113.9`. That element is the client's own address, the address
+to trust.
 
 The route reads the element at that position, at most 64 characters.
 It reads that element only when it has the text form of an IPv4
@@ -83,6 +90,14 @@ rate-limit key, and the limit then protects nobody.
 `OCTOMETER_TRUSTED_PROXY_COUNT` must be a positive whole number. A text
 value, a zero, and a negative value each stop the app start with a
 clear error. The error never repeats the raw value.
+
+**Set the count to the exact number of trusted proxies, never
+more.** A count above the real number of trusted proxies lets a
+client choose its own key. Each client already appends its own
+element to the header. A count that is one too high reads that client
+element instead. It never reads a proxy's own observed address. A
+client can then take the key of another visitor. It can then exhaust
+the counters of design decision D43 of that key.
 
 **A known gap.** Without `OCTOMETER_RECORD_ANONYMOUS=true`, the rate
 limiter of design decision D20 still uses the full text of the client
