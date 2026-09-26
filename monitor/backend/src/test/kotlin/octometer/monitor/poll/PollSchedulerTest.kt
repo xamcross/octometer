@@ -693,6 +693,68 @@ class PollSchedulerTest {
         assertEquals(3, store.consecutiveFailuresOf(appId), "PollScheduler's own success write touches no failure count")
     }
 
+    // MAJOR 1 of the fourth Kotlin review: no test proved a non-zero
+    // jitter fraction reaches next_poll_at through the scheduler
+    // itself. Every other test here gives FixedJitterRandom(0.0). This
+    // test injects a fixed draw of +0.1, and asserts the exact
+    // jittered value: 60 s times 1.1 equals 66 s.
+    @Test
+    fun `a failed cycle applies a fixed non-zero jitter fraction to the exact next_poll_at`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(nextPollAt = 0L)
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle(failure = IllegalStateException("a probe failure"))
+
+        val scheduler = pollScheduler(
+            store,
+            secretStore,
+            cycle,
+            testScheduler = testScheduler,
+            pollIntervalSeconds = 60,
+            random = FixedJitterRandom(0.1),
+        )
+        scheduler.start()
+        try {
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 1 }
+        } finally {
+            scheduler.stop()
+        }
+
+        assertEquals(66_000L, store.nextPollAtOf(appId), "a jitter fraction of 0.1 raises the 60 s delay to 66 s")
+    }
+
+    // MAJOR 2 of the fourth Kotlin review: the failed-cycle-count rule
+    // of failureStatus had no test at its one production caller,
+    // recordFailure. A stub cycle throws a MongoReadFailedException
+    // with the candidate UNREACHABLE two times in sequence. The first
+    // failed cycle must keep the row's old status; only the second
+    // failed cycle in sequence must write UNREACHABLE.
+    @Test
+    fun `two UNREACHABLE cycles in sequence keep the old status, then write UNREACHABLE`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(nextPollAt = 0L, status = "OK")
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle(failure = MongoReadFailedException(status = "UNREACHABLE", code = null))
+
+        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5)
+        scheduler.start()
+        try {
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 1 }
+            assertEquals("OK", store.statusOf(appId), "the first failed cycle keeps the row's old status")
+
+            testScheduler.advanceTimeBy(5_000)
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 2 }
+            assertEquals("UNREACHABLE", store.statusOf(appId), "the second failed cycle in sequence writes UNREACHABLE")
+        } finally {
+            scheduler.stop()
+        }
+    }
+
     // MAJOR 1 of the third Kotlin review: a plain toList() call reads
     // size, then calls iterator().next() for a size of one. A
     // Collection whose size lies about its iterator then throws

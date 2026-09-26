@@ -86,17 +86,29 @@ class PollBackoffTest {
     // The acceptance criterion of issue #28: a check over 100 draws.
     // Each draw of a seeded Random must land inside the jitter band of
     // 10 percent, for the interval delay and for the capped delay
-    // alike.
+    // alike. MAJOR 1 of the Kotlin review: this test must also fail
+    // when the jitter goes away. A jitter of exactly 0.0 on every draw
+    // gives the same base delay 100 times in a row, so the "not all
+    // equal" check below catches that defect too. I multiplied the
+    // jitter draw of backoffDelayMillis by 0.0 for a moment. This test
+    // then failed on the "not all equal" check, for both delay lists. I
+    // then restored the file.
     @Test
-    fun `100 draws of a seeded Random each stay inside the jitter of 10 percent`() {
+    fun `100 draws of a seeded Random each stay inside the jitter of 10 percent, and are not all equal`() {
         val random = Random(1234)
+        val intervalDelays = mutableListOf<Long>()
+        val cappedDelays = mutableListOf<Long>()
         repeat(100) {
             val intervalDelay = backoffDelayMillis(intervalSeconds = 60, failuresBefore = 0, random = random)
             assertInRange(intervalDelay, baseMillis = 60_000L)
+            intervalDelays += intervalDelay
 
             val cappedDelay = backoffDelayMillis(intervalSeconds = 60, failuresBefore = 10, random = random)
             assertInRange(cappedDelay, baseMillis = 300_000L)
+            cappedDelays += cappedDelay
         }
+        assertTrue(intervalDelays.toSet().size > 1, "the jitter must vary the interval delay across 100 draws")
+        assertTrue(cappedDelays.toSet().size > 1, "the jitter must vary the capped delay across 100 draws")
     }
 
     private fun assertInRange(actualMillis: Long, baseMillis: Long) {
