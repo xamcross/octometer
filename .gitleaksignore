@@ -1,0 +1,20 @@
+# Each line ignores one gitleaks finding by its fingerprint. gitleaks
+# scans each commit of the history, so a later commit that fixes a
+# value does not clear an old finding on its own; the exact fingerprint
+# stays needed here.
+#
+# The fingerprint below names a commit of this pull request's own
+# branch, not of `main`. The pull request's own secret scan reads the
+# whole branch history, so the entry stays needed until the merge. A
+# squash merge writes one new commit on `main`, with a fingerprint of
+# its own; that commit's own diff holds the fixed value only, thus it
+# trips no rule. A future issue can remove this dead entry after the
+# merge, the same form as issue #171 removed the entries of pull
+# request #185.
+#
+# The finding below is a test fixture of pull request #195 (issue #28):
+# an early commit built the URI-in-message test with a literal MongoDB
+# URI, before a later commit of the same pull request moved it to the
+# one allow-listed fake credential of `.gitleaks.toml`. The value was
+# never a real credential.
+6f2d88d49dc2866332f937fc9ff6ee69bde12835:monitor/backend/src/test/kotlin/octometer/monitor/mongo/MongoAppReaderUnitTest.kt:mongodb-uri-password:393
