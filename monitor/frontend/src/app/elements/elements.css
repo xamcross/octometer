@@ -1,0 +1,43 @@
+/*
+ * No table element gets a `display` value in this file, so the table
+ * keeps its native semantics for a screen reader.
+ */
+caption {
+  text-align: left;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+
+th,
+td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+/*
+ * Only the element-name cell breaks inside a word. The name comes from
+ * a page attribute the app owner writes, so its length has no limit. A
+ * number column and the time column stay on one line.
+ */
+th[scope='row'] {
+  overflow-wrap: anywhere;
+  min-width: 8rem;
+}
+
+.num,
+.time {
+  white-space: nowrap;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The table scrolls sideways when the columns need more width than the screen. */
+/* `position: relative` makes this container the containing block of an absolute child, so the page keeps one scroll direction. */
+.table-scroll {
+  position: relative;
+  overflow-x: auto;
+}
