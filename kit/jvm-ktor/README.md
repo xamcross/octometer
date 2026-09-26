@@ -36,38 +36,98 @@ route of design section 4.2 with one function, `octometerIngestRoute`.
 ## The ingest rate limit
 
 `octometerIngestRoute` limits the request rate of design decision D20
-(issue #33). A signed-in user gets 30 requests each minute. A request
-with no user id gets 120 requests each minute, by the client address.
-Each of the two limits uses its own map, with its own LRU eviction, so an
-anonymous flood never blocks a signed-in user.
+(issue #33). A signed-in user gets 30 requests each minute. Without
+`OCTOMETER_RECORD_ANONYMOUS=true`, a request with no user id gets 120
+requests each minute, by the client address. Each of the two limits
+uses its own map, with its own LRU eviction, so an anonymous flood
+never blocks a signed-in user.
+
+With `OCTOMETER_RECORD_ANONYMOUS=true`, the three per-minute limits of
+"The anonymous per-minute limits" below replace the 120-request limit,
+for a request with no user id.
+
+## The client address header and the trusted proxy count
 
 `OCTOMETER_CLIENT_IP_HEADER` names a header that holds the client
-address, for example `X-Forwarded-For`. **Set this option only behind a
-proxy that appends the real client address as the last element of the
-last header line.** The route reads that last element, at most 64
-characters, and only when it has the text form of an IPv4 address or an
-IPv6 address. A missing header, a value above 64 characters, and a value
-with no address form, each fall back to the remote address of the
-connection.
+address, for example `X-Forwarded-For`. `OCTOMETER_TRUSTED_PROXY_COUNT`
+(default 1) counts the element to trust from the right of that header
+line (design decision D20, issue #116). **Set the header only behind a
+proxy that appends the real address.**
 
-Leave the option unset when no such proxy sits in front of the app. A
-wrong header name lets a client choose its own rate-limit key, and the
-limit then protects nobody.
+For example, take a chain of two trusted proxies: the app's own edge
+proxy, behind a CDN. Each proxy of the chain appends its own observed
+peer address as the last element of the header. A client at
+`203.0.113.9` gives the CDN a header with one element,
+`203.0.113.9`. The CDN appends its own address, `198.51.100.1`, before
+it forwards the request to the edge proxy: `203.0.113.9, 198.51.100.1`.
+The edge proxy appends its own address too, `198.51.100.9`, before the
+app reads the header: `203.0.113.9, 198.51.100.1, 198.51.100.9`. The
+address that the edge proxy itself observed, `198.51.100.1`, is the
+second element from the right; `OCTOMETER_TRUSTED_PROXY_COUNT=2` reads
+it.
 
-**A known gap.** The client address key uses the full text of an IPv6
-address. One host with a routed `/64` prefix can thus use a new key for
-every request, and the limit has no effect against that host. Issue
-#116 and issue #118 own the fix (the first 64 bits of an IPv6 address as
-the key, design decision D43).
+The route reads the element at that position, at most 64 characters.
+It reads that element only when it has the text form of an IPv4
+address or an IPv6 address. Four things fall back to the remote
+address of the connection instead:
+
+- a missing header;
+- a value above 64 characters;
+- a value with no address form;
+- a proxy count above the length of the header list.
+
+Leave `OCTOMETER_CLIENT_IP_HEADER` unset when no such proxy sits in
+front of the app. A wrong header name lets a client choose its own
+rate-limit key, and the limit then protects nobody.
+
+`OCTOMETER_TRUSTED_PROXY_COUNT` must be a positive whole number. A text
+value, a zero, and a negative value each stop the app start with a
+clear error. The error never repeats the raw value.
+
+**A known gap.** Without `OCTOMETER_RECORD_ANONYMOUS=true`, the rate
+limiter of design decision D20 still uses the full text of the client
+address as its key. One host with a routed `/64` prefix can thus use a
+new key for every request. The 120-request limit then has no effect
+against that host. Issue #116 closes this gap only for
+`OCTOMETER_RECORD_ANONYMOUS=true`. The three per-minute limits of
+design decision D43 then apply instead, keyed by the first 64 bits of
+an IPv6 address (see `kit/jvm-core/README.md`). Issue #118 owns the
+remaining fix of the D20 rate limiter itself.
 
 ## OCTOMETER_PATH_PATTERNS
 
 A run of whitespace separates each route pattern of `OCTOMETER_PATH_PATTERNS` (a space, a tab, or a line break).
 
+## The anonymous per-minute limits
+
+`octometerIngestRoute` applies three per-minute limits of design
+decision D43 (issue #116). They replace the 120-request limit of
+design decision D20. They apply only for a request with no user id,
+when the app records an anonymous click
+(`OCTOMETER_RECORD_ANONYMOUS=true`).
+
+`OCTOMETER_ANON_REQ_PER_MIN` (default 300) limits the request count.
+`OCTOMETER_ANON_EVENTS_PER_MIN` (default 900) limits the click entry
+count. `OCTOMETER_ANON_SESSIONS_PER_MIN` (default 120) limits the
+`octo:session-start` entry count. Each limit uses the key of design
+decision D43: one IPv4 address, or the first 64 bits of an IPv6
+address. `kit/jvm-core/README.md` holds the full state of
+`AnonymousMinuteLimiter`. Each of the three counters is independent:
+an exhausted click-entry counter never blocks a session-start check
+of the same key.
+
+Above one counter, the route answers 429 (contract rule C19), not
+204. The request counter runs beside the rate limit of design
+decision D20, before the bot filter and the body read, because it
+needs no parsed entry. The click-entry counter and the session-start
+counter run only after the parse of the body. They need the parsed
+batch to tell the two kinds of entry apart. See "The order of the
+checks" below.
+
 ## The daily anonymous caps and the bot filter
 
 `octometerIngestRoute` applies two more limits of design decision D43
-(issue #117), with the per-minute rate limit above.
+(issue #117), with the per-minute limits above.
 
 `OCTOMETER_MAX_ANON_EVENTS_PER_DAY` (default 20000) and
 `OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY` (default 2000) cap the
@@ -90,23 +150,28 @@ drop count of that hour.
 
 `octometerIngestRoute` runs each check of one request in this order,
 and it stops at the first one that answers (design decision D43, issue
-#117). See the KDoc of `octometerIngestRoute` for the full detail.
+#117; issue #116). See the KDoc of `octometerIngestRoute` for the full
+detail.
 
 1. the `Content-Type` header (415);
 2. the rate limit of design decision D20 (429) — a client already at
    its limit never reaches step 3 or any step below;
-3. the bot filter (204), on the first 512 characters of the
+3. the anonymous per-minute request counter of design decision D43
+   (429); it needs no parsed entry, so it sits beside step 2;
+4. the bot filter (204), on the first 512 characters of the
    `User-Agent` value;
-4. the body size (400), the declared `Content-Length` header only,
+5. the body size (400), the declared `Content-Length` header only,
    with no body read;
-5. the real body read (400, for a body above the limit that step 4
+6. the real body read (400, for a body above the limit that step 5
    could not catch from its declared length alone) and the parse of
    the body (400);
-6. the design decision D19 drop: a request with no user id stores
+7. the anonymous per-minute click-entry counter and session-start
+   counter of design decision D43 (429). They need the parsed batch;
+8. the design decision D19 drop: a request with no user id stores
    nothing, when the app records no anonymous click;
-7. the daily anonymous caps (204), for a request with no user id,
+9. the daily anonymous caps (204), for a request with no user id,
    when the app records an anonymous click;
-8. the store, with the event cap of design decision D21 inside it.
+10. the store, with the event cap of design decision D21 inside it.
 
 The route corrected this order twice on 2026-09-22. The rate limiter
 now runs before the bot filter and any real body read, the original
@@ -114,15 +179,17 @@ rule of issue #33.
 
 A success answers 204 with an empty body. Each of the three drops
 above (the bot filter, a daily cap, and the event cap) also answers
-204 with an empty body. A client thus learns nothing about the reason
-(contract rule C19).
+204 with an empty body. Each per-minute limiter rejection above
+answers 429 with an empty body. A client thus learns nothing about
+the reason beyond that one status code (contract rule C19).
 
-**The daily cap key.** The daily anonymous cap reads the same
-normalised client address as the rate limiter above (the same
-`clientIpHeaderName` rule). A header value above 64 characters, or a
-value with no IPv4 or IPv6 address form, falls back to the remote
-address. The map of `AnonymousDailyCap` never holds a raw header
-value as a key.
+**The daily cap key and the minute-limiter key.** The daily anonymous
+cap, and the anonymous per-minute limiter, each read the same
+normalised client address as the rate limiter above. Each one uses
+the same `clientIpHeaderName` and `trustedProxyCount` rule. A header
+value above 64 characters, or a value with no IPv4 or IPv6 address
+form, falls back to the remote address. Neither map ever holds a raw
+header value as a key.
 
 ## The store dispatcher
 

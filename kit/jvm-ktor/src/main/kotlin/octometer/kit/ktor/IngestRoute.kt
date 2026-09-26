@@ -162,29 +162,30 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  * request in this order, and it stops at the first one that answers:
  *
  * 1. the `Content-Type` header (415, contract rule C12);
- * 2. the rate limiter of design decision D20 (429, issue #33), and the
- *    anonymous per-minute request counter of design decision D43
- *    (429, issue #116) — a client already at its limit never reaches
- *    step 3 or any step below. The request counter needs no parsed
- *    entry, so it sits beside the rate limiter, before the body read;
- * 3. the bot filter of [BotUserAgentFilter] (204), on a maximum of 512
+ * 2. the rate limiter of design decision D20 (429, issue #33) — a
+ *    client already at its limit never reaches step 3 or any step
+ *    below;
+ * 3. the anonymous per-minute request counter of design decision D43
+ *    (429, issue #116). It needs no parsed entry, so it sits beside
+ *    the rate limiter of step 2, before the bot filter and the body
+ *    read;
+ * 4. the bot filter of [BotUserAgentFilter] (204), on a maximum of 512
  *    characters of the `User-Agent` value;
- * 4. the body size (400, contract rule C18), the declared
+ * 5. the body size (400, contract rule C18), the declared
  *    `Content-Length` only, with no body read;
- * 5. the real body read (400, contract rule C18, for a body above the
- *    limit that step 4 could not catch from its declared length alone)
+ * 6. the real body read (400, contract rule C18, for a body above the
+ *    limit that step 5 could not catch from its declared length alone)
  *    and the parse of the body (400, the field rules of
  *    `kit/jvm-core`);
- * 6. the anonymous per-minute click-entry counter and session-start
- *    counter of design decision D43 (429, issue #116). These two
- *    counters need the parsed batch, to tell a click entry apart from
- *    an `octo:session-start` entry, so they run only here, after step
- *    5, never before it;
- * 7. the design decision D19 drop: a request with no user id stores
+ * 7. the anonymous per-minute click-entry counter and session-start
+ *    counter of design decision D43 (429, issue #116). They need the
+ *    parsed batch, to tell a click entry apart from an
+ *    `octo:session-start` entry, so they run only here, after step 6;
+ * 8. the design decision D19 drop: a request with no user id stores
  *    nothing and answers 204, when the app records no anonymous click;
- * 8. the daily anonymous caps of design decision D43 (204), for a
+ * 9. the daily anonymous caps of design decision D43 (204), for a
  *    request with no user id, when the app records an anonymous click;
- * 9. the store, with the event cap of design decision D21 inside it.
+ * 10. the store, with the event cap of design decision D21 inside it.
  *
  * @param store the event log store of the app.
  * @param ingestPath the path of the route. The default is the path of
@@ -286,7 +287,7 @@ public fun Route.octometerIngestRoute(
 
             // 2. The rate limiter (429, design decision D20, issue
             // #33). This runs before the bot filter and the real body
-            // read (steps 3 and 5). A client already at its limit
+            // read (steps 4 and 6). A client already at its limit
             // never reaches the filter, that read, or the parse. Issue
             // #117 restated this original rule of issue #33 on
             // 2026-09-22.
@@ -300,15 +301,16 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
-            // 2b. The anonymous per-minute request counter (429,
+            // 3. The anonymous per-minute request counter (429,
             // design decision D43, issue #116). It sits beside the
-            // rate limiter above, before the bot filter and the real
-            // body read, because this counter needs no parsed entry:
-            // one request is one count, with no need to read the
-            // body. It runs only for a request with no user id, when
-            // the app records an anonymous click. anonymousMinuteKey
-            // stays null otherwise, so the two entry counters of step
-            // 6 below skip their own check for the same request.
+            // rate limiter of step 2, before the bot filter and the
+            // real body read, because this counter needs no parsed
+            // entry: one request is one count, with no need to read
+            // the body. It runs only for a request with no user id,
+            // when the app records an anonymous click.
+            // anonymousMinuteKey stays null otherwise, so the two
+            // entry counters of step 7 below skip their own check for
+            // the same request.
             val anonymousMinuteKey = if (userId == null && settings.recordAnonymousClicks()) {
                 AnonymousKey.of(clientAddr!!)
             } else {
@@ -319,7 +321,7 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
-            // 3. The bot filter (204, design decision D43, issue #117).
+            // 4. The bot filter (204, design decision D43, issue #117).
             // This check reads a maximum of MAX_USER_AGENT_LENGTH
             // characters of the header value, so a long value never
             // makes the filter costly (Java review MAJOR 1). The kit
@@ -339,17 +341,17 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
-            // 4. Body size (400, contract rule C18): the declared
+            // 5. Body size (400, contract rule C18): the declared
             // Content-Length only, with no body read. A request with
             // no declared length, or a length at or under the limit,
-            // passes here. The real read below (step 5) still enforces
+            // passes here. The real read below (step 6) still enforces
             // the same limit for such a request.
             if (!hasAcceptableDeclaredLength(call, MAX_BODY_BYTES)) {
                 call.respond(HttpStatusCode.BadRequest)
                 return@post
             }
 
-            // 5. The body read (400, contract rule C18: a body above
+            // 6. The body read (400, contract rule C18: a body above
             // the limit with no declared length, or a declared length
             // that understates the real body) and the parse (400, the
             // field rules of `kit/jvm-core`).
@@ -365,15 +367,14 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
-            // 6. The anonymous per-minute click-entry counter and
+            // 7. The anonymous per-minute click-entry counter and
             // session-start counter (429, design decision D43, issue
-            // #116). These two counters need the parsed batch, to tell
-            // a click entry apart from an `octo:session-start` entry,
-            // so they run only here, after the parse of step 5, never
-            // before it. anonymousMinuteKey is null for a signed-in
-            // user, and for a request when the app records no
-            // anonymous click, so this check then never runs for such
-            // a request.
+            // #116). They need the parsed batch, to tell a click entry
+            // apart from an `octo:session-start` entry. They run only
+            // here, after the parse of step 6, never before it.
+            // anonymousMinuteKey is null for a signed-in user, and for
+            // a request when the app records no anonymous click, so
+            // this check then never runs for such a request.
             if (anonymousMinuteKey != null && events.isNotEmpty()) {
                 var clickEntryCount = 0
                 var sessionStartCount = 0
@@ -390,7 +391,7 @@ public fun Route.octometerIngestRoute(
                 }
             }
 
-            // 7. The design decision D19 drop: a request with no user
+            // 8. The design decision D19 drop: a request with no user
             // id stores nothing, when the app records no anonymous
             // click.
             if (userId == null && !settings.recordAnonymousClicks()) {
@@ -398,14 +399,14 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
-            // 8. The daily anonymous caps (204, design decision D43,
+            // 9. The daily anonymous caps (204, design decision D43,
             // issue #117), for a request with no user id, when the app
             // records an anonymous click. An empty batch needs no
             // check: it already stores nothing, the same as a dropped
             // batch. anonymousMinuteKey already holds the same
-            // normalised key that step 7 above confirms is available
-            // here, because step 7 already returned for a request with
-            // no user id when the app records no anonymous click.
+            // normalised key here. Step 8 above already returned for a
+            // request with no user id when the app records no
+            // anonymous click, so anonymousMinuteKey is not null here.
             if (userId == null && events.isNotEmpty()) {
                 if (!dailyCap.check(anonymousMinuteKey!!, events.size)) {
                     call.respond(HttpStatusCode.NoContent)
@@ -421,7 +422,7 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
-            // 9. The store, with the event cap of design decision D21
+            // 10. The store, with the event cap of design decision D21
             // inside it. A userId that breaks contract rule C6 is a
             // defect of the app, not of the client; it gives 500 below,
             // never 400.
