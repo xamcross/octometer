@@ -38,6 +38,12 @@
     This project skips octometer-kit-ktor (issue #68, decision 1). A
     Ktor route needs a running Ktor server. It cannot sit inside a
     Spring MVC app, so this project takes jvm-core and jvm-mongo only.
+
+    Issue #69 adds octometer-kit-spring, and the two Spring Security
+    starters, to this project alone (the maintainer's decision 3): the
+    CSRF exemption test of the ingest route needs a running Spring MVC
+    app with Spring Security, and this project is the one Maven-built
+    consumer smoke project of the two.
   -->
   <dependencies>
     <dependency>
@@ -45,8 +51,21 @@
       <artifactId>spring-boot-starter-data-mongodb</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+    <dependency>
       <groupId>com.github.xamcross.octometer</groupId>
       <artifactId>octometer-kit-mongo</artifactId>
+      <version>0.1.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.github.xamcross.octometer</groupId>
+      <artifactId>octometer-kit-spring</artifactId>
       <version>0.1.0</version>
     </dependency>
 
