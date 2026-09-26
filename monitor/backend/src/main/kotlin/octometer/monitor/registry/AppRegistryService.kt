@@ -5,6 +5,7 @@ import java.sql.SQLException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import octometer.monitor.mongo.sha256Hex
 import octometer.monitor.store.SqliteDatabase
 import org.sqlite.SQLiteErrorCode
 import org.sqlite.SQLiteException
@@ -138,6 +139,16 @@ class AppRegistryService(
      * check. A request with no usable field gives 400, also for an
      * unknown id. A request with both fields writes the name first, then
      * the secret; a failed secret write then leaves the new name in place.
+     *
+     * Issue #187: a connection string that differs from the old one
+     * resets the poll state of the app (`resetPollState`), so the next
+     * cycle reads the new source from its oldest event. This method
+     * compares the old and the new string by their SHA-256 hex only
+     * ([sha256Hex]), never by the plain string, and it writes neither
+     * string to a log line. It reads the old string from [secretStore]
+     * only here, right before it writes the new one. A failed write of
+     * the new string changes no column; the reset runs only after that
+     * write succeeds.
      */
     suspend fun updateApp(appId: Long, request: UpdateAppRequest): UpdateAppResult {
         val name = request.name?.trim()
@@ -173,10 +184,18 @@ class AppRegistryService(
         if (!found) return UpdateAppResult.NotFound
 
         if (request.connectionString != null) {
+            val oldConnectionString = try {
+                secretStore.get(appId)
+            } catch (secretFailure: SecretStoreUnavailableException) {
+                return UpdateAppResult.SecretStoreUnavailable
+            }
             try {
                 secretStore.put(appId, request.connectionString)
             } catch (secretFailure: SecretStoreUnavailableException) {
                 return UpdateAppResult.SecretStoreUnavailable
+            }
+            if (connectionStringChanged(oldConnectionString, request.connectionString)) {
+                database.write { writer -> resetPollState(writer, appId) }
             }
         }
         return UpdateAppResult.Updated
@@ -244,6 +263,27 @@ private fun appExists(reader: Connection, appId: Long): Boolean =
         select.setLong(1, appId)
         select.executeQuery().use { it.next() }
     }
+
+// Issue #187: a missing old string counts as a change, because the
+// monitor then has no known source for the cursor. This compares the
+// SHA-256 hex of each string only; neither string reaches this line.
+private fun connectionStringChanged(oldConnectionString: String?, newConnectionString: String): Boolean =
+    oldConnectionString == null || sha256Hex(oldConnectionString) != sha256Hex(newConnectionString)
+
+// Issue #187: a PATCH to a different connection string resets the
+// poll state, so the reader of section 4.3 starts the new source at
+// its oldest event. consecutive_failures resets to 0, the same as a
+// good cycle (RECORD_CYCLE_SUCCESS_SQL of EventStore.kt); every other
+// column here resets to NULL. See design decision D10.
+private fun resetPollState(writer: Connection, appId: Long) {
+    writer.prepareStatement(
+        "UPDATE app SET cursor = NULL, next_poll_at = NULL, last_poll_at = NULL, " +
+            "last_success_at = NULL, status = NULL, last_error = NULL, consecutive_failures = 0 WHERE id = ?",
+    ).use { update ->
+        update.setLong(1, appId)
+        update.executeUpdate()
+    }
+}
 
 // A subquery with LIMIT, not the DELETE...LIMIT form: the SQLite build of
 // this project does not confirm the update-delete-limit compile option.
