@@ -96,6 +96,19 @@ person skipped step 3. The start stops with one log line, and the code
 never deletes the two side files by itself; only a person, following the
 steps above, does that.
 
+## The log files (issue #57)
+
+The monitor writes each log line to the console, and to a rolling file. Each file appender
+uses one text pattern, with no query string, no header, and no connection string.
+
+- The file: `<logs>/octometer.log`. The folder `logs` is a sibling of `dataDir` (design
+  decisions D3 and D34); `Application.kt` reads `dataDir` from the resolved config, and sets
+  it before the file appender opens its first real file.
+- Each file rolls over at 10 MB, or at midnight, whichever comes first.
+- The monitor keeps 14 days of files, up to 200 MB in total. A file beyond either bound is
+  gone.
+- The dev mode (`dataDir = build/dev-data`) writes to `build/logs`.
+
 ## The user erasure route (issue #61)
 
 `DELETE /api/apps/{appId}/events?userId=<id>` deletes each event of one user id of one app in
