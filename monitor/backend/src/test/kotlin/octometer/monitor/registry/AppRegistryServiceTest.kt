@@ -124,6 +124,7 @@ class AppRegistryServiceTest {
         assertNull(state.status)
         assertNull(state.lastError)
         assertEquals(0, state.consecutiveFailures)
+        assertNull(state.privilegesCheckedAt, "a new database user needs a fresh privilege check (issue #30)")
     }
 
     @Test
@@ -478,7 +479,7 @@ class AppRegistryServiceTest {
         database.write { writer ->
             writer.prepareStatement(
                 "UPDATE app SET cursor = ?, next_poll_at = ?, last_poll_at = ?, last_success_at = ?, " +
-                    "status = ?, last_error = ?, consecutive_failures = ? WHERE id = ?",
+                    "status = ?, last_error = ?, consecutive_failures = ?, privileges_checked_at = ? WHERE id = ?",
             ).use { update ->
                 update.setString(1, SEEDED_CURSOR)
                 update.setLong(2, SEEDED_TIMESTAMP + 60_000)
@@ -487,7 +488,8 @@ class AppRegistryServiceTest {
                 update.setString(5, "OK")
                 update.setString(6, "MongoReadFailedException")
                 update.setInt(7, 3)
-                update.setLong(8, appId)
+                update.setLong(8, SEEDED_TIMESTAMP)
+                update.setLong(9, appId)
                 update.executeUpdate()
             }
         }
@@ -497,7 +499,7 @@ class AppRegistryServiceTest {
         database.read { reader ->
             reader.prepareStatement(
                 "SELECT cursor, next_poll_at, last_poll_at, last_success_at, status, last_error, " +
-                    "consecutive_failures FROM app WHERE id = ?",
+                    "consecutive_failures, privileges_checked_at FROM app WHERE id = ?",
             ).use { select ->
                 select.setLong(1, appId)
                 select.executeQuery().use { result ->
@@ -510,6 +512,7 @@ class AppRegistryServiceTest {
                         status = result.getString(5),
                         lastError = result.getString(6),
                         consecutiveFailures = result.getInt(7),
+                        privilegesCheckedAt = result.getNullableLong(8),
                     )
                 }
             }
@@ -524,7 +527,10 @@ class AppRegistryServiceTest {
 private const val SEEDED_CURSOR = "507f1f77bcf86cd799439011"
 private const val SEEDED_TIMESTAMP = 1_700_000_000_000L
 
-/** The seven poll-state columns of the `app` row (design decision D10, issue #187). */
+/**
+ * The eight poll-state columns of the `app` row (design decision D10,
+ * issue #187; `privilegesCheckedAt` of design decision D9, issue #30).
+ */
 private data class PollState(
     val cursor: String?,
     val nextPollAt: Long?,
@@ -533,6 +539,7 @@ private data class PollState(
     val status: String?,
     val lastError: String?,
     val consecutiveFailures: Int,
+    val privilegesCheckedAt: Long?,
 )
 
 // A test double of the second security review: put() always throws the
