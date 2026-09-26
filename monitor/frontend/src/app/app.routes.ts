@@ -59,6 +59,19 @@ export const routes: Routes = [
     },
   },
   {
+    path: 'apps/:appId/first-pages',
+    title: (route: ActivatedRouteSnapshot) =>
+      `First pages of App ${route.paramMap.get('appId')} - Octometer`,
+    loadComponent: () => import('./first-pages/first-pages').then((m) => m.FirstPages),
+    data: {
+      breadcrumb: (snapshot: ActivatedRouteSnapshot): BreadcrumbItem[] => [
+        { label: 'Apps', path: '/apps' },
+        { label: `App ${snapshot.paramMap.get('appId')}`, path: null },
+        { label: 'First pages', path: null },
+      ],
+    },
+  },
+  {
     path: 'apps/:appId/elements',
     // The title and the guard read userId and anonymous. This route re-runs
     // both on a query-parameter change, not on a path change alone.
