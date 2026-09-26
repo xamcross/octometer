@@ -4,57 +4,75 @@ This text is a draft in ASD-STE100 Simplified Technical English. It is not legal
 
 ## 1. The controller
 
-The controller of this app is `<owner name, contact address>`.
+The controller of this app is `<owner name, contact address>`, established in Ukraine.
 
 ## 2. The click data we record
 
-Each click gives one record. A record holds these items:
+We record your clicks so we can improve this app. Each record holds the
+time of the click, the name of the element, and the session id of your
+browser tab.
 
-- the name of the element;
-- the path of the page;
-- the time of the click;
-- the session id of your browser tab.
+The first record of a session also holds the host of the page that sent
+you here. The stored value is one of three words: `google.com`, `bing.com`,
+or `other`.
 
-The first record of a session also holds the host of the page that sent you here. The
-stored value is one of three words: `google.com`, `bing.com`, or `other`.
+A record never holds your name or your email address. A request with no
+signed-in user may use your IP address for one minute, in memory only, to
+limit abuse.
 
 ## 3. Your account id
 
-A signed-in user gets a pseudonymous account id in each record. This id is never your
-email address.
+A signed-in user gets a pseudonymous account id in each record. This id is
+never your email address.
 
 ## 4. The purpose
 
-We record clicks to build usage statistics of the app. We do not sell this data. We do
-not give this data to an advertiser.
+We record clicks to build usage statistics of the app. We do not sell
+this data. We do not give this data to an advertiser.
 
 ## 5. How long we keep your record
 
-The app log keeps a record for 30 days. This time is the default of the setting
-`OCTOMETER_RETENTION_DAYS`.
+The app log keeps a record for 30 days. This time is the default of the
+setting `OCTOMETER_RETENTION_DAYS`.
 
-The owner's own monitor keeps a copy of your record for 395 days. This time is the
-current default, not a final decision. A reviewer proposed a shorter time, 90 days, for
-a record tied to your account. Issue #60 sets the final time.
+The owner's own monitor keeps a copy of your record for 395 days. This
+time is the current default, not a final decision. A reviewer proposed a
+shorter time, 90 days, for a record tied to your account. Issue #60 sets
+the final time.
 
 ## 6. The legal basis
 
 [The owner states the legal basis here; issue #41.]
 
-## 7. The consent gate
+Issue #41 also holds the open decision on the consent method.
 
-The tracker of this app starts only after your consent signal. The app then calls
-`start()` on the tracker. `docs/integration-ktor.md` states the gate, in its tracker
-section.
+## 7. The processors
 
-## 8. Your account deletion
+We use MongoDB Atlas to store the record, Fly.io to run this app, and
+Cloudflare to serve its pages. Each processor sits outside the EU.
 
-When you delete your account, the app deletes each record of your account id at once.
-It also deletes the anonymous records of each session of your account id. A sign-in in
-the same browser tab connects the earlier anonymous clicks of that tab to your account.
+The EU-US Data Privacy Framework adequacy decision covers these three
+companies in the USA. No EU adequacy decision covers Ukraine. For Ukraine
+we use the safeguards named at `<link to the safeguards list>`. You may
+ask us for a copy of them.
 
-The owner's own monitor keeps its own copy until the owner runs a separate erasure
-step, after one poll cycle of the monitor.
+## 8. Your rights
+
+You may ask us to show, correct, delete, or export your record. You may
+also ask us to pause its use.
+
+You may complain to your national data protection authority. Contact:
+`<owner contact address>`.
+
+## 9. Your account deletion
+
+When you delete your account, the app deletes each record of your account
+id at once. It also deletes the anonymous records of each session of your
+account id. A sign-in in the same browser tab connects the earlier
+anonymous clicks of that tab to your account.
+
+The owner's own monitor keeps its own copy until the owner runs a separate
+erasure step, after one poll cycle of the monitor.
 
 <!--
 Sources:
@@ -65,11 +83,14 @@ kit/jvm-mongo/src/main/java/octometer/kit/mongo/store/MongoEventLogStore.java, l
   (the default of OCTOMETER_RETENTION_DAYS, 30 days)
 monitor/backend/src/main/resources/octometer-defaults.conf, line 15 (retentionDays,
   395 days)
-kit/tracker/README.md, "The consent gate"
 Issue #41 (open, the legal basis and the consent method)
 Issue #42 (the owner approval of this text)
 Issue #60 (open, the retention time of the monitor)
-The owner's comment on issue #45 (2026-09-21): #41 is parked for the pilot; the draft
-  privacy text of pull request #87, section 7, drops each sentence on consent and on
-  withdrawal for this draft.
+The owner's comment on issue #45 (2026-09-21): #41 is parked for the pilot. Sections
+  1, 4, 6, 7, and 8 of this draft take the text of pull request #87, section 7, a
+  reviewed draft. This text drops each sentence on consent and on withdrawal, and it
+  drops the legal basis line for the placeholder of issue #41.
+Sections 2, 5, and 9 add the click data, the retention sources, and the erasure width
+  that pull request #87 lacks (referrerHost of contract rule C40, decision D15, and
+  contract rule C43).
 -->

@@ -7,8 +7,8 @@ Where this guide says "your app", put the name of your own app.
 **A note for an app behind a path-limited proxy.** Some apps sit behind a proxy. The
 proxy forwards only a few path prefixes to the backend, for example an API prefix, an
 OAuth prefix, and a login-callback prefix. The app also sets a Content Security Policy
-with `connect-src 'self'`. Put the ingest path of step 3 below the proxied prefix. The
-tracker of step 5 then posts to the same origin as the page. The proxy forwards the
+with `connect-src 'self'`. Put the ingest path of step 5 below the proxied prefix. The
+tracker of step 7 then posts to the same origin as the page. The proxy forwards the
 request in that case.
 
 ## 1. The dependency
@@ -76,8 +76,9 @@ decision D21 never stops the ingest, and the store writes one warning each hour.
 
 ## 3. The database user
 
-Create the role and the user of the app on the Atlas CLI. The owner runs each command
-below. A password must never pass through an agent.
+Create the read-only role and the user for the monitor. This user is not the app
+database user of section 2. The owner runs each command below on the Atlas CLI. A
+password must never pass through an agent.
 
 ```
 atlas customDbRoles create octometerEventReader --privilege FIND@<database>.octometer_events --projectId <id>
@@ -156,24 +157,26 @@ Set `<n>` for the normal traffic of your app.
 
 **3. Storage, at 80 percent of the M0 limit.**
 
-M0 has a storage limit of 512 MB. Eighty percent of 512 MB is 409.6 MB. A free cluster
-has no disk-partition metric, thus this alert checks the data size metric instead.
+M0 has a storage limit of 512 MiB, that is 536870912 bytes. Eighty percent of that
+value is 429496730 bytes. A free cluster has no disk-partition metric, thus this
+alert checks the total document data size metric instead.
 
 ```
 atlas alerts settings create \
   --event OUTSIDE_METRIC_THRESHOLD \
-  --metricName DB_DATA_SIZE \
+  --metricName DB_DATA_SIZE_TOTAL \
   --metricOperator GREATER_THAN \
-  --metricThreshold 409.6 \
-  --metricUnits MEGABYTES \
+  --metricThreshold 429496730 \
+  --metricUnits BYTES \
   --notificationType GROUP \
   --notificationEmailEnabled \
   --notificationIntervalMin 5 \
   --projectId <id>
 ```
 
-Use `--notificationEmailAddress <address>` in place of the three `--notification...`
-flags above, when the project has no group to notify.
+Use `--notificationType EMAIL --notificationEmailAddress <address>` in place of
+`--notificationType GROUP --notificationEmailEnabled` above, when the project has no
+group to notify. Keep `--notificationIntervalMin`.
 
 ## 5. The route
 
@@ -343,4 +346,8 @@ Section 4, the metric names and the free-cluster metric list:
   https://www.mongodb.com/docs/atlas/reference/alert-conditions/, read 2026-09-26. The
   page states: "Free clusters and Flex clusters only trigger alerts related to the
   metrics supported by those clusters."
+Section 4, the storage alert metric name and its unit:
+  https://www.mongodb.com/docs/atlas/reference/alert-host-metrics/, read 2026-09-26.
+  The page holds `DB_DATA_SIZE_TOTAL`, not `DB_DATA_SIZE`, and states that this metric
+  counts the document data of each database in bytes.
 -->
