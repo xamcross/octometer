@@ -71,16 +71,19 @@ internal const val STATUS_OK = "OK"
 internal const val STATUS_INVALID_DATA = "INVALID_DATA"
 
 /**
- * A failed MongoDB read of one poll cycle. The message holds one fixed
- * sentence plus the class name of the real cause.
+ * A failed MongoDB read of one poll cycle (design decision D8, the
+ * maintainer's decision 1). [status] is the mapped candidate status of
+ * [mongoFailureStatus]; the caller of [MongoAppReader.pollOnce] still
+ * applies the failed-cycle-count rule before it writes the app row.
+ * [code] is the numeric command error code, or `null`.
  *
- * The message never holds a host, a port, or a database name. It never
- * holds a part of a connection string either (design decision D11, the
- * security note of issue #16). This class keeps no `cause`, so a stack
- * trace of this exception cannot reach the driver message either.
+ * This class keeps no `cause`, and its message holds no text of the
+ * real exception: only the two fields above. It never holds a host, a
+ * port, a database name, or a part of a connection string either
+ * (design decision D11, the security note of issue #16).
  */
-class MongoReadFailedException(cause: Throwable) :
-    Exception("The reader could not read MongoDB. ${cause.javaClass.simpleName}")
+class MongoReadFailedException(val status: String, val code: Int?) :
+    Exception("The reader could not read MongoDB. status=$status code=$code")
 
 /** The app that one poll cycle reads (steps 1 to 5 of issue #16). */
 data class PollTarget(
@@ -414,6 +417,11 @@ class MongoAppReader(
      * failed cycle; this line would double it otherwise. The line here
      * never holds the connection string, and never the server text of
      * the real cause.
+     *
+     * [mongoFailureStatus] maps the real exception to the status and
+     * the code of [MongoReadFailedException] (design decision D8, the
+     * maintainer's decision 1), at this wrap site, the one place that
+     * still holds the real exception.
      */
     private suspend fun <T> withMongoFailure(block: suspend () -> T): T =
         try {
@@ -421,10 +429,12 @@ class MongoAppReader(
         } catch (cancellation: CancellationException) {
             if (!currentCoroutineContext().isActive) throw cancellation
             log.debug("The MongoDB read failed. {}", cancellation.javaClass.simpleName)
-            throw MongoReadFailedException(cancellation)
+            val mapped = mongoFailureStatus(cancellation)
+            throw MongoReadFailedException(mapped.status, mapped.code)
         } catch (failure: Exception) {
             log.debug("The MongoDB read failed. {}", failure.javaClass.simpleName)
-            throw MongoReadFailedException(failure)
+            val mapped = mongoFailureStatus(failure)
+            throw MongoReadFailedException(mapped.status, mapped.code)
         }
 }
 
