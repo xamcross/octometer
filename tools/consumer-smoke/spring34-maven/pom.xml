@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The consumer smoke project for Spring Boot 3.4.1 with Maven (issue #68).
+  It proves the kit resolves from mavenLocal() and the app starts, on the
+  build of the pilot app (comment of the owner on issue #68, 2026-09-21).
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.4.1</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.octometer.smoke</groupId>
+  <artifactId>spring34-maven</artifactId>
+  <version>0.1.0</version>
+  <packaging>jar</packaging>
+  <name>Octometer Consumer Smoke - Spring Boot 3.4.1 Maven</name>
+  <description>A minimal Spring Boot 3.4.1 app. It proves that the Octometer kit resolves and starts.</description>
+
+  <properties>
+    <java.version>21</java.version>
+  </properties>
+
+  <!--
+    The kit dependency (design decision D25, issue #37). Its group id and
+    its artifact id come from the output of "./gradlew publishToMavenLocal"
+    on 2026-09-26: com.github.xamcross.octometer:octometer-kit-mongo:0.1.0.
+    Maven reads it from mavenLocal(), the default local repository, with
+    no extra repository entry. The artifact octometer-kit-core comes with
+    it as a transitive dependency of octometer-kit-mongo.
+
+    This project skips octometer-kit-ktor (issue #68, decision 1). A
+    Ktor route needs a running Ktor server. It cannot sit inside a
+    Spring MVC app, so this project takes jvm-core and jvm-mongo only.
+  -->
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-mongodb</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.github.xamcross.octometer</groupId>
+      <artifactId>octometer-kit-mongo</artifactId>
+      <version>0.1.0</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>
