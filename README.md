@@ -8,6 +8,9 @@ Read `App Description.md` for the product description. Read
 `docs/superpowers/specs/2026-09-21-octometer-design.md` for the design
 decisions and the contract rules.
 
+Read `minor_issues.md` for each open MINOR finding of a review. The owner
+decided on 2026-09-22 that a row stays in that file until a later fix.
+
 `./gradlew build` needs Node 24 and npm on the PATH for the demo app
 (Ktor review MAJOR 3, pull request #168). Read
 `tools/demo-app/README.md` for the setup steps.
