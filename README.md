@@ -8,14 +8,18 @@ Read `App Description.md` for the product description. Read
 `docs/superpowers/specs/2026-09-21-octometer-design.md` for the design
 decisions and the contract rules.
 
-Read `minor_issues.md` for each open MINOR finding of a review. The owner
-decided on 2026-09-22 that each row stays in that file, also after the
-production release. A later fix sets the status of the row to
-`fixed in #N`. No pull request fixes a MINOR finding of its own review.
+Read `minor_issues.md` for the rule. Read `minor_issues/<PR>.md` for each
+open MINOR finding of pull request `<PR>`. The owner decided on 2026-09-22
+that each row stays in the store, also after the production release. A
+later fix sets the status of the row to `fixed in #N`. No pull request
+fixes a MINOR finding of its own review.
 
 `./gradlew build` needs Node 24 and npm on the PATH for the demo app
 (Ktor review MAJOR 3, pull request #168). Read
 `tools/demo-app/README.md` for the setup steps.
+
+Read `docs/demo.md` for the full demo. It gives the start commands and
+one real run, from a click on the demo page to a number on level 1.
 
 ## The build cache and the changed-only test runs
 

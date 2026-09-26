@@ -70,6 +70,21 @@ internal const val STATUS_OK = "OK"
 /** The status of D8 for a cycle that skipped one document or more (design decision D5). */
 internal const val STATUS_INVALID_DATA = "INVALID_DATA"
 
+/** The one element that marks a session start (contract rule C38). */
+internal const val SESSION_START_ELEMENT = "octo:session-start"
+
+/** The `kind` value of a click event (section 6 of the design). */
+internal const val KIND_CLICK = 0
+
+/** The `kind` value of the element [SESSION_START_ELEMENT] (section 6 of the design). */
+internal const val KIND_SESSION_START = 1
+
+/** The byte limit of `path` (contract rule C39). */
+internal const val PATH_MAX_BYTES = 150
+
+/** The byte limit of `referrerHost` (contract rule C40). */
+internal const val REFERRER_HOST_MAX_BYTES = 253
+
 /**
  * A failed MongoDB read of one poll cycle. The message holds one fixed
  * sentence plus the class name of the real cause.
@@ -429,9 +444,19 @@ class MongoAppReader(
 }
 
 /**
- * Parses one event document into [NewEvent] (contract rules C1 to C6).
- * An unknown field of the document stays out of the result (contract
- * rule C9). This function reads only the five named fields.
+ * Parses one event document into [NewEvent] (contract rules C1 to C6,
+ * C39, C40). An unknown field of the document stays out of the result
+ * (contract rule C9).
+ *
+ * [path] copies the value of the document as it is, for each element
+ * (design decision D5: "the reader copies a `path` value ... as they
+ * are"). [referrerHost] copies the value only for the element
+ * [SESSION_START_ELEMENT]; each other element gives a `null`
+ * `referrerHost`, even when the document holds the field (section 6:
+ * "it copies `referrer_host` from a session start"; contract rule
+ * C40). This function adds no normalisation of a copied value. `kind`
+ * is [KIND_SESSION_START] for the element [SESSION_START_ELEMENT],
+ * and [KIND_CLICK] for each other element (section 6).
  *
  * [MongoAppReader.runCycle] calls [invalidReason] first, so this
  * function runs only for a document that already passed that check.
@@ -442,12 +467,19 @@ internal fun parseEvent(document: Document): NewEvent {
     val element = document.getString("element")
     val sessionId = document.getString("sessionId")
     val userId = document.getString("userId")
+    val path = document.getString("path")
+    val isSessionStart = element == SESSION_START_ELEMENT
+    val referrerHost = if (isSessionStart) document.getString("referrerHost") else null
+    val kind = if (isSessionStart) KIND_SESSION_START else KIND_CLICK
     return NewEvent(
         eventId = id.toHexString(),
         ts = ts.time,
         element = element,
         sessionId = sessionId,
         userId = userId,
+        path = path,
+        referrerHost = referrerHost,
+        kind = kind,
     )
 }
 
@@ -460,6 +492,12 @@ internal fun parseEvent(document: Document): NewEvent {
  * An absent `userId` field is a valid anonymous event, the same as an
  * explicit `null` value (contract rule C6). An empty `userId` string is
  * invalid.
+ *
+ * `path` and `referrerHost` are optional (issue #110). An absent field
+ * never makes the document invalid. A present field is invalid under
+ * design decision D5 in one of two cases: it has the wrong BSON type,
+ * or its UTF-8 byte length is above the contract limit (rule C39 for
+ * `path`, rule C40 for `referrerHost`).
  */
 internal fun invalidReason(document: Document): String? {
     val ts = document["ts"]
@@ -474,6 +512,14 @@ internal fun invalidReason(document: Document): String? {
     val userId = document["userId"]
     if (userId != null && userId !is String) return "userId wrong type"
     if (userId is String && userId.isEmpty()) return "userId empty"
+    val path = document["path"]
+    if (path != null && path !is String) return "path wrong type"
+    if (path is String && path.toByteArray(Charsets.UTF_8).size > PATH_MAX_BYTES) return "path too long"
+    val referrerHost = document["referrerHost"]
+    if (referrerHost != null && referrerHost !is String) return "referrerHost wrong type"
+    if (referrerHost is String && referrerHost.toByteArray(Charsets.UTF_8).size > REFERRER_HOST_MAX_BYTES) {
+        return "referrerHost too long"
+    }
     return null
 }
 
