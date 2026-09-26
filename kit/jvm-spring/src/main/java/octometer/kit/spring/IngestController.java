@@ -66,6 +66,16 @@ public final class IngestController {
     /** The default of the Spring property {@code octometer.ingest-path} (contract rule C12). */
     public static final String DEFAULT_INGEST_PATH = "/api/octometer/v1/clicks";
 
+    /**
+     * The maximum size of one request body, in bytes (contract rule
+     * C18). {@link #readBody} reads at most one byte above this bound,
+     * the same bound as {@code receiveLimitedText} of
+     * `kit/jvm-ktor/src/main/kotlin/octometer/kit/ktor/IngestRoute.kt`
+     * (the fix of MAJOR 1, the Java and Spring review and the security
+     * review of pull request #215).
+     */
+    private static final long MAX_BODY_BYTES = 16 * 1024;
+
     private static final Logger LOGGER = System.getLogger("octometer.kit.spring");
 
     private final IngestRequestProcessor processor;
@@ -157,6 +167,9 @@ public final class IngestController {
             }
 
             String body = readBody(request);
+            if (body == null) {
+                return respond(new IngestResult(400));
+            }
             IngestResult result = processor.afterBody(outcome, body);
             return respond(result);
         } catch (IOException | RuntimeException cause) {
@@ -182,16 +195,30 @@ public final class IngestController {
     }
 
     /**
-     * Reads the whole request body, decoded as UTF-8 (RFC 8259; a
-     * {@code charset} parameter of the `Content-Type` header has no
-     * effect). Unlike `octometerIngestRoute` of `kit/jvm-ktor`, this
-     * method reads the body with no streamed limit of its own; {@link
-     * IngestRequestProcessor#afterBody} checks the decoded text's own
-     * UTF-8 byte count against the 16 KB limit of contract rule C18.
+     * Reads the request body as text, with a limit of
+     * {@link #MAX_BODY_BYTES} raw bytes (contract rule C18). This method
+     * never reads more than one byte above the limit into memory, so a
+     * large body never reaches the heap in full; a chunked request with
+     * no declared {@code Content-Length} still gets this bound (MAJOR 1
+     * of the Java and Spring review and of the security review of pull
+     * request #215: {@link IngestRequestProcessor#beforeBody} checks
+     * only the declared length, and a chunked request declares none).
+     * This method returns {@code null} for a body above the limit; the
+     * caller then answers 400 with no call of
+     * {@link IngestRequestProcessor#afterBody}.
+     *
+     * <p>It always decodes the body as UTF-8, because RFC 8259 needs
+     * UTF-8 for JSON; a {@code charset} parameter of the
+     * `Content-Type` header has no effect (the same rule as
+     * `octometerIngestRoute` of `kit/jvm-ktor`).
      */
     private static String readBody(HttpServletRequest request) throws IOException {
         try (InputStream inputStream = request.getInputStream()) {
-            return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+            byte[] bytes = inputStream.readNBytes((int) (MAX_BODY_BYTES + 1));
+            if (bytes.length > MAX_BODY_BYTES) {
+                return null;
+            }
+            return new String(bytes, StandardCharsets.UTF_8);
         }
     }
 

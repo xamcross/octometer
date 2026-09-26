@@ -155,6 +155,118 @@ class IngestControllerTest {
     }
 
     @Test
+    void aBodyAboveTheLimitWithNoDeclaredLengthGives400AndTheControllerReadsNoUnlimitedBody() {
+        // MAJOR 1 of the Java and Spring review and of the security
+        // review of pull request #215: a chunked request declares no
+        // Content-Length, so the check of step 5 alone lets an
+        // unbounded body reach readBody. The status alone cannot prove
+        // the fix: afterBody checks the decoded byte count again, so it
+        // still answers 400 for a body that readBody already read in
+        // full. This test instead counts each byte that readBody pulls
+        // from a 1 MB source stream with no declared length, through
+        // CountingServletInputStream, and asserts that the count stays
+        // at or under 16385 bytes (the 16 KB limit of contract rule C18,
+        // plus one). This test calls IngestController.ingest directly,
+        // because MockMvc ties getContentLengthLong() to the byte count
+        // of its own content array, so it cannot build such a request.
+        byte[] oneMegabyte = new byte[1024 * 1024];
+        java.util.Arrays.fill(oneMegabyte, (byte) 'a');
+        CountingServletInputStream countingInputStream = new CountingServletInputStream(oneMegabyte);
+        HttpServletRequestForTest request = new HttpServletRequestForTest(countingInputStream);
+        IngestController controller = new IngestController(new InMemoryEventLogStore(), req -> "user-1",
+                new IngestSettings(true), Clock.fixed(START, ZoneOffset.UTC));
+
+        org.springframework.http.ResponseEntity<Void> response = controller.ingest(request);
+
+        assertEquals(400, response.getStatusCode().value());
+        assertTrue(countingInputStream.bytesRead() <= 16 * 1024 + 1,
+                "Expected readBody to read at most 16385 bytes, but it read " + countingInputStream.bytesRead() + ".");
+    }
+
+    /**
+     * A minimal {@link jakarta.servlet.http.HttpServletRequest} for
+     * {@link #aBodyAboveTheLimitWithNoDeclaredLengthGives400AndTheControllerReadsNoUnlimitedBody}.
+     * It gives {@code application/json}, no declared length, and the
+     * given input stream; every other method throws, because
+     * {@link IngestController} never calls one.
+     */
+    private static final class HttpServletRequestForTest extends jakarta.servlet.http.HttpServletRequestWrapper {
+        private final jakarta.servlet.ServletInputStream inputStream;
+
+        HttpServletRequestForTest(jakarta.servlet.ServletInputStream inputStream) {
+            super(new org.springframework.mock.web.MockHttpServletRequest("POST", IngestController.DEFAULT_INGEST_PATH));
+            this.inputStream = inputStream;
+            ((org.springframework.mock.web.MockHttpServletRequest) getRequest())
+                    .setContentType(MediaType.APPLICATION_JSON_VALUE);
+        }
+
+        @Override
+        public long getContentLengthLong() {
+            return -1;
+        }
+
+        @Override
+        public int getContentLength() {
+            return -1;
+        }
+
+        @Override
+        public jakarta.servlet.ServletInputStream getInputStream() {
+            return inputStream;
+        }
+    }
+
+    /**
+     * A {@link jakarta.servlet.ServletInputStream} over a byte array,
+     * that counts each byte a caller reads from it.
+     */
+    private static final class CountingServletInputStream extends jakarta.servlet.ServletInputStream {
+        private final java.io.ByteArrayInputStream delegate;
+        private long bytesRead;
+
+        CountingServletInputStream(byte[] data) {
+            this.delegate = new java.io.ByteArrayInputStream(data);
+        }
+
+        long bytesRead() {
+            return bytesRead;
+        }
+
+        @Override
+        public int read() {
+            int value = delegate.read();
+            if (value >= 0) {
+                bytesRead += 1;
+            }
+            return value;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) {
+            int count = delegate.read(b, off, len);
+            if (count > 0) {
+                bytesRead += count;
+            }
+            return count;
+        }
+
+        @Override
+        public boolean isFinished() {
+            return delegate.available() == 0;
+        }
+
+        @Override
+        public boolean isReady() {
+            return true;
+        }
+
+        @Override
+        public void setReadListener(jakarta.servlet.ReadListener readListener) {
+            throw new UnsupportedOperationException("This test stream needs no async read listener.");
+        }
+    }
+
+    @Test
     void theControllerCallsTheStoreOfTheApp() throws Exception {
         List<String> appendedUserIds = new java.util.ArrayList<>();
         EventLogStore store = new EventLogStore() {
