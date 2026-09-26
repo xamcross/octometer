@@ -102,7 +102,14 @@ class ConnectionStringSentinelContainerTest {
         /** The element name prefix of each good sentinel event, for the elements route check. */
         private const val SENTINEL_ELEMENT_PREFIX = "octo.sentinel-click"
 
-        private const val POLL_INTERVAL_SECONDS = 1
+        // Merge correction of pull request #211: issue #207 added the
+        // wake rule of design decision D7. It compares the real clock
+        // with the planned tick time, and a gap above two poll
+        // intervals starts a 15-second wait. A poll interval of 1
+        // second gave a threshold of 2 seconds, too close to ordinary
+        // test overhead (a container start, a JVM warm-up). 5 seconds
+        // gives a threshold of 10 seconds, well above that overhead.
+        private const val POLL_INTERVAL_SECONDS = 5
         private const val SETTLE_LAG_SECONDS = 1
 
         // A large value, the same rule as TestConfigs.kt: this test
@@ -113,17 +120,19 @@ class ConnectionStringSentinelContainerTest {
 
         // Poll 1 (a wrong password) fails fast: a client-side SASL
         // rejection, with no network wait.
-        private const val AUTH_FAILURE_WAIT_BOUND_MILLIS = 15_000L
+        private const val AUTH_FAILURE_WAIT_BOUND_MILLIS = 20_000L
 
-        // Poll 2 (a wrong host) waits for the driver's own server
-        // selection timeout of MongoAppReader's defaultMongoClient
-        // (10 seconds, SERVER_SELECTION_TIMEOUT_MS), plus the tick and
-        // the backoff delay around it.
-        private const val HOST_FAILURE_WAIT_BOUND_MILLIS = 30_000L
+        // Poll 2 (a wrong host) waits for the backoff delay after poll
+        // 1 (about one poll interval), then the driver's own server
+        // selection timeout of MongoAppReader's defaultMongoClient (10
+        // seconds, SERVER_SELECTION_TIMEOUT_MS).
+        private const val HOST_FAILURE_WAIT_BOUND_MILLIS = 40_000L
 
-        private const val SUCCESS_WAIT_BOUND_MILLIS = 15_000L
+        // Poll 3 waits for the backoff delay after poll 2 (about two
+        // poll intervals), then a fast, good poll cycle.
+        private const val SUCCESS_WAIT_BOUND_MILLIS = 30_000L
 
-        private const val CLASS_TIME_BUDGET_SECONDS = 90.0
+        private const val CLASS_TIME_BUDGET_SECONDS = 120.0
     }
 
     private val root = Files.createTempDirectory("octometer-sentinel-container-test-").toFile().also { registerTempRoot(it) }
@@ -213,6 +222,18 @@ class ConnectionStringSentinelContainerTest {
                             httpClient,
                             "http://127.0.0.1:$monitorPort/api/apps/$appId/elements?userId=$MARKER_USER_ID",
                         ),
+                        // Merge correction of pull request #211: issue
+                        // #112 added this route after the first merge
+                        // of this branch. Its statement filters on
+                        // kind = 1 (a session start). Each good
+                        // sentinel event of this test is a plain click
+                        // (kind 0), so this route gives an empty row
+                        // list for this app. The check below still
+                        // proves that its body holds neither marker.
+                        firstPagesBody = fetchBody(
+                            httpClient,
+                            "http://127.0.0.1:$monitorPort/api/apps/$appId/first-pages",
+                        ),
                     )
                 }
 
@@ -232,9 +253,11 @@ class ConnectionStringSentinelContainerTest {
                 assertFalse(responses.appsBody.contains(MARKER_SECOND_VALUE), "GET /api/apps held the password")
                 assertFalse(responses.usersBody.contains(MARKER_SECOND_VALUE), "the users route held the password")
                 assertFalse(responses.elementsBody.contains(MARKER_SECOND_VALUE), "the elements route held the password")
+                assertFalse(responses.firstPagesBody.contains(MARKER_SECOND_VALUE), "the first-pages route held the password")
                 assertFalse(responses.appsBody.contains(MARKER_CONNECTION_USER), "GET /api/apps held the user name")
                 assertFalse(responses.usersBody.contains(MARKER_CONNECTION_USER), "the users route held the user name")
                 assertFalse(responses.elementsBody.contains(MARKER_CONNECTION_USER), "the elements route held the user name")
+                assertFalse(responses.firstPagesBody.contains(MARKER_CONNECTION_USER), "the first-pages route held the user name")
 
                 // The good events must still reach the app's own data
                 // routes (D13), or this test would pass by accident,
@@ -370,12 +393,13 @@ class ConnectionStringSentinelContainerTest {
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 }
 
-/** The three API bodies of one test run, gathered inside the log capture. */
+/** The four API bodies of one test run, gathered inside the log capture. */
 private data class SentinelResponses(
     val appId: Long,
     val appsBody: String,
     val usersBody: String,
     val elementsBody: String,
+    val firstPagesBody: String,
 )
 
 /** One row of `GET /api/apps` (D13, level 1). Mirrors `AppTotalsRow` of `AppTotalsRoute.kt`. */
