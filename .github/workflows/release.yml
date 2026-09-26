@@ -37,28 +37,42 @@ jobs:
         with:
           persist-credentials: false
 
+      # Security review MAJOR 1. No step of this workflow puts a
+      # "${{ }}" expression inside a run: script. Each value goes
+      # through env: first, and each shell read stays quoted.
       - name: Determine the release tag
         id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            tag="${GITHUB_REF_NAME}"
+          shopt -s extglob
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            tag="$GITHUB_REF_NAME"
           else
-            tag="${{ inputs.tag }}"
+            tag="$INPUT_TAG"
           fi
+          case "$tag" in
+            +([0-9]).+([0-9]).+([0-9])) ;;
+            *)
+              echo "The tag $tag holds a character other than a digit or a dot, or it does not fit the form X.Y.Z." >&2
+              exit 1
+              ;;
+          esac
           echo "The workflow uses the tag $tag."
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       # Issue #39, step 3. The release needs one clear match between the
       # tag and the changelog entry that names its content.
       - name: Compare the tag with the top entry of CHANGELOG.md
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          tag="${{ steps.tag.outputs.tag }}"
           top_version=$(grep -m1 -E '^## [0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | sed -E 's/^## ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-          if [ "$tag" != "$top_version" ]; then
-            echo "The tag $tag does not match the top entry $top_version of CHANGELOG.md." >&2
+          if [ "$TAG" != "$top_version" ]; then
+            echo "The tag $TAG does not match the top entry $top_version of CHANGELOG.md." >&2
             exit 1
           fi
-          echo "The tag $tag matches the top entry of CHANGELOG.md."
+          echo "The tag $TAG matches the top entry of CHANGELOG.md."
 
       - name: Set up Temurin 21
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
@@ -82,13 +96,24 @@ jobs:
 
       # Issue #39, step 4. distZip packages the Angular build inside the
       # monitor zip (see monitor/backend/build.gradle.kts, buildFrontend).
+      # Security review MAJOR 2 and release review MAJOR 1. "-Pversion"
+      # binds the built zip name to the tag. monitor/backend/build.gradle.kts
+      # reads this property, with the old default value as its fallback.
       - name: Build the release zip
-        run: ./gradlew :monitor:backend:distZip
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: ./gradlew :monitor:backend:distZip "-Pversion=$TAG"
 
       - name: Find the built zip
         id: zip
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          zip_path=$(ls monitor/backend/build/distributions/octometer-monitor-*.zip | head -n 1)
+          zip_path="monitor/backend/build/distributions/octometer-monitor-$TAG.zip"
+          if [ ! -f "$zip_path" ]; then
+            echo "The build produced no file $zip_path. The Gradle version differs from the tag." >&2
+            exit 1
+          fi
           echo "The build produces the file $zip_path."
           echo "path=$zip_path" >> "$GITHUB_OUTPUT"
 
@@ -96,9 +121,10 @@ jobs:
       # D26, issue #39). A dry run through workflow_dispatch stops here.
       - name: Write the changelog section of the tag to a file
         if: github.event_name == 'push'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          tag="${{ steps.tag.outputs.tag }}"
-          awk -v tag="$tag" '
+          awk -v tag="$TAG" '
             $0 ~ "^## " tag { found = 1; next }
             found && $0 ~ "^## " { exit }
             found { print }
@@ -109,23 +135,26 @@ jobs:
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          ZIP_PATH: ${{ steps.zip.outputs.path }}
         run: |
-          gh release create "${{ steps.tag.outputs.tag }}" "${{ steps.zip.outputs.path }}" \
-            --title "${{ steps.tag.outputs.tag }}" \
+          gh release create "$TAG" "$ZIP_PATH" \
+            --title "$TAG" \
             --notes-file release-notes.md
 
       # Issue #39, step 6. The coordinates come from the comment of
       # issue #37 (group com.github.xamcross.octometer, tag as version).
       - name: Request the JitPack POM of each kit module
         if: github.event_name == 'push'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          tag="${{ steps.tag.outputs.tag }}"
           group_path="com/github/xamcross/octometer"
           modules="octometer-kit-core octometer-kit-mongo octometer-kit-ktor"
           # JitPack builds a coordinate on its first request. Each module
           # below waits for its build, with a bound of 10 minutes.
           for module in $modules; do
-            url="https://jitpack.io/$group_path/$module/$tag/$module-$tag.pom"
+            url="https://jitpack.io/$group_path/$module/$TAG/$module-$TAG.pom"
             deadline=$((SECONDS + 600))
             status="000"
             while [ "$SECONDS" -lt "$deadline" ]; do
