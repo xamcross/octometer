@@ -258,7 +258,12 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   the start of the monitor. The monitor keeps it for the next cycles and closes it after a
   PATCH of the connection string or a delete of the app. `maxPoolSize=2`, `serverSelectionTimeoutMS=10000`, `maxIdleTimeMS=120000`,
   `appName=octometer`. The monitor checks the scheme with a string test before the driver
-  parses the URI.
+  parses the URI. A PATCH of the connection string to a different string resets `cursor`,
+  `last_poll_at`, `last_success_at`, `next_poll_at`, `status`, and `last_error` to `NULL`, and
+  `consecutive_failures` to 0 (maintainer decision, 2026-09-26): the new source then reads
+  each event from the oldest one. A PATCH with the same string, or of the name alone, keeps
+  every column. The reset costs time only, not a wrong number: the reader stores each event
+  one time, by its `_id` (issue #187).
 - **D11. Secrets.** The registry stores each connection string in
   `%LOCALAPPDATA%\Octometer\secrets\apps.json`, outside `dataDir`, thus a database backup
   holds no credential. No encryption in the application. The run guide names BitLocker
