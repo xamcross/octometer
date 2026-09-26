@@ -516,6 +516,59 @@ class MongoAppReaderUnitTest {
         throwingReader.close()
     }
 
+    // --- The exception map of design decision D8 (issue #28, the maintainer's decision 1) ---
+
+    // The acceptance criterion of issue #28: an unknown exception gives
+    // ERROR. mongoFailureStatus of MongoFailureMappingTest already
+    // proves this at the pure-function level, with no MongoAppReader.
+    // This test proves the wrap site of withMongoFailure applies that
+    // same map, through the one path that a real poll cycle can reach.
+    @Test
+    fun `an unknown exception maps to the status ERROR, with no code`() = runBlocking {
+        val unknownReader = MongoAppReader(
+            eventStore,
+            settleLagSeconds = 2,
+            serverTimeSource = { throw java.util.NoSuchElementException("a probe failure of an unknown type") },
+        )
+        val target = PollTarget(appId, "db", "octometer_events", cursor = null)
+
+        val failure = kotlin.runCatching {
+            unknownReader.pollOnce(target, "mongodb://127.0.0.1:1/exampledb")
+        }.exceptionOrNull()
+
+        assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
+        assertEquals(STATUS_ERROR, failure.status)
+        assertEquals(null, failure.code)
+        unknownReader.close()
+    }
+
+    // The acceptance criterion of issue #28: an exception message with
+    // a URI gives a last_error without the URI. MongoReadFailedException
+    // keeps no message text of the real cause (the maintainer's decision
+    // 1), so last_error, built from its status and its code only, can
+    // never hold the URI either. markerUri is the one allow-listed fake
+    // credential of .gitleaks.toml (octometer.monitor.registry.allowlistedSrvUri).
+    @Test
+    fun `an exception message with a URI gives a last_error without the URI`() = runBlocking {
+        val markerUri = octometer.monitor.registry.allowlistedSrvUri()
+        val markedReader = MongoAppReader(
+            eventStore,
+            settleLagSeconds = 2,
+            serverTimeSource = { throw RuntimeException("connect failed for $markerUri") },
+        )
+        val target = PollTarget(appId, "db", "octometer_events", cursor = null)
+
+        val failure = kotlin.runCatching {
+            markedReader.pollOnce(target, "mongodb://127.0.0.1:1/exampledb")
+        }.exceptionOrNull()
+
+        assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
+        val lastError = failure.code?.toString() ?: failure.javaClass.simpleName
+        assertFalse(lastError.contains(markerUri), "last_error must hold no URI")
+        assertFalse(failure.message!!.contains(markerUri), "the exception message must hold no URI")
+        markedReader.close()
+    }
+
     // --- MongoReadFailedException (the security note of the maintainer, BLOCKER 1 of the security review) ---
 
     @Test
@@ -595,7 +648,11 @@ class MongoAppReaderUnitTest {
         }
 
         assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
-        assertEquals("The reader could not read MongoDB. IllegalArgumentException", failure.message)
+        // Issue #28, design decision D8: the message now holds the
+        // mapped status and the code, never the cause's class name or
+        // its message text. An IllegalArgumentException of the
+        // registry check maps to no rule of D8, thus it falls to ERROR.
+        assertEquals("The reader could not read MongoDB. status=ERROR code=null", failure.message)
         assertNoMarker(failure, markerUser, markerSecondValue)
         logEvents.forEach { event -> assertNoMarkerInText(event.formattedMessage, markerUser, markerSecondValue) }
     }
