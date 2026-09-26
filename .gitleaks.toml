@@ -36,3 +36,28 @@ description = "One fake URI. It is not a real credential. It is a test fixture. 
 regexes = [
   '''mongodb\+srv://octotest:S3cr3t-Test-Only@cluster0\.example\.mongodb\.net$''',
 ]
+
+# The persistent form of issue #171 (a `paths` entry survives a squash
+# merge; a `.gitleaksignore` fingerprint of a commit does not). An
+# early commit of pull request #195 (issue #28) built a test with a
+# literal MongoDB URI of this rule's own shape, before a later commit
+# of that same pull request moved the test to the one fake URI above.
+# gitleaks still scans the early commit's own diff, thus this entry
+# stays needed for this one test file, never a real credential.
+#
+# `targetRules` on a top-level `[[allowlists]]` needs gitleaks 8.25.0
+# (the gitleaks README, section "Configuration", read on 2026-09-26:
+# "In v8.25.0 `[allowlist]` was replaced with `[[allowlists]]`", with
+# `targetRules` shown only from that version on). The CI job "Secret
+# scan" of `.github/workflows/ci.yml` pins `gitleaks/gitleaks-action`
+# at the commit tagged `v3.0.0`; its own log line "gitleaks version:
+# 8.24.3" (read on 2026-09-26) names the installed CLI version, one
+# minor version before 8.25.0. This repository therefore keeps the
+# rule-scoped `[[rules.allowlists]]` form, with `regexes`, a field this
+# version already supports (the same README, the `[[rules.allowlists]]`
+# examples).
+[[rules.allowlists]]
+description = "A fake connection string of an early commit of pull request #195 (issue #28), a test fixture, never a real credential."
+regexes = [
+  '''mongodb\+srv://octomarkeruriuserf7b2:octomarkeruripassf7b2@cluster0\.example\.mongodb\.net$''',
+]

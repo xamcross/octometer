@@ -88,6 +88,140 @@ class MongoAppReaderUnitTest {
         assertEquals("user-1", event.userId)
     }
 
+    // --- path, referrerHost, and kind (issue #110, design decision D5) ---
+
+    @Test
+    fun `parseEvent copies path as it is, for a click and for a session start`() {
+        val click = goodDocument("checkout.save").append("path", "/checkout")
+        val sessionStart = goodDocument(SESSION_START_ELEMENT).append("path", "/")
+
+        assertEquals("/checkout", parseEvent(click).path)
+        assertEquals("/", parseEvent(sessionStart).path)
+    }
+
+    @Test
+    fun `parseEvent copies referrerHost as it is, for a session start`() {
+        val document = goodDocument(SESSION_START_ELEMENT).append("referrerHost", "google.com")
+
+        val event = parseEvent(document)
+
+        assertEquals("google.com", event.referrerHost)
+    }
+
+    // BLOCKER 1 of the security review of pull request #193: section 6
+    // states "it copies referrer_host from a session start". Contract
+    // rule C40 drops the field on each other element.
+    @Test
+    fun `parseEvent gives a null referrerHost for a click, even when the field is present`() {
+        val document = goodDocument("checkout.save").append("referrerHost", "google.com")
+
+        val event = parseEvent(document)
+
+        assertNull(event.referrerHost)
+    }
+
+    @Test
+    fun `parseEvent gives a null path and a null referrerHost when the fields are absent`() {
+        val event = parseEvent(goodDocument("checkout.save"))
+
+        assertNull(event.path)
+        assertNull(event.referrerHost)
+    }
+
+    @Test
+    fun `parseEvent sets kind 1 for the element octo-session-start`() {
+        val event = parseEvent(goodDocument(SESSION_START_ELEMENT))
+
+        assertEquals(KIND_SESSION_START, event.kind)
+    }
+
+    @Test
+    fun `parseEvent sets kind 0 for each other element`() {
+        val event = parseEvent(goodDocument("checkout.save"))
+
+        assertEquals(KIND_CLICK, event.kind)
+    }
+
+    @Test
+    fun `invalidReason accepts a document with no path and no referrerHost`() {
+        assertNull(invalidReason(goodDocument("checkout.save")))
+    }
+
+    @Test
+    fun `invalidReason names a wrong BSON type of path and of referrerHost`() {
+        val wrongPath = goodDocument("checkout.save").append("path", 42)
+        val wrongReferrerHost = goodDocument(SESSION_START_ELEMENT).append("referrerHost", 42)
+
+        assertEquals("path wrong type", invalidReason(wrongPath))
+        assertEquals("referrerHost wrong type", invalidReason(wrongReferrerHost))
+    }
+
+    @Test
+    fun `invalidReason names a path above the contract limit of 150 bytes`() {
+        val tooLong = goodDocument("checkout.save").append("path", "/" + "a".repeat(PATH_MAX_BYTES))
+
+        assertEquals("path too long", invalidReason(tooLong))
+    }
+
+    @Test
+    fun `invalidReason names a referrerHost above the contract limit of 253 bytes`() {
+        val tooLong = goodDocument(SESSION_START_ELEMENT).append("referrerHost", "a".repeat(REFERRER_HOST_MAX_BYTES + 1))
+
+        assertEquals("referrerHost too long", invalidReason(tooLong))
+    }
+
+    @Test
+    fun `runCycle stores the path, the referrerHost, and the kind of a session start`() = runBlocking {
+        val sessionStart = goodDocument(SESSION_START_ELEMENT)
+            .append("path", "/")
+            .append("referrerHost", "google.com")
+
+        reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(sessionStart) }
+
+        val row = readEventColumns(database, appId, sessionStart.getObjectId("_id").toHexString())
+        assertEquals("/", row.path)
+        assertEquals("google.com", row.referrerHost)
+        assertEquals(KIND_SESSION_START, row.kind)
+    }
+
+    @Test
+    fun `runCycle stores NULL for path and referrerHost when the document has neither field`() = runBlocking {
+        val click = goodDocument("checkout.save")
+
+        reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(click) }
+
+        val row = readEventColumns(database, appId, click.getObjectId("_id").toHexString())
+        assertNull(row.path)
+        assertNull(row.referrerHost)
+        assertEquals(KIND_CLICK, row.kind)
+    }
+
+    // BLOCKER 1 of the security review of pull request #193.
+    @Test
+    fun `runCycle stores NULL for referrerHost when a click document holds the field`() = runBlocking {
+        val click = goodDocument("checkout.save").append("referrerHost", "google.com")
+
+        reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(click) }
+
+        val row = readEventColumns(database, appId, click.getObjectId("_id").toHexString())
+        assertNull(row.referrerHost)
+        assertEquals(KIND_CLICK, row.kind)
+    }
+
+    @Test
+    fun `runCycle skips a document with a wrong BSON type in path, and moves the cursor`() = runBlocking {
+        val bad = goodDocument("checkout.save").append("path", 42)
+        val good = goodDocument("good.click")
+        val page = listOf(bad, good)
+
+        val outcome = reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> page }
+
+        assertEquals(1, outcome.eventsStored)
+        assertEquals(1, outcome.eventsSkipped)
+        assertEquals(page.last().getObjectId("_id").toHexString(), outcome.cursor, "The cursor must move past the skip.")
+        assertEquals("path wrong type", readSkippedReason(database, appId, bad.getObjectId("_id").toHexString()))
+    }
+
     @Test
     fun `parseEvent accepts a document with an unknown field`() {
         val document = Document("_id", ObjectId())
@@ -336,6 +470,31 @@ class MongoAppReaderUnitTest {
         assertFalse(reason!!.contains(marker), "The reason must hold no field value of the document: $reason")
     }
 
+    // Acceptance criterion 6 of issue #110: no log line and no
+    // skipped_event reason holds a raw path or a raw host.
+    @Test
+    fun `the skipped_event reason for a bad path or a bad referrerHost holds no field value of the document`() = runBlocking {
+        val pathMarker = "/octomarkerpath7c2e"
+        val hostMarker = "octomarkerhost7c2e.invalid"
+        val badPath = goodDocument("checkout.save").append("path", pathMarker.repeat(20))
+        val badReferrerHost = goodDocument(SESSION_START_ELEMENT).append("referrerHost", hostMarker.repeat(20))
+
+        val (_, logEvents) = captureLogEvents {
+            reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(badPath, badReferrerHost) }
+        }
+
+        val pathReason = readSkippedReason(database, appId, badPath.getObjectId("_id").toHexString())
+        val hostReason = readSkippedReason(database, appId, badReferrerHost.getObjectId("_id").toHexString())
+        assertEquals("path too long", pathReason)
+        assertEquals("referrerHost too long", hostReason)
+        assertFalse(pathReason!!.contains(pathMarker), "The reason must hold no raw path: $pathReason")
+        assertFalse(hostReason!!.contains(hostMarker), "The reason must hold no raw host: $hostReason")
+        logEvents.forEach { event ->
+            assertFalse(event.formattedMessage.contains(pathMarker), "A log line must hold no raw path.")
+            assertFalse(event.formattedMessage.contains(hostMarker), "A log line must hold no raw host.")
+        }
+    }
+
     // --- The cancellation guard of lesson 2 (MAJOR 2 of the security review, MAJOR 1 of the Kotlin review) ---
 
     @Test
@@ -355,6 +514,59 @@ class MongoAppReaderUnitTest {
         assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
         assertFalse(failure.message!!.contains(marker), "The message must hold no text of the foreign cancellation.")
         throwingReader.close()
+    }
+
+    // --- The exception map of design decision D8 (issue #28, the maintainer's decision 1) ---
+
+    // The acceptance criterion of issue #28: an unknown exception gives
+    // ERROR. mongoFailureStatus of MongoFailureMappingTest already
+    // proves this at the pure-function level, with no MongoAppReader.
+    // This test proves the wrap site of withMongoFailure applies that
+    // same map, through the one path that a real poll cycle can reach.
+    @Test
+    fun `an unknown exception maps to the status ERROR, with no code`() = runBlocking {
+        val unknownReader = MongoAppReader(
+            eventStore,
+            settleLagSeconds = 2,
+            serverTimeSource = { throw java.util.NoSuchElementException("a probe failure of an unknown type") },
+        )
+        val target = PollTarget(appId, "db", "octometer_events", cursor = null)
+
+        val failure = kotlin.runCatching {
+            unknownReader.pollOnce(target, "mongodb://127.0.0.1:1/exampledb")
+        }.exceptionOrNull()
+
+        assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
+        assertEquals(STATUS_ERROR, failure.status)
+        assertEquals(null, failure.code)
+        unknownReader.close()
+    }
+
+    // The acceptance criterion of issue #28: an exception message with
+    // a URI gives a last_error without the URI. MongoReadFailedException
+    // keeps no message text of the real cause (the maintainer's decision
+    // 1), so last_error, built from its status and its code only, can
+    // never hold the URI either. markerUri is the one allow-listed fake
+    // credential of .gitleaks.toml (octometer.monitor.registry.allowlistedSrvUri).
+    @Test
+    fun `an exception message with a URI gives a last_error without the URI`() = runBlocking {
+        val markerUri = octometer.monitor.registry.allowlistedSrvUri()
+        val markedReader = MongoAppReader(
+            eventStore,
+            settleLagSeconds = 2,
+            serverTimeSource = { throw RuntimeException("connect failed for $markerUri") },
+        )
+        val target = PollTarget(appId, "db", "octometer_events", cursor = null)
+
+        val failure = kotlin.runCatching {
+            markedReader.pollOnce(target, "mongodb://127.0.0.1:1/exampledb")
+        }.exceptionOrNull()
+
+        assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
+        val lastError = failure.code?.toString() ?: failure.javaClass.simpleName
+        assertFalse(lastError.contains(markerUri), "last_error must hold no URI")
+        assertFalse(failure.message!!.contains(markerUri), "the exception message must hold no URI")
+        markedReader.close()
     }
 
     // --- MongoReadFailedException (the security note of the maintainer, BLOCKER 1 of the security review) ---
@@ -436,7 +648,11 @@ class MongoAppReaderUnitTest {
         }
 
         assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
-        assertEquals("The reader could not read MongoDB. IllegalArgumentException", failure.message)
+        // Issue #28, design decision D8: the message now holds the
+        // mapped status and the code, never the cause's class name or
+        // its message text. An IllegalArgumentException of the
+        // registry check maps to no rule of D8, thus it falls to ERROR.
+        assertEquals("The reader could not read MongoDB. status=ERROR code=null", failure.message)
         assertNoMarker(failure, markerUser, markerSecondValue)
         logEvents.forEach { event -> assertNoMarkerInText(event.formattedMessage, markerUser, markerSecondValue) }
     }
@@ -772,6 +988,27 @@ private suspend fun readSkippedReason(database: SqliteDatabase, appId: Long, eve
             select.setString(2, eventId)
             select.executeQuery().use { result ->
                 if (result.next()) result.getString(1) else null
+            }
+        }
+    }
+
+/** The three new columns of one `event` row (issue #110). */
+private data class EventColumns(val path: String?, val referrerHost: String?, val kind: Int)
+
+private suspend fun readEventColumns(database: SqliteDatabase, appId: Long, eventId: String): EventColumns =
+    database.read { reader ->
+        reader.prepareStatement(
+            "SELECT path, referrer_host, kind FROM event WHERE app_id = ? AND event_id = ?",
+        ).use { select ->
+            select.setLong(1, appId)
+            select.setString(2, eventId)
+            select.executeQuery().use { result ->
+                result.next()
+                EventColumns(
+                    path = result.getString(1),
+                    referrerHost = result.getString(2),
+                    kind = result.getInt(3),
+                )
             }
         }
     }

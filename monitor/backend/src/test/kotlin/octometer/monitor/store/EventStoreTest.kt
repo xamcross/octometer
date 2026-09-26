@@ -147,6 +147,32 @@ class EventStoreTest {
         assertEquals(0, readSkippedReasons(database, appId).size)
     }
 
+    // --- path, referrerHost, and kind (issue #110, design decision D5) ---
+
+    @Test
+    fun `commitPage writes path, referrerHost, and kind as they are`() = runBlocking {
+        store.commitPage(
+            appId,
+            listOf(sampleEvent("e1", path = "/checkout", referrerHost = "google.com", kind = 1)),
+            cursor = "cursor-1",
+        )
+
+        val row = readEventColumns(database, appId, "e1")
+        assertEquals("/checkout", row.path)
+        assertEquals("google.com", row.referrerHost)
+        assertEquals(1, row.kind)
+    }
+
+    @Test
+    fun `commitPage writes NULL for path and referrerHost when the event holds neither`() = runBlocking {
+        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1")
+
+        val row = readEventColumns(database, appId, "e1")
+        assertEquals(null, row.path)
+        assertEquals(null, row.referrerHost)
+        assertEquals(0, row.kind)
+    }
+
     // --- recordCycleSuccess (design decisions D5, D8, issue #27) ---
 
     @Test
@@ -164,6 +190,57 @@ class EventStoreTest {
         store.recordCycleSuccess(appId, nowMillis = 1_700_000_600_000L, status = "INVALID_DATA")
 
         assertEquals("INVALID_DATA", readAppRow(database, appId).status)
+    }
+
+    // The acceptance criterion of issue #28: a success after failures
+    // gives consecutive_failures 0 and the status OK.
+    @Test
+    fun `recordCycleSuccess resets consecutive_failures to 0 and last_error to NULL`() = runBlocking {
+        store.recordFailure(appId, status = "ERROR", lastError = "IllegalStateException", nextPollAt = 1_000L, nowMillis = 500L)
+        store.recordFailure(appId, status = "ERROR", lastError = "IllegalStateException", nextPollAt = 2_000L, nowMillis = 1_000L)
+        assertEquals(2, readAppRow(database, appId).consecutiveFailures, "two failed cycles in sequence, before the good cycle")
+
+        store.recordCycleSuccess(appId, nowMillis = 1_700_000_700_000L, status = "OK")
+
+        val row = readAppRow(database, appId)
+        assertEquals("OK", row.status)
+        assertEquals(0, row.consecutiveFailures, "a good cycle clears the failure count")
+        assertEquals(null, row.lastError, "a good cycle clears the last error text")
+    }
+
+    // --- recordFailure (design decision D8, issue #28, the maintainer's decision 2) ---
+
+    @Test
+    fun `recordFailure increments consecutive_failures, sets last_poll_at, last_error, the status, and next_poll_at`() = runBlocking {
+        store.recordFailure(appId, status = "UNAUTHORIZED", lastError = "13", nextPollAt = 5_000L, nowMillis = 1_000L)
+
+        val row = readAppRow(database, appId)
+        assertEquals("UNAUTHORIZED", row.status)
+        assertEquals("13", row.lastError)
+        assertEquals(1, row.consecutiveFailures)
+        assertEquals(1_000L, row.lastPollAt)
+        assertEquals(5_000L, row.nextPollAt)
+        assertEquals(null, row.lastSuccessAt, "a failed cycle never sets last_success_at")
+    }
+
+    @Test
+    fun `recordFailure never moves the cursor`() = runBlocking {
+        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1")
+
+        store.recordFailure(appId, status = "ERROR", lastError = "IllegalStateException", nextPollAt = 5_000L, nowMillis = 1_000L)
+
+        assertEquals("cursor-1", readCursor(database, appId), "recordFailure must never touch the cursor")
+    }
+
+    @Test
+    fun `recordFailure increments consecutive_failures on each call`() = runBlocking {
+        store.recordFailure(appId, status = "ERROR", lastError = "IllegalStateException", nextPollAt = 1_000L, nowMillis = 0L)
+        store.recordFailure(appId, status = "UNREACHABLE", lastError = "MongoSocketException", nextPollAt = 3_000L, nowMillis = 1_000L)
+
+        val row = readAppRow(database, appId)
+        assertEquals(2, row.consecutiveFailures)
+        assertEquals("UNREACHABLE", row.status)
+        assertEquals("MongoSocketException", row.lastError)
     }
 
     // A defect of section 6 would let a NULL element pass. This test proves
@@ -189,12 +266,21 @@ class EventStoreTest {
         assertTrue(error.message!!.contains("NOT NULL", ignoreCase = true))
     }
 
-    private fun sampleEvent(eventId: String, userId: String? = "user-1") = NewEvent(
+    private fun sampleEvent(
+        eventId: String,
+        userId: String? = "user-1",
+        path: String? = null,
+        referrerHost: String? = null,
+        kind: Int = 0,
+    ) = NewEvent(
         eventId = eventId,
         ts = 1_700_000_000_000L,
         element = "checkout.save",
         sessionId = "session-1",
         userId = userId,
+        path = path,
+        referrerHost = referrerHost,
+        kind = kind,
     )
 }
 
@@ -239,6 +325,27 @@ private suspend fun readCursor(database: SqliteDatabase, appId: Long): String? =
         }
     }
 
+/** The three new columns of one `event` row (issue #110). */
+private data class EventColumns(val path: String?, val referrerHost: String?, val kind: Int)
+
+private suspend fun readEventColumns(database: SqliteDatabase, appId: Long, eventId: String): EventColumns =
+    database.read { reader ->
+        reader.prepareStatement(
+            "SELECT path, referrer_host, kind FROM event WHERE app_id = ? AND event_id = ?",
+        ).use { select ->
+            select.setLong(1, appId)
+            select.setString(2, eventId)
+            select.executeQuery().use { result ->
+                result.next()
+                EventColumns(
+                    path = result.getString(1),
+                    referrerHost = result.getString(2),
+                    kind = result.getInt(3),
+                )
+            }
+        }
+    }
+
 /** Reads each `skipped_event` row of one app as a map of event id to reason (issue #27). */
 private suspend fun readSkippedReasons(database: SqliteDatabase, appId: Long): Map<String, String> =
     database.read { reader ->
@@ -254,12 +361,24 @@ private suspend fun readSkippedReasons(database: SqliteDatabase, appId: Long): M
         }
     }
 
-/** The three columns of one app row that a good poll cycle sets (design decisions D5, D8). */
-private data class AppRow(val status: String?, val lastPollAt: Long?, val lastSuccessAt: Long?)
+/**
+ * The columns of one app row that a good or a failed poll cycle sets
+ * (design decisions D5, D8, issue #27, issue #28).
+ */
+private data class AppRow(
+    val status: String?,
+    val lastPollAt: Long?,
+    val lastSuccessAt: Long?,
+    val lastError: String?,
+    val consecutiveFailures: Int,
+    val nextPollAt: Long?,
+)
 
 private suspend fun readAppRow(database: SqliteDatabase, appId: Long): AppRow =
     database.read { reader ->
-        reader.prepareStatement("SELECT status, last_poll_at, last_success_at FROM app WHERE id = ?").use { select ->
+        reader.prepareStatement(
+            "SELECT status, last_poll_at, last_success_at, last_error, consecutive_failures, next_poll_at FROM app WHERE id = ?",
+        ).use { select ->
             select.setLong(1, appId)
             select.executeQuery().use { result ->
                 result.next()
@@ -267,6 +386,9 @@ private suspend fun readAppRow(database: SqliteDatabase, appId: Long): AppRow =
                     status = result.getString(1),
                     lastPollAt = result.getLong(2).takeUnless { result.wasNull() },
                     lastSuccessAt = result.getLong(3).takeUnless { result.wasNull() },
+                    lastError = result.getString(4),
+                    consecutiveFailures = result.getInt(5),
+                    nextPollAt = result.getLong(6).takeUnless { result.wasNull() },
                 )
             }
         }

@@ -3,13 +3,21 @@ package octometer.monitor.poll
 import java.sql.Connection
 import octometer.monitor.store.SqliteDatabase
 
-/** One row of the app table, read at one tick (issue #17, decision 5). */
+/**
+ * One row of the app table, read at one tick (issue #17, decision 5).
+ * [status] and [consecutiveFailures] are the values before this tick's
+ * cycle (issue #28, the maintainer's decision 2): [PollScheduler] reads
+ * them once at the start of the tick, and a failed cycle applies the
+ * failed-cycle-count rule and the backoff against these same values.
+ */
 data class AppRow(
     val appId: Long,
     val database: String,
     val collection: String,
     val cursor: String?,
     val nextPollAt: Long?,
+    val status: String?,
+    val consecutiveFailures: Int,
 )
 
 /**
@@ -25,7 +33,15 @@ data class AppRow(
 interface PollStore {
     suspend fun readApps(): List<AppRow>
     suspend fun writeResult(appId: Long, nextPollAt: Long, cursor: String?)
-    suspend fun recordFailure(appId: Long, nextPollAt: Long)
+
+    /**
+     * Records a failed poll cycle (issue #28, design decision D8, the
+     * maintainer's decision 2). [status] and [lastError] are already
+     * final: [PollScheduler] applied the failed-cycle-count rule and
+     * built the error text before this call. [nextPollAt] already
+     * holds the backoff of decision 3 of issue #28.
+     */
+    suspend fun recordFailure(appId: Long, status: String?, lastError: String?, nextPollAt: Long, now: Long)
 }
 
 /**
@@ -44,15 +60,15 @@ class SqlitePollStore(private val database: SqliteDatabase) : PollStore {
         database.write { writer -> writeSuccess(writer, appId, nextPollAt, cursor) }
     }
 
-    override suspend fun recordFailure(appId: Long, nextPollAt: Long) {
-        database.write { writer -> writeFailure(writer, appId, nextPollAt) }
+    override suspend fun recordFailure(appId: Long, status: String?, lastError: String?, nextPollAt: Long, now: Long) {
+        database.write { writer -> writeFailure(writer, appId, status, lastError, nextPollAt, now) }
     }
 }
 
 private fun readAppRows(reader: Connection): List<AppRow> =
     reader.createStatement().use { statement ->
         statement.executeQuery(
-            "SELECT id, database_name, collection_name, cursor, next_poll_at FROM app",
+            "SELECT id, database_name, collection_name, cursor, next_poll_at, status, consecutive_failures FROM app",
         ).use { result ->
             val rows = mutableListOf<AppRow>()
             while (result.next()) {
@@ -63,6 +79,8 @@ private fun readAppRows(reader: Connection): List<AppRow> =
                     collection = result.getString("collection_name"),
                     cursor = result.getString("cursor"),
                     nextPollAt = nextPollAt,
+                    status = result.getString("status"),
+                    consecutiveFailures = result.getInt("consecutive_failures"),
                 )
             }
             rows
@@ -78,10 +96,23 @@ private fun writeSuccess(writer: Connection, appId: Long, nextPollAt: Long, curs
     }
 }
 
-private fun writeFailure(writer: Connection, appId: Long, nextPollAt: Long) {
-    writer.prepareStatement("UPDATE app SET next_poll_at = ? WHERE id = ?").use { update ->
-        update.setLong(1, nextPollAt)
-        update.setLong(2, appId)
+private fun writeFailure(
+    writer: Connection,
+    appId: Long,
+    status: String?,
+    lastError: String?,
+    nextPollAt: Long,
+    now: Long,
+) {
+    writer.prepareStatement(
+        "UPDATE app SET status = ?, last_error = ?, consecutive_failures = consecutive_failures + 1, " +
+            "last_poll_at = ?, next_poll_at = ? WHERE id = ?",
+    ).use { update ->
+        update.setString(1, status)
+        update.setString(2, lastError)
+        update.setLong(3, now)
+        update.setLong(4, nextPollAt)
+        update.setLong(5, appId)
         update.executeUpdate()
     }
 }
