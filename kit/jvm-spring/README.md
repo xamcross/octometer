@@ -81,7 +81,7 @@ request without a valid CSRF token gets 403, never the answer of
 Issue #71 publishes this module to JitPack, at:
 
 ```
-com.github.xamcross.octometer:octometer-kit-spring:0.1.0
+com.github.xamcross.octometer:octometer-kit-spring:0.2.0
 ```
 
 Add the JitPack repository (`https://jitpack.io`) and this dependency
