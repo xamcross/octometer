@@ -17,6 +17,7 @@
     "src/index.ts",
     "src/path-match.ts",
     "src/batch.ts",
+    "src/referrer-source.ts",
     "README.md"
   ],
   "private": true,

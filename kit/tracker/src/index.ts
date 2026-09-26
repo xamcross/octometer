@@ -11,6 +11,7 @@
 
 import { matchPreparedPath, prepareRoutes, type PreparedRoute } from './path-match.js';
 import { splitIntoRequestBatches, type ClickPayload } from './batch.js';
+import { computeSessionStartReferrerHost } from './referrer-source.js';
 
 /** An option of the tracker. `endpoint` is mandatory; the rest have a default. */
 export interface TrackerOptions {
@@ -353,12 +354,20 @@ export function createTracker(options: TrackerOptions): Tracker {
     // same tab starts a fresh session instead of a silent, lost one.
     writeStoredSessionId(sessionId);
     const path = computePath(preparedRoutes);
-    const click: { element: string; ageMs: number; path?: string } = {
+    const click: { element: string; ageMs: number; path?: string; referrerHost?: string } = {
       element: SESSION_START_ELEMENT,
       ageMs: 0,
     };
     if (path !== undefined) {
       click.path = path;
+    }
+    // Contract rule C40, design decision D42, issue #108: the referrerHost
+    // field sits on the session start entry only. toClickPayload builds a
+    // click entry with no call to this function, thus a click never
+    // holds the field.
+    const referrerHost = computeSessionStartReferrerHost(document.referrer, location.origin);
+    if (referrerHost !== undefined) {
+      click.referrerHost = referrerHost;
     }
     try {
       void sendBatch(sessionId, [click], true, TIMER_RETRY_COUNT, token);
