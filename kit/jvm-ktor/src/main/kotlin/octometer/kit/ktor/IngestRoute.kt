@@ -228,6 +228,14 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  *   address, the same as a value with no address form. A text value, a
  *   zero, or a negative value stops the app start; the error message
  *   never repeats the raw value.
+ *
+ *   Set this count to the exact number of trusted proxies in front of
+ *   the app, never more. A client already appends its own element to
+ *   the header. A count one too high reads that client element
+ *   instead. It never reads a proxy's own observed address, so it lets
+ *   the client choose its own key. A client can then take the key of
+ *   another visitor. It can then exhaust the counters of design
+ *   decision D43 of that key.
  * @param resolveUserId reads the user id from the current call, or `null`
  *   when no user is signed in (contract rule C6). This function runs
  *   before the rate limit check, so a rejected request still pays its
@@ -290,11 +298,17 @@ public fun Route.octometerIngestRoute(
             // read (steps 4 and 6). A client already at its limit
             // never reaches the filter, that read, or the parse. Issue
             // #117 restated this original rule of issue #33 on
-            // 2026-09-22.
-            val rateLimitResult = if (userId != null) {
-                rateLimiter.check(userId, "")
-            } else {
-                rateLimiter.check(null, clientAddr!!)
+            // 2026-09-22. A signed-in user keeps this limit. Design
+            // decision D43 replaces the 120-request limit of D20 for a
+            // request with no user id, so this check skips such a
+            // request when the app records an anonymous click. The
+            // three counters of step 3 and step 7 then hold the only
+            // per-minute limit of that request (BLOCKER 1 of the
+            // review of pull request #197).
+            val rateLimitResult = when {
+                userId != null -> rateLimiter.check(userId, "")
+                settings.recordAnonymousClicks() -> RateLimitResult.ALLOWED
+                else -> rateLimiter.check(null, clientAddr!!)
             }
             if (rateLimitResult == RateLimitResult.LIMITED) {
                 call.respond(HttpStatusCode.TooManyRequests)

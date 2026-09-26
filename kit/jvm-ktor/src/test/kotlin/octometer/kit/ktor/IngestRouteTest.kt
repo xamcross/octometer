@@ -1271,32 +1271,71 @@ class IngestRouteTest {
         }
 
     @Test
-    fun `without a user id, request 121 of one client address gives 429`() = testApplication {
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
+    fun `without a user id, and with anonymous clicks off, request 121 of one client address gives 429`() =
+        testApplication {
+            // With anonymous clicks off, design decision D43 never runs
+            // (issue #116, BLOCKER 1 of the review of pull request
+            // #197). The client-address limit of design decision D20
+            // stays the only per-minute limit of this request.
+            val store = InMemoryEventLogStore()
+            application {
+                routing {
+                    octometerIngestRoute(store = store, settings = IngestSettings(false), clock = fixedClock) { null }
+                }
             }
-        }
 
-        repeat(120) { requestIndex ->
-            val response = client.post(DEFAULT_INGEST_PATH) {
+            repeat(120) { requestIndex ->
+                val response = client.post(DEFAULT_INGEST_PATH) {
+                    contentType(ContentType.Application.Json)
+                    setBody(validBody)
+                }
+                assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
+            }
+
+            val limitedResponse = client.post(DEFAULT_INGEST_PATH) {
                 contentType(ContentType.Application.Json)
                 setBody(validBody)
             }
-            assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
+            assertEquals(HttpStatusCode.TooManyRequests, limitedResponse.status)
+            // Anonymous clicks are off, so the route stores no event for
+            // any of the 120 passed requests (design decision D19).
+            assertEquals(0, store.events().size)
         }
 
-        val limitedResponse = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            setBody(validBody)
+    @Test
+    fun `with anonymous clicks on, request 301 of one client address gives 429, and request 300 passes`() =
+        testApplication {
+            // Design decision D43 replaces the 120-request limit of D20
+            // for a request with no user id, when the app records an
+            // anonymous click (BLOCKER 1 of the review of pull request
+            // #197). This test uses the default minute limiter, built
+            // from the default per-minute limits of `IngestSettings`
+            // (300 requests each 60 seconds), and no user id, so the
+            // request counter of D43 is the only per-minute limit here.
+            val store = InMemoryEventLogStore()
+            application {
+                routing {
+                    octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
+                }
+            }
+
+            repeat(300) { requestIndex ->
+                val response = client.post(DEFAULT_INGEST_PATH) {
+                    contentType(ContentType.Application.Json)
+                    setBody(validBody)
+                }
+                assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 300 must pass.")
+            }
+
+            val limitedResponse = client.post(DEFAULT_INGEST_PATH) {
+                contentType(ContentType.Application.Json)
+                setBody(validBody)
+            }
+            assertEquals(HttpStatusCode.TooManyRequests, limitedResponse.status)
+            // The 300 earlier, allowed requests already stored one event
+            // each; the limited 301st request must add no new one.
+            assertEquals(300, store.events().size)
         }
-        assertEquals(HttpStatusCode.TooManyRequests, limitedResponse.status)
-        // The 120 earlier, allowed requests already stored one event
-        // each (settings records an anonymous click); the limited 121st
-        // request must add no new one.
-        assertEquals(120, store.events().size)
-    }
 
     @Test
     fun `a 429 answer arrives even for a body that is not valid JSON`() = testApplication {
@@ -1332,7 +1371,7 @@ class IngestRouteTest {
             routing {
                 octometerIngestRoute(
                     store = store,
-                    settings = IngestSettings(true),
+                    settings = IngestSettings(false),
                     clock = fixedClock,
                     clientIpHeaderName = "X-Client-Ip",
                 ) { null }
@@ -1365,7 +1404,7 @@ class IngestRouteTest {
         val store = InMemoryEventLogStore()
         application {
             routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
+                octometerIngestRoute(store = store, settings = IngestSettings(false), clock = fixedClock) { null }
             }
         }
 
@@ -1397,7 +1436,7 @@ class IngestRouteTest {
                 routing {
                     octometerIngestRoute(
                         store = store,
-                        settings = IngestSettings(true),
+                        settings = IngestSettings(false),
                         clock = fixedClock,
                         clientIpHeaderName = "X-Client-Ip",
                     ) { null }
@@ -1434,7 +1473,7 @@ class IngestRouteTest {
             routing {
                 octometerIngestRoute(
                     store = store,
-                    settings = IngestSettings(true),
+                    settings = IngestSettings(false),
                     clock = fixedClock,
                     clientIpHeaderName = "X-Client-Ip",
                 ) { null }
@@ -1474,7 +1513,7 @@ class IngestRouteTest {
         val store = InMemoryEventLogStore()
         application {
             routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
+                octometerIngestRoute(store = store, settings = IngestSettings(false), clock = fixedClock) { null }
             }
         }
 
@@ -1501,7 +1540,7 @@ class IngestRouteTest {
             routing {
                 octometerIngestRoute(
                     store = store,
-                    settings = IngestSettings(true),
+                    settings = IngestSettings(false),
                     clock = fixedClock,
                     clientIpHeaderName = "X-Forwarded-For",
                 ) { null }
@@ -1538,7 +1577,7 @@ class IngestRouteTest {
                 routing {
                     octometerIngestRoute(
                         store = store,
-                        settings = IngestSettings(true),
+                        settings = IngestSettings(false),
                         clock = fixedClock,
                         clientIpHeaderName = "X-Client-Ip",
                     ) { null }
@@ -1575,7 +1614,7 @@ class IngestRouteTest {
                 routing {
                     octometerIngestRoute(
                         store = store,
-                        settings = IngestSettings(true),
+                        settings = IngestSettings(false),
                         clock = fixedClock,
                         clientIpHeaderName = "X-Client-Ip",
                     ) { null }
@@ -1601,6 +1640,11 @@ class IngestRouteTest {
 
     // The tests below check OCTOMETER_TRUSTED_PROXY_COUNT (design decision
     // D43, issue #116): the n-th value from the right of the header list.
+    // Each test gives the app IngestSettings(false), so the client-address
+    // limit of D20 gives the 429 answer at request 121; the route reads
+    // this header, and picks the n-th value from it, for that same D20
+    // check when the app records no anonymous click (BLOCKER 1 of the
+    // review of pull request #197).
 
     @Test
     fun `with the default trusted proxy count, a header with three values gives the last value as the key`() =
@@ -1610,7 +1654,7 @@ class IngestRouteTest {
                 routing {
                     octometerIngestRoute(
                         store = store,
-                        settings = IngestSettings(true),
+                        settings = IngestSettings(false),
                         clock = fixedClock,
                         clientIpHeaderName = "X-Forwarded-For",
                     ) { null }
@@ -1645,7 +1689,7 @@ class IngestRouteTest {
                 routing {
                     octometerIngestRoute(
                         store = store,
-                        settings = IngestSettings(true),
+                        settings = IngestSettings(false),
                         clock = fixedClock,
                         clientIpHeaderName = "X-Forwarded-For",
                         trustedProxyCount = 2,
@@ -1683,7 +1727,7 @@ class IngestRouteTest {
                 routing {
                     octometerIngestRoute(
                         store = store,
-                        settings = IngestSettings(true),
+                        settings = IngestSettings(false),
                         clock = fixedClock,
                         clientIpHeaderName = "X-Forwarded-For",
                         trustedProxyCount = 3,
