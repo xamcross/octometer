@@ -1,10 +1,11 @@
-import { ApplicationRef } from '@angular/core';
+import { ApplicationRef, EnvironmentInjector, createEnvironmentInjector } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Observable, Subject, of, throwError } from 'rxjs';
 
 import { PollStore, createPollStore } from './poll-store';
+import { RefreshIntervalState } from './refresh-interval-state';
 
 /** Builds a tbody with one focusable button. Adds the tbody to the document. */
 function addTbodyWithButton(): HTMLButtonElement {
@@ -156,6 +157,91 @@ describe('createPollStore', () => {
     vi.advanceTimersByTime(10_000);
     expect(store.data()).toBe('first');
     expect(store.error()).toBeInstanceOf(Error);
+  });
+
+  it('routes a failed data poll into the shared error of RefreshIntervalState, and clears it on a later good poll (issue #164)', () => {
+    let calls = 0;
+    startStore(() => {
+      calls++;
+      if (calls === 2) {
+        return throwError(() => new Error('boom'));
+      }
+      return of(`v${calls}`);
+    }, 10);
+    const intervalState = TestBed.inject(RefreshIntervalState);
+    flushEffects();
+    expect(intervalState.error()).toBeUndefined();
+
+    vi.advanceTimersByTime(10_000);
+    flushEffects();
+    expect(intervalState.error()).toBeInstanceOf(Error);
+
+    vi.advanceTimersByTime(10_000);
+    flushEffects();
+    expect(intervalState.error()).toBeUndefined();
+  });
+
+  it('clears its own contribution to the shared error of RefreshIntervalState on destroy, one microtask later (issue #164)', async () => {
+    const parentInjector = TestBed.inject(EnvironmentInjector);
+    const childInjector = createEnvironmentInjector([], parentInjector);
+    let calls = 0;
+    childInjector.runInContext(() =>
+      createPollStore(() => {
+        calls++;
+        return calls === 1 ? throwError(() => new Error('boom')) : of('v');
+      }),
+    );
+    vi.advanceTimersByTime(0);
+    flushHealth({ refreshSeconds: 10 });
+    vi.advanceTimersByTime(0);
+    flushEffects();
+
+    const intervalState = TestBed.inject(RefreshIntervalState);
+    expect(intervalState.error()).toBeInstanceOf(Error);
+
+    childInjector.destroy();
+    // The clear of MAJOR 1 (review of pull request #194) waits one
+    // microtask, so a new store in the same task can cancel it first.
+    await Promise.resolve();
+    expect(intervalState.error()).toBeUndefined();
+  });
+
+  it('keeps the old error across a route change in one task, until the new store has its own first answer (MAJOR 1 of pull request #194)', async () => {
+    const parentInjector = TestBed.inject(EnvironmentInjector);
+    const oldInjector = createEnvironmentInjector([], parentInjector);
+    oldInjector.runInContext(() => createPollStore(() => throwError(() => new Error('boom'))));
+    vi.advanceTimersByTime(0);
+    flushHealth({ refreshSeconds: 10 });
+    vi.advanceTimersByTime(0);
+    flushEffects();
+
+    const intervalState = TestBed.inject(RefreshIntervalState);
+    expect(intervalState.error()).toBeInstanceOf(Error);
+
+    // A route change destroys the old store, and starts a new one, in
+    // one task, the same order as a table-to-table navigation.
+    oldInjector.destroy();
+    let newCalls = 0;
+    const newInjector = createEnvironmentInjector([], parentInjector);
+    const newStore = newInjector.runInContext(() =>
+      createPollStore(() => {
+        newCalls++;
+        return of('v');
+      }),
+    );
+
+    // The new store has no answer of its own yet: the old error still
+    // stands, and the new store cancels the old store's pending clear.
+    await Promise.resolve();
+    flushEffects();
+    expect(intervalState.error()).toBeInstanceOf(Error);
+    expect(newStore.firstLoadPending()).toBe(true);
+
+    // The new store's own first answer, a good one, then clears it.
+    vi.advanceTimersByTime(0);
+    flushEffects();
+    expect(newCalls).toBe(1);
+    expect(intervalState.error()).toBeUndefined();
   });
 
   it('does not cancel a slow request on the next tick', () => {
