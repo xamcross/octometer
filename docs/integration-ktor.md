@@ -30,8 +30,8 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.xamcross.octometer:octometer-kit-ktor:0.1.0")
-    implementation("com.github.xamcross.octometer:octometer-kit-mongo:0.1.0")
+    implementation("com.github.xamcross.octometer:octometer-kit-ktor:0.2.0")
+    implementation("com.github.xamcross.octometer:octometer-kit-mongo:0.2.0")
 }
 ```
 

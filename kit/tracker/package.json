@@ -1,6 +1,6 @@
 {
   "name": "octometer-tracker",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The click tracker of Octometer. It sends a click on a data-octo element to the ingest route.",
   "type": "module",
   "sideEffects": false,

@@ -44,8 +44,8 @@ repositories {
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-mongodb")
     implementation("org.springframework.boot:spring-boot-starter-web")
-    implementation("com.github.xamcross.octometer:octometer-kit-mongo:0.1.0")
-    implementation("com.github.xamcross.octometer:octometer-kit-spring:0.1.0")
+    implementation("com.github.xamcross.octometer:octometer-kit-mongo:0.2.0")
+    implementation("com.github.xamcross.octometer:octometer-kit-spring:0.2.0")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     // Spring Boot 4.1 moves `@AutoConfigureMockMvc` out of

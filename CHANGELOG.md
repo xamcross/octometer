@@ -15,6 +15,34 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Monitor
 
+## 0.2.0 - 2026-09-27
+
+### Contract
+
+### Kit JVM
+
+- Write the Ktor integration guide. (#40)
+- Add the Atlas setup and a draft privacy notice to the Ktor guide. (#45)
+- Add the two issue templates for an app repository to the Ktor guide. (#48)
+- Move the ingest check order into one processor and add kit/jvm-spring. (#69)
+- Write the Spring Boot integration guide. (#70)
+
+### Tracker
+
+### Monitor
+
+- Detect a resume from sleep and wait 15 s before the next poll. (#29)
+- Check the privileges of the database user before each read. (#30)
+- Keep each connection string out of the log and add a plain request line. (#31)
+- Mark the privacy notice text as approved and proof-check each fact. (#42)
+- Attach the tracker package to each GitHub Release. (#44)
+- Request the JitPack POM of octometer-kit-spring after a release. (#71)
+- Add the first-pages route of level 3. (#112)
+- Add the anonymous sessions route and the sessionId filter of level 3. (#113)
+- Show the first pages of an app. (#114)
+- Reset the poll state on a PATCH to a different connection string. (#187)
+- Store a referrerHost outside the set as NULL and keep the row. (#196)
+
 ## 0.1.0 - 2026-09-26
 
 ### Contract
