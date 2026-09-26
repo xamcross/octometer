@@ -23,7 +23,7 @@ already holds a different MongoDB server on this machine. A new port
 number then changes three places together, not this one place alone:
 
 - `OCTOMETER_DEMO_MONGO_PORT`, before this command, for the container.
-- `OCTOMETER_DEMO_MONGO_URI`, before step 3, for the demo app. Give it
+- `OCTOMETER_DEMO_MONGO_URI`, before step 2, for the demo app. Give it
   the value `mongodb://127.0.0.1:<port>`, with the same port number.
 - The `connectionString` field of step 5. Give it the same URI.
 
@@ -116,7 +116,7 @@ byte order mark. That mark breaks the JSON. The server then gives
 `400`. Use `WriteAllText` instead. It adds no mark:
 
 ```powershell
-[IO.File]::WriteAllText("demo-app.json", $json)
+[IO.File]::WriteAllText("$PWD\demo-app.json", $json)
 ```
 
 Send the file:
