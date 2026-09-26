@@ -11,6 +11,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 // Steps 2 to 5 of issue #15. Each test opens its own SqliteDatabase in a
@@ -95,6 +96,65 @@ class AppRegistryServiceTest {
         assertEquals(UpdateAppResult.Updated, result)
         assertEquals("demo", readAppName(created.summary.appId))
         assertTrue(secretStore.remove(created.summary.appId))
+    }
+
+    // Issue #187: a PATCH of the connection string to a different
+    // deployment must not keep the old cursor, or the reader skips
+    // each older event of the new source in silence (design decision
+    // D10, section 4.3).
+
+    @Test
+    fun `updateApp with a different connection string resets the poll state`() = runBlocking {
+        val created = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+        ) as CreateAppResult.Created
+        seedPollState(created.summary.appId)
+
+        val result = service.updateApp(
+            created.summary.appId,
+            UpdateAppRequest(connectionString = allowlistedSrvUriWithoutCredential()),
+        )
+
+        assertEquals(UpdateAppResult.Updated, result)
+        val state = readPollState(created.summary.appId)
+        assertNull(state.cursor, "a different connection string must reset the cursor")
+        assertNull(state.nextPollAt)
+        assertNull(state.lastPollAt)
+        assertNull(state.lastSuccessAt)
+        assertNull(state.status)
+        assertNull(state.lastError)
+        assertEquals(0, state.consecutiveFailures)
+    }
+
+    @Test
+    fun `updateApp with the same connection string keeps the poll state`() = runBlocking {
+        val created = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+        ) as CreateAppResult.Created
+        seedPollState(created.summary.appId)
+        val before = readPollState(created.summary.appId)
+
+        val result = service.updateApp(
+            created.summary.appId,
+            UpdateAppRequest(connectionString = allowlistedSrvUri()),
+        )
+
+        assertEquals(UpdateAppResult.Updated, result)
+        assertEquals(before, readPollState(created.summary.appId), "the same connection string must keep the cursor")
+    }
+
+    @Test
+    fun `updateApp of the name alone keeps the poll state`() = runBlocking {
+        val created = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+        ) as CreateAppResult.Created
+        seedPollState(created.summary.appId)
+        val before = readPollState(created.summary.appId)
+
+        val result = service.updateApp(created.summary.appId, UpdateAppRequest(name = "demo2"))
+
+        assertEquals(UpdateAppResult.Updated, result)
+        assertEquals(before, readPollState(created.summary.appId), "a name-only PATCH must keep the cursor")
     }
 
     @Test
@@ -410,7 +470,70 @@ class AppRegistryServiceTest {
                 }
             }
         }
+
+    // Issue #187: fills each poll-state column with a fixed value, so a
+    // test of updateApp can tell a reset from a keep. The values here
+    // hold no real deployment; SEEDED_CURSOR is a plain ObjectId hex.
+    private suspend fun seedPollState(appId: Long) {
+        database.write { writer ->
+            writer.prepareStatement(
+                "UPDATE app SET cursor = ?, next_poll_at = ?, last_poll_at = ?, last_success_at = ?, " +
+                    "status = ?, last_error = ?, consecutive_failures = ? WHERE id = ?",
+            ).use { update ->
+                update.setString(1, SEEDED_CURSOR)
+                update.setLong(2, SEEDED_TIMESTAMP + 60_000)
+                update.setLong(3, SEEDED_TIMESTAMP)
+                update.setLong(4, SEEDED_TIMESTAMP)
+                update.setString(5, "OK")
+                update.setString(6, "MongoReadFailedException")
+                update.setInt(7, 3)
+                update.setLong(8, appId)
+                update.executeUpdate()
+            }
+        }
+    }
+
+    private suspend fun readPollState(appId: Long): PollState =
+        database.read { reader ->
+            reader.prepareStatement(
+                "SELECT cursor, next_poll_at, last_poll_at, last_success_at, status, last_error, " +
+                    "consecutive_failures FROM app WHERE id = ?",
+            ).use { select ->
+                select.setLong(1, appId)
+                select.executeQuery().use { result ->
+                    check(result.next()) { "No app row for $appId." }
+                    PollState(
+                        cursor = result.getString(1),
+                        nextPollAt = result.getNullableLong(2),
+                        lastPollAt = result.getNullableLong(3),
+                        lastSuccessAt = result.getNullableLong(4),
+                        status = result.getString(5),
+                        lastError = result.getString(6),
+                        consecutiveFailures = result.getInt(7),
+                    )
+                }
+            }
+        }
+
+    private fun java.sql.ResultSet.getNullableLong(column: Int): Long? {
+        val value = getLong(column)
+        return if (wasNull()) null else value
+    }
 }
+
+private const val SEEDED_CURSOR = "507f1f77bcf86cd799439011"
+private const val SEEDED_TIMESTAMP = 1_700_000_000_000L
+
+/** The seven poll-state columns of the `app` row (design decision D10, issue #187). */
+private data class PollState(
+    val cursor: String?,
+    val nextPollAt: Long?,
+    val lastPollAt: Long?,
+    val lastSuccessAt: Long?,
+    val status: String?,
+    val lastError: String?,
+    val consecutiveFailures: Int,
+)
 
 // A test double of the second security review: put() always throws the
 // exact class java.util.concurrent.CancellationException, with no real
