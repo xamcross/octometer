@@ -1,7 +1,7 @@
 # JitPack build settings for the JVM kit (design decision D25, issue
-# #37). JitPack publishes only kit/jvm-core, kit/jvm-mongo, and
-# kit/jvm-ktor. JitPack never publishes monitor/backend and never
-# publishes a tool.
+# #37). JitPack publishes kit/jvm-core, kit/jvm-mongo, kit/jvm-ktor, and
+# kit/jvm-spring (issue #69). JitPack never publishes monitor/backend and
+# never publishes a tool.
 #
 # The list form of "jdk" comes from the JitPack documentation
 # (docs.jitpack.io, page "Guide to publishing libraries", section
@@ -9,6 +9,7 @@
 jdk:
   - openjdk21
 install:
-  # Issue #71 adds a fourth kit module, kit/jvm-spring. Add its
-  # publishToMavenLocal task to this line then.
-  - ./gradlew :kit:jvm-core:publishToMavenLocal :kit:jvm-mongo:publishToMavenLocal :kit:jvm-ktor:publishToMavenLocal -x test
+  # Issue #71 raises the version of gradle/libs.versions.toml
+  # (octometer-kit) and pushes the release tag that JitPack builds
+  # from this file.
+  - ./gradlew :kit:jvm-core:publishToMavenLocal :kit:jvm-mongo:publishToMavenLocal :kit:jvm-ktor:publishToMavenLocal :kit:jvm-spring:publishToMavenLocal -x test
