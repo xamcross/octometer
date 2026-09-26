@@ -23,6 +23,7 @@
             <th scope="col" class="num">Clicks</th>
             <th scope="col" class="num">Unique users</th>
             <th scope="col" class="num">Unique sessions</th>
+            <th scope="col">First pages</th>
             <th scope="col">Status</th>
             <th scope="col">Data time ({{ zoneName }})</th>
           </tr>
@@ -53,6 +54,11 @@
                 } @else {
                   {{ formatCount(row, row.uniqueSessions) }}
                 }
+              </td>
+              <td>
+                <a [routerLink]="['/apps', row.appId, 'first-pages']" class="first-pages-link"
+                  >First pages</a
+                >
               </td>
               <td class="status" (click)="onRowCellClick(row, $event)">
                 <span aria-hidden="true">{{ statusIcon(row.status) }}</span>

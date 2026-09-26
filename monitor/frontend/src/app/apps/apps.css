@@ -41,7 +41,8 @@ th[scope='row'] {
 }
 
 th[scope='row'] a,
-.manage-link {
+.manage-link,
+.first-pages-link {
   display: inline-flex;
   align-items: center;
   min-width: 24px;
