@@ -1,4 +1,12 @@
-import { DestroyRef, Signal, WritableSignal, computed, inject, signal } from '@angular/core';
+import {
+  DestroyRef,
+  Signal,
+  WritableSignal,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import {
   EMPTY,
@@ -121,6 +129,28 @@ export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
    * request. It reads the data error once the health route answers.
    */
   const error = computed(() => intervalState.error() ?? dataError());
+
+  /**
+   * Cancels a clear that an old store's destroy scheduled, still
+   * pending in the same task (MAJOR 1 of the review of pull request
+   * #194). A route change between two table views then keeps the old
+   * error, until this store has its own first answer.
+   */
+  intervalState.cancelDataErrorClear();
+
+  /**
+   * Routes each change of `dataError` into the shared error state of
+   * `RefreshIntervalState`, once this store has its own first answer
+   * (issue #164, MAJOR 1). The guard stops a fresh store from
+   * overwriting the error of an old one before it answers.
+   */
+  effect(() => {
+    if (firstLoadPending()) {
+      return;
+    }
+    intervalState.setDataError(dataError());
+  });
+  destroyRef.onDestroy(() => intervalState.scheduleDataErrorClear());
 
   const canPoll = (): boolean => !paused() && !document.hidden && !isFocusInTbody();
 

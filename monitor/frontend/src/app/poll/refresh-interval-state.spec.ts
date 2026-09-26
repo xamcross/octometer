@@ -88,4 +88,34 @@ describe('RefreshIntervalState', () => {
     expect(lateMs).toBe(10_000);
     httpMock.expectNone('/api/health');
   });
+
+  it('carries a data-poll error through setDataError, and clears it again (issue #164)', () => {
+    const state = TestBed.inject(RefreshIntervalState);
+    vi.advanceTimersByTime(0);
+    httpMock.expectOne('/api/health').flush({ refreshSeconds: 10 });
+    expect(state.error()).toBeUndefined();
+
+    const dataError = new Error('boom');
+    state.setDataError(dataError);
+    expect(state.error()).toBe(dataError);
+
+    state.setDataError(undefined);
+    expect(state.error()).toBeUndefined();
+  });
+
+  it('shows the health error first, so a data-poll error waits for the health route to answer', () => {
+    const state = TestBed.inject(RefreshIntervalState);
+    vi.advanceTimersByTime(0);
+    httpMock
+      .expectOne('/api/health')
+      .flush('unavailable', { status: 503, statusText: 'Service Unavailable' });
+
+    state.setDataError(new Error('boom'));
+    expect(state.error()).toBeDefined();
+
+    vi.advanceTimersByTime(5_000);
+    httpMock.expectOne('/api/health').flush({ refreshSeconds: 10 });
+    // The data-poll error still stands: setDataError alone clears it.
+    expect(state.error()).toBeInstanceOf(Error);
+  });
 });

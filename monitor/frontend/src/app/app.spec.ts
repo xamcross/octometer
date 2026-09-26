@@ -405,6 +405,7 @@ describe('App', () => {
       });
       fixture = TestBed.createComponent(App);
       httpMock = TestBed.inject(HttpTestingController);
+      router = TestBed.inject(Router);
     });
 
     afterEach(() => {
@@ -441,17 +442,108 @@ describe('App', () => {
       startHealth();
       failHealth();
 
-      expect(bannerText()).toContain('The app did not get the refresh interval.');
+      expect(bannerText()).toContain('The monitor API did not answer.');
     });
 
     it('clears the banner once GET /api/health answers after a failure', () => {
       fixture.detectChanges();
       startHealth();
       failHealth();
-      expect(bannerText()).toContain('The app did not get the refresh interval.');
+      expect(bannerText()).toContain('The monitor API did not answer.');
 
       vi.advanceTimersByTime(5_000);
       succeedHealth();
+
+      expect(bannerText()).toBe('');
+    });
+
+    it('shows the banner for a failed data poll of the active view after the first good health answer, and hides it again on a later good poll', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps');
+      fixture.detectChanges();
+
+      startHealth();
+      succeedHealth(10);
+      expect(bannerText()).toBe('');
+
+      // The apps view starts its own poll once the health interval resolves.
+      vi.advanceTimersByTime(0);
+      httpMock
+        .expectOne('/api/apps')
+        .flush(null, { status: 503, statusText: 'Service Unavailable' });
+      fixture.detectChanges();
+
+      expect(bannerText()).toContain('The monitor API did not answer.');
+
+      vi.advanceTimersByTime(10_000);
+      httpMock.expectOne('/api/apps').flush([]);
+      fixture.detectChanges();
+
+      expect(bannerText()).toBe('');
+    });
+
+    it('keeps the banner error, and the announcer silent, across a route change between two table views during an outage (MAJOR 1 of pull request #194)', async () => {
+      fixture.detectChanges();
+      const region = (fixture.nativeElement as HTMLElement).querySelector(
+        '[role="status"]',
+      ) as HTMLElement;
+
+      await router.navigateByUrl('/apps');
+      fixture.detectChanges();
+      startHealth();
+      succeedHealth(10);
+
+      vi.advanceTimersByTime(0);
+      httpMock
+        .expectOne('/api/apps')
+        .flush(null, { status: 503, statusText: 'Service Unavailable' });
+      fixture.detectChanges();
+      await vi.advanceTimersByTimeAsync(100);
+      fixture.detectChanges();
+      expect(bannerText()).toContain('The monitor API did not answer.');
+      expect(region.textContent).toBe('The monitor API stopped answering.');
+
+      // A route change to a different table view, still during the outage.
+      await router.navigateByUrl('/apps/7/users');
+      fixture.detectChanges();
+      await vi.advanceTimersByTimeAsync(100);
+      fixture.detectChanges();
+
+      // The new view has no answer of its own yet. The banner keeps the
+      // old error. The announcer stays silent: no false recovery message.
+      expect(bannerText()).toContain('The monitor API did not answer.');
+      expect(region.textContent).toBe('The monitor API stopped answering.');
+
+      httpMock.expectOne('/api/apps/7/users?page=1').flush({ page: 1, pageCount: 1, rows: [] });
+      fixture.detectChanges();
+      await vi.advanceTimersByTimeAsync(100);
+      fixture.detectChanges();
+
+      expect(bannerText()).toBe('');
+      expect(region.textContent).toBe('The monitor API answers again.');
+    });
+
+    it('clears the banner on a navigation to /manage, a view with no data poll, after a failed data poll of a table view', async () => {
+      fixture.detectChanges();
+      await router.navigateByUrl('/apps');
+      fixture.detectChanges();
+
+      startHealth();
+      succeedHealth(10);
+
+      vi.advanceTimersByTime(0);
+      httpMock
+        .expectOne('/api/apps')
+        .flush(null, { status: 503, statusText: 'Service Unavailable' });
+      fixture.detectChanges();
+      expect(bannerText()).toContain('The monitor API did not answer.');
+
+      await router.navigateByUrl('/manage');
+      fixture.detectChanges();
+      // Manage reads GET /api/apps once on load, on its own, apart from
+      // the shared error path that this test covers.
+      httpMock.expectOne('/api/apps').flush([]);
+      fixture.detectChanges();
 
       expect(bannerText()).toBe('');
     });

@@ -17,6 +17,9 @@ production release. A later fix sets the status of the row to
 (Ktor review MAJOR 3, pull request #168). Read
 `tools/demo-app/README.md` for the setup steps.
 
+Read `docs/demo.md` for the full demo. It gives the start commands and
+one real run, from a click on the demo page to a number on level 1.
+
 ## The build cache and the changed-only test runs
 
 The root `gradle.properties` turns on the Gradle build cache. A `test`
