@@ -38,7 +38,12 @@ private const val INSERT_SKIPPED_EVENT_SQL = """
 private const val UPDATE_CURSOR_SQL = "UPDATE app SET cursor = ? WHERE id = ?"
 
 private const val RECORD_CYCLE_SUCCESS_SQL =
-    "UPDATE app SET last_poll_at = ?, last_success_at = ?, status = ? WHERE id = ?"
+    "UPDATE app SET last_poll_at = ?, last_success_at = ?, status = ?, " +
+        "consecutive_failures = 0, last_error = NULL WHERE id = ?"
+
+private const val RECORD_FAILURE_SQL =
+    "UPDATE app SET status = ?, last_error = ?, consecutive_failures = consecutive_failures + 1, " +
+        "last_poll_at = ?, next_poll_at = ? WHERE id = ?"
 
 /**
  * The repository function of step 6 (D4). One call commits one page. It
@@ -86,7 +91,9 @@ class EventStore(private val database: SqliteDatabase) {
      * `last_poll_at` and `last_success_at` to [nowMillis], epoch
      * milliseconds UTC, the same unit as `created_at` and `event.ts`.
      * It sets `status` to [status]: `OK`, or `INVALID_DATA` after a
-     * skip.
+     * skip. It also sets `consecutive_failures` to 0 and `last_error`
+     * to `NULL` (issue #28, the maintainer's decision 2): a good cycle
+     * clears each trace of an earlier failure streak.
      */
     suspend fun recordCycleSuccess(appId: Long, nowMillis: Long, status: String) {
         database.write { writer ->
@@ -95,6 +102,30 @@ class EventStore(private val database: SqliteDatabase) {
                 update.setLong(2, nowMillis)
                 update.setString(3, status)
                 update.setLong(4, appId)
+                check(update.executeUpdate() == 1) { "No app row for id $appId." }
+            }
+        }
+    }
+
+    /**
+     * Records a failed poll cycle (issue #28, design decision D8, the
+     * maintainer's decision 2). It increments `consecutive_failures`,
+     * sets `last_poll_at` to [nowMillis], sets `last_error` to
+     * [lastError] (the command error code as text, or the exception
+     * class name only, never a message or a connection string), sets
+     * `status` to [status] (the caller already applied the
+     * failed-cycle-count rule of decision 5 of issue #28), and moves
+     * `next_poll_at` to [nextPollAt] (the caller already applied the
+     * backoff of decision 3 of issue #28).
+     */
+    suspend fun recordFailure(appId: Long, status: String?, lastError: String?, nextPollAt: Long, nowMillis: Long) {
+        database.write { writer ->
+            writer.prepareStatement(RECORD_FAILURE_SQL).use { update ->
+                update.setString(1, status)
+                update.setString(2, lastError)
+                update.setLong(3, nowMillis)
+                update.setLong(4, nextPollAt)
+                update.setLong(5, appId)
                 check(update.executeUpdate() == 1) { "No app row for id $appId." }
             }
         }

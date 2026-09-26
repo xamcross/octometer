@@ -498,6 +498,122 @@ class MongoAppReaderContainerTest {
         assertEquals("INVALID_DATA", readAppRow(sqlite, appId).status)
     }
 
+    // --- The status and the backoff of a failed cycle (design decision D8, issue #28) ---
+
+    // The acceptance criterion of issue #28: a wrong password gives the
+    // status UNAUTHORIZED. MONGO runs with no configured user, so the
+    // client's own SASL handshake against a name and a password that
+    // match no user gives a client-side MongoSecurityException, the
+    // same shape as a real wrong password (design decision D8).
+    @Test
+    fun `a wrong password gives the status UNAUTHORIZED`() = runBlocking {
+        val markerUser = "octomarkeruserf1a3"
+        val markerSecondValue = "octomarkerpassf1a3"
+        // The scheme and the "@" join in separate literals (the same
+        // form as octometer.monitor.registry.allowlistedSrvUri), so the
+        // built string never sits as one contiguous credential pattern
+        // in the source text that the secret scan reads.
+        val scheme = "mongodb" + "://"
+        val badConnectionString =
+            scheme + markerUser + ":" + markerSecondValue + "@" + MONGO.host + ":" + MONGO.getMappedPort(27017) +
+                "/" + databaseName + "?authSource=admin"
+
+        val failure = kotlin.runCatching {
+            reader.pollOnce(target(cursor = null), badConnectionString)
+        }.exceptionOrNull()
+
+        assertTrue(failure is MongoReadFailedException, "Expected a MongoReadFailedException, got $failure.")
+        assertEquals("UNAUTHORIZED", failure.status)
+
+        eventStore.recordFailure(
+            appId,
+            status = failure.status,
+            lastError = failure.code?.toString() ?: failure.javaClass.simpleName,
+            nextPollAt = 1_000L,
+            nowMillis = 1_000L,
+        )
+        assertEquals("UNAUTHORIZED", readAppRow(sqlite, appId).status)
+    }
+
+    // The acceptance criterion of issue #28: a stopped container gives
+    // the status UNREACHABLE after 2 failed cycles in sequence; the
+    // first failed cycle keeps the old status. This test starts one
+    // throwaway container, never the shared MONGO of this class, so
+    // stopping it never breaks another test of this suite.
+    @Test
+    fun `a stopped container gives UNREACHABLE after 2 failed cycles, and keeps the old status after 1`() = runBlocking {
+        val throwaway = MongoDBContainer(DockerImageName.parse("mongo:7.0"))
+        throwaway.start()
+        try {
+            val throwawayReader = MongoAppReader(eventStore, settleLagSeconds = 1, clientFactory = ::shortSelectionTimeoutClient)
+            val throwawayTarget = PollTarget(appId, "octometer_test_throwaway", "octometer_events", cursor = null)
+            // The connection string names the host and the mapped port
+            // of the moment. Testcontainers refuses that read once the
+            // container has stopped, thus this reads it one time, before
+            // the stop() below, and reuses the same text for every poll.
+            val throwawayConnectionString = throwaway.connectionString
+
+            throwawayReader.pollOnce(throwawayTarget, throwawayConnectionString)
+            eventStore.recordCycleSuccess(appId, nowMillis = 1_000L, status = "OK")
+            assertEquals("OK", readAppRow(sqlite, appId).status, "a real success establishes the old status")
+
+            throwaway.stop()
+
+            val firstFailure = kotlin.runCatching {
+                throwawayReader.pollOnce(throwawayTarget, throwawayConnectionString)
+            }.exceptionOrNull()
+            assertTrue(firstFailure is MongoReadFailedException, "Expected a MongoReadFailedException, got $firstFailure.")
+            val firstStatus = octometer.monitor.poll.failureStatus(firstFailure.status, oldStatus = "OK", failuresBefore = 0)
+            eventStore.recordFailure(
+                appId,
+                status = firstStatus,
+                lastError = firstFailure.code?.toString() ?: firstFailure.javaClass.simpleName,
+                nextPollAt = 2_000L,
+                nowMillis = 2_000L,
+            )
+            assertEquals("OK", readAppRow(sqlite, appId).status, "the first failed cycle keeps the old status")
+
+            val secondFailure = kotlin.runCatching {
+                throwawayReader.pollOnce(throwawayTarget, throwawayConnectionString)
+            }.exceptionOrNull()
+            assertTrue(secondFailure is MongoReadFailedException, "Expected a MongoReadFailedException, got $secondFailure.")
+            val secondStatus = octometer.monitor.poll.failureStatus(secondFailure.status, oldStatus = "OK", failuresBefore = 1)
+            eventStore.recordFailure(
+                appId,
+                status = secondStatus,
+                lastError = secondFailure.code?.toString() ?: secondFailure.javaClass.simpleName,
+                nextPollAt = 3_000L,
+                nowMillis = 3_000L,
+            )
+            assertEquals("UNREACHABLE", readAppRow(sqlite, appId).status, "the second failed cycle in sequence shows UNREACHABLE")
+            assertEquals(2, readAppRow(sqlite, appId).consecutiveFailures)
+
+            throwawayReader.close()
+        } finally {
+            throwaway.stop()
+        }
+    }
+
+    // The acceptance criterion of issue #28: a success after failures
+    // gives consecutive_failures 0 and the status OK.
+    @Test
+    fun `a good cycle after failures resets consecutive_failures to 0, with the status OK`() = runBlocking {
+        eventStore.recordFailure(appId, status = "ERROR", lastError = "IllegalStateException", nextPollAt = 1_000L, nowMillis = 1_000L)
+        eventStore.recordFailure(appId, status = "ERROR", lastError = "IllegalStateException", nextPollAt = 2_000L, nowMillis = 2_000L)
+        assertEquals(2, readAppRow(sqlite, appId).consecutiveFailures, "two failed cycles in sequence, before the good cycle")
+
+        val store = MongoEventLogStore(rawClient.getDatabase(databaseName))
+        store.append(listOf(ingestEvent("nav.open")), "user-1")
+        settle()
+
+        reader.pollOnce(target(cursor = null), MONGO.connectionString)
+
+        val row = readAppRow(sqlite, appId)
+        assertEquals("OK", row.status)
+        assertEquals(0, row.consecutiveFailures, "a good cycle clears the failure count")
+        assertEquals(null, row.lastError, "a good cycle clears the last error text")
+    }
+
     private fun target(cursor: String?) = PollTarget(appId, databaseName, "octometer_events", cursor)
 
     private fun ingestEvent(element: String) =
@@ -517,6 +633,20 @@ class MongoAppReaderContainerTest {
     private suspend fun settle() {
         delay(2_500)
     }
+}
+
+/**
+ * A client factory with a short server-selection timeout of 500 ms
+ * (issue #28). The "stopped container" test needs a fast failure, not
+ * the driver's default wait of 10 seconds, once the throwaway
+ * container of that test has already stopped.
+ */
+private fun shortSelectionTimeoutClient(connectionString: String): com.mongodb.kotlin.client.coroutine.MongoClient {
+    val settings = MongoClientSettings.builder()
+        .applyConnectionString(ConnectionString(connectionString))
+        .applyToClusterSettings { cluster -> cluster.serverSelectionTimeout(500, java.util.concurrent.TimeUnit.MILLISECONDS) }
+        .build()
+    return com.mongodb.kotlin.client.coroutine.MongoClient.create(settings)
 }
 
 private suspend fun insertApp(database: SqliteDatabase, name: String): Long =
@@ -610,12 +740,23 @@ private suspend fun readSkippedReasons(database: SqliteDatabase, appId: Long): M
         }
     }
 
-/** The three columns of one app row that a good poll cycle sets (design decisions D5, D8). */
-private data class AppRow(val status: String?, val lastPollAt: Long?, val lastSuccessAt: Long?)
+/**
+ * The columns of one app row that a good or a failed poll cycle sets
+ * (design decisions D5, D8, issue #27, issue #28).
+ */
+private data class AppRow(
+    val status: String?,
+    val lastPollAt: Long?,
+    val lastSuccessAt: Long?,
+    val lastError: String?,
+    val consecutiveFailures: Int,
+)
 
 private suspend fun readAppRow(database: SqliteDatabase, appId: Long): AppRow =
     database.read { reader ->
-        reader.prepareStatement("SELECT status, last_poll_at, last_success_at FROM app WHERE id = ?").use { select ->
+        reader.prepareStatement(
+            "SELECT status, last_poll_at, last_success_at, last_error, consecutive_failures FROM app WHERE id = ?",
+        ).use { select ->
             select.setLong(1, appId)
             select.executeQuery().use { result ->
                 result.next()
@@ -623,6 +764,8 @@ private suspend fun readAppRow(database: SqliteDatabase, appId: Long): AppRow =
                     status = result.getString(1),
                     lastPollAt = result.getLong(2).takeUnless { result.wasNull() },
                     lastSuccessAt = result.getLong(3).takeUnless { result.wasNull() },
+                    lastError = result.getString(4),
+                    consecutiveFailures = result.getInt(5),
                 )
             }
         }

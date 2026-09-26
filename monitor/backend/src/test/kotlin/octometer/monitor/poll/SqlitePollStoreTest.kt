@@ -17,6 +17,10 @@ import kotlin.test.assertNull
  * text of [SqlitePollStore]. Each test of [PollSchedulerTest] gives an
  * in-memory fake instead, so no test there mixes virtual time with this
  * real writer thread.
+ *
+ * Issue #28 (design decision D8) adds the status, the last error text,
+ * and the failure count of [SqlitePollStore.recordFailure] to this
+ * class.
  */
 class SqlitePollStoreTest {
 
@@ -39,12 +43,35 @@ class SqlitePollStoreTest {
 
                 val rows = store.readApps().associateBy { it.appId }
 
-                assertEquals(AppRow(dueAppId, "db", "octometer_events", "cursor-1", 1_000L), rows.getValue(dueAppId))
-                assertEquals(AppRow(newAppId, "db", "octometer_events", null, null), rows.getValue(newAppId))
+                assertEquals(
+                    AppRow(dueAppId, "db", "octometer_events", "cursor-1", 1_000L, status = null, consecutiveFailures = 0),
+                    rows.getValue(dueAppId),
+                )
+                assertEquals(
+                    AppRow(newAppId, "db", "octometer_events", null, null, status = null, consecutiveFailures = 0),
+                    rows.getValue(newAppId),
+                )
             } finally {
                 database.close()
             }
         }
+
+    @Test
+    fun `readApps reads the status and the consecutive failure count too`() = runBlocking {
+        val database = SqliteDatabase.open(dataDir)
+        try {
+            val store = SqlitePollStore(database)
+            val appId = insertApp(database, "demo", cursor = null, nextPollAt = 0L)
+            store.recordFailure(appId, status = "UNREACHABLE", lastError = "MongoTimeoutException", nextPollAt = 5_000L, now = 1_000L)
+
+            val row = store.readApps().single { it.appId == appId }
+
+            assertEquals("UNREACHABLE", row.status)
+            assertEquals(1, row.consecutiveFailures)
+        } finally {
+            database.close()
+        }
+    }
 
     @Test
     fun `writeResult sets next_poll_at and the cursor, and touches zero rows for a deleted app`() = runBlocking {
@@ -69,23 +96,44 @@ class SqlitePollStoreTest {
     }
 
     @Test
-    fun `recordFailure sets next_poll_at only, and leaves the cursor unchanged`() = runBlocking {
+    fun `recordFailure sets the status, the last error, next_poll_at, and last_poll_at, and leaves the cursor unchanged`() =
+        runBlocking {
+            val database = SqliteDatabase.open(dataDir)
+            try {
+                val store = SqlitePollStore(database)
+                val appId = insertApp(database, "demo", cursor = "old-cursor", nextPollAt = 0L)
+
+                store.recordFailure(appId, status = "ERROR", lastError = "IllegalStateException", nextPollAt = 5_000L, now = 1_000L)
+
+                val row = store.readApps().single { it.appId == appId }
+                assertEquals(5_000L, row.nextPollAt)
+                assertEquals("old-cursor", row.cursor, "a failed cycle never moves the cursor")
+                assertEquals("ERROR", row.status)
+                assertEquals(1, row.consecutiveFailures)
+                assertEquals(1_000L, readLastPollAt(database, appId))
+                assertEquals("IllegalStateException", readLastError(database, appId))
+
+                // A deleted app gives zero updated rows, and this never
+                // throws for that case (issue #17, decision 7).
+                deleteApp(database, appId)
+                store.recordFailure(appId, status = "ERROR", lastError = "IllegalStateException", nextPollAt = 6_000L, now = 2_000L)
+                assertNull(store.readApps().find { it.appId == appId })
+            } finally {
+                database.close()
+            }
+        }
+
+    @Test
+    fun `recordFailure increments consecutive_failures on each call`() = runBlocking {
         val database = SqliteDatabase.open(dataDir)
         try {
             val store = SqlitePollStore(database)
-            val appId = insertApp(database, "demo", cursor = "old-cursor", nextPollAt = 0L)
+            val appId = insertApp(database, "demo", cursor = null, nextPollAt = 0L)
 
-            store.recordFailure(appId, nextPollAt = 5_000L)
+            store.recordFailure(appId, status = "ERROR", lastError = "IllegalStateException", nextPollAt = 1_000L, now = 0L)
+            store.recordFailure(appId, status = "ERROR", lastError = "IllegalStateException", nextPollAt = 2_000L, now = 1_000L)
 
-            val row = store.readApps().single { it.appId == appId }
-            assertEquals(5_000L, row.nextPollAt)
-            assertEquals("old-cursor", row.cursor, "a failed cycle never moves the cursor")
-
-            // A deleted app gives zero updated rows, and this never
-            // throws for that case (issue #17, decision 7).
-            deleteApp(database, appId)
-            store.recordFailure(appId, nextPollAt = 6_000L)
-            assertNull(store.readApps().find { it.appId == appId })
+            assertEquals(2, store.readApps().single { it.appId == appId }.consecutiveFailures)
         } finally {
             database.close()
         }
@@ -132,3 +180,25 @@ private suspend fun deleteApp(database: SqliteDatabase, appId: Long) {
         }
     }
 }
+
+private suspend fun readLastPollAt(database: SqliteDatabase, appId: Long): Long? =
+    database.read { reader ->
+        reader.prepareStatement("SELECT last_poll_at FROM app WHERE id = ?").use { select ->
+            select.setLong(1, appId)
+            select.executeQuery().use { result ->
+                result.next()
+                result.getLong(1).takeUnless { result.wasNull() }
+            }
+        }
+    }
+
+private suspend fun readLastError(database: SqliteDatabase, appId: Long): String? =
+    database.read { reader ->
+        reader.prepareStatement("SELECT last_error FROM app WHERE id = ?").use { select ->
+            select.setLong(1, appId)
+            select.executeQuery().use { result ->
+                result.next()
+                result.getString(1)
+            }
+        }
+    }
