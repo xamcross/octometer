@@ -1,6 +1,6 @@
-Draft. The owner approves this text in issue #42.
+Approved by the owner on 2026-09-27 (issue #42). The legal basis of section 6 waits for issue #41.
 
-This text is a draft in ASD-STE100 Simplified Technical English. It is not legal advice.
+This text is in ASD-STE100 Simplified Technical English. It is not legal advice.
 
 ## 1. The controller
 
@@ -57,10 +57,10 @@ Issue #41 also holds the open decision on the consent method.
 
 ## 7. The processors
 
-We use MongoDB Atlas to store the record, Fly.io to run this app, and
-Cloudflare to serve its pages. Each processor sits outside the EU.
+We use MongoDB Atlas to store the record. The owner's monitor also reads
+the record, and it runs on Fly.io. Each processor sits outside the EU.
 
-The EU-US Data Privacy Framework adequacy decision covers these three
+The EU-US Data Privacy Framework adequacy decision covers these two
 companies in the USA. No EU adequacy decision covers Ukraine. For Ukraine
 we use the safeguards named at `<link to the safeguards list>`. You may
 ask us for a copy of them.
@@ -68,7 +68,7 @@ ask us for a copy of them.
 ## 8. Your rights
 
 You may ask us to show, correct, delete, or export your record. You may
-also ask us to pause its use.
+also ask us to pause its use, or to object to its use.
 
 You may complain to your national data protection authority. Contact:
 `<owner contact address>`.
@@ -104,4 +104,9 @@ The owner's comment on issue #45 (2026-09-21): #41 is parked for the pilot. Sect
 Sections 2, 5, and 9 add the click data, the retention sources, and the erasure width
   that pull request #87 lacks (referrerHost of contract rule C40, decision D15, and
   contract rule C43).
+The proof-check of issue #42 (2026-09-27) corrected section 7: the app uses MongoDB
+  Atlas (design section 2.3) and the owner's monitor runs on Fly.io (design decision
+  O4, section 2.2); pull request #87 named Cloudflare and gave Fly.io to the app, and
+  neither claim has a source. The proof-check also added the right to object of
+  section 8 (GDPR Article 13(2)).
 -->
