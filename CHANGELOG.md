@@ -11,9 +11,6 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Kit JVM
 
-- Document the route pattern list, the pilot settings, and the privacy notice text
-  for the first page. (#119)
-
 ### Tracker
 
 ### Monitor
@@ -29,6 +26,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add the two issue templates for an app repository to the Ktor guide. (#48)
 - Move the ingest check order into one processor and add kit/jvm-spring. (#69)
 - Write the Spring Boot integration guide. (#70)
+- Add the route pattern list, the pilot settings, and the first-page privacy text. (#119)
 
 ### Tracker
 
