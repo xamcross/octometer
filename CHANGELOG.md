@@ -15,6 +15,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Monitor
 
+- Add the "Anonymous sessions" view, with a link from a first-page row and from the anonymous row of the user list. (#115)
+
 ## 0.2.0 - 2026-09-27
 
 ### Contract
