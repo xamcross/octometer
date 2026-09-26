@@ -61,17 +61,13 @@ import kotlin.test.assertTrue
  * `IngestSettings` and `MongoEventLogStore` as the demo app
  * (`tools/demo-app/src/main/kotlin/octometer/demo/Application.kt`).
  *
- * **The counted click.** `MongoAppReader` and `EventStore` store every
- * element with the SQLite column default `kind = 0` (issue #17 and
- * earlier). No code of this module sets `kind = 1` for the element
- * `octo:session-start` yet; issue #110 owns that gap. The level 1
- * clicks statement (`CLICKS_SQL` of `AppTotalsRoute.kt`) filters on
- * `kind = 0`. One `octo:session-start` entry of each session therefore
- * counts toward the clicks total too, today. `EXPECTED_FIRST_CLICKS`
- * and `EXPECTED_FINAL_CLICKS` add that one entry of each session to the
- * real click count. The assertions then match the real behavior of the
- * store today. Issue #110 changes this total when it adds the `kind`
- * mark of the session-start element; fix the two constants then.
+ * **The counted click.** `MongoAppReader.parseEvent` sets `kind = 1`
+ * for the element `octo:session-start`, and `kind = 0` for each other
+ * element (design decision D5, section 6). The level 1 clicks
+ * statement (`CLICKS_SQL` of `AppTotalsRoute.kt`) filters on
+ * `kind = 0`, so the one `octo:session-start` entry of each session
+ * does not count toward the clicks total. `EXPECTED_FIRST_CLICKS` and
+ * `EXPECTED_FINAL_CLICKS` hold the real click count of each source.
  *
  * **The PATCH criterion.** `MongoAppReader` kept its MongoDB client of
  * one app id for ever. It keyed the client on the app id alone. It
@@ -120,11 +116,11 @@ class EndToEndContainerTest {
         private const val CLICKS_PER_SESSION = 3
         private const val SENT_CLICKS = SENT_SESSIONS * CLICKS_PER_SESSION
 
-        // The one session-start entry of each session counts as a
-        // click today (see the class comment, and issue #110).
+        // The one session-start entry of each session holds kind = 1
+        // (see the class comment), so it does not count as a click.
         // EXPECTED_FIRST_CLICKS is the total that GET /api/apps must
         // show after the first source settles.
-        private const val EXPECTED_FIRST_CLICKS = SENT_CLICKS + SENT_SESSIONS
+        private const val EXPECTED_FIRST_CLICKS = SENT_CLICKS
 
         // The batch of the second source (decision 5, the PATCH
         // criterion). It holds two new user ids, two new sessions,
@@ -139,8 +135,7 @@ class EndToEndContainerTest {
         // each row of the second source on top (design decision D4).
         private const val EXPECTED_FINAL_USERS = SENT_USERS + SECOND_SOURCE_USERS
         private const val EXPECTED_FINAL_SESSIONS = SENT_SESSIONS + SECOND_SOURCE_SESSIONS
-        private const val EXPECTED_FINAL_CLICKS =
-            EXPECTED_FIRST_CLICKS + SECOND_SOURCE_CLICKS + SECOND_SOURCE_SESSIONS
+        private const val EXPECTED_FINAL_CLICKS = EXPECTED_FIRST_CLICKS + SECOND_SOURCE_CLICKS
 
         // A poll interval of one second and a settle lag of one second
         // keep the wait short (decision 7 of the brief). The bound below
