@@ -399,6 +399,94 @@ class MongoAppReaderContainerTest {
         clockReader.close()
     }
 
+    // --- path, referrerHost, and kind (issue #110, design decision D5) ---
+
+    @Test
+    fun `a session start document stores its path and referrerHost, and kind 1`() = runBlocking {
+        val rawCollection = rawClient.getDatabase(databaseName).getCollection("octometer_events")
+        rawCollection.insertOne(
+            invalidDocument()
+                .append("ts", Date())
+                .append("element", "octo:session-start")
+                .append("sessionId", "session-1")
+                .append("userId", "user-1")
+                .append("path", "/")
+                .append("referrerHost", "google.com"),
+        )
+        settle()
+
+        reader.pollOnce(target(cursor = null), MONGO.connectionString)
+
+        val row = readEventColumns(sqlite, appId).single()
+        assertEquals("/", row.path)
+        assertEquals("google.com", row.referrerHost)
+        assertEquals(1, row.kind)
+    }
+
+    @Test
+    fun `a click document without path or referrerHost stores NULL in both columns, and kind 0`() = runBlocking {
+        val rawCollection = rawClient.getDatabase(databaseName).getCollection("octometer_events")
+        rawCollection.insertOne(
+            invalidDocument()
+                .append("ts", Date())
+                .append("element", "checkout.save")
+                .append("sessionId", "session-1")
+                .append("userId", "user-1"),
+        )
+        settle()
+
+        reader.pollOnce(target(cursor = null), MONGO.connectionString)
+
+        val row = readEventColumns(sqlite, appId).single()
+        assertEquals(null, row.path)
+        assertEquals(null, row.referrerHost)
+        assertEquals(0, row.kind)
+    }
+
+    // BLOCKER 1 of the security review of pull request #193: section 6
+    // states "it copies referrer_host from a session start". A click
+    // document with a present referrerHost field must give NULL.
+    @Test
+    fun `a click document with a referrerHost field stores NULL in referrer_host`() = runBlocking {
+        val rawCollection = rawClient.getDatabase(databaseName).getCollection("octometer_events")
+        rawCollection.insertOne(
+            invalidDocument()
+                .append("ts", Date())
+                .append("element", "checkout.save")
+                .append("sessionId", "session-1")
+                .append("userId", "user-1")
+                .append("referrerHost", "google.com"),
+        )
+        settle()
+
+        reader.pollOnce(target(cursor = null), MONGO.connectionString)
+
+        val row = readEventColumns(sqlite, appId).single()
+        assertEquals(null, row.referrerHost)
+        assertEquals(0, row.kind)
+    }
+
+    @Test
+    fun `a document with a wrong BSON type in referrerHost goes to skipped_event, and the cursor moves`() = runBlocking {
+        val rawCollection = rawClient.getDatabase(databaseName).getCollection("octometer_events")
+        val bad = invalidDocument().append("ts", Date()).append("element", "octo:session-start")
+            .append("sessionId", "session-1").append("userId", "user-1").append("referrerHost", 42)
+        val good = invalidDocument().append("ts", Date()).append("element", "good.click")
+            .append("sessionId", "session-1").append("userId", "user-1")
+        rawCollection.insertMany(listOf(bad, good))
+        settle()
+
+        val outcome = reader.pollOnce(target(cursor = null), MONGO.connectionString)
+
+        assertEquals(1, outcome.eventsStored, "The good document must arrive.")
+        assertEquals(1, outcome.eventsSkipped, "The bad document must skip.")
+        assertEquals(good.getObjectId("_id").toHexString(), outcome.cursor, "The cursor must move past the skip.")
+        assertEquals(
+            "referrerHost wrong type",
+            readSkippedReasons(sqlite, appId).getValue(bad.getObjectId("_id").toHexString()),
+        )
+    }
+
     @Test
     fun `a cycle that skips one document sets the status INVALID_DATA`() = runBlocking {
         val rawCollection = rawClient.getDatabase(databaseName).getCollection("octometer_events")
@@ -612,6 +700,27 @@ private suspend fun readEventIdsInInsertOrder(database: SqliteDatabase, appId: L
                     ids += result.getString(1)
                 }
                 ids
+            }
+        }
+    }
+
+/** The three new columns of one `event` row (issue #110). */
+private data class ContainerEventColumns(val path: String?, val referrerHost: String?, val kind: Int)
+
+private suspend fun readEventColumns(database: SqliteDatabase, appId: Long): List<ContainerEventColumns> =
+    database.read { reader ->
+        reader.prepareStatement("SELECT path, referrer_host, kind FROM event WHERE app_id = ?").use { select ->
+            select.setLong(1, appId)
+            select.executeQuery().use { result ->
+                val rows = mutableListOf<ContainerEventColumns>()
+                while (result.next()) {
+                    rows += ContainerEventColumns(
+                        path = result.getString(1),
+                        referrerHost = result.getString(2),
+                        kind = result.getInt(3),
+                    )
+                }
+                rows
             }
         }
     }

@@ -147,6 +147,32 @@ class EventStoreTest {
         assertEquals(0, readSkippedReasons(database, appId).size)
     }
 
+    // --- path, referrerHost, and kind (issue #110, design decision D5) ---
+
+    @Test
+    fun `commitPage writes path, referrerHost, and kind as they are`() = runBlocking {
+        store.commitPage(
+            appId,
+            listOf(sampleEvent("e1", path = "/checkout", referrerHost = "google.com", kind = 1)),
+            cursor = "cursor-1",
+        )
+
+        val row = readEventColumns(database, appId, "e1")
+        assertEquals("/checkout", row.path)
+        assertEquals("google.com", row.referrerHost)
+        assertEquals(1, row.kind)
+    }
+
+    @Test
+    fun `commitPage writes NULL for path and referrerHost when the event holds neither`() = runBlocking {
+        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1")
+
+        val row = readEventColumns(database, appId, "e1")
+        assertEquals(null, row.path)
+        assertEquals(null, row.referrerHost)
+        assertEquals(0, row.kind)
+    }
+
     // --- recordCycleSuccess (design decisions D5, D8, issue #27) ---
 
     @Test
@@ -240,12 +266,21 @@ class EventStoreTest {
         assertTrue(error.message!!.contains("NOT NULL", ignoreCase = true))
     }
 
-    private fun sampleEvent(eventId: String, userId: String? = "user-1") = NewEvent(
+    private fun sampleEvent(
+        eventId: String,
+        userId: String? = "user-1",
+        path: String? = null,
+        referrerHost: String? = null,
+        kind: Int = 0,
+    ) = NewEvent(
         eventId = eventId,
         ts = 1_700_000_000_000L,
         element = "checkout.save",
         sessionId = "session-1",
         userId = userId,
+        path = path,
+        referrerHost = referrerHost,
+        kind = kind,
     )
 }
 
@@ -286,6 +321,27 @@ private suspend fun readCursor(database: SqliteDatabase, appId: Long): String? =
             select.executeQuery().use { result ->
                 result.next()
                 result.getString(1)
+            }
+        }
+    }
+
+/** The three new columns of one `event` row (issue #110). */
+private data class EventColumns(val path: String?, val referrerHost: String?, val kind: Int)
+
+private suspend fun readEventColumns(database: SqliteDatabase, appId: Long, eventId: String): EventColumns =
+    database.read { reader ->
+        reader.prepareStatement(
+            "SELECT path, referrer_host, kind FROM event WHERE app_id = ? AND event_id = ?",
+        ).use { select ->
+            select.setLong(1, appId)
+            select.setString(2, eventId)
+            select.executeQuery().use { result ->
+                result.next()
+                EventColumns(
+                    path = result.getString(1),
+                    referrerHost = result.getString(2),
+                    kind = result.getInt(3),
+                )
             }
         }
     }
