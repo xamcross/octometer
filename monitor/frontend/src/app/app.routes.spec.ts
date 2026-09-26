@@ -78,6 +78,31 @@ describe('routes', () => {
     expect(heading()).toContain(breadcrumb[breadcrumb.length - 1].label);
   });
 
+  it('opens the Sessions placeholder for /apps/:appId/sessions with anonymous=true', async () => {
+    await harness.navigateByUrl('/apps/7/sessions?anonymous=true');
+    expect(heading()).toContain('Anonymous sessions');
+    expect(TestBed.inject(Title).getTitle()).toBe('Anonymous sessions of App 7 - Octometer');
+    const breadcrumb = buildBreadcrumb(router.routerState.snapshot.root);
+    expect(breadcrumb).toEqual([
+      { label: 'Apps', path: '/apps' },
+      { label: 'App 7', path: null },
+      { label: 'Sessions', path: null },
+    ]);
+  });
+
+  it('sends /apps/:appId/sessions with no anonymous=true to the user list (issue #115)', async () => {
+    await harness.navigateByUrl('/apps/7/sessions');
+    expect(router.url).toBe('/apps/7/users');
+  });
+
+  it('redirects to the user list when a later navigation on the sessions route drops anonymous=true', async () => {
+    await harness.navigateByUrl('/apps/7/sessions?anonymous=true');
+    expect(router.url).toBe('/apps/7/sessions?anonymous=true');
+
+    await harness.navigateByUrl('/apps/7/sessions');
+    expect(router.url).toBe('/apps/7/users');
+  });
+
   it('opens the Elements placeholder for /apps/:appId/elements with a user id', async () => {
     await harness.navigateByUrl('/apps/7/elements?userId=42');
     expect(heading()).toBe('Elements of User 42');
@@ -107,7 +132,20 @@ describe('routes', () => {
     expect(heading()).toContain(breadcrumb[breadcrumb.length - 1].label);
   });
 
-  it('sends /apps/:appId/elements with no user id and no anonymous flag to the user list', async () => {
+  it('opens the Elements placeholder for a session id (issue #115)', async () => {
+    await harness.navigateByUrl('/apps/7/elements?sessionId=0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11');
+    expect(heading()).toBe('Elements of Session 0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11');
+    expect(TestBed.inject(Title).getTitle()).toBe('Session 0b0e4e0e of App 7 - Octometer');
+    const breadcrumb = buildBreadcrumb(router.routerState.snapshot.root);
+    expect(breadcrumb).toEqual([
+      { label: 'Apps', path: '/apps' },
+      { label: 'App 7', path: null },
+      { label: 'Sessions', path: null },
+      { label: 'Session 0b0e4e0e', path: null },
+    ]);
+  });
+
+  it('sends /apps/:appId/elements with no user id, no anonymous flag, and no session id to the user list', async () => {
     await harness.navigateByUrl('/apps/7/elements');
     expect(router.url).toBe('/apps/7/users');
   });

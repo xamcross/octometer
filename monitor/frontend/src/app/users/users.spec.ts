@@ -155,12 +155,12 @@ describe('Users', () => {
       expect(link.textContent?.trim()).toBe('(anonymous)');
     });
 
-    it('links the anonymous row to the elements view with anonymous=true', () => {
+    it('links the anonymous row to the sessions view with anonymous=true (issue #115)', () => {
       startStore();
       flushUsers(buildPage({ rows: [buildRow({ userId: null })] }));
 
       const link = root().querySelector('tbody th a') as HTMLAnchorElement;
-      expect(link.getAttribute('href')).toBe('/apps/7/elements?anonymous=true');
+      expect(link.getAttribute('href')).toBe('/apps/7/sessions?anonymous=true');
     });
 
     it('links a user row to the elements view with the URL-encoded userId', () => {
@@ -204,7 +204,7 @@ describe('Users', () => {
       });
     });
 
-    it('opens the anonymous row link on a click on a different cell of the row', () => {
+    it('opens the anonymous row link to the sessions view on a click on a different cell of the row (issue #115)', () => {
       startStore();
       flushUsers(buildPage({ rows: [buildRow({ userId: null })] }));
       const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
@@ -212,7 +212,7 @@ describe('Users', () => {
       const numCell = root().querySelector('td.num') as HTMLElement;
       numCell.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-      expect(navigateSpy).toHaveBeenCalledWith(['/apps', '7', 'elements'], {
+      expect(navigateSpy).toHaveBeenCalledWith(['/apps', '7', 'sessions'], {
         queryParams: { anonymous: 'true' },
       });
     });
@@ -274,6 +274,16 @@ describe('Users', () => {
     it('gives the row link a minimum target size of 24 by 24 CSS px', () => {
       startStore();
       flushUsers(buildPage());
+
+      const link = root().querySelector('tbody th a') as HTMLElement;
+      const style = getComputedStyle(link);
+      expect(style.minWidth).toBe('24px');
+      expect(style.minHeight).toBe('24px');
+    });
+
+    it('gives the anonymous row link a minimum target size of 24 by 24 CSS px (issue #115)', () => {
+      startStore();
+      flushUsers(buildPage({ rows: [buildRow({ userId: null })] }));
 
       const link = root().querySelector('tbody th a') as HTMLElement;
       const style = getComputedStyle(link);

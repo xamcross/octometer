@@ -1,0 +1,107 @@
+/*
+ * No table element gets a `display` value in this file, so the table
+ * keeps its native semantics for a screen reader.
+ */
+caption {
+  text-align: left;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+}
+
+th,
+td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+/*
+ * The session, the first-page, the source, and the user cell break
+ * inside a word. A number and the start-time cell stay on one line, so
+ * a narrow viewport does not break either one into one character for
+ * each line.
+ */
+th[scope='row'] {
+  overflow-wrap: anywhere;
+  min-width: 8rem;
+}
+
+.num,
+.time {
+  white-space: nowrap;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+th[scope='row'] a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 24px;
+  min-height: 24px;
+}
+
+/* The table scrolls sideways when the columns need more width than the screen. */
+/* `position: relative` makes this container the containing block of an absolute child, so the page keeps one scroll direction. */
+.table-scroll {
+  position: relative;
+  overflow-x: auto;
+}
+
+/* A click on a data cell opens the link of the session cell (D28). */
+tbody td {
+  cursor: pointer;
+}
+
+tbody tr:hover,
+tbody tr:focus-within {
+  background-color: #eef2f7;
+}
+
+@media (forced-colors: active) {
+  tbody tr:hover,
+  tbody tr:focus-within {
+    background-color: Highlight;
+    color: HighlightText;
+  }
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 0.75rem 0;
+}
+
+.pager button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0.25rem 0.75rem;
+}
+
+/*
+ * A disabled pager button keeps aria-disabled, not the native disabled
+ * attribute, so it stays in the tab order (the form of `users.css`).
+ * This rule gives it a visible state too: a lower-contrast text, no
+ * pointer cursor, and a lighter border. #595959 on #f8f8f8 keeps a
+ * contrast of 6.6:1, above the 4.5:1 floor of WCAG 1.4.3 for normal
+ * text.
+ */
+.pager button[aria-disabled='true'] {
+  color: #595959;
+  background-color: #f8f8f8;
+  border-color: #767676;
+  cursor: default;
+}
+
+@media (forced-colors: active) {
+  .pager button[aria-disabled='true'] {
+    color: GrayText;
+    border-color: GrayText;
+  }
+}
