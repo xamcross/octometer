@@ -194,7 +194,7 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           group_path="com/github/xamcross/octometer"
-          modules="octometer-kit-core octometer-kit-mongo octometer-kit-ktor"
+          modules="octometer-kit-core octometer-kit-mongo octometer-kit-ktor octometer-kit-spring"
           # JitPack builds a coordinate on its first request. Each module
           # below waits for its build, with a bound of 10 minutes.
           for module in $modules; do
