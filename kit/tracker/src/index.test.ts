@@ -59,10 +59,28 @@ function restoreWebdriver(): void {
   delete (window.navigator as { webdriver?: unknown }).webdriver;
 }
 
+/**
+ * Sets `document.referrer`, for one test (issue #108). See
+ * `setVisibilityState` for the restore rule.
+ */
+function setReferrer(value: string): void {
+  Object.defineProperty(document, 'referrer', {
+    configurable: true,
+    get: () => value,
+  });
+}
+
+function restoreReferrer(): void {
+  delete (document as { referrer?: unknown }).referrer;
+}
+
 interface FetchCall {
   url: string;
   init: RequestInit;
-  body: { sessionId: string; clicks: Array<{ element: string; ageMs: number; path?: string }> };
+  body: {
+    sessionId: string;
+    clicks: Array<{ element: string; ageMs: number; path?: string; referrerHost?: string }>;
+  };
 }
 
 /** Reads an array entry, and throws a clear error for a missing one. */
@@ -120,6 +138,7 @@ describe('createTracker', () => {
     restoreVisibilityState();
     restorePrerendering();
     restoreWebdriver();
+    restoreReferrer();
   });
 
   it('records a click on a child of a data-octo element', () => {
@@ -1804,6 +1823,143 @@ describe('createTracker', () => {
           expect(text).not.toContain('/history/42');
         }
       }
+    });
+
+    // The referrerHost field of the session start (contract rule C40,
+    // design decision D42, issue #108). A click entry never holds this
+    // field; the field sits on the session start entry only.
+    describe('the referrerHost field of the session start', () => {
+      it('sends referrerHost google.com for a referrer https://www.google.co.uk/search?q=x', () => {
+        setReferrer('https://www.google.co.uk/search?q=x');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+        expect(at(clicks, 0).referrerHost).toBe('google.com');
+      });
+
+      it('sends referrerHost bing.com for a referrer https://www.bing.com/', () => {
+        setReferrer('https://www.bing.com/');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+        expect(at(clicks, 0).referrerHost).toBe('bing.com');
+      });
+
+      it('sends the literal other for a referrer https://example.org/page', () => {
+        setReferrer('https://example.org/page');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+        expect(at(clicks, 0).referrerHost).toBe('other');
+      });
+
+      it('matches an upper-case referrer host too, in lower case', () => {
+        setReferrer('https://WWW.GOOGLE.COM/x');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+        expect(at(clicks, 0).referrerHost).toBe('google.com');
+      });
+
+      it('sends no referrerHost for an empty referrer', () => {
+        setReferrer('');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+        expect(at(clicks, 0)).not.toHaveProperty('referrerHost');
+      });
+
+      it('sends no referrerHost for the origin of the app', () => {
+        setReferrer(`${location.origin}/dashboard`);
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+        expect(at(clicks, 0)).not.toHaveProperty('referrerHost');
+      });
+
+      it('sends no referrerHost for an IP literal', () => {
+        setReferrer('http://192.168.1.1/');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+        expect(at(clicks, 0)).not.toHaveProperty('referrerHost');
+      });
+
+      it('sends no referrerHost for a host without a dot', () => {
+        setReferrer('https://intranet/page');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+        expect(at(clicks, 0)).not.toHaveProperty('referrerHost');
+      });
+
+      it('sends no referrerHost for a referrer with a scheme other than http or https', () => {
+        setReferrer('ftp://files.example/report');
+        window.sessionStorage.clear();
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+
+        const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+        expect(at(clicks, 0)).not.toHaveProperty('referrerHost');
+      });
+
+      it('sends no referrerHost on a click entry, only on the session start', () => {
+        setReferrer('https://www.google.com/');
+        window.sessionStorage.clear();
+        const host = document.createElement('div');
+        host.setAttribute('data-octo', 'save');
+        document.body.appendChild(host);
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        clickElement(host);
+        vi.advanceTimersByTime(5000);
+
+        const clickCalls = clickBatchCalls(parseCalls(fetchMock));
+        expect(at(clickCalls, 0).body.clicks[0]).not.toHaveProperty('referrerHost');
+      });
+
+      it('keeps the session start as the first entry, with referrerHost, ahead of a click (rule C38)', () => {
+        setReferrer('https://www.google.com/');
+        window.sessionStorage.clear();
+        const host = document.createElement('div');
+        host.setAttribute('data-octo', 'save');
+        document.body.appendChild(host);
+
+        tracker = createTracker({ endpoint: ENDPOINT });
+        tracker.start();
+        clickElement(host);
+        vi.advanceTimersByTime(5000);
+
+        const firstCall = at(parseCalls(fetchMock), 0);
+        expect(firstCall.body.clicks[0]?.element).toBe('octo:session-start');
+        expect(firstCall.body.clicks[0]?.referrerHost).toBe('google.com');
+      });
     });
 
     // The retry rule of the session start follows the timer flush (issue
