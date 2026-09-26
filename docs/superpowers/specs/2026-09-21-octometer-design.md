@@ -551,7 +551,9 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
 - **D44. First pages and anonymous sessions.** Two views join the monitor: "First pages"
   (`path`, `sessions`) and "Anonymous sessions". Each row of "Anonymous sessions" holds the
   session id, the first path, and the source. It holds the start time and the click count. It
-  holds the user id of a later sign-in in the same session. The first-pages statement holds no
+  holds the user id of a later sign-in in the same session: the `user_id` of the event with the
+  smallest `ts` among the events of that session with `user_id IS NOT NULL` (one session can
+  hold two users; the earliest sign-in wins, never the last). The first-pages statement holds no
   `COALESCE`. The API writes `(unknown)` for a `NULL` path. A session without a start row
   shows the path `(unknown)` and the time of its first click. A row of "First pages" opens
   "Anonymous sessions" with `firstPath`. The row `(anonymous)` of level 2 opens "Anonymous
