@@ -440,6 +440,31 @@ class MongoAppReaderUnitTest {
         assertFalse(reason!!.contains(marker), "The reason must hold no field value of the document: $reason")
     }
 
+    // Acceptance criterion 6 of issue #110: no log line and no
+    // skipped_event reason holds a raw path or a raw host.
+    @Test
+    fun `the skipped_event reason for a bad path or a bad referrerHost holds no field value of the document`() = runBlocking {
+        val pathMarker = "/octomarkerpath7c2e"
+        val hostMarker = "octomarkerhost7c2e.invalid"
+        val badPath = goodDocument("checkout.save").append("path", pathMarker.repeat(20))
+        val badReferrerHost = goodDocument(SESSION_START_ELEMENT).append("referrerHost", hostMarker.repeat(20))
+
+        val (_, logEvents) = captureLogEvents {
+            reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(badPath, badReferrerHost) }
+        }
+
+        val pathReason = readSkippedReason(database, appId, badPath.getObjectId("_id").toHexString())
+        val hostReason = readSkippedReason(database, appId, badReferrerHost.getObjectId("_id").toHexString())
+        assertEquals("path too long", pathReason)
+        assertEquals("referrerHost too long", hostReason)
+        assertFalse(pathReason!!.contains(pathMarker), "The reason must hold no raw path: $pathReason")
+        assertFalse(hostReason!!.contains(hostMarker), "The reason must hold no raw host: $hostReason")
+        logEvents.forEach { event ->
+            assertFalse(event.formattedMessage.contains(pathMarker), "A log line must hold no raw path.")
+            assertFalse(event.formattedMessage.contains(hostMarker), "A log line must hold no raw host.")
+        }
+    }
+
     // --- The cancellation guard of lesson 2 (MAJOR 2 of the security review, MAJOR 1 of the Kotlin review) ---
 
     @Test
