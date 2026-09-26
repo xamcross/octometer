@@ -83,7 +83,98 @@ class PollSchedulerTest {
             testScheduler.runCurrent()
             awaitCondition(testScheduler) { cycle.calls.size == 1 }
 
-            assertEquals(PollTarget(appId, "db", "octometer_events", null), cycle.calls.single())
+            // checkPrivileges is true (issue #30): a new app has no
+            // privilegesCheckedAt value yet, so the check is due.
+            assertEquals(PollTarget(appId, "db", "octometer_events", null, checkPrivileges = true), cycle.calls.single())
+        } finally {
+            scheduler.stop()
+        }
+    }
+
+    // Issue #30, design decision D9: the privilege check runs at the
+    // first poll of an app, not at a second poll of the same day, and
+    // again once 24 hours pass. The scheduler computes the due flag
+    // and passes it as PollTarget.checkPrivileges; the stub PollCycle
+    // records each target, so this test reads the flag straight off
+    // it, with no real MongoDB call.
+    @Test
+    fun `checkPrivileges is true at the first poll, false later the same day, and true again after 24 hours`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(nextPollAt = 0L)
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle()
+
+        // A tick interval of 12 hours keeps the tick count of the
+        // 24-hour advance at two, not 86 400: each tick is a real,
+        // if cheap, coroutine dispatch, so a short tick interval
+        // would slow this test with no gain.
+        val twelveHoursMillis = 12 * 60 * 60 * 1000L
+        val scheduler = pollScheduler(
+            store,
+            secretStore,
+            cycle,
+            testScheduler = testScheduler,
+            pollIntervalSeconds = 60,
+            tickIntervalMillis = twelveHoursMillis,
+        )
+        scheduler.start()
+        try {
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 1 }
+            assertTrue(cycle.calls[0].checkPrivileges, "the first poll of a new app must run the privilege check")
+
+            // Simulates the EventStore write of a passed check (issue
+            // #30, decision 4). This stub PollCycle carries no
+            // EventStore of its own.
+            store.setPrivilegesCheckedAt(appId, testScheduler.currentTime)
+
+            testScheduler.advanceTimeBy(twelveHoursMillis)
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 2 }
+            assertFalse(cycle.calls[1].checkPrivileges, "a poll 12 hours later, the same day, must run no privilege check")
+
+            testScheduler.advanceTimeBy(twelveHoursMillis)
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 3 }
+            assertTrue(cycle.calls[2].checkPrivileges, "a poll 24 hours after the last check must run it again")
+        } finally {
+            scheduler.stop()
+        }
+    }
+
+    // MAJOR 1 of the review of pull request #219 (issue #30): the third
+    // clause of the due rule, `row.status == STATUS_OVERPRIVILEGED`, had
+    // no test of its own. The two earlier clauses cover only the time
+    // since the last check; this test covers the status clause, with a
+    // privilegesCheckedAt value that is fresh (one hour old, not due by
+    // time alone) for both apps.
+    @Test
+    fun `an OVERPRIVILEGED app runs the check again one hour later, and an OK app does not`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val oneHourMillis = 60 * 60 * 1000L
+        val overprivilegedAppId = store.addApp(nextPollAt = 0L, status = "OVERPRIVILEGED")
+        store.setPrivilegesCheckedAt(overprivilegedAppId, -oneHourMillis)
+        val okAppId = store.addApp(nextPollAt = 0L, status = "OK")
+        store.setPrivilegesCheckedAt(okAppId, -oneHourMillis)
+        secretStore.put(overprivilegedAppId, allowlistedSrvUri())
+        secretStore.put(okAppId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle()
+
+        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler)
+        scheduler.start()
+        try {
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 2 }
+
+            val overprivilegedTarget = cycle.calls.single { it.appId == overprivilegedAppId }
+            val okTarget = cycle.calls.single { it.appId == okAppId }
+            assertTrue(
+                overprivilegedTarget.checkPrivileges,
+                "an OVERPRIVILEGED app must run the check again, even one hour after the last one",
+            )
+            assertFalse(okTarget.checkPrivileges, "an OK app one hour after the last check must run no privilege check")
         } finally {
             scheduler.stop()
         }
@@ -1073,6 +1164,16 @@ private class FakePollStore(initialRows: List<AppRow> = emptyList()) : PollStore
     fun consecutiveFailuresOf(appId: Long): Int = rows.getValue(appId).consecutiveFailures
 
     fun lastErrorOf(appId: Long): String? = lastErrors[appId]
+
+    /**
+     * Sets `privilegesCheckedAt` of one row directly (issue #30). The
+     * stub [PollCycle] of this file never calls a real [EventStore],
+     * so a test that proves the due rule of design decision D9 must
+     * set this value itself, the same as a passed check would.
+     */
+    fun setPrivilegesCheckedAt(appId: Long, at: Long?) {
+        rows[appId] = rows.getValue(appId).copy(privilegesCheckedAt = at)
+    }
 
     /** The next [count] calls to [readApps] throw, and it does not read (issue #17, decision 1). */
     fun failNextReads(count: Int) {

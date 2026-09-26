@@ -14,6 +14,13 @@ internal const val STATUS_UNAUTHORIZED = "UNAUTHORIZED"
 internal const val STATUS_UNREACHABLE = "UNREACHABLE"
 internal const val STATUS_ERROR = "ERROR"
 
+/**
+ * The status of design decision D9 (issue #30) for a failed privilege
+ * check. [MongoAppReader] throws it directly, outside this map, so it
+ * never reaches [mongoFailureStatus].
+ */
+internal const val STATUS_OVERPRIVILEGED = "OVERPRIVILEGED"
+
 private const val ERROR_CODE_UNAUTHORIZED = 13
 private const val ERROR_CODE_NOT_ALLOWED = 8000
 private const val NOT_ALLOWED_TEXT = "not allowed to do action"

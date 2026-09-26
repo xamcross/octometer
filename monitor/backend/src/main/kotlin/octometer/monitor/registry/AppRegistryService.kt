@@ -275,10 +275,16 @@ private fun connectionStringChanged(oldConnectionString: String?, newConnectionS
 // its oldest event. consecutive_failures resets to 0, the same as a
 // good cycle (RECORD_CYCLE_SUCCESS_SQL of EventStore.kt); every other
 // column here resets to NULL. See design decision D10.
+//
+// Issue #30: privileges_checked_at resets to NULL too. A new
+// connection string names a new database user; the check of design
+// decision D9 has no evidence yet of that user's privileges, so the
+// next cycle must run it again, the same as a brand new app.
 private fun resetPollState(writer: Connection, appId: Long) {
     writer.prepareStatement(
         "UPDATE app SET cursor = NULL, next_poll_at = NULL, last_poll_at = NULL, " +
-            "last_success_at = NULL, status = NULL, last_error = NULL, consecutive_failures = 0 WHERE id = ?",
+            "last_success_at = NULL, status = NULL, last_error = NULL, consecutive_failures = 0, " +
+            "privileges_checked_at = NULL WHERE id = ?",
     ).use { update ->
         update.setLong(1, appId)
         update.executeUpdate()
