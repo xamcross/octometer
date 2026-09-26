@@ -1,0 +1,59 @@
+<h1 tabindex="-1">First pages</h1>
+<app-refresh-bar />
+
+@if (store.data(); as page) {
+  @if (page.rows.length === 0) {
+    <p>No first page yet.</p>
+  } @else {
+    <div class="table-scroll" tabindex="0" role="region" aria-labelledby="first-pages-caption">
+      <table>
+        <caption id="first-pages-caption">
+          The first pages of this app, with the session count of each page.
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">First page</th>
+            <th scope="col" class="num">Sessions</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of page.rows; track row.path) {
+            <tr>
+              <th scope="row">
+                <a
+                  [routerLink]="['/apps', appId(), 'sessions']"
+                  [queryParams]="{ anonymous: 'true', firstPath: row.path }"
+                >
+                  {{ row.path }}
+                </a>
+              </th>
+              <td class="num" (click)="onRowCellClick(row, $event)">
+                {{ formatCount(row.sessions) }}
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="pager" aria-label="Pages of the first page list">
+      <button
+        type="button"
+        (click)="onPreviousPage()"
+        [attr.aria-disabled]="currentPage() <= 1 ? 'true' : null"
+      >
+        Previous
+      </button>
+      <span aria-current="true">Page {{ currentPage() }} of {{ page.pageCount }}</span>
+      <button
+        type="button"
+        (click)="onNextPage()"
+        [attr.aria-disabled]="currentPage() >= page.pageCount ? 'true' : null"
+      >
+        Next
+      </button>
+    </nav>
+  }
+} @else {
+  <p>Octometer reads the first page list.</p>
+}

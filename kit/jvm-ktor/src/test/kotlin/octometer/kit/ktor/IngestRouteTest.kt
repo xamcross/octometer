@@ -58,8 +58,6 @@ import kotlinx.coroutines.newSingleThreadContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import octometer.kit.core.ingest.AnonymousDailyCap
-import octometer.kit.core.ingest.AnonymousMinuteLimiter
 import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestSettings
@@ -216,39 +214,9 @@ class IngestRouteTest {
         assertEquals(HttpStatusCode.NoContent, response.status)
     }
 
-    @Test
-    fun `text plain gives 415`() = testApplication {
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(store = store) { null }
-            }
-        }
-
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Text.Plain)
-            setBody(validBody)
-        }
-
-        assertEquals(HttpStatusCode.UnsupportedMediaType, response.status)
-        assertTrue(store.events().isEmpty())
-    }
-
-    @Test
-    fun `an absent content type gives 415`() = testApplication {
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(store = store) { null }
-            }
-        }
-
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            setBody(validBody)
-        }
-
-        assertEquals(HttpStatusCode.UnsupportedMediaType, response.status)
-    }
+    // `IngestRequestProcessorTest` of `kit/jvm-core` now holds the pure
+    // order test of a content type other than JSON (415):
+    // `textPlainGives415` and `anAbsentContentTypeGives415` (issue #69).
 
     // The default Ktor test client parses the Content-Type header itself
     // (through the HttpPlainText client plugin) and refuses to send a
@@ -313,61 +281,11 @@ class IngestRouteTest {
         return if (separatorIndex < 0) "" else rawResponse.substring(separatorIndex + 4)
     }
 
-    @Test
-    fun `an invalid body gives 400`() = testApplication {
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(store = store) { "user-1" }
-            }
-        }
-
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            setBody("""{"sessionId":"not-a-uuid","clicks":[]}""")
-        }
-
-        assertEquals(HttpStatusCode.BadRequest, response.status)
-        assertTrue(store.events().isEmpty())
-    }
-
-    @Test
-    fun `a body of exactly 16384 bytes gives 204`() = testApplication {
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
-            }
-        }
-
-        val body = exactlySizedBody(16384)
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            setBody(body)
-        }
-
-        assertEquals(16384, body.toByteArray(Charsets.UTF_8).size)
-        assertEquals(HttpStatusCode.NoContent, response.status)
-    }
-
-    @Test
-    fun `a body of exactly 16385 bytes gives 400`() = testApplication {
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
-            }
-        }
-
-        val body = exactlySizedBody(16385)
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            setBody(body)
-        }
-
-        assertEquals(16385, body.toByteArray(Charsets.UTF_8).size)
-        assertEquals(HttpStatusCode.BadRequest, response.status)
-    }
+    // `IngestRequestProcessorTest` of `kit/jvm-core` now holds the pure
+    // order test of an invalid body (400) and of the real body size
+    // check at exactly 16384 and 16385 bytes: `anInvalidBodyGives400`,
+    // `aBodyOfExactly16384BytesGives204`, and
+    // `aBodyOfExactly16385BytesGives400` (issue #69).
 
     @Test
     fun `a body above 16 KB with a correct Content-Length gives 400`() = testApplication {
@@ -894,43 +812,12 @@ class IngestRouteTest {
     // The tests below check the bot filter and the daily anonymous caps
     // of design decision D43 and issue #117.
 
-    @Test
-    fun `the Googlebot user agent gives 204 and the store holds 0 events`() = testApplication {
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
-            }
-        }
-
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.UserAgent, "Mozilla/5.0 (compatible; Googlebot/2.1)")
-            setBody(validBody)
-        }
-
-        assertEquals(HttpStatusCode.NoContent, response.status)
-        assertTrue(store.events().isEmpty())
-    }
-
-    @Test
-    fun `the PYTHON-REQUESTS user agent gives 204 because the match ignores the letter case`() = testApplication {
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
-            }
-        }
-
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.UserAgent, "PYTHON-REQUESTS/2.31")
-            setBody(validBody)
-        }
-
-        assertEquals(HttpStatusCode.NoContent, response.status)
-        assertTrue(store.events().isEmpty())
-    }
+    // `IngestRequestProcessorTest` of `kit/jvm-core` now holds the pure
+    // order test of the bot filter (204) against a Googlebot value and
+    // against a value that only matches with no letter case:
+    // `theBotFilterAnswers204AndNeverReachesTheDeclaredSizeCheck` (issue
+    // #69; `BotUserAgentFilterTest` already proves the letter-case rule
+    // on its own).
 
     @Test
     fun `a common browser user agent still stores its events`() = testApplication {
@@ -954,249 +841,26 @@ class IngestRouteTest {
         assertEquals(1, store.events().size)
     }
 
-    @Test
-    fun `an absent User-Agent header passes the filter`() = testApplication {
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
-            }
-        }
+    // `IngestRequestProcessorTest` of `kit/jvm-core` now holds the pure
+    // order test of an absent `User-Agent` header, the DEBUG log line of
+    // one robot drop and of a second drop inside one hour, and the
+    // 512-character cut of an 8 KB header value:
+    // `anAbsentUserAgentHeaderPassesTheBotFilter`,
+    // `aRobotDropWritesOneDebugLineWithoutTheHeaderValue`,
+    // `aSecondRobotDropInsideOneHourWritesNoLineAndTheNextHourReportsBoth`,
+    // `anEightKilobyteUserAgentValueWithABotTokenNearItsStartStillGives204`,
+    // and
+    // `aBotTokenPastTheFirst512CharactersOfAnEightKilobyteUserAgentValueNeverMatches`
+    // (issue #69). The DEBUG line itself now comes from
+    // `octometer.kit.core`, not from the application logger of this
+    // module, so this class can no longer capture it.
 
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            setBody(validBody)
-        }
-
-        assertEquals(HttpStatusCode.NoContent, response.status)
-        assertEquals(1, store.events().size)
-    }
-
-    @Test
-    fun `a robot drop writes one DEBUG line without the header value`() = testApplication {
-        val store = InMemoryEventLogStore()
-        val userAgent = "Mozilla/5.0 (compatible; Googlebot/2.1)"
-        application {
-            routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
-            }
-        }
-
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.UserAgent, userAgent)
-            setBody(validBody)
-        }
-
-        assertEquals(HttpStatusCode.NoContent, response.status)
-        assertTrue(store.events().isEmpty())
-        val debugEvents = logAppender.events.filter { it.level == Level.DEBUG }
-        assertEquals(1, debugEvents.size)
-        assertFalse(debugEvents[0].formattedMessage.contains(userAgent))
-    }
-
-    @Test
-    fun `a second robot drop inside one hour writes no line, and the next hour reports both`() = testApplication {
-        // Security review M3: with no throttle, a robot flood would
-        // write one DEBUG line for each dropped request. This test
-        // proves the fix of BotDropLogThrottle: the first drop of an
-        // hour writes its line at once (count 1); a second drop inside
-        // the same hour writes no line of its own, and its count joins
-        // the line of the next hour.
-        val store = InMemoryEventLogStore()
-        val clock = MutableClock(fixedClock.instant())
-        application {
-            routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = clock) { null }
-            }
-        }
-        val robotUserAgent = "Mozilla/5.0 (compatible; Googlebot/2.1)"
-
-        client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.UserAgent, robotUserAgent)
-            setBody(validBody)
-        }
-        val debugEventsAfterFirstDrop = logAppender.events.filter { it.level == Level.DEBUG }
-        assertEquals(1, debugEventsAfterFirstDrop.size)
-        assertTrue(debugEventsAfterFirstDrop[0].formattedMessage.contains("1"))
-
-        client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.UserAgent, robotUserAgent)
-            setBody(validBody)
-        }
-        val debugEventsAfterSecondDrop = logAppender.events.filter { it.level == Level.DEBUG }
-        assertEquals(1, debugEventsAfterSecondDrop.size, "The second drop of the same hour must write no line.")
-
-        clock.advance(Duration.ofMinutes(61))
-        client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.UserAgent, robotUserAgent)
-            setBody(validBody)
-        }
-        val debugEventsAfterNextHour = logAppender.events.filter { it.level == Level.DEBUG }
-        assertEquals(2, debugEventsAfterNextHour.size)
-        assertTrue(debugEventsAfterNextHour[1].formattedMessage.contains("2"))
-    }
-
-    @Test
-    fun `an 8 KB User-Agent value with a bot token near its start still gives 204`() = testApplication {
-        // Java review MAJOR 1: the filter reads a maximum of 512
-        // characters of the header value, so a value near the 8 KB
-        // header limit of the Netty engine still matches when its bot
-        // token sits inside that window.
-        val store = InMemoryEventLogStore()
-        val longUserAgent = "bot" + "x".repeat(8 * 1024)
-        application {
-            routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
-            }
-        }
-
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.UserAgent, longUserAgent)
-            setBody(validBody)
-        }
-
-        assertEquals(HttpStatusCode.NoContent, response.status)
-        assertTrue(store.events().isEmpty())
-    }
-
-    @Test
-    fun `a bot token past the first 512 characters of an 8 KB User-Agent value never matches`() =
-        testApplication {
-            // The route reads only the first 512 characters of the
-            // header value (Java review MAJOR 1), so a bot token past
-            // that cut never reaches the pattern match, and the batch
-            // of a real, very long User-Agent value still stores.
-            val store = InMemoryEventLogStore()
-            val longUserAgent = "x".repeat(600) + "bot" + "x".repeat(7 * 1024)
-            application {
-                routing {
-                    octometerIngestRoute(store = store, settings = IngestSettings(true), clock = fixedClock) { null }
-                }
-            }
-
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                header(HttpHeaders.UserAgent, longUserAgent)
-                setBody(validBody)
-            }
-
-            assertEquals(HttpStatusCode.NoContent, response.status)
-            assertEquals(1, store.events().size)
-        }
-
-    @Test
-    fun `a batch above a daily cap gives 204 and the store holds 0 events`() = testApplication {
-        val store = InMemoryEventLogStore()
-        val dailyCap = AnonymousDailyCap(fixedClock, 1, 100)
-        application {
-            routing {
-                octometerIngestRoute(
-                    store = store,
-                    settings = IngestSettings(true),
-                    clock = fixedClock,
-                    dailyCap = dailyCap,
-                ) { null }
-            }
-        }
-
-        val firstResponse = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            setBody(validBody)
-        }
-        assertEquals(HttpStatusCode.NoContent, firstResponse.status)
-        assertEquals(1, store.events().size)
-
-        val secondResponse = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            setBody(validBody)
-        }
-        assertEquals(HttpStatusCode.NoContent, secondResponse.status)
-        assertEquals(1, store.events().size, "The batch above the daily cap must add no new event.")
-    }
-
-    @Test
-    fun `a signed-in user never pays the daily anonymous cap`() = testApplication {
-        val store = InMemoryEventLogStore()
-        val dailyCap = AnonymousDailyCap(fixedClock, 1, 1)
-        application {
-            routing {
-                octometerIngestRoute(
-                    store = store,
-                    settings = IngestSettings(true),
-                    clock = fixedClock,
-                    dailyCap = dailyCap,
-                ) { "user-1" }
-            }
-        }
-
-        repeat(3) { requestIndex ->
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 3 must pass.")
-        }
-        assertEquals(3, store.events().size)
-    }
-
-    @Test
-    fun `a 300-character header value falls back to the remote address as the daily cap key, never the raw header text`() =
-        testApplication {
-            // Finding of the correction of 2026-09-22: the daily cap key
-            // must be the same normalised address as the rate limiter
-            // (issue #33), never a raw header value. A raw-header key
-            // would let a client send a new, huge decoy header value on
-            // each request and never repeat a key, so the per-key cap
-            // would never catch it. This route already passes
-            // clientAddress(call, clientIpHeaderName) into AnonymousKey.of,
-            // the same call the rate limiter makes, so this test only
-            // locks that fact in.
-            val store = InMemoryEventLogStore()
-            val dailyCap = AnonymousDailyCap(fixedClock, 1_000, 1)
-            application {
-                routing {
-                    octometerIngestRoute(
-                        store = store,
-                        settings = IngestSettings(true),
-                        clock = fixedClock,
-                        dailyCap = dailyCap,
-                        clientIpHeaderName = "X-Client-Ip",
-                    ) { null }
-                }
-            }
-
-            val firstResponse = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                header("X-Client-Ip", "9".repeat(300))
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.NoContent, firstResponse.status)
-            assertEquals(1, store.events().size)
-
-            // A different 300-character header value. A raw-header key
-            // would treat this as a brand new key, and the per-key cap
-            // of 1 would never drop it. The route instead falls back to
-            // the remote address for each request (issue #33: a value
-            // above 64 characters never becomes the key), so this
-            // second request shares the first request's key and goes
-            // above its cap of 1.
-            val secondResponse = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                header("X-Client-Ip", "8".repeat(300))
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.NoContent, secondResponse.status)
-            assertEquals(
-                1,
-                store.events().size,
-                "The daily cap map must hold one key (the remote address), never a raw 300-character header value.",
-            )
-        }
+    // `IngestRequestProcessorTest` of `kit/jvm-core` now holds the pure
+    // order test of the daily anonymous cap (204) and of the daily cap
+    // key sharing the rate limiter's own normalised address:
+    // `aBatchAboveTheDailyCapGives204AndTheStoreHoldsNoNewEvent`,
+    // `aSignedInUserNeverPaysTheDailyAnonymousCap`, and the client
+    // address tests of that class (issue #69).
 
     @Test
     fun `a marker user agent and a marker address stay out of each captured log line`() = testApplication {
@@ -1364,99 +1028,15 @@ class IngestRouteTest {
         assertEquals(HttpStatusCode.TooManyRequests, response.status)
     }
 
-    @Test
-    fun `with OCTOMETER_CLIENT_IP_HEADER set, two different header values get two counters`() = testApplication {
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(
-                    store = store,
-                    settings = IngestSettings(false),
-                    clock = fixedClock,
-                    clientIpHeaderName = "X-Client-Ip",
-                ) { null }
-            }
-        }
-
-        repeat(120) {
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                header("X-Client-Ip", "203.0.113.9")
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.NoContent, response.status)
-        }
-
-        // A different header value is a different key (design decision
-        // D20), so this first request of that key still passes, even
-        // though the test host sends every request from the same
-        // underlying connection.
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            header("X-Client-Ip", "198.51.100.2")
-            setBody(validBody)
-        }
-        assertEquals(HttpStatusCode.NoContent, response.status)
-    }
-
-    @Test
-    fun `without OCTOMETER_CLIENT_IP_HEADER, a spoofed header never changes the key`() = testApplication {
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(false), clock = fixedClock) { null }
-            }
-        }
-
-        repeat(120) { requestIndex ->
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                // No clientIpHeaderName is set, so this header must have
-                // no effect on the key: the key is the remote address of
-                // the connection (issue #33, step 3).
-                header("X-Forwarded-For", "203.0.113.$requestIndex")
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
-        }
-
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            header("X-Forwarded-For", "203.0.113.250")
-            setBody(validBody)
-        }
-        assertEquals(HttpStatusCode.TooManyRequests, response.status)
-    }
-
-    @Test
-    fun `with OCTOMETER_CLIENT_IP_HEADER set, a request with no such header falls back to the remote address`() =
-        testApplication {
-            val store = InMemoryEventLogStore()
-            application {
-                routing {
-                    octometerIngestRoute(
-                        store = store,
-                        settings = IngestSettings(false),
-                        clock = fixedClock,
-                        clientIpHeaderName = "X-Client-Ip",
-                    ) { null }
-                }
-            }
-
-            repeat(120) {
-                val response = client.post(DEFAULT_INGEST_PATH) {
-                    contentType(ContentType.Application.Json)
-                    setBody(validBody)
-                }
-                assertEquals(HttpStatusCode.NoContent, response.status)
-            }
-
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.TooManyRequests, response.status)
-        }
+    // `IngestRequestProcessorTest` of `kit/jvm-core` now holds the pure
+    // order test of the client address (design decision D20, issue #33;
+    // design decision D43, issue #116): two different header values, a
+    // spoofed header with no configured header name, a request with no
+    // such header, a forged left element, a value above 64 characters, a
+    // value with no IP address form, and each `trustedProxyCount` case
+    // (issue #69). Each test of that class uses a 1-request minute limit
+    // instead of a 120-request loop, to prove the very same resolved key
+    // with no need for a slow, repeated loop.
 
     @Test
     fun `a 429 answer writes no line of its own to the application log of the route`() = testApplication {
@@ -1534,231 +1114,6 @@ class IngestRouteTest {
     }
 
     @Test
-    fun `with OCTOMETER_CLIENT_IP_HEADER set, a forged left element never changes the key`() = testApplication {
-        val store = InMemoryEventLogStore()
-        application {
-            routing {
-                octometerIngestRoute(
-                    store = store,
-                    settings = IngestSettings(false),
-                    clock = fixedClock,
-                    clientIpHeaderName = "X-Forwarded-For",
-                ) { null }
-            }
-        }
-
-        repeat(120) { requestIndex ->
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                // The left element changes on every request; the nearest
-                // proxy appends the real address as the last element
-                // (design decision D20, the default trusted proxy count
-                // of one), so the key must stay the same for all 120
-                // requests.
-                header("X-Forwarded-For", "203.0.113.$requestIndex, 198.51.100.9")
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
-        }
-
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            header("X-Forwarded-For", "203.0.113.999, 198.51.100.9")
-            setBody(validBody)
-        }
-        assertEquals(HttpStatusCode.TooManyRequests, response.status)
-    }
-
-    @Test
-    fun `with OCTOMETER_CLIENT_IP_HEADER set, a header value above 64 characters gives the remote address`() =
-        testApplication {
-            val store = InMemoryEventLogStore()
-            application {
-                routing {
-                    octometerIngestRoute(
-                        store = store,
-                        settings = IngestSettings(false),
-                        clock = fixedClock,
-                        clientIpHeaderName = "X-Client-Ip",
-                    ) { null }
-                }
-            }
-
-            val longValue = "9".repeat(65)
-            repeat(120) { requestIndex ->
-                val response = client.post(DEFAULT_INGEST_PATH) {
-                    contentType(ContentType.Application.Json)
-                    // Each value is 65 characters or more, above the
-                    // 64-character cap, so every request falls back to
-                    // the one remote address key of the test client
-                    // (design decision D20, issue #33).
-                    header("X-Client-Ip", "$longValue-$requestIndex")
-                    setBody(validBody)
-                }
-                assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
-            }
-
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                header("X-Client-Ip", "$longValue-another")
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.TooManyRequests, response.status)
-        }
-
-    @Test
-    fun `with OCTOMETER_CLIENT_IP_HEADER set, a value with no IP address form gives the remote address`() =
-        testApplication {
-            val store = InMemoryEventLogStore()
-            application {
-                routing {
-                    octometerIngestRoute(
-                        store = store,
-                        settings = IngestSettings(false),
-                        clock = fixedClock,
-                        clientIpHeaderName = "X-Client-Ip",
-                    ) { null }
-                }
-            }
-
-            repeat(120) { requestIndex ->
-                val response = client.post(DEFAULT_INGEST_PATH) {
-                    contentType(ContentType.Application.Json)
-                    header("X-Client-Ip", "not-an-ip-address-$requestIndex")
-                    setBody(validBody)
-                }
-                assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
-            }
-
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                header("X-Client-Ip", "still-not-an-ip-address")
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.TooManyRequests, response.status)
-        }
-
-    // The tests below check OCTOMETER_TRUSTED_PROXY_COUNT (design decision
-    // D43, issue #116): the n-th value from the right of the header list.
-    // Each test gives the app IngestSettings(false), so the client-address
-    // limit of D20 gives the 429 answer at request 121; the route reads
-    // this header, and picks the n-th value from it, for that same D20
-    // check when the app records no anonymous click (BLOCKER 1 of the
-    // review of pull request #197).
-
-    @Test
-    fun `with the default trusted proxy count, a header with three values gives the last value as the key`() =
-        testApplication {
-            val store = InMemoryEventLogStore()
-            application {
-                routing {
-                    octometerIngestRoute(
-                        store = store,
-                        settings = IngestSettings(false),
-                        clock = fixedClock,
-                        clientIpHeaderName = "X-Forwarded-For",
-                    ) { null }
-                }
-            }
-
-            repeat(120) { requestIndex ->
-                val response = client.post(DEFAULT_INGEST_PATH) {
-                    contentType(ContentType.Application.Json)
-                    // The two left elements change on every request; the
-                    // default trusted proxy count of one still reads only
-                    // the last element, so the key must stay the same.
-                    header("X-Forwarded-For", "203.0.113.$requestIndex, 198.51.100.$requestIndex, 192.0.2.9")
-                    setBody(validBody)
-                }
-                assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
-            }
-
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                header("X-Forwarded-For", "203.0.113.250, 198.51.100.250, 192.0.2.9")
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.TooManyRequests, response.status)
-        }
-
-    @Test
-    fun `with OCTOMETER_TRUSTED_PROXY_COUNT 2, a header with three values gives the second value from the right`() =
-        testApplication {
-            val store = InMemoryEventLogStore()
-            application {
-                routing {
-                    octometerIngestRoute(
-                        store = store,
-                        settings = IngestSettings(false),
-                        clock = fixedClock,
-                        clientIpHeaderName = "X-Forwarded-For",
-                        trustedProxyCount = 2,
-                    ) { null }
-                }
-            }
-
-            repeat(120) { requestIndex ->
-                val response = client.post(DEFAULT_INGEST_PATH) {
-                    contentType(ContentType.Application.Json)
-                    // The left element and the right element both change
-                    // on every request; the second-from-right element (the
-                    // nearest trusted proxy's own observed address) stays
-                    // the same, so the key must stay the same for all 120
-                    // requests.
-                    header("X-Forwarded-For", "203.0.113.$requestIndex, 198.51.100.9, 192.0.2.$requestIndex")
-                    setBody(validBody)
-                }
-                assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
-            }
-
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                header("X-Forwarded-For", "203.0.113.250, 198.51.100.9, 192.0.2.250")
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.TooManyRequests, response.status)
-        }
-
-    @Test
-    fun `with OCTOMETER_TRUSTED_PROXY_COUNT above the header list length, the route falls back to the remote address`() =
-        testApplication {
-            val store = InMemoryEventLogStore()
-            application {
-                routing {
-                    octometerIngestRoute(
-                        store = store,
-                        settings = IngestSettings(false),
-                        clock = fixedClock,
-                        clientIpHeaderName = "X-Forwarded-For",
-                        trustedProxyCount = 3,
-                    ) { null }
-                }
-            }
-
-            repeat(120) { requestIndex ->
-                val response = client.post(DEFAULT_INGEST_PATH) {
-                    contentType(ContentType.Application.Json)
-                    // Both elements change on every request. A code that
-                    // wrongly reads an element of this two-value header,
-                    // in place of a fallback, would give each request its
-                    // own key and never reach the limit below; the
-                    // correct fallback is the one, stable remote address
-                    // of the test client, so the limit still triggers.
-                    header("X-Forwarded-For", "203.0.113.$requestIndex, 198.51.100.$requestIndex")
-                    setBody(validBody)
-                }
-                assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 120 must pass.")
-            }
-
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                header("X-Forwarded-For", "203.0.113.250, 198.51.100.250")
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.TooManyRequests, response.status)
-        }
-
-    @Test
     fun `positiveWholeNumberFromEnvironmentValue gives the default for a null value`() {
         assertEquals(1, positiveWholeNumberFromEnvironmentValue(null, "OCTOMETER_TRUSTED_PROXY_COUNT", 1))
     }
@@ -1787,197 +1142,14 @@ class IngestRouteTest {
         assertFalse(exception.message!!.contains("many"))
     }
 
-    // The tests below check the anonymous per-minute limiter of design
-    // decision D43 and issue #116. Each test gives the route a small,
-    // custom limit, the form of the daily-cap tests above, so the test
-    // stays fast; `AnonymousMinuteLimiterTest` of `kit/jvm-core` already
+    // `IngestRequestProcessorTest` of `kit/jvm-core` now holds the pure
+    // order test of the anonymous per-minute limiter of design decision
+    // D43 and issue #116: the request counter before the body read, the
+    // click entry counter and the session-start counter after the parse,
+    // a signed-in user paying neither counter, the limiter staying off
+    // with no anonymous click, and its log line holding no address
+    // (issue #69). `AnonymousMinuteLimiterTest` of `kit/jvm-core` already
     // proves the exact acceptance numbers 300, 900, and 120.
-
-    @Test
-    fun `the anonymous minute request counter answers 429 before the route reads the body`() = testApplication {
-        val store = InMemoryEventLogStore()
-        val minuteLimiter = AnonymousMinuteLimiter(fixedClock, 2, 900, 120)
-        application {
-            routing {
-                octometerIngestRoute(
-                    store = store,
-                    settings = IngestSettings(true),
-                    clock = fixedClock,
-                    minuteLimiter = minuteLimiter,
-                ) { null }
-            }
-        }
-
-        repeat(2) { requestIndex ->
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 2 must pass.")
-        }
-
-        // A body that IngestPipeline.process would reject with 400. The
-        // route must never reach the parse once the minute limiter
-        // rejects the request: the answer is 429, not 400.
-        val response = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            setBody("this is not valid JSON")
-        }
-        assertEquals(HttpStatusCode.TooManyRequests, response.status)
-    }
-
-    @Test
-    fun `the click entry counter answers 429 only after the parse, and it counts each element that is not octo colon session-start`() =
-        testApplication {
-            val store = InMemoryEventLogStore()
-            val minuteLimiter = AnonymousMinuteLimiter(fixedClock, 900, 2, 120)
-            val twoClickBody = """{"sessionId":"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11",""" +
-                """"clicks":[{"element":"checkout.save","ageMs":1200},{"element":"checkout.next","ageMs":1200}]}"""
-            application {
-                routing {
-                    octometerIngestRoute(
-                        store = store,
-                        settings = IngestSettings(true),
-                        clock = fixedClock,
-                        minuteLimiter = minuteLimiter,
-                    ) { null }
-                }
-            }
-
-            val firstResponse = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                setBody(twoClickBody)
-            }
-            assertEquals(HttpStatusCode.NoContent, firstResponse.status)
-            assertEquals(2, store.events().size)
-
-            val secondResponse = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.TooManyRequests, secondResponse.status)
-            assertEquals(2, store.events().size, "The rejected batch must add no new event.")
-        }
-
-    @Test
-    fun `the session-start counter answers 429 independently of the click entry counter`() = testApplication {
-        val store = InMemoryEventLogStore()
-        val minuteLimiter = AnonymousMinuteLimiter(fixedClock, 900, 900, 1)
-        val sessionStartBody = """{"sessionId":"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11",""" +
-            """"clicks":[{"element":"octo:session-start","ageMs":0}]}"""
-        application {
-            routing {
-                octometerIngestRoute(
-                    store = store,
-                    settings = IngestSettings(true),
-                    clock = fixedClock,
-                    minuteLimiter = minuteLimiter,
-                ) { null }
-            }
-        }
-
-        val firstResponse = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            setBody(sessionStartBody)
-        }
-        assertEquals(HttpStatusCode.NoContent, firstResponse.status)
-
-        val secondResponse = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            setBody(sessionStartBody)
-        }
-        assertEquals(HttpStatusCode.TooManyRequests, secondResponse.status)
-
-        // The click entry counter of the same key still has its own full
-        // budget; the two counters stay independent.
-        val thirdResponse = client.post(DEFAULT_INGEST_PATH) {
-            contentType(ContentType.Application.Json)
-            setBody(validBody)
-        }
-        assertEquals(HttpStatusCode.NoContent, thirdResponse.status)
-    }
-
-    @Test
-    fun `a signed-in user never pays the anonymous minute limiter`() = testApplication {
-        val store = InMemoryEventLogStore()
-        val minuteLimiter = AnonymousMinuteLimiter(fixedClock, 1, 1, 1)
-        application {
-            routing {
-                octometerIngestRoute(
-                    store = store,
-                    settings = IngestSettings(true),
-                    clock = fixedClock,
-                    minuteLimiter = minuteLimiter,
-                ) { "user-1" }
-            }
-        }
-
-        repeat(5) { requestIndex ->
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                setBody(validBody)
-            }
-            assertEquals(HttpStatusCode.NoContent, response.status, "Request ${requestIndex + 1} of 5 must pass.")
-        }
-    }
-
-    @Test
-    fun `the anonymous minute limiter stays off when the app records no anonymous click`() = testApplication {
-        val store = InMemoryEventLogStore()
-        val minuteLimiter = AnonymousMinuteLimiter(fixedClock, 1, 1, 1)
-        application {
-            routing {
-                octometerIngestRoute(
-                    store = store,
-                    settings = IngestSettings(false),
-                    clock = fixedClock,
-                    minuteLimiter = minuteLimiter,
-                ) { null }
-            }
-        }
-
-        repeat(5) { requestIndex ->
-            val response = client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                setBody(validBody)
-            }
-            assertEquals(
-                HttpStatusCode.NoContent,
-                response.status,
-                "Request ${requestIndex + 1} of 5 must pass with a 429-sized limiter, because the limiter never runs.",
-            )
-        }
-        assertTrue(store.events().isEmpty())
-    }
-
-    @Test
-    fun `a marker address stays out of the log line of a minute-limiter 429`() = testApplication {
-        val store = InMemoryEventLogStore()
-        val markerAddress = "203.0.113.88"
-        val minuteLimiter = AnonymousMinuteLimiter(fixedClock, 1, 900, 120)
-        application {
-            routing {
-                octometerIngestRoute(
-                    store = store,
-                    settings = IngestSettings(true),
-                    clock = fixedClock,
-                    minuteLimiter = minuteLimiter,
-                    clientIpHeaderName = "X-Client-Ip",
-                ) { null }
-            }
-        }
-
-        repeat(2) {
-            client.post(DEFAULT_INGEST_PATH) {
-                contentType(ContentType.Application.Json)
-                header("X-Client-Ip", markerAddress)
-                setBody(validBody)
-            }
-        }
-
-        val messages = logAppender.events.map { it.formattedMessage }
-        assertTrue(messages.none { it.contains(markerAddress) }, "No log line of the route must hold the client address.")
-    }
 
     /** A [Clock] that a test can move forward, for a rate-limit window test. */
     private class MutableClock(startInstant: Instant) : Clock() {

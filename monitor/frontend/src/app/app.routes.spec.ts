@@ -61,6 +61,23 @@ describe('routes', () => {
     expect(TestBed.inject(Title).getTitle()).toBe('Users of App 9 - Octometer');
   });
 
+  it('opens the First pages placeholder for /apps/:appId/first-pages', async () => {
+    await harness.navigateByUrl('/apps/7/first-pages');
+    expect(heading()).toContain('First pages');
+    expect(TestBed.inject(Title).getTitle()).toBe('First pages of App 7 - Octometer');
+    const breadcrumb = buildBreadcrumb(router.routerState.snapshot.root);
+    // The last entry names the current view. `breadcrumb-nav.spec.ts`
+    // proves that the component marks this exact entry with
+    // aria-current="page", because the path field of the last entry does
+    // not change that mark.
+    expect(breadcrumb).toEqual([
+      { label: 'Apps', path: '/apps' },
+      { label: 'App 7', path: null },
+      { label: 'First pages', path: null },
+    ]);
+    expect(heading()).toContain(breadcrumb[breadcrumb.length - 1].label);
+  });
+
   it('opens the Elements placeholder for /apps/:appId/elements with a user id', async () => {
     await harness.navigateByUrl('/apps/7/elements?userId=42');
     expect(heading()).toBe('Elements of User 42');
