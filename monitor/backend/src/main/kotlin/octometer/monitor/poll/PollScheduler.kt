@@ -335,10 +335,17 @@ class PollScheduler(
      * database) logs one WARN and stops there. It never reaches
      * [runPollCycle]'s own catch-all, so it can never trigger a second
      * write attempt of its own.
+     *
+     * [outcome].cursor guards this write too (issue #187, MAJOR 1 of
+     * the correction round of pull request #208): it is the cursor of
+     * the last page that [EventStore.commitPage] committed, or the
+     * cursor of the tick's own read when the cycle committed no page.
+     * Either way, it is the last value that this cycle knows to be
+     * true in the app row, right before this write.
      */
     private suspend fun recordSuccess(appId: Long, outcome: PollOutcome) {
         val nextPollAt = clock.millis() + pollIntervalSeconds * 1000
-        writeSafely { pollStore.writeResult(appId, nextPollAt, outcome.cursor) }
+        writeSafely { pollStore.writeResult(appId, nextPollAt, outcome.cursor, expectedCursor = outcome.cursor) }
     }
 
     /**

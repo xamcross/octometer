@@ -116,6 +116,7 @@ class Migration002Test {
                     ),
                 ),
                 cursor = "cursor-1",
+                expectedCursor = null,
             )
 
             assertEquals(0, database.read { kindOf(it, appId, "e1") })

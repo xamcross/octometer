@@ -1,6 +1,8 @@
 package octometer.monitor
 
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.URLDecodeException
+import io.ktor.http.decodeURLPart
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
@@ -9,8 +11,11 @@ import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.autohead.AutoHeadResponse
+import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.httpMethod
+import io.ktor.server.request.path
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
@@ -35,6 +40,13 @@ private const val HOST = "127.0.0.1"
 
 // The fixed 400 sentence of issue #148. It names no part of the request.
 private const val REQUEST_NOT_VALID_MESSAGE = "The request is not valid."
+
+// Issue #31, correction round 1 (BadQueryEscapeTest): a bad percent
+// escape in the path must reach no log line, the same rule as a bad
+// escape in the query string. CallLogging's format function below logs
+// this fixed text in place of the raw path, when the path fails to
+// decode.
+private const val INVALID_PATH_LOG_TEXT = "<invalid path>"
 
 // refreshSeconds is config.pollIntervalSeconds (issue #17, decision 6).
 // One value now sets both the poll rate and the UI refresh rate. An
@@ -92,6 +104,35 @@ fun Application.module(config: MonitorConfig, staticDir: File? = defaultStaticDi
 
     install(ContentNegotiation) {
         json()
+    }
+    // Issue #31 (D11, D15): one line for each request, with the method
+    // and the path only. The format function builds the whole text, so
+    // no plugin default can add the query string or a header. Ktor's
+    // Routing plugin can still add its own TRACE line with the full
+    // path at a raised root level (logback.xml, MAJOR 2 of the review
+    // of pull request #170); no route of this application holds a user
+    // id, a session id, or a connection string in a path segment (D13),
+    // so that TRACE line stays safe. CallLoggingTraceTest proves this
+    // plugin's own line holds no query string, at any level, on a real
+    // Netty server.
+    //
+    // Correction round 1 (BadQueryEscapeTest, a pre-existing test): a
+    // raw path can hold a bad percent escape, for example "/%zz". This
+    // format function must not echo it back. It decodes the path
+    // first, the same check as RequestGuard.isApiPath, and it logs the
+    // fixed text of INVALID_PATH_LOG_TEXT in place of the raw path when
+    // that decode fails.
+    install(CallLogging) {
+        format { call ->
+            val rawPath = call.request.path()
+            val loggedPath = try {
+                rawPath.decodeURLPart()
+                rawPath
+            } catch (badEscape: URLDecodeException) {
+                INVALID_PATH_LOG_TEXT
+            }
+            "${call.request.httpMethod.value} $loggedPath"
+        }
     }
     // Correction round 1 of issue #38 (MINOR 2, security review): D12
     // names HEAD a safe method, the same as GET. Each GET route must
