@@ -190,10 +190,15 @@ id, not `null`.
 
 ```
 curl -i -X POST "https://your-app.example/api/octometer/v1/clicks" \
+  -A "Mozilla/5.0 (integration check)" \
   -H "Content-Type: application/json" \
   -H "Cookie: <your session cookie name>=<your session cookie value>" \
   --data-binary '{"sessionId":"3fa85f64-5717-4562-b3fc-2c963f66afa6","clicks":[{"element":"checkout.save","ageMs":1200}]}'
 ```
+
+The kit drops a batch of a known robot user agent with status 204 (design decision
+D43). The default user agent of `curl` is such a value, thus the command above sets
+its own.
 
 The answer has status `204`, with an empty body (contract rule C19). A request with no
 session cookie also gives status `204`, but it stores nothing (design decision D19).
