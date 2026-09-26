@@ -13,7 +13,12 @@ plugins {
 }
 
 group = "octometer"
-version = "0.1.0"
+
+// Issue #39, security review MAJOR 2 and release review MAJOR 1. The
+// release workflow passes "-Pversion=<tag>" at the build, so the zip
+// name carries the pushed tag. A plain build with no such property
+// keeps the old default value.
+version = providers.gradleProperty("version").orElse("0.1.0").get()
 
 kotlin {
     jvmToolchain(21)
@@ -304,6 +309,13 @@ distributions {
             }
         }
     }
+}
+
+// Issue #39, step 4. The project name gives distZip the default file
+// name "backend-0.1.0.zip". The release workflow needs the name
+// "octometer-monitor-0.1.0.zip", so this line sets it from the version.
+tasks.named<Zip>("distZip") {
+    archiveFileName.set("octometer-monitor-${project.version}.zip")
 }
 
 // Issue #38, silent rule 3 (the task brief): "build" and "test" must

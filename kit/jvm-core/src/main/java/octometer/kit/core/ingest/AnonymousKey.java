@@ -27,14 +27,30 @@ public final class AnonymousKey {
             "^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])"
                     + "(\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}$");
 
-    /** The prefix of an IPv4-mapped IPv6 address, in any letter case. */
-    private static final Pattern IPV4_MAPPED_PREFIX = Pattern.compile("^::ffff:", Pattern.CASE_INSENSITIVE);
+    /**
+     * The prefix of an IPv4-mapped IPv6 address, in any letter case. The
+     * optional `:0` to `:0000` group covers the second review finding
+     * of pull request #172 (M10): a proxy can write the mapped prefix
+     * with one extra zero group, for example `::ffff:0:a.b.c.d`. This
+     * pattern now matches that form too, the same form that
+     * `IPV6_ADDRESS_PATTERN` of `kit/jvm-ktor` already accepts.
+     */
+    private static final Pattern IPV4_MAPPED_PREFIX = Pattern.compile("^::ffff(:0{1,4})?:", Pattern.CASE_INSENSITIVE);
 
     /** The group count of a full IPv6 address. */
     private static final int GROUP_COUNT = 8;
 
     /** The group count of the first 64 bits of an IPv6 address. */
     private static final int FIRST_64_BITS_GROUP_COUNT = 4;
+
+    /**
+     * One to four ASCII hex digits, with no other character. The first
+     * review of pull request #172 found that {@code normalizeGroup}
+     * used {@link Character#digit(char, int)} instead, which also
+     * accepts a Unicode decimal digit. This pattern accepts only the
+     * digits `0` to `9` and the letters `a` to `f`, in each letter case.
+     */
+    private static final Pattern ASCII_HEX_GROUP = Pattern.compile("^[0-9a-fA-F]{1,4}$");
 
     private AnonymousKey() {
     }
@@ -185,19 +201,17 @@ public final class AnonymousKey {
      * Returns the lowercase hex text of one IPv6 group, with no leading
      * zero. Returns {@code null} for a group with no hex digit, above 4
      * hex digits, or with a character that is not an ASCII hex digit.
-     * This method checks each character itself. A leading sign (`+1`
-     * or `-1`) thus also gives {@code null}, although
+     * This method checks the whole group against {@link #ASCII_HEX_GROUP}
+     * and never calls {@link Character#digit(char, int)}, because that
+     * method also accepts a Unicode decimal digit, not only an ASCII
+     * hex digit (the first review finding of pull request #172). A
+     * leading sign (`+1` or `-1`) thus also gives {@code null}, although
      * {@link Integer#parseInt(String, int)} alone would accept it
      * (Java review MINOR 3).
      */
     private static String normalizeGroup(String group) {
-        if (group.isEmpty() || group.length() > 4) {
+        if (!ASCII_HEX_GROUP.matcher(group).matches()) {
             return null;
-        }
-        for (int i = 0; i < group.length(); i++) {
-            if (Character.digit(group.charAt(i), 16) < 0) {
-                return null;
-            }
         }
         return Integer.toHexString(Integer.parseInt(group, 16));
     }

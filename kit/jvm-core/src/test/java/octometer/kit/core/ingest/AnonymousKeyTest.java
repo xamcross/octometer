@@ -117,4 +117,45 @@ class AnonymousKeyTest {
 
         assertNotEquals(keyWithSign, keyWithNoSign);
     }
+
+    // The two tests below cover the two open notes of the review of pull
+    // request #172 (issue #116).
+
+    @Test
+    void aMappedPrefixWithAZeroGroupAlsoGivesThePlainIpv4TextAsTheKey() {
+        // The Java review of pull request #172 named this gap as
+        // finding M10: IPV4_MAPPED_PREFIX matched only "::ffff:", so
+        // "::ffff:0:a.b.c.d" fell through to the all-zero IPv6 key.
+        assertEquals("1.2.3.4", AnonymousKey.of("::ffff:0:1.2.3.4"));
+        assertEquals("5.6.7.8", AnonymousKey.of("::ffff:0000:5.6.7.8"));
+    }
+
+    @Test
+    void aMappedPrefixWithAZeroGroupSharesOneKeyWithThePlainMappedForm() {
+        String plainMappedKey = AnonymousKey.of("::ffff:1.2.3.4");
+        String zeroGroupMappedKey = AnonymousKey.of("::ffff:0:1.2.3.4");
+
+        assertEquals(plainMappedKey, zeroGroupMappedKey);
+    }
+
+    @Test
+    void anAddressWithNoZeroGroupStillGivesTheAllZeroIpv6KeyWhenItIsNotMapped() {
+        // "::1" holds no embedded IPv4 tail, so it never reaches the
+        // mapped-prefix branch; it stays the ordinary all-zero /64
+        // prefix key.
+        assertEquals("0:0:0:0", AnonymousKey.of("::1"));
+    }
+
+    @Test
+    void aFullWidthDigitInOneGroupIsNotAnAsciiHexDigitAndTheAddressBecomesItsOwnOpaqueForm() {
+        // The Java review of pull request #172 found that
+        // normalizeGroup called Character.digit(c, 16), which accepts a
+        // Unicode decimal digit, not only an ASCII hex digit. A
+        // full-width digit ("１", the fullwidth form of "1") must
+        // now break the parse, so the whole address falls back to its
+        // own opaque text.
+        String fullWidthDigitAddress = "１::1";
+
+        assertEquals(fullWidthDigitAddress, AnonymousKey.of(fullWidthDigitAddress));
+    }
 }
