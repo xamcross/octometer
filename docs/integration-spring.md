@@ -14,8 +14,10 @@ as the page.
 
 The Spring MVC adapter is the artifact `octometer-kit-spring`, group
 `com.github.xamcross.octometer`. Release `0.1.0` holds no `kit/jvm-spring` module
-(`CHANGELOG.md`; `jitpack.yml` names the next tag `0.2.0`). Use the first release that
-holds the module, `0.2.0`, for this artifact.
+(`CHANGELOG.md`; `jitpack.yml` names the next tag `0.2.0`). Release `0.2.0` is the first
+release with the Spring module. Use tag `0.2.0` for each kit module of your app (design
+decision D26): one tag builds each module together, so a mixed pair of tags never
+happens.
 
 ### The Gradle form
 
@@ -25,7 +27,7 @@ and the `exclusiveContent` block. Add this dependency beside the ones of that se
 ```kotlin
 dependencies {
     implementation("com.github.xamcross.octometer:octometer-kit-spring:0.2.0")
-    implementation("com.github.xamcross.octometer:octometer-kit-mongo:0.1.0")
+    implementation("com.github.xamcross.octometer:octometer-kit-mongo:0.2.0")
 }
 ```
 
@@ -76,7 +78,7 @@ snapshot:
   <dependency>
     <groupId>com.github.xamcross.octometer</groupId>
     <artifactId>octometer-kit-mongo</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
   </dependency>
 </dependencies>
 ```
@@ -156,6 +158,9 @@ Read sections 3 and 4 of `docs/integration-ktor.md` for the read-only database u
 the monitor and the three Atlas alerts. That user is not the app database user of this
 section.
 
+Read section 6 of `docs/integration-ktor.md` for `deleteByUserId`, the 3 passes, and the
+erasure order (contract rule C43, design decision D15).
+
 ## 3. The user id
 
 `IngestController` takes a `SpringUserIdResolver` bean (`kit/jvm-spring/README.md`,
@@ -168,22 +173,32 @@ context of your app:
 public SpringUserIdResolver octometerUserIdResolver() {
     return request -> {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated()) {
+        if (authentication == null
+                || authentication instanceof AnonymousAuthenticationToken
+                || !authentication.isAuthenticated()) {
             return null;
         }
-        return authentication.getName();
+        AppUserDetails principal = (AppUserDetails) authentication.getPrincipal();
+        return principal.getInternalUserId();
     };
 }
 ```
 
-Read the user id from `SecurityContextHolder.getContext().getAuthentication()`: the name
-of the authentication, or the subject of a JWT. Return `null` for an anonymous request or
-an unauthenticated request. `resolve` runs on the thread of the request, before the store
-call (the Javadoc of `SpringUserIdResolver`), so the thread-local security context is
-valid inside it.
+`AppUserDetails` is your own `UserDetails` implementation, with one field for the
+internal user id of the app. Read that field, never `getName()`. `getName()` gives a
+username, and contract rule C6 forbids a username. A JWT resource server may read the
+`sub` claim in its place, only when that claim already holds an opaque internal id, and
+never an email address.
 
-The returned value must follow contract rule C6: 1 to 254 characters, never an email
-address. A bad value gives status 500, not 400. The resolver never logs the id.
+Return `null` for an anonymous request or an unauthenticated request. Spring Security
+gives an anonymous request an `AnonymousAuthenticationToken`, not a `null` value, so the
+guard above checks for that class too. `resolve` runs on the thread of the request,
+before the store call (the Javadoc of `SpringUserIdResolver`), so the thread-local
+security context is valid inside it.
+
+The returned value must follow contract rule C6: 1 to 254 characters, never a username,
+an email address, or an IP address. A bad value gives status 500, not 400. The resolver
+never logs the id.
 
 ## 4. The route
 
@@ -303,7 +318,7 @@ tools/consumer-smoke/spring34-maven/pom.xml
 tools/consumer-smoke/spring34-maven/src/main/java/com/octometer/smoke/SecurityConfiguration.java
 tools/consumer-smoke/spring34-maven/src/test/java/com/octometer/smoke/IngestControllerCsrfTest.java
 tools/consumer-smoke/spring41/build.gradle.kts
-docs/integration-ktor.md, the note at the top, and sections 1, 2, 3, 4, 7, 8
+docs/integration-ktor.md, the note at the top, and sections 1, 2, 3, 4, 6, 7, 8
 CHANGELOG.md, the 0.1.0 entry
 jitpack.yml
 docs/superpowers/specs/2026-09-21-octometer-design.md, section 2.3, D22, D23, D24, D25,
