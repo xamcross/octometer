@@ -755,6 +755,146 @@ class PollSchedulerTest {
         }
     }
 
+    // Issue #29, design decision D7: a lateness of more than two
+    // intervals (2 * pollIntervalSeconds, here 5 s, so 10 000 ms) writes
+    // one INFO line "resume detected", then waits 15 s before the next
+    // poll starts. JumpableClock moves the wall clock apart from the
+    // dispatcher's own virtual time, the same gap a real wake from sleep
+    // leaves behind; a plain advance of the test scheduler could never
+    // show this gap, because it moves the clock and the delay together.
+    @Test
+    fun `a clock offset of three intervals writes resume detected and waits 15 s before the next poll`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(nextPollAt = 0L)
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle()
+        val clock = JumpableClock(testScheduler)
+
+        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5, clock = clock)
+
+        val (_, events) = captureLogEvents {
+            scheduler.start()
+            try {
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 1 }
+
+                // The offset of three intervals: 3 * 5 s = 15 000 ms.
+                clock.jumpBy(15_000)
+                testScheduler.advanceTimeBy(1_000)
+                testScheduler.runCurrent()
+                assertEquals(1, cycle.calls.size, "no poll starts before the 15 s wait ends")
+
+                testScheduler.advanceTimeBy(15_000)
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 2 }
+            } finally {
+                scheduler.stop()
+            }
+        }
+
+        assertEquals(2, cycle.calls.size, "the due app polls once the wait ends")
+        val resumeLines = events.filter { it.formattedMessage.contains("resume detected") }
+        assertEquals(1, resumeLines.size, "one INFO line for the resume, and it appears exactly one time")
+        assertEquals(Level.INFO, resumeLines.single().level, "the resume line logs at INFO")
+        assertTrue(resumeLines.single().formattedMessage.contains("15"), "the lateness in seconds is the one value")
+    }
+
+    // Issue #29, design decision D7: a lateness of two intervals or less
+    // (here exactly 2 * 5 s = 10 000 ms) is normal tick drift, not a
+    // resume. The loop polls at the next tick, with no wait and no log
+    // line.
+    @Test
+    fun `an offset of two intervals polls at the next tick, with no resume line`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(nextPollAt = 0L)
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle()
+        val clock = JumpableClock(testScheduler)
+
+        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5, clock = clock)
+
+        val (_, events) = captureLogEvents {
+            scheduler.start()
+            try {
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 1 }
+
+                // The offset of exactly two intervals: 2 * 5 s = 10 000 ms.
+                clock.jumpBy(10_000)
+                testScheduler.advanceTimeBy(1_000)
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 2 }
+            } finally {
+                scheduler.stop()
+            }
+        }
+
+        assertEquals(2, cycle.calls.size, "the app polls at the next tick, with no wait")
+        assertTrue(
+            events.none { it.formattedMessage.contains("resume detected") },
+            "a lateness of two intervals or less writes no resume line",
+        )
+    }
+
+    // Issue #29, the maintainer's decision 3: the wake rule holds with
+    // the backoff of issue #28. A due app after the wait still applies
+    // the backoff of its own consecutive-failure count, not the plain
+    // interval, and the resume line still appears one time per resume,
+    // not once per failed cycle.
+    @Test
+    fun `the wake rule holds with the backoff of issue 28, and the resume line appears once`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(nextPollAt = 0L)
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle(failure = IllegalStateException("a probe failure"))
+        val clock = JumpableClock(testScheduler)
+
+        val scheduler = pollScheduler(
+            store,
+            secretStore,
+            cycle,
+            testScheduler = testScheduler,
+            pollIntervalSeconds = 5,
+            clock = clock,
+        )
+
+        val (_, events) = captureLogEvents {
+            scheduler.start()
+            try {
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 1 }
+                assertEquals(5_000L, store.nextPollAtOf(appId), "the first failed cycle backs off by the plain interval")
+
+                // The offset of three intervals: 3 * 5 s = 15 000 ms, from
+                // the tick time of 1 000 ms.
+                clock.jumpBy(15_000)
+                testScheduler.advanceTimeBy(1_000)
+                testScheduler.runCurrent()
+                testScheduler.advanceTimeBy(15_000)
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 2 }
+            } finally {
+                scheduler.stop()
+            }
+        }
+
+        assertEquals(2, store.consecutiveFailuresOf(appId), "the second failed cycle in sequence still counts")
+        // The wait ends at scheduler time 16 000 ms, plus the jump of
+        // 15 000 ms: clock.millis() reads 31 000. The second failed
+        // cycle in sequence backs off by 2x the interval (10 000 ms):
+        // 31 000 + 10 000 = 41 000.
+        assertEquals(
+            41_000L,
+            store.nextPollAtOf(appId),
+            "the second failed cycle in sequence backs off by 2x the interval, after the wait",
+        )
+        val resumeLines = events.filter { it.formattedMessage.contains("resume detected") }
+        assertEquals(1, resumeLines.size, "the resume line appears one time per resume, not once per failed cycle")
+    }
+
     // MAJOR 1 of the third Kotlin review: a plain toList() call reads
     // size, then calls iterator().next() for a size of one. A
     // Collection whose size lies about its iterator then throws
@@ -808,19 +948,22 @@ private fun pollScheduler(
     pollIntervalSeconds: Long = 5,
     tickIntervalMillis: Long = 1_000,
     stopGraceMillis: Long = 10_000,
+    wakeDelayMillis: Long = 15_000,
     closeClient: (Long) -> Unit = {},
     random: Random = FixedJitterRandom(),
+    clock: Clock = VirtualClock(testScheduler),
 ): PollScheduler =
     PollScheduler(
         pollStore = pollStore,
         secretStore = secretStore,
         pollCycle = cycle,
         closeClient = closeClient,
-        clock = VirtualClock(testScheduler),
+        clock = clock,
         dispatcher = StandardTestDispatcher(testScheduler),
         pollIntervalSeconds = pollIntervalSeconds,
         tickIntervalMillis = tickIntervalMillis,
         stopGraceMillis = stopGraceMillis,
+        wakeDelayMillis = wakeDelayMillis,
         random = random,
     )
 
@@ -832,6 +975,31 @@ private class VirtualClock(
     override fun getZone(): ZoneId = zone
     override fun withZone(zone: ZoneId): Clock = VirtualClock(scheduler, zone)
     override fun instant(): Instant = Instant.ofEpochMilli(scheduler.currentTime)
+}
+
+/**
+ * A Clock like [VirtualClock], with one added jump (issue #29). A real
+ * wake from sleep moves the wall clock apart from the loop's own
+ * monotonic delay. [VirtualClock] alone cannot model this gap: an
+ * advance of [scheduler] moves the delay and the clock together, one
+ * millisecond at a time, so no tick ever sees a lateness. [jumpBy]
+ * moves this clock apart from [scheduler] instead, the same gap a wake
+ * from sleep leaves behind.
+ */
+private class JumpableClock(
+    private val scheduler: TestCoroutineScheduler,
+    private val zone: ZoneId = ZoneOffset.UTC,
+) : Clock() {
+    @Volatile
+    private var jumpMillis: Long = 0
+
+    fun jumpBy(millis: Long) {
+        jumpMillis += millis
+    }
+
+    override fun getZone(): ZoneId = zone
+    override fun withZone(zone: ZoneId): Clock = this
+    override fun instant(): Instant = Instant.ofEpochMilli(scheduler.currentTime + jumpMillis)
 }
 
 /**

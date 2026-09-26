@@ -120,6 +120,40 @@ class MongoAppReaderUnitTest {
         assertNull(event.referrerHost)
     }
 
+    // --- The referrerHost rule for a value outside the contract (design decision D5, the correction of 2026-09-26, issue #196) ---
+
+    @Test
+    fun `normalizedReferrerHost keeps each of the three set values of contract rule C40`() {
+        assertEquals("google.com", normalizedReferrerHost("google.com"))
+        assertEquals("bing.com", normalizedReferrerHost("bing.com"))
+        assertEquals("other", normalizedReferrerHost("other"))
+    }
+
+    @Test
+    fun `normalizedReferrerHost drops a host outside the set, an upper-case host, and a null value`() {
+        assertNull(normalizedReferrerHost("internal-hr.corp.example"), "A host outside the set must drop.")
+        assertNull(normalizedReferrerHost("Google.COM"), "The check is case-sensitive; an upper-case host must drop.")
+        assertNull(normalizedReferrerHost(null))
+    }
+
+    @Test
+    fun `parseEvent drops a referrerHost value outside the set, and an upper-case host, to null`() {
+        val outsideSet = goodDocument(SESSION_START_ELEMENT).append("referrerHost", "internal-hr.corp.example")
+        val upperCase = goodDocument(SESSION_START_ELEMENT).append("referrerHost", "Google.COM")
+
+        assertNull(parseEvent(outsideSet).referrerHost)
+        assertNull(parseEvent(upperCase).referrerHost)
+    }
+
+    @Test
+    fun `invalidReason accepts a referrerHost value outside the closed set of contract rule C40`() {
+        val outsideSet = goodDocument(SESSION_START_ELEMENT).append("referrerHost", "internal-hr.corp.example")
+        val upperCase = goodDocument(SESSION_START_ELEMENT).append("referrerHost", "Google.COM")
+
+        assertNull(invalidReason(outsideSet), "A value outside the set is valid; the reader drops it instead of skipping the row.")
+        assertNull(invalidReason(upperCase), "An upper-case host is valid too; the check only drops the stored value.")
+    }
+
     @Test
     fun `parseEvent gives a null path and a null referrerHost when the fields are absent`() {
         val event = parseEvent(goodDocument("checkout.save"))
@@ -194,6 +228,94 @@ class MongoAppReaderUnitTest {
         assertNull(row.path)
         assertNull(row.referrerHost)
         assertEquals(KIND_CLICK, row.kind)
+    }
+
+    // The rule of design decision D5, the correction of 2026-09-26 (issue
+    // #196): a referrerHost outside the closed set is valid, not skipped.
+    @Test
+    fun `runCycle stores NULL for a referrerHost outside the set, and writes no skipped_event row`() = runBlocking {
+        val outsideSet = goodDocument(SESSION_START_ELEMENT).append("referrerHost", "internal-hr.corp.example")
+
+        val outcome = reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(outsideSet) }
+
+        assertEquals(1, outcome.eventsStored, "The event is valid; the row must still commit.")
+        assertEquals(0, outcome.eventsSkipped, "A value outside the set must not skip the document.")
+        val row = readEventColumns(database, appId, outsideSet.getObjectId("_id").toHexString())
+        assertNull(row.referrerHost)
+        assertNull(readSkippedReason(database, appId, outsideSet.getObjectId("_id").toHexString()))
+    }
+
+    @Test
+    fun `runCycle stores NULL for an upper-case referrerHost, because the check is case-sensitive`() = runBlocking {
+        val upperCase = goodDocument(SESSION_START_ELEMENT).append("referrerHost", "Google.COM")
+
+        val outcome = reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(upperCase) }
+
+        assertEquals(1, outcome.eventsStored)
+        assertEquals(0, outcome.eventsSkipped)
+        val row = readEventColumns(database, appId, upperCase.getObjectId("_id").toHexString())
+        assertNull(row.referrerHost)
+    }
+
+    @Test
+    fun `runCycle keeps each of the three set values of contract rule C40 as they are`() = runBlocking {
+        val google = goodDocument(SESSION_START_ELEMENT).append("referrerHost", "google.com")
+        val bing = goodDocument(SESSION_START_ELEMENT).append("referrerHost", "bing.com")
+        val other = goodDocument(SESSION_START_ELEMENT).append("referrerHost", "other")
+        val page = listOf(google, bing, other)
+
+        val outcome = reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> page }
+
+        assertEquals(3, outcome.eventsStored)
+        assertEquals(0, outcome.eventsSkipped)
+        assertEquals("google.com", readEventColumns(database, appId, google.getObjectId("_id").toHexString()).referrerHost)
+        assertEquals("bing.com", readEventColumns(database, appId, bing.getObjectId("_id").toHexString()).referrerHost)
+        assertEquals("other", readEventColumns(database, appId, other.getObjectId("_id").toHexString()).referrerHost)
+    }
+
+    @Test
+    fun `runCycle writes one WARN line that counts the dropped referrerHost fields, with no value`() = runBlocking {
+        val marker = "octomarkerreferrer8b3f.invalid"
+        val outsideSet = goodDocument(SESSION_START_ELEMENT).append("referrerHost", marker)
+        val upperCase = goodDocument(SESSION_START_ELEMENT).append("referrerHost", "Google.COM")
+        val page = listOf(outsideSet, upperCase)
+
+        val (outcome, logEvents) = captureLogEvents {
+            reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> page }
+        }
+
+        assertEquals(0, outcome.eventsSkipped)
+        val warnLines = logEvents.filter { it.level == Level.WARN && it.loggerName.contains("MongoAppReader") }
+        assertEquals(1, warnLines.size, "One WARN line must count the dropped referrerHost fields.")
+        assertTrue(warnLines.single().formattedMessage.contains("2"), "The line must hold the dropped count.")
+        logEvents.forEach { event ->
+            assertFalse(event.formattedMessage.contains(marker), "A log line of level ${event.level} must hold no raw host.")
+        }
+    }
+
+    // Marker probe of decision 3 of the correction round (2026-09-26): a
+    // marker referrerHost outside the set must stay out of the
+    // skipped_event table (there is none, the row is valid) and out of
+    // every captured log level.
+    @Test
+    fun `a marker referrerHost outside the set writes no skipped_event row, and stays out of every log level`() = runBlocking {
+        val marker = "octomarkerreferrer9c4d.invalid"
+        val document = goodDocument(SESSION_START_ELEMENT).append("referrerHost", marker)
+
+        val (outcome, logEvents) = captureLogEvents {
+            reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(document) }
+        }
+
+        assertEquals(0, outcome.eventsSkipped)
+        assertNull(
+            readSkippedReason(database, appId, document.getObjectId("_id").toHexString()),
+            "A valid event must write no skipped_event row.",
+        )
+        assertNull(readEventColumns(database, appId, document.getObjectId("_id").toHexString()).referrerHost)
+        assertTrue(logEvents.isNotEmpty(), "The cycle must write at least one log line, or this test proves nothing.")
+        logEvents.forEach { event ->
+            assertFalse(event.formattedMessage.contains(marker), "A log line of level ${event.level} must hold no raw host.")
+        }
     }
 
     // BLOCKER 1 of the security review of pull request #193.

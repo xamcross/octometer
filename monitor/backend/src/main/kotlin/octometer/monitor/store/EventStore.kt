@@ -3,11 +3,14 @@ package octometer.monitor.store
 import java.sql.Connection
 
 /**
- * One event of a page, ready for the insert of step 6. [path] and
- * [referrerHost] hold the value of the document as it is (design
- * decision D5); the reader adds no rule of its own. [kind] is 1 for
- * the element `octo:session-start`, and 0 for each other element
- * (issue #110, section 6).
+ * One event of a page, ready for the insert of step 6. [path] holds
+ * the value of the document as it is (design decision D5). [referrerHost]
+ * holds the value of the document only when it is one of the three
+ * literals of contract rule C40; the reader drops each other value to
+ * `null` before this class ever sees it (design decision D5, the
+ * correction of 2026-09-26, issue #196). [kind] is 1 for the element
+ * `octo:session-start`, and 0 for each other element (issue #110,
+ * section 6).
  */
 data class NewEvent(
     val eventId: String,
