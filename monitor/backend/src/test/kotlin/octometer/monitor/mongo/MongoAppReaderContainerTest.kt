@@ -466,6 +466,72 @@ class MongoAppReaderContainerTest {
         assertEquals(0, row.kind)
     }
 
+    // --- The referrerHost rule for a value outside the contract (design decision D5, the correction of 2026-09-26, issue #196) ---
+
+    @Test
+    fun `a referrerHost outside the set, and an upper-case host, land as NULL and the row stays`() = runBlocking {
+        val rawCollection = rawClient.getDatabase(databaseName).getCollection("octometer_events")
+        val outsideSet = invalidDocument().append("ts", Date()).append("element", "octo:session-start")
+            .append("sessionId", "session-1").append("userId", "user-1").append("referrerHost", "internal-hr.corp.example")
+        val upperCase = invalidDocument().append("ts", Date()).append("element", "octo:session-start")
+            .append("sessionId", "session-2").append("userId", "user-1").append("referrerHost", "Google.COM")
+        rawCollection.insertMany(listOf(outsideSet, upperCase))
+        settle()
+
+        val outcome = reader.pollOnce(target(cursor = null), MONGO.connectionString)
+
+        assertEquals(2, outcome.eventsStored, "The event itself is valid; both rows must commit.")
+        assertEquals(0, outcome.eventsSkipped, "A value outside the set must not skip the document.")
+        assertEquals(2, countEvents(sqlite, appId))
+        val reasons = readSkippedReasons(sqlite, appId)
+        assertTrue(reasons.isEmpty(), "No skipped_event row for a valid event.")
+        val rows = readEventColumns(sqlite, appId)
+        assertTrue(rows.all { it.referrerHost == null }, "Each dropped referrerHost must land as NULL.")
+    }
+
+    @Test
+    fun `each of the three set values of contract rule C40 lands as it is`() = runBlocking {
+        val rawCollection = rawClient.getDatabase(databaseName).getCollection("octometer_events")
+        val values = listOf("google.com", "bing.com", "other")
+        val documents = values.mapIndexed { index, value ->
+            invalidDocument().append("ts", Date()).append("element", "octo:session-start")
+                .append("sessionId", "session-$index").append("userId", "user-1").append("referrerHost", value)
+        }
+        rawCollection.insertMany(documents)
+        settle()
+
+        val outcome = reader.pollOnce(target(cursor = null), MONGO.connectionString)
+
+        assertEquals(3, outcome.eventsStored)
+        assertEquals(0, outcome.eventsSkipped)
+        val storedValues = readEventColumns(sqlite, appId).map { it.referrerHost }.toSet()
+        assertEquals(values.toSet(), storedValues, "Each of the three set values must land as it is.")
+    }
+
+    @Test
+    fun `one WARN line counts the dropped referrerHost fields of the cycle, with no raw host`() = runBlocking {
+        val rawCollection = rawClient.getDatabase(databaseName).getCollection("octometer_events")
+        val marker = "octomarkerreferrercontainer5e2a.invalid"
+        val outsideSet = invalidDocument().append("ts", Date()).append("element", "octo:session-start")
+            .append("sessionId", "session-1").append("userId", "user-1").append("referrerHost", marker)
+        val upperCase = invalidDocument().append("ts", Date()).append("element", "octo:session-start")
+            .append("sessionId", "session-2").append("userId", "user-1").append("referrerHost", "Google.COM")
+        rawCollection.insertMany(listOf(outsideSet, upperCase))
+        settle()
+
+        val (outcome, logEvents) = captureLogEvents {
+            reader.pollOnce(target(cursor = null), MONGO.connectionString)
+        }
+
+        assertEquals(0, outcome.eventsSkipped)
+        val warnLines = logEvents.filter { it.level == ch.qos.logback.classic.Level.WARN && it.loggerName.contains("MongoAppReader") }
+        assertEquals(1, warnLines.size, "One WARN line must count the dropped referrerHost fields.")
+        assertTrue(warnLines.single().formattedMessage.contains("2"), "The line must hold the dropped count.")
+        logEvents.forEach { event ->
+            assertFalse(event.formattedMessage.contains(marker), "A log line of level ${event.level} must hold no raw host.")
+        }
+    }
+
     @Test
     fun `a document with a wrong BSON type in referrerHost goes to skipped_event, and the cursor moves`() = runBlocking {
         val rawCollection = rawClient.getDatabase(databaseName).getCollection("octometer_events")
