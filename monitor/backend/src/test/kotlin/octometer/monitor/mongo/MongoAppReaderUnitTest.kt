@@ -387,10 +387,11 @@ class MongoAppReaderUnitTest {
     // a URI gives a last_error without the URI. MongoReadFailedException
     // keeps no message text of the real cause (the maintainer's decision
     // 1), so last_error, built from its status and its code only, can
-    // never hold the URI either.
+    // never hold the URI either. markerUri is the one allow-listed fake
+    // credential of .gitleaks.toml (octometer.monitor.registry.allowlistedSrvUri).
     @Test
     fun `an exception message with a URI gives a last_error without the URI`() = runBlocking {
-        val markerUri = "mongodb+srv://octomarkeruriuserf7b2:octomarkeruripassf7b2@cluster0.example.mongodb.net/exampledb"
+        val markerUri = octometer.monitor.registry.allowlistedSrvUri()
         val markedReader = MongoAppReader(
             eventStore,
             settleLagSeconds = 2,

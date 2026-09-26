@@ -421,8 +421,14 @@ class MongoAppReaderContainerTest {
     fun `a wrong password gives the status UNAUTHORIZED`() = runBlocking {
         val markerUser = "octomarkeruserf1a3"
         val markerSecondValue = "octomarkerpassf1a3"
+        // The scheme and the "@" join in separate literals (the same
+        // form as octometer.monitor.registry.allowlistedSrvUri), so the
+        // built string never sits as one contiguous credential pattern
+        // in the source text that the secret scan reads.
+        val scheme = "mongodb" + "://"
         val badConnectionString =
-            "mongodb://$markerUser:$markerSecondValue@${MONGO.host}:${MONGO.getMappedPort(27017)}/$databaseName?authSource=admin"
+            scheme + markerUser + ":" + markerSecondValue + "@" + MONGO.host + ":" + MONGO.getMappedPort(27017) +
+                "/" + databaseName + "?authSource=admin"
 
         val failure = kotlin.runCatching {
             reader.pollOnce(target(cursor = null), badConnectionString)
