@@ -5,6 +5,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
+import io.ktor.http.encodeURLQueryComponent
 import io.ktor.server.testing.testApplication
 import java.sql.Connection
 import kotlinx.coroutines.runBlocking
@@ -29,7 +30,7 @@ import kotlin.test.assertTrue
 // Source: docs/superpowers/specs/2026-09-21-octometer-design.md, D13,
 // D14, D15, and section 6. The literal `kind = 0` and the index
 // `event_agg` come from issue #109. The third filter `sessionId` is the
-// work of issue #113; a request with that parameter gets 400 here.
+// work of issue #113 (this file), on the index `event_session`.
 class ElementsRouteTest {
 
     private val dataDir = testDataDir()
@@ -236,8 +237,42 @@ class ElementsRouteTest {
     }
 
     @Test
-    fun `sessionId alone is invalid, because issue #113 owns that filter`() {
-        assertEquals(null, parseFilter(paramsOf("sessionId" to "11111111-1111-1111-1111-111111111111")))
+    fun `sessionId alone, with the UUID form, is a valid filter`() {
+        assertEquals(
+            ElementsFilter.BySession("11111111-1111-1111-1111-111111111111"),
+            parseFilter(paramsOf("sessionId" to "11111111-1111-1111-1111-111111111111")),
+        )
+    }
+
+    @Test
+    fun `sessionId without the UUID form is invalid`() {
+        assertEquals(null, parseFilter(paramsOf("sessionId" to "not-a-uuid")))
+    }
+
+    @Test
+    fun `sessionId and userId together are invalid`() {
+        assertEquals(
+            null,
+            parseFilter(
+                paramsOf(
+                    "sessionId" to "11111111-1111-1111-1111-111111111111",
+                    "userId" to "user-1",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `sessionId and anonymous together are invalid`() {
+        assertEquals(
+            null,
+            parseFilter(
+                paramsOf(
+                    "sessionId" to "11111111-1111-1111-1111-111111111111",
+                    "anonymous" to "true",
+                ),
+            ),
+        )
     }
 
     // MAJOR 2 of the SQL review, and the matching MINOR of the security
@@ -429,6 +464,125 @@ class ElementsRouteTest {
 
             assertTrue(events.none { it.formattedMessage.contains("the-secret-user-id") })
             assertTrue(events.none { it.formattedMessage.contains("userId=") })
+        }
+        database = SqliteDatabase.open(dataDir)
+    }
+
+    // -- Issue #113, step 5: the third filter, sessionId -------------------
+
+    @Test
+    fun `sessionId counts only the clicks of that one session, with kind = 0`() = runBlocking {
+        val appId = insertApp(database, "shop")
+        val sessionId = "22222222-2222-2222-2222-222222222222"
+        insertEvent(database, appId, "e1", sessionId, "user-1", element = "checkout.save", kind = 0)
+        insertEvent(database, appId, "e2", sessionId, "user-1", element = "checkout.save", kind = 0)
+        insertEvent(database, appId, "e3", sessionId, "user-1", element = "octo:session-start", kind = 1)
+        insertEvent(database, appId, "e4", "a-different-session", "user-1", element = "checkout.save", kind = 0)
+
+        val rows = successRows(database, appId, ElementsFilter.BySession(sessionId))
+
+        assertEquals(1, rows.size)
+        assertEquals("checkout.save", rows.single().element)
+        assertEquals(2L, rows.single().clicks, "the session-start row (kind = 1) never counts as a click")
+    }
+
+    @Test
+    fun `GET with a sessionId that is not a UUID form gets 400`() = runBlocking {
+        val appId = insertApp(database, "shop")
+        database.close()
+
+        testApplication {
+            application { module(devConfig(dataDir)) }
+
+            val response = client.get("/api/apps/$appId/elements?sessionId=not-a-uuid") { allowedHost() }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+        }
+        database = SqliteDatabase.open(dataDir)
+    }
+
+    @Test
+    fun `GET with sessionId alone answers 200 with the rows field`() = runBlocking {
+        val appId = insertApp(database, "shop")
+        val sessionId = "33333333-3333-3333-3333-333333333333"
+        insertEvent(database, appId, "e1", sessionId, "user-1", element = "checkout.save", kind = 0)
+        database.close()
+
+        testApplication {
+            application { module(devConfig(dataDir)) }
+
+            val response = client.get("/api/apps/$appId/elements?sessionId=$sessionId") { allowedHost() }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val rows = Json.parseToJsonElement(response.bodyAsText()).jsonObject.getValue("rows").jsonArray
+            assertEquals("checkout.save", rows.single().jsonObject.getValue("element").jsonPrimitive.content)
+        }
+        database = SqliteDatabase.open(dataDir)
+    }
+
+    // SQL review lesson: a bound parameter test must fail when the value
+    // is inlined into the SQL text. The route itself rejects a
+    // non-UUID sessionId with 400 before the value ever reaches SQL
+    // (step 5), so this test calls loadElementTotals directly, with a
+    // hostile value inside ElementsFilter.BySession, to prove the SQL
+    // layer itself still treats sessionId as a bound parameter.
+    @Test
+    fun `a hostile sessionId value is a bound parameter, thus the rows stay unchanged`() = runBlocking {
+        val appId = insertApp(database, "shop")
+        insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
+        val hostileSessionId = "'; DROP TABLE event; --"
+
+        val result = loadElementTotals(database, appId, ElementsFilter.BySession(hostileSessionId))
+
+        check(result is ElementsResult.Success)
+        assertEquals(emptyList(), result.rows, "no session has that literal id")
+        val count = database.read { reader ->
+            reader.createStatement().use { statement ->
+                statement.executeQuery("SELECT COUNT(*) FROM event").use { result ->
+                    result.next()
+                    result.getInt(1)
+                }
+            }
+        }
+        assertEquals(1, count, "the event table keeps its one row")
+    }
+
+    @Test
+    fun `EXPLAIN QUERY PLAN shows the index event_session for the sessionId statement`() = runBlocking {
+        val appId = insertApp(database, "shop")
+        insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
+
+        val plan = database.read { reader ->
+            reader.prepareStatement("EXPLAIN QUERY PLAN $ELEMENT_TOTALS_BY_SESSION_SQL").use { statement ->
+                statement.setLong(1, appId)
+                statement.setString(2, "s1")
+                statement.executeQuery().use { result ->
+                    val lines = mutableListOf<String>()
+                    while (result.next()) lines += result.getString("detail")
+                    lines
+                }
+            }
+        }
+
+        assertTrue(plan.any { it.contains("INDEX event_session") }, plan.toString())
+    }
+
+    @Test
+    fun `a request with a sessionId query string writes no log line that holds that value`() = runBlocking {
+        val appId = insertApp(database, "shop")
+        val sessionId = "44444444-4444-4444-4444-444444444444"
+        insertEvent(database, appId, "e1", sessionId, "user-1", element = "checkout.save", kind = 0)
+        database.close()
+
+        testApplication {
+            application { module(devConfig(dataDir)) }
+
+            val (_, events) = captureLogEvents {
+                client.get("/api/apps/$appId/elements?sessionId=$sessionId") { allowedHost() }
+            }
+
+            assertTrue(events.none { it.formattedMessage.contains(sessionId) })
+            assertTrue(events.none { it.formattedMessage.contains("sessionId=") })
         }
         database = SqliteDatabase.open(dataDir)
     }

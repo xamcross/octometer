@@ -36,6 +36,7 @@ data class ElementsResponse(val rows: List<ElementRow>)
 internal sealed interface ElementsFilter {
     data class ByUser(val userId: String) : ElementsFilter
     data object Anonymous : ElementsFilter
+    data class BySession(val sessionId: String) : ElementsFilter
 }
 
 internal sealed interface ElementsResult {
@@ -45,7 +46,15 @@ internal sealed interface ElementsResult {
 
 private const val APP_ID_MESSAGE = "The app id must be a whole number."
 private const val APP_NOT_FOUND_MESSAGE = "The app is not registered."
-private const val FILTER_MESSAGE = "Send exactly one of userId or anonymous=true."
+private const val FILTER_MESSAGE = "Send exactly one of userId, anonymous=true, or sessionId."
+
+// Issue #113, step 5: sessionId must have the UUID form, else the
+// request gets 400. This function reads no part of the value into a
+// log line or an error body; it only reports true or false.
+private val SESSION_ID_PATTERN =
+    Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+private fun isUuidForm(value: String): Boolean = SESSION_ID_PATTERN.matches(value)
 
 // Rule M4 of the design (D14, section 6, issue #109): the literal
 // `kind = 0` keeps the partial index `event_agg`. A statement without
@@ -57,6 +66,18 @@ internal const val ELEMENT_TOTALS_SQL =
     "SELECT element, COUNT(*) AS clicks, COUNT(DISTINCT session_id) AS sessions, " +
         "MAX(ts) AS last_interaction FROM event " +
         "WHERE app_id = ? AND user_id IS ? AND kind = 0 " +
+        "GROUP BY element ORDER BY clicks DESC, element ASC"
+
+// Issue #113, step 5: the third filter, sessionId. The statement holds
+// the literal kind = 0 (rule M4) and groups by element, the same shape
+// as ELEMENT_TOTALS_SQL. The index event_session (app_id, session_id,
+// element, ts, user_id, kind) covers the two leading equality terms
+// app_id and session_id, and its third column, element, then answers
+// the GROUP BY with no extra sort step.
+internal const val ELEMENT_TOTALS_BY_SESSION_SQL =
+    "SELECT element, COUNT(*) AS clicks, COUNT(DISTINCT session_id) AS sessions, " +
+        "MAX(ts) AS last_interaction FROM event " +
+        "WHERE app_id = ? AND session_id = ? AND kind = 0 " +
         "GROUP BY element ORDER BY clicks DESC, element ASC"
 
 private const val APP_EXISTS_SQL = "SELECT 1 FROM app WHERE id = ?"
@@ -105,9 +126,9 @@ internal suspend fun loadElementTotals(
     }
 
 // Exactly one of the three parameters of D13 must reach this function:
-// `userId`, `anonymous`, or `sessionId`. Issue #113 owns `sessionId`. A
-// request with that parameter gets 400 today. The same is true for a
-// request with zero or with two of the three parameters.
+// `userId`, `anonymous`, or `sessionId` (issue #113 adds the third).
+// A request with zero, or with two or three of them, gets 400. A
+// `sessionId` without the UUID form gets 400 too.
 //
 // MAJOR 2 of the SQL review, and the matching MINOR of the security
 // review: this function counts each value, not each key. `Parameters`
@@ -119,7 +140,10 @@ internal fun parseFilter(parameters: Parameters): ElementsFilter? {
         .sumOf { key -> parameters.getAll(key)?.size ?: 0 }
     if (presentValues != 1) return null
     return when {
-        parameters.contains("sessionId") -> null
+        parameters.contains("sessionId") -> {
+            val sessionId = parameters["sessionId"]
+            if (sessionId != null && isUuidForm(sessionId)) ElementsFilter.BySession(sessionId) else null
+        }
         parameters.contains("anonymous") ->
             if (parameters["anonymous"] == "true") ElementsFilter.Anonymous else null
         else -> {
@@ -135,12 +159,14 @@ private fun appExists(connection: Connection, appId: Long): Boolean =
         statement.executeQuery().use { it.next() }
     }
 
-private fun readElementRows(connection: Connection, appId: Long, filter: ElementsFilter): List<ElementRow> =
-    connection.prepareStatement(ELEMENT_TOTALS_SQL).use { statement ->
+private fun readElementRows(connection: Connection, appId: Long, filter: ElementsFilter): List<ElementRow> {
+    val sql = if (filter is ElementsFilter.BySession) ELEMENT_TOTALS_BY_SESSION_SQL else ELEMENT_TOTALS_SQL
+    return connection.prepareStatement(sql).use { statement ->
         statement.setLong(1, appId)
         when (filter) {
             is ElementsFilter.ByUser -> statement.setString(2, filter.userId)
             ElementsFilter.Anonymous -> statement.setNull(2, Types.VARCHAR)
+            is ElementsFilter.BySession -> statement.setString(2, filter.sessionId)
         }
         statement.executeQuery().use { result ->
             val rows = mutableListOf<ElementRow>()
@@ -155,3 +181,4 @@ private fun readElementRows(connection: Connection, appId: Long, filter: Element
             rows
         }
     }
+}
