@@ -2,6 +2,9 @@ package octometer.monitor.poll
 
 import java.sql.Connection
 import octometer.monitor.store.SqliteDatabase
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger("octometer.monitor.poll.PollStore")
 
 /**
  * One row of the app table, read at one tick (issue #17, decision 5).
@@ -32,7 +35,16 @@ data class AppRow(
  */
 interface PollStore {
     suspend fun readApps(): List<AppRow>
-    suspend fun writeResult(appId: Long, nextPollAt: Long, cursor: String?)
+
+    /**
+     * Writes a good cycle's result, guarded by [expectedCursor]: the
+     * last cursor of the cycle (issue #187, MAJOR 1 of the correction
+     * round of pull request #208). A PATCH of the connection string can
+     * reset the app row's cursor between the read at the tick and this
+     * write. The guard then changes 0 rows: a normal end, with no
+     * status change.
+     */
+    suspend fun writeResult(appId: Long, nextPollAt: Long, cursor: String?, expectedCursor: String?)
 
     /**
      * Records a failed poll cycle (issue #28, design decision D8, the
@@ -55,9 +67,11 @@ class SqlitePollStore(private val database: SqliteDatabase) : PollStore {
         database.read { reader -> readAppRows(reader) }
 
     // A deleted app gives zero updated rows here. This never throws for
-    // that case (design decision D6, issue #17).
-    override suspend fun writeResult(appId: Long, nextPollAt: Long, cursor: String?) {
-        database.write { writer -> writeSuccess(writer, appId, nextPollAt, cursor) }
+    // that case (design decision D6, issue #17). A stale cursor gives
+    // zero updated rows too (issue #187, MAJOR 1); writeSuccess logs
+    // that case at DEBUG level, with no app data.
+    override suspend fun writeResult(appId: Long, nextPollAt: Long, cursor: String?, expectedCursor: String?) {
+        database.write { writer -> writeSuccess(writer, appId, nextPollAt, cursor, expectedCursor) }
     }
 
     override suspend fun recordFailure(appId: Long, status: String?, lastError: String?, nextPollAt: Long, now: Long) {
@@ -87,12 +101,22 @@ private fun readAppRows(reader: Connection): List<AppRow> =
         }
     }
 
-private fun writeSuccess(writer: Connection, appId: Long, nextPollAt: Long, cursor: String?) {
-    writer.prepareStatement("UPDATE app SET next_poll_at = ?, cursor = ? WHERE id = ?").use { update ->
+// The guard "AND cursor IS ?" matches EventStore's own cursor write
+// (issue #187, MAJOR 1). A 0-row result means a PATCH moved the
+// cursor during this cycle; this is a normal end, so this method
+// logs one DEBUG line, with no app id and no cursor value, and
+// leaves next_poll_at as it is (the reset already cleared it).
+private fun writeSuccess(writer: Connection, appId: Long, nextPollAt: Long, cursor: String?, expectedCursor: String?) {
+    writer.prepareStatement(
+        "UPDATE app SET next_poll_at = ?, cursor = ? WHERE id = ? AND cursor IS ?",
+    ).use { update ->
         update.setLong(1, nextPollAt)
         update.setString(2, cursor)
         update.setLong(3, appId)
-        update.executeUpdate()
+        update.setString(4, expectedCursor)
+        if (update.executeUpdate() == 0) {
+            log.debug("The poll result write changed no row. The cursor moved during this cycle.")
+        }
     }
 }
 

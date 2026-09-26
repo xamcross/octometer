@@ -227,8 +227,19 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   reason)`, and moves the cursor. Invalid means: an absent field, a wrong BSON type, or an
   empty `userId`. At the end of a good cycle the reader sets `last_poll_at`,
   `last_success_at`, and the status `OK`, or `INVALID_DATA` after a skip. The reader copies a
-  `path` value and a `referrer_host` value as they are. A wrong BSON type is an invalid
-  document under this decision.
+  `path` value as it is. A wrong BSON type is an invalid document under this decision.
+- **D5, the reader rule for a value outside the contract (2026-09-26, issue #196, the
+  owner's choice of option (c)).** A `referrerHost` value outside the closed set of contract
+  rule C40 (`google.com`, `bing.com`, `other`) is not an invalid document. It lands as `NULL`
+  in `referrer_host`, and the row stays: the event itself is valid, and a `skipped_event` row
+  would drop the whole session from the counts of issues #112 and #113. The three set values
+  land as they are. The check is case-sensitive, the same as contract rule C40. This is the
+  form of contract rule C41: the reader drops the field, it keeps the row, and one WARN line
+  of the cycle counts the dropped fields, a count only, with no fixed reason text and no
+  `skipped_event` row. A `path` value stays a raw copy for the reasons that D5 already gives:
+  a pattern form of contract rule C42 cannot be told apart from a raw path at the reader. This
+  risk (RISK 1 of the security review of pull request #193) stays open by the owner's choice;
+  issue #205 tracks it, outside this decision.
 - **D6. Scheduler.** One loop with a tick of 1 second. It starts a poll for each app with
   `next_poll_at <= now` or `next_poll_at IS NULL`, and no active poll. One cycle reads a maximum of 10 pages inside
   `withTimeout(45 s)`. Success sets `next_poll_at = now + interval` (5 s dev, 60 s prod).
@@ -258,7 +269,15 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   the start of the monitor. The monitor keeps it for the next cycles and closes it after a
   PATCH of the connection string or a delete of the app. `maxPoolSize=2`, `serverSelectionTimeoutMS=10000`, `maxIdleTimeMS=120000`,
   `appName=octometer`. The monitor checks the scheme with a string test before the driver
-  parses the URI.
+  parses the URI. A PATCH of the connection string to a different string resets `cursor`,
+  `last_poll_at`, `last_success_at`, `next_poll_at`, `status`, and `last_error` to `NULL`, and
+  `consecutive_failures` to 0 (maintainer decision, 2026-09-26): the new source then reads
+  each event from the oldest one. A PATCH with the same string, or of the name alone, keeps
+  every column. The reset costs time only, not a wrong number: the reader stores each event
+  one time, by its `_id` (issue #187). A cycle in flight can read the old cursor before this
+  reset and write it back after; each cursor write of a cycle carries a guard, the cursor
+  value that the cycle last saw, so a write after a reset changes 0 rows (maintainer decision,
+  2026-09-26, MAJOR 1 of the correction round of pull request #208).
 - **D11. Secrets.** The registry stores each connection string in
   `%LOCALAPPDATA%\Octometer\secrets\apps.json`, outside `dataDir`, thus a database backup
   holds no credential. No encryption in the application. The run guide names BitLocker
@@ -508,8 +527,10 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
 
   This is a rule of the tracker. Contract rule C40 states the same five cases. An absent
   field marks a direct visit: a typed address, a bookmark, or a source that sends no
-  referrer. The monitor shows the text `(direct)` for it. The set holds three fixed values,
-  thus the column needs no purge.
+  referrer. The monitor shows the text `(direct)` for it. The column `referrer_host` holds
+  only `NULL`, `google.com`, `bing.com`, or `other`, thus it needs no purge: decision D5
+  (2026-09-26, issue #196) has the reader drop each other value, for a document that reaches
+  MongoDB by a route outside the kit too.
 - **D43. Anonymous caps.** With anonymous events on (D19), the kit applies three counters to
   one key in a window of 60 seconds. The counters are 300 requests, 900 click entries, and
   120 entries `octo:session-start` (`OCTOMETER_ANON_REQ_PER_MIN`,

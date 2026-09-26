@@ -25,6 +25,30 @@ success and on a failure alike.
 `pollIntervalSeconds` takes a whole number of 1 or more. A tick of the loop is 1 second
 (the floor), so a value of 1 polls the app at every tick.
 
+## The poll cycle status (design decision D8)
+
+Each app row holds one status after a poll cycle:
+
+| Status | Meaning |
+| --- | --- |
+| `OK` | The cycle read every document, and each one was valid. |
+| `INVALID_DATA` | The cycle skipped one document or more; see `skipped_event`. |
+| `ERROR` | The cycle failed with an error that no other status here names. |
+| `UNAUTHORIZED` | The cycle failed with a wrong user name or a wrong password. |
+| `UNREACHABLE` | Two failed cycles in a row could not reach the MongoDB server. |
+
+### The reader rule for a value outside the contract (issue #196, 2026-09-26)
+
+A `referrerHost` value outside the closed set of contract rule C40 (`google.com`, `bing.com`,
+`other`) lands as `NULL` in `referrer_host`. The row stays: the reader writes no
+`skipped_event` row for it, because the event itself is valid. One WARN line of the cycle
+counts the dropped fields, a count only, never a value. The three set values land as they
+are, and the check is case-sensitive.
+
+A `path` value stays a raw copy: a pattern form of contract rule C42 cannot be told apart
+from a raw path at the reader. This risk stays open by the owner's choice; issue #205 tracks
+it, outside this issue.
+
 ## The release zip (issue #38)
 
 Plain `assemble` and `build` skip the distribution zip, so the JVM job of CI stays free of

@@ -30,6 +30,15 @@ private const val DEFAULT_TICK_INTERVAL_MILLIS = 1_000L
 /** The bound of [PollScheduler.stop] (issue #17, decision 2): 10 seconds. */
 private const val DEFAULT_STOP_GRACE_MILLIS = 10_000L
 
+/** The wait of the wake rule (design decision D7, issue #29): 15 seconds. */
+private const val DEFAULT_WAKE_DELAY_MILLIS = 15_000L
+
+/**
+ * The threshold of the wake rule (design decision D7, issue #29): more
+ * than two poll intervals, never two ticks of one second.
+ */
+private const val WAKE_THRESHOLD_INTERVALS = 2
+
 /**
  * One poll cycle of one app (issue #17, decision 2). The production
  * value is [octometer.monitor.mongo.MongoAppReader.pollOnce]. A test
@@ -59,8 +68,7 @@ fun interface PollCycle {
  * #17, decision 6). A failed cycle moves it by the backoff of design
  * decision D6 and the maintainer's decision 3 of issue #28: `interval *
  * 2^failures`, capped at 300 seconds, with a jitter of 10 percent from
- * [random]. Issue #29 adds the wake rule of a resumed process; that one
- * is not part of this class.
+ * [random].
  *
  * Each epoch value of the `app` table, and of this class, is a count of
  * milliseconds since 1970. This is the unit of the column `created_at`
@@ -73,6 +81,14 @@ fun interface PollCycle {
  *
  * [random] is the jitter source of issue #28. A test gives a seeded
  * [Random], so the backoff delay stays reproducible.
+ *
+ * The wake rule (design decision D7, issue #29): a wake from sleep
+ * moves the wall clock far ahead of its own monotonic timer, on
+ * Windows past the point where the network is ready. Each tick
+ * compares [clock] with the planned time of that tick. A gap of more
+ * than two poll intervals writes one INFO line, then waits
+ * [wakeDelayMillis] before it goes on. The wait is a [delay] on the
+ * injected dispatcher, so a virtual-time test covers it too.
  */
 class PollScheduler(
     private val pollStore: PollStore,
@@ -84,6 +100,7 @@ class PollScheduler(
     private val pollIntervalSeconds: Long,
     private val tickIntervalMillis: Long = DEFAULT_TICK_INTERVAL_MILLIS,
     private val stopGraceMillis: Long = DEFAULT_STOP_GRACE_MILLIS,
+    private val wakeDelayMillis: Long = DEFAULT_WAKE_DELAY_MILLIS,
     private val random: Random = Random,
 ) {
 
@@ -101,9 +118,17 @@ class PollScheduler(
     @Volatile
     private var knownAppIds: Set<Long> = emptySet()
 
+    // The planned time of the wake rule (design decision D7, issue #29).
+    // start() sets it to the clock value of the first tick, before the
+    // loop coroutine can run, so the very first tick never looks like a
+    // resume. Only the loop coroutine reads or writes it after that.
+    @Volatile
+    private var plannedTickAt: Long = 0L
+
     /** Starts the tick loop. Call this at most one time. */
     fun start() {
         check(loopJob == null) { "The poll scheduler already started." }
+        plannedTickAt = clock.millis()
         loopJob = scope.launch { loop() }
     }
 
@@ -167,8 +192,14 @@ class PollScheduler(
      * - It closes the client of each app that is gone since the last
      *   tick.
      * - It starts a poll for each due app with no active poll.
+     *
+     * [checkWakeRule] runs first, before either one (design decision D7,
+     * issue #29). A resumed process then closes no client, and starts no
+     * poll, until the wait of the wake rule ends.
      */
     private suspend fun tick() {
+        checkWakeRule()
+
         val rows = pollStore.readApps()
         val currentAppIds = rows.map { it.appId }.toSet()
         closeGoneClients(currentAppIds)
@@ -179,6 +210,40 @@ class PollScheduler(
             if (!isDue(row, now)) continue
             if (activePolls.containsKey(row.appId)) continue
             startPoll(row)
+        }
+    }
+
+    /**
+     * The wake rule of design decision D7 and issue #29. It compares
+     * [clock] with [plannedTickAt], the planned time of this tick.
+     *
+     * A gap of more than two poll intervals (never two ticks of one
+     * second) means the process resumed from sleep: the wall clock
+     * jumped ahead of the loop's own monotonic delay. This writes one
+     * INFO line with the lateness in seconds, then waits
+     * [wakeDelayMillis] before the rest of this tick runs. The wait is a
+     * [delay] on the injected dispatcher, so a virtual-time test covers
+     * it, with no real wait and no `Thread.sleep`.
+     *
+     * A gap of two intervals or less is normal tick drift, not a
+     * resume; the rest of this tick runs at once.
+     *
+     * [plannedTickAt] then moves to the clock value of that same
+     * moment, the end of the wait on a resume, or the start of this
+     * tick otherwise. A resume never moves it by the plain tick
+     * interval: the wait itself would then look like a second resume,
+     * at the very next tick.
+     */
+    private suspend fun checkWakeRule() {
+        val now = clock.millis()
+        val thresholdMillis = WAKE_THRESHOLD_INTERVALS * pollIntervalSeconds * 1_000
+        val latenessMillis = now - plannedTickAt
+        if (latenessMillis > thresholdMillis) {
+            log.info("resume detected. {}", latenessMillis / 1_000)
+            delay(wakeDelayMillis)
+            plannedTickAt = clock.millis()
+        } else {
+            plannedTickAt = now + tickIntervalMillis
         }
     }
 
@@ -270,10 +335,17 @@ class PollScheduler(
      * database) logs one WARN and stops there. It never reaches
      * [runPollCycle]'s own catch-all, so it can never trigger a second
      * write attempt of its own.
+     *
+     * [outcome].cursor guards this write too (issue #187, MAJOR 1 of
+     * the correction round of pull request #208): it is the cursor of
+     * the last page that [EventStore.commitPage] committed, or the
+     * cursor of the tick's own read when the cycle committed no page.
+     * Either way, it is the last value that this cycle knows to be
+     * true in the app row, right before this write.
      */
     private suspend fun recordSuccess(appId: Long, outcome: PollOutcome) {
         val nextPollAt = clock.millis() + pollIntervalSeconds * 1000
-        writeSafely { pollStore.writeResult(appId, nextPollAt, outcome.cursor) }
+        writeSafely { pollStore.writeResult(appId, nextPollAt, outcome.cursor, expectedCursor = outcome.cursor) }
     }
 
     /**
