@@ -1,4 +1,12 @@
-import { DestroyRef, Signal, WritableSignal, computed, inject, signal } from '@angular/core';
+import {
+  DestroyRef,
+  Signal,
+  WritableSignal,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import {
   EMPTY,
@@ -121,6 +129,16 @@ export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
    * request. It reads the data error once the health route answers.
    */
   const error = computed(() => intervalState.error() ?? dataError());
+
+  /**
+   * Routes each change of `dataError` into the shared error state of
+   * `RefreshIntervalState`, so the shell banner shows a later failed data
+   * poll, and its recovery, not only a health failure (issue #164). The
+   * destroy hook clears this store's own contribution, so a stale error
+   * never reaches a later view, or a view with no data poll.
+   */
+  effect(() => intervalState.setDataError(dataError()));
+  destroyRef.onDestroy(() => intervalState.setDataError(undefined));
 
   const canPoll = (): boolean => !paused() && !document.hidden && !isFocusInTbody();
 

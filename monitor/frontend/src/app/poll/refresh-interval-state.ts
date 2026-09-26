@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Injectable, Signal, inject, signal } from '@angular/core';
+import { Injectable, Signal, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import {
   Observable,
@@ -38,14 +38,24 @@ function isPositiveNumber(value: unknown): value is number {
  * The service tries the health route again each 5 seconds until it gets
  * a valid answer. It then stops, and it gives its cached answer to a
  * later caller, with no new request.
+ *
+ * `error` also carries a later failed data poll of the active view
+ * (issue #164). The health route runs once, so `error` alone cannot
+ * show a network failure after the first good health answer; each poll
+ * store calls `setDataError` on its own `dataError` change, so the shell
+ * banner still follows a later failure, and its recovery.
  */
 @Injectable({ providedIn: 'root' })
 export class RefreshIntervalState {
   private readonly http = inject(HttpClient);
   private readonly errorState = signal<unknown>(undefined);
+  private readonly dataErrorState = signal<unknown>(undefined);
 
-  /** The error of the last failed health request. Undefined after a good answer. */
-  readonly error = this.errorState.asReadonly();
+  /**
+   * The error of the last failed health request, or of the last failed
+   * data poll of the active view. Undefined once both answer well.
+   */
+  readonly error = computed(() => this.errorState() ?? this.dataErrorState());
 
   /**
    * The interval in ms. It tries the health route again each 5 seconds
@@ -77,4 +87,14 @@ export class RefreshIntervalState {
     this.intervalMs$.pipe(map((ms) => ms / 1000)),
     { initialValue: undefined },
   );
+
+  /**
+   * Sets the shared error from the data poll of the active view (issue
+   * #164). A poll store calls this on each change of its own `dataError`,
+   * and again with `undefined` on its own destroy, so a stale error of an
+   * old view never reaches a later view, or a view with no data poll.
+   */
+  setDataError(error: unknown): void {
+    this.dataErrorState.set(error);
+  }
 }

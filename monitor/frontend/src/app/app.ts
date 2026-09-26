@@ -44,11 +44,12 @@ export class App {
   protected readonly appReady = signal(false);
 
   /**
-   * The error text of the monitor API (D30): a failed `GET /api/health`.
-   * Null while the health route answers. The banner shows this text.
+   * The error text of the monitor API (D30): a failed `GET /api/health`,
+   * or a failed data poll of the active view (issue #164). Null while
+   * both routes answer well. The banner shows this text.
    */
   protected readonly monitorApiError = computed(() =>
-    this.intervalState.error() === undefined ? null : 'The app did not get the refresh interval.',
+    this.intervalState.error() === undefined ? null : 'The monitor API did not answer.',
   );
 
   /** The breadcrumb trail of the active route. */

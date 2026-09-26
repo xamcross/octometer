@@ -1,10 +1,11 @@
-import { ApplicationRef } from '@angular/core';
+import { ApplicationRef, EnvironmentInjector, createEnvironmentInjector } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Observable, Subject, of, throwError } from 'rxjs';
 
 import { PollStore, createPollStore } from './poll-store';
+import { RefreshIntervalState } from './refresh-interval-state';
 
 /** Builds a tbody with one focusable button. Adds the tbody to the document. */
 function addTbodyWithButton(): HTMLButtonElement {
@@ -156,6 +157,50 @@ describe('createPollStore', () => {
     vi.advanceTimersByTime(10_000);
     expect(store.data()).toBe('first');
     expect(store.error()).toBeInstanceOf(Error);
+  });
+
+  it('routes a failed data poll into the shared error of RefreshIntervalState, and clears it on a later good poll (issue #164)', () => {
+    let calls = 0;
+    startStore(() => {
+      calls++;
+      if (calls === 2) {
+        return throwError(() => new Error('boom'));
+      }
+      return of(`v${calls}`);
+    }, 10);
+    const intervalState = TestBed.inject(RefreshIntervalState);
+    flushEffects();
+    expect(intervalState.error()).toBeUndefined();
+
+    vi.advanceTimersByTime(10_000);
+    flushEffects();
+    expect(intervalState.error()).toBeInstanceOf(Error);
+
+    vi.advanceTimersByTime(10_000);
+    flushEffects();
+    expect(intervalState.error()).toBeUndefined();
+  });
+
+  it('clears its own contribution to the shared error of RefreshIntervalState on destroy (issue #164)', () => {
+    const parentInjector = TestBed.inject(EnvironmentInjector);
+    const childInjector = createEnvironmentInjector([], parentInjector);
+    let calls = 0;
+    childInjector.runInContext(() =>
+      createPollStore(() => {
+        calls++;
+        return calls === 1 ? throwError(() => new Error('boom')) : of('v');
+      }),
+    );
+    vi.advanceTimersByTime(0);
+    flushHealth({ refreshSeconds: 10 });
+    vi.advanceTimersByTime(0);
+    flushEffects();
+
+    const intervalState = TestBed.inject(RefreshIntervalState);
+    expect(intervalState.error()).toBeInstanceOf(Error);
+
+    childInjector.destroy();
+    expect(intervalState.error()).toBeUndefined();
   });
 
   it('does not cancel a slow request on the next tick', () => {
