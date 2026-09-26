@@ -4,6 +4,7 @@ secrets/
 *.log
 octometer.conf
 build/
+target/
 node_modules/
 dist/
 .gradle/

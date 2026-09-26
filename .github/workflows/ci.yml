@@ -33,6 +33,7 @@ jobs:
       jvm: ${{ steps.filter.outputs.jvm }}
       frontend: ${{ steps.filter.outputs.frontend }}
       tracker: ${{ steps.filter.outputs.tracker }}
+      smoke: ${{ steps.filter.outputs.smoke }}
       ci: ${{ steps.filter.outputs.ci }}
     steps:
       - name: Check out the repository
@@ -61,6 +62,16 @@ jobs:
               - 'jitpack.yml'
             frontend:
               - 'monitor/frontend/**'
+            # Issue #68, step 6. This filter starts the consumer-smoke job
+            # of the two Spring Boot projects. Each root Gradle file counts,
+            # because "./gradlew publishToMavenLocal" reads it.
+            smoke:
+              - 'tools/consumer-smoke/**'
+              - 'kit/jvm-*/**'
+              - 'gradle/**'
+              - '*.gradle.kts'
+              - 'gradle.properties'
+              - 'gradlew*'
             tracker:
               - 'kit/tracker/**'
               - 'contract/**'
@@ -115,6 +126,55 @@ jobs:
           path: |
             monitor/backend/build/reports/tests/test
             tools/demo-app/build/reports/tests/test
+
+  consumer-smoke:
+    name: Consumer smoke (${{ matrix.project.name }})
+    needs: changes
+    if: |
+      github.event_name != 'schedule' &&
+      (needs.changes.outputs.jvm == 'true' || needs.changes.outputs.smoke == 'true' || needs.changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Issue #68. Each row is one consumer smoke project: a build tool
+        # and its own directory. The step below picks the right command
+        # for the tool of the row.
+        project:
+          - name: spring34-maven
+            dir: tools/consumer-smoke/spring34-maven
+            tool: maven
+          - name: spring41
+            dir: tools/consumer-smoke/spring41
+            tool: gradle
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Temurin 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      - name: Publish the kit to mavenLocal()
+        # Issue #68, decision 2. Each project reads the kit from the
+        # local Maven repository at this coordinate, not from JitPack:
+        # com.github.xamcross.octometer:octometer-kit-mongo:0.1.0.
+        run: ./gradlew publishToMavenLocal
+      - name: Test the Maven project
+        if: matrix.project.tool == 'maven'
+        working-directory: ${{ matrix.project.dir }}
+        run: ./mvnw --batch-mode --no-transfer-progress test
+      - name: Test the Gradle project
+        if: matrix.project.tool == 'gradle'
+        working-directory: ${{ matrix.project.dir }}
+        run: ./gradlew test
 
   monitor-windows:
     name: Monitor backend on Windows
