@@ -265,6 +265,14 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   monitor has no evidence, thus it gives `OVERPRIVILEGED`. While the status is
   `OVERPRIVILEGED`, each cycle runs the checks again before a read, thus a corrected role ends
   the stop.
+
+  Note on 2026-09-26 (issue #30, the implementation). The reader runs check 1 and check 2
+  inside `pollOnce`, before the read of the page. A failed check throws with the status
+  `OVERPRIVILEGED` and the fixed reason text. The scheduler applies the backoff of issue #28
+  to that failure. The backoff delays the next check by a maximum of 300 seconds after a
+  corrected role. `app.privileges_checked_at` stores the time of the last passed check. The
+  risk of section 8 stays as it stands: a write action on the one collection stays invisible
+  when the cluster gives no privilege list.
 - **D10. MongoDB client.** One client for each app, created at the first poll cycle, not at
   the start of the monitor. The monitor keeps it for the next cycles and closes it after a
   PATCH of the connection string or a delete of the app. `maxPoolSize=2`, `serverSelectionTimeoutMS=10000`, `maxIdleTimeMS=120000`,
