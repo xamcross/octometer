@@ -224,11 +224,53 @@ module. The package `exports` list holds no entry for it, thus an app
 cannot import it on its own. Use the `routes` option of `createTracker`
 instead.
 
+## The visitor source of the session start
+
+The session start can hold `referrerHost` (contract rule C40, design
+decision D42, issue #108). No click entry holds this field.
+
+The tracker reads `document.referrer` at the moment it sends the session
+start. It gives no `referrerHost` field for one of five cases:
+
+- an empty referrer;
+- a referrer with a scheme other than `http` or `https`;
+- the origin of the app;
+- an IP literal;
+- a host without a dot.
+
+For each other referrer, the tracker takes the host, in lower case, and
+matches it against the source list below. A host that matches no entry
+gives the literal `other`. The tracker sends only the matched entry, or
+the literal `other`, never the raw host and never a part of the query
+string or the path of the referrer.
+
+The source list holds two entries, each with its own pattern:
+
+| Entry | Pattern |
+| --- | --- |
+| `google.com` | `^([a-z0-9-]+\.)*google\.((com\|co)\.[a-z]{2}\|com\|[a-z]{2})$` |
+| `bing.com` | `^([a-z0-9-]+\.)*bing\.((com\|co)\.[a-z]{2}\|com\|[a-z]{2})$` |
+
+The `bing` pattern has the same form as the `google` pattern of contract
+rule C40, with `bing` in place of `google` (the maintainer's decision on
+issue #108). `src/referrer-source.ts` holds the two entries as one list
+of constants, and it builds each pattern from that one list, so the two
+never drift apart.
+
+The stored `referrerHost` value is exactly one of three literals:
+`google.com`, `bing.com`, or `other`. This is the same closed value set
+that the server checks: `EventFieldValidator.referrerHostSourceList()`
+of `kit/jvm-core` gives `google.com` and `bing.com`, and
+`EventFieldValidator.matchReferrerHost` gives `other` for each other
+host (issue #103). The tracker of this package changes no file of
+`kit/jvm-core`.
+
 ## What leaves the browser
 
 Each request body holds only `sessionId` and `clicks`. Each click holds
 only `element`, `ageMs`, and, with the `routes` option, `path`. The
-tracker never sends a user id: the app takes the user id from its own
+session start also holds `referrerHost`, when the referrer gives one.
+The tracker never sends a user id: the app takes the user id from its own
 authentication context (owner decision O5).
 
 The session id is a UUID. The tracker keeps it under the `sessionStorage` key
@@ -255,7 +297,8 @@ for the call, with no click text in it.
 ## Out of scope
 
 This package holds the tracker core, the page lifecycle flush, the retry
-rule, and the session start of design decision D41. Issue #108 owns the
-`referrerHost` field. The present tracker reads no `document.referrer`
-value, thus it sends no `referrerHost` field on any entry (design
-decision D42, contract rule C40).
+rule, the session start of design decision D41, and the visitor source
+of design decision D42 (issue #108). It holds no route pattern list of
+its own for the demo app, and no server-side field check: the app gives
+its own route list, and `kit/jvm-core` checks `referrerHost` again on
+the server (rule C41, issue #103).
