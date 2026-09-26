@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Injectable, Signal, inject, signal } from '@angular/core';
+import { Injectable, Signal, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import {
   Observable,
@@ -38,14 +38,24 @@ function isPositiveNumber(value: unknown): value is number {
  * The service tries the health route again each 5 seconds until it gets
  * a valid answer. It then stops, and it gives its cached answer to a
  * later caller, with no new request.
+ *
+ * `error` also carries a later failed data poll of the active view
+ * (issue #164). A poll store calls `setDataError` once it has its own
+ * first answer, good or bad. `scheduleDataErrorClear` and
+ * `cancelDataErrorClear` stop a route change between two table views
+ * from showing a false recovery (MAJOR 1 of pull request #194).
  */
 @Injectable({ providedIn: 'root' })
 export class RefreshIntervalState {
   private readonly http = inject(HttpClient);
   private readonly errorState = signal<unknown>(undefined);
+  private readonly dataErrorState = signal<unknown>(undefined);
 
-  /** The error of the last failed health request. Undefined after a good answer. */
-  readonly error = this.errorState.asReadonly();
+  /**
+   * The error of the last failed health request, or of the last failed
+   * data poll of the active view. Undefined once both answer well.
+   */
+  readonly error = computed(() => this.errorState() ?? this.dataErrorState());
 
   /**
    * The interval in ms. It tries the health route again each 5 seconds
@@ -77,4 +87,39 @@ export class RefreshIntervalState {
     this.intervalMs$.pipe(map((ms) => ms / 1000)),
     { initialValue: undefined },
   );
+
+  /** The token of the pending clear that `scheduleDataErrorClear` queued last, or 0. */
+  private dataErrorClearToken = 0;
+
+  /**
+   * Sets the shared error from the data poll of the active view (issue
+   * #164). A poll store calls this once it has its own first answer,
+   * good or bad. A fresh store then never overwrites the error of an
+   * old one before it answers (MAJOR 1 of pull request #194).
+   */
+  setDataError(error: unknown): void {
+    this.dataErrorClearToken++;
+    this.dataErrorState.set(error);
+  }
+
+  /**
+   * Schedules the clear of the data-poll error, one microtask after a
+   * poll store's own destroy. `cancelDataErrorClear` can cancel a clear
+   * still pending. A route change between two table views then keeps
+   * the old error, until the new store has its own first answer (MAJOR
+   * 1).
+   */
+  scheduleDataErrorClear(): void {
+    const token = ++this.dataErrorClearToken;
+    queueMicrotask(() => {
+      if (this.dataErrorClearToken === token) {
+        this.dataErrorState.set(undefined);
+      }
+    });
+  }
+
+  /** Cancels a clear that `scheduleDataErrorClear` queued, still pending. */
+  cancelDataErrorClear(): void {
+    this.dataErrorClearToken++;
+  }
 }
