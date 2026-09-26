@@ -1,6 +1,10 @@
 <h1 tabindex="-1">Apps</h1>
 <app-refresh-bar />
 
+@if (retentionText(); as text) {
+  <p class="retention-text">{{ text }}</p>
+}
+
 @if (shownNotFoundAppId(); as id) {
   <p class="not-found-message">App {{ id }} is not registered.</p>
 }
