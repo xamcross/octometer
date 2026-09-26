@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.io.readByteArray
 import octometer.kit.core.ingest.AnonymousDailyCap
 import octometer.kit.core.ingest.AnonymousKey
+import octometer.kit.core.ingest.AnonymousMinuteLimiter
 import octometer.kit.core.ingest.BotUserAgentFilter
 import octometer.kit.core.ingest.EventFieldValidator
 import octometer.kit.core.ingest.IngestEvent
@@ -60,6 +61,23 @@ private const val MAX_USER_AGENT_LENGTH = 512
 
 /** One hour, in milliseconds (the throttle window of [BotDropLogThrottle]). */
 private val BOT_DROP_LOG_THROTTLE_MILLIS = Duration.ofHours(1).toMillis()
+
+/**
+ * The exact `element` text of the first event of a session (contract
+ * rule C38). [octometerIngestRoute] uses this text to tell apart a
+ * click entry from a session-start entry for the two entry counters of
+ * [AnonymousMinuteLimiter] (design decision D43, issue #116).
+ */
+private const val SESSION_START_ELEMENT = "octo:session-start"
+
+/** The environment variable of the trusted proxy count (design decision D43, issue #116). */
+private const val TRUSTED_PROXY_COUNT_VARIABLE = "OCTOMETER_TRUSTED_PROXY_COUNT"
+
+/** The default of [TRUSTED_PROXY_COUNT_VARIABLE] (design decision D43, issue #116). */
+private const val DEFAULT_TRUSTED_PROXY_COUNT = 1
+
+/** Only an ASCII digit sets the trusted proxy count. A Unicode digit does not. */
+private val ASCII_DIGITS_PATTERN = Regex("^[0-9]+$")
 
 /**
  * A text form of one IPv4 address (four dot-separated numbers, each 0 to
@@ -137,16 +155,18 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  * That check separates a real cancellation of the call from a
  * [CancellationException] that the app throws by itself.
  *
- * **The order of the checks (design decision D43, issue #117).** The
- * route corrected this order on 2026-09-22. The rate limiter now runs
- * before the bot filter and any real body read too, the original rule
- * of issue #33. The route runs each check of one request in this
- * order, and it stops at the first one that answers:
+ * **The order of the checks (design decision D43, issue #117; issue
+ * #116).** The route corrected this order on 2026-09-22. The rate
+ * limiter now runs before the bot filter and any real body read too,
+ * the original rule of issue #33. The route runs each check of one
+ * request in this order, and it stops at the first one that answers:
  *
  * 1. the `Content-Type` header (415, contract rule C12);
- * 2. the rate limiter of design decision D20 (429, issue #33) — a
- *    client already at its limit never reaches step 3 or any step
- *    below;
+ * 2. the rate limiter of design decision D20 (429, issue #33), and the
+ *    anonymous per-minute request counter of design decision D43
+ *    (429, issue #116) — a client already at its limit never reaches
+ *    step 3 or any step below. The request counter needs no parsed
+ *    entry, so it sits beside the rate limiter, before the body read;
  * 3. the bot filter of [BotUserAgentFilter] (204), on a maximum of 512
  *    characters of the `User-Agent` value;
  * 4. the body size (400, contract rule C18), the declared
@@ -155,11 +175,16 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  *    limit that step 4 could not catch from its declared length alone)
  *    and the parse of the body (400, the field rules of
  *    `kit/jvm-core`);
- * 6. the design decision D19 drop: a request with no user id stores
+ * 6. the anonymous per-minute click-entry counter and session-start
+ *    counter of design decision D43 (429, issue #116). These two
+ *    counters need the parsed batch, to tell a click entry apart from
+ *    an `octo:session-start` entry, so they run only here, after step
+ *    5, never before it;
+ * 7. the design decision D19 drop: a request with no user id stores
  *    nothing and answers 204, when the app records no anonymous click;
- * 7. the daily anonymous caps of design decision D43 (204), for a
+ * 8. the daily anonymous caps of design decision D43 (204), for a
  *    request with no user id, when the app records an anonymous click;
- * 8. the store, with the event cap of design decision D21 inside it.
+ * 9. the store, with the event cap of design decision D21 inside it.
  *
  * @param store the event log store of the app.
  * @param ingestPath the path of the route. The default is the path of
@@ -180,16 +205,28 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  * @param dailyCap the daily anonymous cap of design decision D43 (issue
  *   #117). The default builds one [AnonymousDailyCap] with [clock] and the
  *   two caps of [settings], held for the life of this route.
+ * @param minuteLimiter the anonymous per-minute limiter of design decision
+ *   D43 (issue #116). The default builds one [AnonymousMinuteLimiter] with
+ *   [clock] and the three limits of [settings], held for the life of this
+ *   route. It runs only for a request with no user id, when the app
+ *   records an anonymous click (see the order above).
  * @param clientIpHeaderName the name of the header that holds the client
  *   address (issue #33, step 3). The default reads
  *   `OCTOMETER_CLIENT_IP_HEADER` once, when this function installs the
- *   route. The route reads the last element of the last header line (the
- *   default trusted proxy count of one of design decision D20). A `null`
- *   value, a request with no such header, a value above 64 characters, and
- *   a value with no IPv4 or IPv6 address form, each fall back to the
- *   remote address of the connection. Set this option only behind a
- *   proxy that appends the real client address this way; see
- *   `kit/jvm-ktor/README.md`.
+ *   route. The route reads the element that [trustedProxyCount] counts
+ *   from the right of that header line. A `null` value, a request with no
+ *   such header, a value above 64 characters, and a value with no IPv4 or
+ *   IPv6 address form, each fall back to the remote address of the
+ *   connection. Set this option only behind a proxy that appends the real
+ *   client address this way; see `kit/jvm-ktor/README.md`.
+ * @param trustedProxyCount the position, counted from the right of the
+ *   header list of [clientIpHeaderName], of the address to trust (design
+ *   decision D20, issue #116). The default reads
+ *   `OCTOMETER_TRUSTED_PROXY_COUNT` once, at 1 with no such variable. A
+ *   count above the length of the header list falls back to the remote
+ *   address, the same as a value with no address form. A text value, a
+ *   zero, or a negative value stops the app start; the error message
+ *   never repeats the raw value.
  * @param resolveUserId reads the user id from the current call, or `null`
  *   when no user is signed in (contract rule C6). This function runs
  *   before the rate limit check, so a rejected request still pays its
@@ -207,7 +244,14 @@ public fun Route.octometerIngestRoute(
         settings.anonMaxEventsPerDay(),
         settings.anonEventsPerKeyPerDay(),
     ),
+    minuteLimiter: AnonymousMinuteLimiter = AnonymousMinuteLimiter(
+        clock,
+        settings.anonReqPerMinute(),
+        settings.anonEventsPerMinute(),
+        settings.anonSessionsPerMinute(),
+    ),
     clientIpHeaderName: String? = System.getenv("OCTOMETER_CLIENT_IP_HEADER"),
+    trustedProxyCount: Int = trustedProxyCountFromEnvironment(),
     resolveUserId: (ApplicationCall) -> String?,
 ) {
     require(ingestPath.startsWith("/")) {
@@ -233,21 +277,44 @@ public fun Route.octometerIngestRoute(
             // already asks.
             val userId = resolveUserId(call)
 
+            // The route reads the client address header only for a
+            // request with no user id, and only once: the rate
+            // limiter, the anonymous per-minute limiter, and the daily
+            // cap all read the same normalised address below, so this
+            // call would otherwise waste a repeated header lookup.
+            val clientAddr = if (userId == null) clientAddress(call, clientIpHeaderName, trustedProxyCount) else null
+
             // 2. The rate limiter (429, design decision D20, issue
             // #33). This runs before the bot filter and the real body
             // read (steps 3 and 5). A client already at its limit
             // never reaches the filter, that read, or the parse. Issue
             // #117 restated this original rule of issue #33 on
-            // 2026-09-22. The route reads the client address header
-            // only for a request with no user id. check() never reads
-            // it for a signed-in user, so this call would waste one
-            // header lookup on every request otherwise.
+            // 2026-09-22.
             val rateLimitResult = if (userId != null) {
                 rateLimiter.check(userId, "")
             } else {
-                rateLimiter.check(null, clientAddress(call, clientIpHeaderName))
+                rateLimiter.check(null, clientAddr!!)
             }
             if (rateLimitResult == RateLimitResult.LIMITED) {
+                call.respond(HttpStatusCode.TooManyRequests)
+                return@post
+            }
+
+            // 2b. The anonymous per-minute request counter (429,
+            // design decision D43, issue #116). It sits beside the
+            // rate limiter above, before the bot filter and the real
+            // body read, because this counter needs no parsed entry:
+            // one request is one count, with no need to read the
+            // body. It runs only for a request with no user id, when
+            // the app records an anonymous click. anonymousMinuteKey
+            // stays null otherwise, so the two entry counters of step
+            // 6 below skip their own check for the same request.
+            val anonymousMinuteKey = if (userId == null && settings.recordAnonymousClicks()) {
+                AnonymousKey.of(clientAddr!!)
+            } else {
+                null
+            }
+            if (anonymousMinuteKey != null && !minuteLimiter.checkRequest(anonymousMinuteKey)) {
                 call.respond(HttpStatusCode.TooManyRequests)
                 return@post
             }
@@ -298,7 +365,32 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
-            // 6. The design decision D19 drop: a request with no user
+            // 6. The anonymous per-minute click-entry counter and
+            // session-start counter (429, design decision D43, issue
+            // #116). These two counters need the parsed batch, to tell
+            // a click entry apart from an `octo:session-start` entry,
+            // so they run only here, after the parse of step 5, never
+            // before it. anonymousMinuteKey is null for a signed-in
+            // user, and for a request when the app records no
+            // anonymous click, so this check then never runs for such
+            // a request.
+            if (anonymousMinuteKey != null && events.isNotEmpty()) {
+                var clickEntryCount = 0
+                var sessionStartCount = 0
+                for (event in events) {
+                    if (event.element() == SESSION_START_ELEMENT) {
+                        sessionStartCount++
+                    } else {
+                        clickEntryCount++
+                    }
+                }
+                if (!minuteLimiter.checkEntries(anonymousMinuteKey, clickEntryCount, sessionStartCount)) {
+                    call.respond(HttpStatusCode.TooManyRequests)
+                    return@post
+                }
+            }
+
+            // 7. The design decision D19 drop: a request with no user
             // id stores nothing, when the app records no anonymous
             // click.
             if (userId == null && !settings.recordAnonymousClicks()) {
@@ -306,14 +398,16 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
-            // 7. The daily anonymous caps (204, design decision D43,
+            // 8. The daily anonymous caps (204, design decision D43,
             // issue #117), for a request with no user id, when the app
             // records an anonymous click. An empty batch needs no
             // check: it already stores nothing, the same as a dropped
-            // batch.
+            // batch. anonymousMinuteKey already holds the same
+            // normalised key that step 7 above confirms is available
+            // here, because step 7 already returned for a request with
+            // no user id when the app records no anonymous click.
             if (userId == null && events.isNotEmpty()) {
-                val key = AnonymousKey.of(clientAddress(call, clientIpHeaderName))
-                if (!dailyCap.check(key, events.size)) {
+                if (!dailyCap.check(anonymousMinuteKey!!, events.size)) {
                     call.respond(HttpStatusCode.NoContent)
                     return@post
                 }
@@ -327,7 +421,7 @@ public fun Route.octometerIngestRoute(
                 return@post
             }
 
-            // 8. The store, with the event cap of design decision D21
+            // 9. The store, with the event cap of design decision D21
             // inside it. A userId that breaks contract rule C6 is a
             // defect of the app, not of the client; it gives 500 below,
             // never 400.
@@ -466,35 +560,83 @@ internal class BotDropLogThrottle(private val clock: Clock) {
 
 /**
  * Reads the client address of one call for the rate limiter (design
- * decision D20, issue #33, step 3).
+ * decision D20, issue #33, step 3) and for the anonymous per-minute
+ * limiter (design decision D43, issue #116).
  *
  * It reads the header that [headerName] names, when [headerName] is not
  * `null` and the request holds that header. A request can repeat one
  * header name as more than one header line; this function reads the
  * *last* line ([io.ktor.http.Headers.getAll]), because a trusted proxy
  * that adds its own line appends it after the lines of the client. Inside
- * that last line, this function reads the *last* comma-separated element,
- * the default trusted proxy count of one of design decision D20: the
- * nearest proxy appends its peer address as the last element, so the
- * last element is the address that the nearest proxy itself observed.
- * Issue #116 adds `OCTOMETER_TRUSTED_PROXY_COUNT`, a position other than
- * the last element, for an app behind more than one trusted proxy.
+ * that last line, this function reads the element that [trustedProxyCount]
+ * counts from the right, one-based (design decision D20, issue #116): the
+ * nearest proxy appends its peer address as the last element, so
+ * [trustedProxyCount] of 1 (the default) reads that last element, the
+ * address that the nearest proxy itself observed. A [trustedProxyCount]
+ * of 2 reads the second-from-right element, the address that the second
+ * proxy of the chain observed, and so on for one app behind more than
+ * one trusted proxy.
  *
- * A value above [MAX_CLIENT_ADDRESS_LENGTH] characters, and a value with
- * no IPv4 or IPv6 address form, and a request with no such header, and a
- * `null` [headerName], each fall back to the remote address of the
- * connection ([io.ktor.server.request.ApplicationRequest.local]).
+ * A value above [MAX_CLIENT_ADDRESS_LENGTH] characters, a value with no
+ * IPv4 or IPv6 address form, a [trustedProxyCount] above the length of
+ * the comma-separated list, a request with no such header, and a `null`
+ * [headerName], each fall back to the remote address of the connection
+ * ([io.ktor.server.request.ApplicationRequest.local]).
  *
  * An app must set [headerName] only behind a proxy that appends the real
  * client address this way. See `kit/jvm-ktor/README.md`.
  */
-private fun clientAddress(call: ApplicationCall, headerName: String?): String {
-    val headerValue = headerName
+private fun clientAddress(call: ApplicationCall, headerName: String?, trustedProxyCount: Int): String {
+    val elements = headerName
         ?.let { call.request.headers.getAll(it)?.lastOrNull() }
-        ?.substringAfterLast(',')
+        ?.split(',')
+    val headerValue = elements
+        ?.let { it.getOrNull(it.size - trustedProxyCount) }
         ?.trim()
         ?.takeIf { it.isNotEmpty() && it.length <= MAX_CLIENT_ADDRESS_LENGTH && looksLikeAnIpAddress(it) }
     return headerValue ?: call.request.local.remoteAddress
+}
+
+/**
+ * Reads `OCTOMETER_TRUSTED_PROXY_COUNT` from the process environment
+ * (design decision D20, issue #116), or [DEFAULT_TRUSTED_PROXY_COUNT]
+ * with no such variable. A text value, a zero, or a negative value stops
+ * the app start (see [positiveWholeNumberFromEnvironmentValue]).
+ */
+private fun trustedProxyCountFromEnvironment(): Int =
+    positiveWholeNumberFromEnvironmentValue(
+        System.getenv(TRUSTED_PROXY_COUNT_VARIABLE),
+        TRUSTED_PROXY_COUNT_VARIABLE,
+        DEFAULT_TRUSTED_PROXY_COUNT,
+    )
+
+/**
+ * Turns the raw text of one environment variable into a positive whole
+ * number, the form of `IngestSettings.positiveWholeNumberFromValue` of
+ * `kit/jvm-core` (design decision D43, issue #116). A `null` [rawValue]
+ * gives [defaultValue], with no error.
+ *
+ * A value of zero, a negative value, or a value with a character that is
+ * not an ASCII digit, stops the app start: this function throws
+ * [IllegalStateException], with a message that names [variableName] and
+ * never repeats [rawValue].
+ *
+ * This function is `internal`, so a test of this module can call it
+ * directly (see `IngestRouteTest.kt`).
+ */
+internal fun positiveWholeNumberFromEnvironmentValue(rawValue: String?, variableName: String, defaultValue: Int): Int {
+    if (rawValue == null) {
+        return defaultValue
+    }
+    val trimmed = rawValue.trim()
+    val parsedValue = trimmed.toIntOrNull()
+    if (ASCII_DIGITS_PATTERN.matches(trimmed) && parsedValue != null && parsedValue > 0) {
+        return parsedValue
+    }
+    throw IllegalStateException(
+        "$variableName must hold a positive whole number of ASCII digits. The app start stops, " +
+            "because a wrong proxy count can let a forged header choose the client address.",
+    )
 }
 
 /**
