@@ -64,6 +64,14 @@ internal const val PAGE_BYTE_BUDGET = 8L * 1024 * 1024
 /** The cycle timeout of design decision D6, for the page loop of step 5. */
 internal const val CYCLE_TIMEOUT_MILLIS = 45_000L
 
+/**
+ * The interval of the privilege check of design decision D9 (issue
+ * #30): the first poll of an app, and every 24 hours after that.
+ * [octometer.monitor.poll.PollScheduler] computes the due flag from
+ * this constant and from `app.privileges_checked_at`.
+ */
+internal const val PRIVILEGE_CHECK_INTERVAL_MILLIS = 24 * 60 * 60 * 1000L
+
 /** The status of D8 for a poll cycle with no skipped document. */
 internal const val STATUS_OK = "OK"
 
@@ -98,22 +106,34 @@ internal val REFERRER_HOST_VALUES = setOf("google.com", "bing.com", "other")
  * maintainer's decision 1). [status] is the mapped candidate status of
  * [mongoFailureStatus]; the caller of [MongoAppReader.pollOnce] still
  * applies the failed-cycle-count rule before it writes the app row.
- * [code] is the numeric command error code, or `null`.
+ * [code] is the numeric command error code, or `null`. [reason] is
+ * the fixed reason text of a failed privilege check (design decision
+ * D9, issue #30), or `null` for each other failure;
+ * [octometer.monitor.poll.PollScheduler] writes it into `last_error`
+ * in place of [code] when it is present.
  *
  * This class keeps no `cause`, and its message holds no text of the
- * real exception: only the two fields above. It never holds a host, a
+ * real exception: only the fields above. It never holds a host, a
  * port, a database name, or a part of a connection string either
  * (design decision D11, the security note of issue #16).
  */
-class MongoReadFailedException(val status: String, val code: Int?) :
+class MongoReadFailedException(val status: String, val code: Int?, val reason: String? = null) :
     Exception("The reader could not read MongoDB. status=$status code=$code")
 
-/** The app that one poll cycle reads (steps 1 to 5 of issue #16). */
+/**
+ * The app that one poll cycle reads (steps 1 to 5 of issue #16).
+ * [checkPrivileges] tells [MongoAppReader.pollOnce] to run the
+ * privilege check of design decision D9 (issue #30) this cycle.
+ * [octometer.monitor.poll.PollScheduler] computes it from `AppRow` and
+ * from [PRIVILEGE_CHECK_INTERVAL_MILLIS]. The default `false` keeps
+ * each existing call site of this class compiling.
+ */
 data class PollTarget(
     val appId: Long,
     val database: String,
     val collection: String,
     val cursor: String?,
+    val checkPrivileges: Boolean = false,
 )
 
 /** The result of one poll cycle: the stored count, the page count, the cursor, and the skipped count (issue #27). */
@@ -229,6 +249,10 @@ class MongoAppReader(
     suspend fun pollOnce(target: PollTarget, connectionString: String): PollOutcome =
         withTimeout(cycleTimeoutMillis) {
             val database = openDatabase(target.appId, connectionString, target.database)
+            if (target.checkPrivileges) {
+                checkPrivileges(database, target)
+                eventStore.recordPrivilegeCheck(target.appId, clock.millis())
+            }
             val bound = readBound(database)
             val outcome = runCycle(target.appId, target.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { cursor ->
                 readPage(database, target.collection, cursor, bound, PAGE_LIMIT)
@@ -236,6 +260,41 @@ class MongoAppReader(
             recordCycleSuccess(target.appId, outcome.eventsSkipped)
             outcome
         }
+
+    /**
+     * Runs the privilege check of design decision D9 (issue #30, a
+     * production blocker), after [openDatabase] and before [readBound],
+     * inside the same cycle timeout. A failed check throws
+     * [MongoReadFailedException] with the status [STATUS_OVERPRIVILEGED]
+     * and the fixed reason text; it reads no page (design decision D9:
+     * "a failed check ... stops the poll of that app"). The scheduler
+     * writes that reason into `last_error`, and it applies the backoff
+     * of issue #28 against the app's own failure count, so a corrected
+     * role delays the next check by a maximum of 300 seconds (the
+     * backoff cap), never longer.
+     *
+     * The two commands run inside [withMongoFailure], so a network
+     * failure of either one maps to its own status, the same as each
+     * other command of this class. The verdict itself runs outside
+     * that wrap (the maintainer's correction of the brief review of
+     * 2026-09-26): a throw inside [withMongoFailure] would map to
+     * [STATUS_ERROR] in place of [STATUS_OVERPRIVILEGED].
+     */
+    private suspend fun checkPrivileges(database: MongoDatabase, target: PollTarget) {
+        val (connectionStatus, listCollections) = withMongoFailure {
+            withContext(Dispatchers.IO) {
+                val status = database.runCommand(Document("connectionStatus", 1).append("showPrivileges", true))
+                val collections = database.runCommand(
+                    Document("listCollections", 1).append("authorizedCollections", true).append("nameOnly", true),
+                )
+                status to collections
+            }
+        }
+        val verdict = privilegeVerdict(connectionStatus, listCollections, target.database, target.collection)
+        if (verdict is PrivilegeVerdict.Failed) {
+            throw MongoReadFailedException(STATUS_OVERPRIVILEGED, code = null, reason = verdict.reason)
+        }
+    }
 
     /**
      * Records the status of a good cycle (issue #27, D5, D8). It runs
@@ -626,6 +685,32 @@ internal fun idFilter(cursor: String?, bound: ObjectId): Bson {
         range["\$gt"] = ObjectId(cursor)
     }
     return Document("_id", range)
+}
+
+/**
+ * Builds the [PrivilegeVerdict] of one `connectionStatus` answer and
+ * one `listCollections` answer (design decision D9, issue #30). It
+ * reads `cursor.firstBatch` of [listCollections] only when
+ * `cursor.id == 0` (the correction of the brief review of
+ * 2026-09-26): a truncated batch could hide a collection outside the
+ * configured one, and check 1 would then pass on missing evidence. A
+ * truncated batch fails check 1 at once, with no call to
+ * [evaluatePrivileges].
+ */
+internal fun privilegeVerdict(
+    connectionStatus: Document,
+    listCollections: Document,
+    database: String,
+    collection: String,
+): PrivilegeVerdict {
+    val cursor = listCollections.get("cursor", Document::class.java)
+    val cursorId = (cursor?.get("id") as? Number)?.toLong()
+    if (cursor == null || cursorId != 0L) return PrivilegeVerdict.Failed(REASON_CHECK1_FAILED)
+
+    @Suppress("UNCHECKED_CAST")
+    val firstBatch = cursor.get("firstBatch") as? List<Document> ?: emptyList()
+    val visibleCollections = firstBatch.map { it.getString("name") }
+    return evaluatePrivileges(connectionStatus, visibleCollections, database, collection)
 }
 
 /**

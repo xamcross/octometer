@@ -152,6 +152,25 @@ class EventStore(private val database: SqliteDatabase) {
         }
     }
 
+    /**
+     * Records a passed privilege check (design decision D9, issue
+     * #30). It sets `privileges_checked_at` to [nowMillis], epoch
+     * milliseconds UTC, the unit of `created_at`. This runs in its
+     * own `write {}`, never inside [commitPage]'s own transaction
+     * (lesson 3 of the database brief): [MongoAppReader.pollOnce]
+     * calls it right after a passed check, before it reads the first
+     * page of the cycle.
+     */
+    suspend fun recordPrivilegeCheck(appId: Long, nowMillis: Long) {
+        database.write { writer ->
+            writer.prepareStatement("UPDATE app SET privileges_checked_at = ? WHERE id = ?").use { update ->
+                update.setLong(1, nowMillis)
+                update.setLong(2, appId)
+                check(update.executeUpdate() == 1) { "No app row for id $appId." }
+            }
+        }
+    }
+
     private fun insertEvents(writer: Connection, appId: Long, events: List<NewEvent>) {
         if (events.isEmpty()) return
         writer.prepareStatement(INSERT_EVENT_SQL).use { insert ->
