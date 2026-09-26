@@ -9,6 +9,7 @@ import octometer.monitor.apps.appTotals
 import octometer.monitor.elements.elementsRoute
 import octometer.monitor.erasure.userErasureRoutes
 import octometer.monitor.registry.appRegistryRoutes
+import octometer.monitor.sessions.sessionsRoute
 import octometer.monitor.users.userTotalsRoute
 
 /**
@@ -27,6 +28,7 @@ fun Route.apiRoutes(services: MonitorServices) {
     userTotalsRoute(services.database)
     elementsRoute(services.database)
     userErasureRoutes(services.database)
+    sessionsRoute(services.database)
     // Issue #38, step 4: a request below "/api/" never gets index.html.
     // Ktor tries a constant path segment before this wildcard segment,
     // so this route matches only after each specific "/api/" route
