@@ -12,11 +12,16 @@
  * guards for this case: see `splitIntoRequestBatches`.
  */
 
-/** One click entry of the ingest request body (contract rule C13). */
+/**
+ * One click entry of the ingest request body (contract rule C13).
+ * `referrerHost` sits on the session start entry only (contract rule
+ * C40, design decision D42, issue #108). No other entry holds it.
+ */
 export interface ClickPayload {
   readonly element: string;
   readonly ageMs: number;
   readonly path?: string;
+  readonly referrerHost?: string;
 }
 
 /** One request holds a maximum of 50 clicks (contract rule C17). */
