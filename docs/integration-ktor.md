@@ -265,8 +265,8 @@ npm install https://github.com/xamcross/octometer/releases/download/<version>/oc
 Replace `<version>` with the tag of that later release.
 
 Add the tracker to your page script, for example `main.ts`. Call `start()` only after
-the consent signal of your app. `docs/privacy.md` holds the draft privacy notice text
-for that consent signal.
+the consent signal of your app. `docs/privacy.md` holds the approved privacy notice
+text. The legal basis of its section 6 waits for issue #41.
 
 ```ts
 import { createTracker } from 'octometer-tracker';
@@ -350,4 +350,7 @@ Section 4, the storage alert metric name and its unit:
   https://www.mongodb.com/docs/atlas/reference/alert-host-metrics/, read 2026-09-26.
   The page holds `DB_DATA_SIZE_TOTAL`, not `DB_DATA_SIZE`, and states that this metric
   counts the document data of each database in bytes.
+Section 7, the link sentence to `docs/privacy.md`: updated for issue #42 (the owner
+  approval of 2026-09-27) to name the approved text and the open legal basis of
+  issue #41.
 -->
