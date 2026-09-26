@@ -24,6 +24,10 @@ or `other`.
 
 A record never holds your name or your email address.
 
+We record the page that you open first, the source of your visit, and each button
+that you press before you sign in. When you sign in in the same tab, we join that
+record to your account.
+
 A request with no signed-in user may use your IP address to limit abuse.
 We keep it in memory only. A counter of one minute always applies. A day
 counter keeps a key of your address for a maximum of 24 hours, when the
@@ -119,4 +123,9 @@ The correction round of pull request #220 (2026-09-27, MAJOR 1 and MAJOR 2) corr
   controller of section 1, so the monitor is a tool of the controller, not a
   processor. The processor list now holds MongoDB Atlas and the hosting provider of
   the app.
+Issue #119 added the sentence on the first page, the source, and the pre-sign-in
+  buttons to section 2 (the owner's approval of 2026-09-27, issue #42). Section 2
+  named neither the first page nor a button before a sign-in, so the new sentence
+  adds content. Lines 84-85 already state the join after a sign-in in section 9;
+  both sentences stay, because each one states a different fact of the same rule.
 -->
