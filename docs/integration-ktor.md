@@ -7,8 +7,8 @@ Where this guide says "your app", put the name of your own app.
 **A note for an app behind a path-limited proxy.** Some apps sit behind a proxy. The
 proxy forwards only a few path prefixes to the backend, for example an API prefix, an
 OAuth prefix, and a login-callback prefix. The app also sets a Content Security Policy
-with `connect-src 'self'`. Put the ingest path of step 3 below the proxied prefix. The
-tracker of step 5 then posts to the same origin as the page. The proxy forwards the
+with `connect-src 'self'`. Put the ingest path of step 5 below the proxied prefix. The
+tracker of step 7 then posts to the same origin as the page. The proxy forwards the
 request in that case.
 
 ## 1. The dependency
@@ -74,7 +74,111 @@ or newer, set `timeoutMS` instead.
 The built-in role `readWrite` has no `collMod`. Without `find`, the event cap of design
 decision D21 never stops the ingest, and the store writes one warning each hour.
 
-## 3. The route
+## 3. The database user
+
+Create the read-only role and the user for the monitor. This user is not the app
+database user of section 2. The owner runs each command below on the Atlas CLI. A
+password must never pass through an agent.
+
+```
+atlas customDbRoles create octometerEventReader --privilege FIND@<database>.octometer_events --projectId <id>
+atlas dbusers create --username octometer-reader --role octometerEventReader --projectId <id>
+atlas dbusers describe octometer-reader --projectId <id> -o json
+```
+
+The CLI prompts for the password. This keeps the password out of the shell history.
+Make the password with `openssl rand -hex 24`. Use one password for each Atlas project.
+
+Rotate the password after a lost laptop, after a suspected leak, and each 12 months.
+Delete the user, then create it again.
+
+**Check the role.** Run `contract/fixtures/check-privileges.js` against the new user
+with `mongosh`, as `contract/fixtures/README.md` states. The script proves that the
+user holds only the `find` action on `octometer_events`. Design decision D9 gives the
+status `OVERPRIVILEGED` for a wider role, once issue #30 reaches `main`.
+
+**The connection string for the monitor.** Build the string in this exact form:
+
+```
+mongodb+srv://octometer-reader:<password>@<cluster host>/<database>
+```
+
+Use the SRV host. The form above holds no option. Design decision D11 also allows a
+`tls=true` option or a `ssl=true` option in a connection string, but this form adds
+none.
+
+Keep `<password>` and `<cluster host>` inside angle brackets in each copy of this
+string. Never put a real value in their place. A real host next to a real password
+triggers a secret alert.
+
+The monitor stores this string in its own registry, outside its data folder (design
+decision D11). Paste the string into the manage form of the monitor. Section 5 of
+`docs/demo.md` shows the form fields.
+
+## 4. The alerts
+
+M0 keeps no access history. An alert is the only signal of a leaked password (design
+section 8). Each alert below needs a notification target, or the alert reaches nobody.
+
+**1. Connections.**
+
+```
+atlas alerts settings create \
+  --event OUTSIDE_METRIC_THRESHOLD \
+  --metricName CONNECTIONS \
+  --metricOperator GREATER_THAN \
+  --metricThreshold <n> \
+  --metricUnits RAW \
+  --notificationType GROUP \
+  --notificationEmailEnabled \
+  --notificationIntervalMin 5 \
+  --projectId <id>
+```
+
+Set `<n>` below the connection limit of the M0 cluster. Section 2 states this limit
+as 500.
+
+**2. Network.**
+
+```
+atlas alerts settings create \
+  --event OUTSIDE_METRIC_THRESHOLD \
+  --metricName NETWORK_BYTES_IN \
+  --metricOperator GREATER_THAN \
+  --metricThreshold <n> \
+  --metricUnits MEGABYTES \
+  --notificationType GROUP \
+  --notificationEmailEnabled \
+  --notificationIntervalMin 5 \
+  --projectId <id>
+```
+
+Set `<n>` for the normal traffic of your app.
+
+**3. Storage, at 80 percent of the M0 limit.**
+
+M0 has a storage limit of 512 MiB, that is 536870912 bytes. Eighty percent of that
+value is 429496730 bytes. A free cluster has no disk-partition metric, thus this
+alert checks the total document data size metric instead.
+
+```
+atlas alerts settings create \
+  --event OUTSIDE_METRIC_THRESHOLD \
+  --metricName DB_DATA_SIZE_TOTAL \
+  --metricOperator GREATER_THAN \
+  --metricThreshold 429496730 \
+  --metricUnits BYTES \
+  --notificationType GROUP \
+  --notificationEmailEnabled \
+  --notificationIntervalMin 5 \
+  --projectId <id>
+```
+
+Use `--notificationType EMAIL --notificationEmailAddress <address>` in place of
+`--notificationType GROUP --notificationEmailEnabled` above, when the project has no
+group to notify. Keep `--notificationIntervalMin`.
+
+## 5. The route
 
 Mount the ingest route inside the routing block that already has the session or the
 authentication plugin of your app. The route needs the session (design decision D23).
@@ -125,7 +229,7 @@ The kit reads each setting below from an environment variable.
 This guide leaves out the route pattern list and the warning of rule R7. Issue #119
 adds that section to this same file.
 
-## 4. The account deletion
+## 6. The account deletion
 
 Call `deleteByUserId(userId)` on your store to erase one user (contract rule C43). Never
 pass a `null` value or an empty text as `userId`.
@@ -149,7 +253,7 @@ The contract of the call:
 A call to the monitor route before step 2 finishes lets a poll cycle read the erased
 events again.
 
-## 5. The tracker
+## 7. The tracker
 
 Install the tracker from the tarball of a GitHub release. The release `0.1.0` holds no
 tarball. A later tag brings the first one (issue #44).
@@ -161,7 +265,8 @@ npm install https://github.com/xamcross/octometer/releases/download/<version>/oc
 Replace `<version>` with the tag of that later release.
 
 Add the tracker to your page script, for example `main.ts`. Call `start()` only after
-the consent signal of your app.
+the consent signal of your app. `docs/privacy.md` holds the draft privacy notice text
+for that consent signal.
 
 ```ts
 import { createTracker } from 'octometer-tracker';
@@ -179,7 +284,7 @@ with the pattern `[A-Za-z0-9_.:-]+` (contract rule C4). The prefix `octo:` stays
 reserved for the contract. Give each `data-octo` value a name outside that prefix
 (contract rule C38).
 
-## 6. The check
+## 8. The check
 
 Sign in to your app in a browser first. Copy the value of your session cookie from the
 browser developer tools.
@@ -216,6 +321,7 @@ kit/tracker/README.md
 tools/demo-app/README.md
 docs/demo.md
 contract/README.md
+contract/fixtures/README.md
 .github/workflows/release.yml
 tools/consumer-smoke/spring41/build.gradle.kts
 tools/consumer-smoke/spring34-maven/pom.xml
@@ -225,6 +331,23 @@ kit/jvm-core/src/main/java/octometer/kit/core/store/EventLogStore.java
 kit/jvm-mongo/src/main/java/octometer/kit/mongo/store/MongoEventLogStore.java
 tools/demo-app/src/main/kotlin/octometer/demo/Application.kt
 tools/demo-app/src/main/kotlin/octometer/demo/DemoUserIdResolver.kt
+docs/superpowers/specs/2026-09-21-octometer-design.md, sections 4.4 and 8, decisions D9,
+  D11, D21
 The exclusiveContent block of section 1 is new text of this guide. Design decision D25
 states the rule. No file on main holds this exact block.
+Section 3 (the database user) and section 4 (the alerts) are new text of this guide, for
+  issue #45.
+Section 3 cites contract/fixtures/README.md ("check-privileges.js") and issue #30 (open,
+  "Check the privileges of the database user").
+Section 4, connections and network alert flags:
+  https://www.mongodb.com/docs/atlas/cli/current/command/atlas-alerts-settings-create/,
+  read 2026-09-26.
+Section 4, the metric names and the free-cluster metric list:
+  https://www.mongodb.com/docs/atlas/reference/alert-conditions/, read 2026-09-26. The
+  page states: "Free clusters and Flex clusters only trigger alerts related to the
+  metrics supported by those clusters."
+Section 4, the storage alert metric name and its unit:
+  https://www.mongodb.com/docs/atlas/reference/alert-host-metrics/, read 2026-09-26.
+  The page holds `DB_DATA_SIZE_TOTAL`, not `DB_DATA_SIZE`, and states that this metric
+  counts the document data of each database in bytes.
 -->
