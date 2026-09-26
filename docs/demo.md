@@ -19,7 +19,13 @@ Folder: the repository root. Port: 27017 on the loopback address. Expected
 output line: `Container demo-app-mongo-1  Started`.
 
 Set `OCTOMETER_DEMO_MONGO_PORT` before this command when port 27017
-already holds a different MongoDB server on this machine.
+already holds a different MongoDB server on this machine. A new port
+number then changes three places together, not this one place alone:
+
+- `OCTOMETER_DEMO_MONGO_PORT`, before this command, for the container.
+- `OCTOMETER_DEMO_MONGO_URI`, before step 3, for the demo app. Give it
+  the value `mongodb://127.0.0.1:<port>`, with the same port number.
+- The `connectionString` field of step 5. Give it the same URI.
 
 ## 2. Write the synthetic clicks
 
@@ -58,6 +64,7 @@ line: `Responding at http://127.0.0.1:7431`.
 
 ```powershell
 cd monitor/frontend
+npm ci
 npm start
 ```
 
@@ -85,11 +92,15 @@ separate frontend command.
 
 ## 5. Register the demo app
 
-Send this request once. Write the JSON body to a variable first: a JSON
-body in one PowerShell line breaks on the quotes.
+Send this request once. A JSON body in one PowerShell line breaks on the
+quotes. Windows PowerShell 5.1 removes each double quote of a variable,
+when it passes that variable to a native program. Save the body to a
+file instead.
+
+Build the JSON in a variable first:
 
 ```powershell
-$body = @'
+$json = @'
 {
   "name": "demo",
   "connectionString": "mongodb://127.0.0.1:27017",
@@ -97,10 +108,24 @@ $body = @'
   "collection": "octometer_events"
 }
 '@
+```
+
+Write the variable to a file named `demo-app.json`, as UTF-8 with no
+byte order mark. `Set-Content -Encoding utf8` of PowerShell 5.1 adds a
+byte order mark. That mark breaks the JSON. The server then gives
+`400`. Use `WriteAllText` instead. It adds no mark:
+
+```powershell
+[IO.File]::WriteAllText("demo-app.json", $json)
+```
+
+Send the file:
+
+```powershell
 curl.exe -X POST "http://127.0.0.1:7431/api/apps" `
   -H "Content-Type: application/json" `
   -H "Origin: http://127.0.0.1:7431" `
-  --data-binary $body
+  --data-binary "@demo-app.json"
 ```
 
 The connection string names no user and no password: the compose
