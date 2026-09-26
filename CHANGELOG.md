@@ -30,11 +30,13 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add the MongoDB event store in kit/jvm-mongo. (#11)
 - Add the Ktor ingest route in kit/jvm-ktor. (#12)
 - Add the store interface and the in-memory store to kit/jvm-core. (#26)
+- Add the anonymous per-minute limits and the proxy rule to the kit. (#116)
 
 ### Tracker
 
 - Add the click tracker core. (#13)
 - Add the demo app with synthetic clicks. (#14)
+- Add the referrer source on the session start event. (#108)
 
 ### Monitor
 
@@ -58,13 +60,22 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Show the demo clicks on the level 1 view. (#24)
 - Add the poll store of the frontend. (#25)
 - Skip an invalid document and set the status of the poll cycle. (#27)
+- Set the poll status and the backoff after a failure. (#28)
+- Add the release workflow. (#39)
+- Show the element table on the level 3 view. (#53)
+- Add the two consumer smoke projects. (#68)
 - Add a .gitattributes file for stable line ends. (#72)
 - Upgrade the required Node version to 24.15.0 or newer. (#80)
 - Show the refresh bar before each table. (#92)
 - Fix the flaky test pause-refresh-integration.spec.ts. (#100)
+- Copy the `path` and `referrerHost` fields and set the `kind` field in the reader. (#110)
 - Give each Gradle test dependency a catalog entry for Dependabot. (#138)
 - Remove a leftover apps-*.json.tmp file at the start of the monitor. (#141)
 - Remove each temporary test folder of the monitor backend after a run. (#142)
 - Answer 400, not 500, for a bad percent escape in a query string. (#148)
 - Stop the TRACE log line of StatusPages that holds the query string. (#150)
+- Show a later failed data poll in the shell banner. (#164)
+- Remove each dead entry from the secret-scan allow-list. (#171)
 - Add minor_issues.md with the open MINOR findings of the reviews. (#186)
+- Add the visit rule to the end-to-end test. (#188)
+- Store the MINOR review rows in one file for each pull request. (#202)
