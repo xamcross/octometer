@@ -12,6 +12,7 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.file.Files
+import java.util.Date
 import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -26,6 +27,8 @@ import octometer.kit.ktor.DEFAULT_INGEST_PATH
 import octometer.kit.ktor.octometerIngestRoute
 import octometer.kit.mongo.store.MongoEventLogStore
 import octometer.monitor.config.MonitorConfig
+import org.bson.Document
+import org.bson.types.ObjectId
 import org.testcontainers.containers.MongoDBContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
@@ -137,7 +140,15 @@ class EndToEndContainerTest {
         private const val SECOND_SOURCE_USERS = 2
         private const val SECOND_SOURCE_SESSIONS = 2
         private const val SECOND_SOURCE_CLICKS_PER_SESSION = 3
-        private const val SECOND_SOURCE_CLICKS = SECOND_SOURCE_SESSIONS * SECOND_SOURCE_CLICKS_PER_SESSION
+
+        // The maintainer's decision 3 of issue #187: one event of the
+        // second source, older than the cursor of the first source.
+        // The bug of #187 kept that cursor after the PATCH, so the
+        // reader's $gt filter skipped this event in silence. The fix
+        // resets the cursor on the PATCH, so the next cycle reads it.
+        private const val OLDER_EVENT_CLICKS = 1
+        private const val SECOND_SOURCE_CLICKS =
+            SECOND_SOURCE_SESSIONS * SECOND_SOURCE_CLICKS_PER_SESSION + OLDER_EVENT_CLICKS
 
         // The totals of GET /api/apps never reset: the SQLite store of
         // one app id keeps each row of the first source, and it adds
@@ -253,6 +264,14 @@ class EndToEndContainerTest {
                         userIds = secondUserIds,
                         sessionsPerExtraUser = listOf(1, 1),
                         clicksPerSession = SECOND_SOURCE_CLICKS_PER_SESSION,
+                    )
+                    // The older event of decision 3: its _id predates the
+                    // cursor of the first source, so the fix, and only
+                    // the fix, carries it into the totals below.
+                    insertOlderClick(
+                        database = secondMongoClient.getDatabase(EXAMPLE_DATABASE),
+                        sessionId = secondSessionIds.first(),
+                        userId = secondUserIds.first(),
                     )
                     patchConnectionString(monitorPort, appId, SECOND_SOURCE.connectionString)
 
@@ -371,6 +390,23 @@ class EndToEndContainerTest {
         val sessionId = UUID.randomUUID().toString()
         postIngest(ingestPort, userId, sessionStartBody(sessionId))
         return sessionId
+    }
+
+    /**
+     * Inserts one click straight into [database], with an `_id` that
+     * predates every real event of this test (issue #187, the
+     * maintainer's decision 3). It reuses [sessionId] and [userId] of
+     * an already-sent session, so it adds one click to the totals, and
+     * no new user or session.
+     */
+    private fun insertOlderClick(database: MongoDatabase, sessionId: String, userId: String) {
+        val oldDate = Date(0)
+        val document = Document("_id", ObjectId(oldDate))
+            .append("ts", oldDate)
+            .append("element", "e2e.older-click")
+            .append("sessionId", sessionId)
+            .append("userId", userId)
+        database.getCollection(EVENTS_COLLECTION).insertOne(document)
     }
 
     private fun sessionStartBody(sessionId: String): String =
