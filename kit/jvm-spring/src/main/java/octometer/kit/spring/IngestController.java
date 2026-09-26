@@ -198,13 +198,30 @@ public final class IngestController {
     /**
      * Reads {@code OCTOMETER_TRUSTED_PROXY_COUNT} from the process
      * environment (design decision D20, issue #116), or 1 with no such
-     * variable. A text value, a zero, or a negative value stops the app
-     * start; the error message never repeats the raw value.
+     * variable.
      */
     private static int trustedProxyCountFromEnvironment() {
-        String rawValue = System.getenv("OCTOMETER_TRUSTED_PROXY_COUNT");
+        return positiveWholeNumberFromEnvironmentValue(System.getenv("OCTOMETER_TRUSTED_PROXY_COUNT"),
+                "OCTOMETER_TRUSTED_PROXY_COUNT", 1);
+    }
+
+    /**
+     * Turns the raw text of one environment variable into a positive
+     * whole number, the form of `positiveWholeNumberFromEnvironmentValue`
+     * of `kit/jvm-ktor` (design decision D43, issue #116). A {@code null}
+     * {@code rawValue} gives {@code defaultValue}, with no error.
+     *
+     * <p>A value of zero, a negative value, or a value with a character
+     * that is not an ASCII digit, stops the app start: this method
+     * throws {@link IllegalStateException}, with a message that names
+     * {@code variableName} and never repeats {@code rawValue}.
+     *
+     * <p>This method is package-private, so a test of this module can
+     * call it directly (see {@code IngestControllerTest}).
+     */
+    static int positiveWholeNumberFromEnvironmentValue(String rawValue, String variableName, int defaultValue) {
         if (rawValue == null) {
-            return 1;
+            return defaultValue;
         }
         String trimmed = rawValue.trim();
         if (trimmed.matches("[0-9]+")) {
@@ -218,9 +235,9 @@ public final class IngestController {
                 // The error below covers this case too.
             }
         }
-        throw new IllegalStateException("OCTOMETER_TRUSTED_PROXY_COUNT must hold a positive whole number of "
-                + "ASCII digits. The app start stops, because a wrong proxy count can let a forged header "
-                + "choose the client address.");
+        throw new IllegalStateException(variableName + " must hold a positive whole number of ASCII digits. "
+                + "The app start stops, because a wrong proxy count can let a forged header choose the "
+                + "client address.");
     }
 
     /**

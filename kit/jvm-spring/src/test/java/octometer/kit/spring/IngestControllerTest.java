@@ -17,6 +17,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -259,5 +261,37 @@ class IngestControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
                 .andExpect(status().isInternalServerError());
+    }
+
+    // The tests below check
+    // IngestController.positiveWholeNumberFromEnvironmentValue, the form
+    // of positiveWholeNumberFromEnvironmentValue of kit/jvm-ktor (issue
+    // #69).
+
+    @Test
+    void positiveWholeNumberFromEnvironmentValueGivesTheDefaultForANullValue() {
+        assertEquals(1, IngestController.positiveWholeNumberFromEnvironmentValue(null,
+                "OCTOMETER_TRUSTED_PROXY_COUNT", 1));
+    }
+
+    @Test
+    void positiveWholeNumberFromEnvironmentValueStopsTheAppStartForAZeroValueWithNoRepeatOfTheValue() {
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> IngestController.positiveWholeNumberFromEnvironmentValue("0", "OCTOMETER_TRUSTED_PROXY_COUNT", 1));
+        assertTrue(exception.getMessage().contains("OCTOMETER_TRUSTED_PROXY_COUNT"));
+        assertFalse(exception.getMessage().contains("=0"));
+    }
+
+    @Test
+    void positiveWholeNumberFromEnvironmentValueStopsTheAppStartForANegativeValue() {
+        assertThrows(IllegalStateException.class,
+                () -> IngestController.positiveWholeNumberFromEnvironmentValue("-1", "OCTOMETER_TRUSTED_PROXY_COUNT", 1));
+    }
+
+    @Test
+    void positiveWholeNumberFromEnvironmentValueStopsTheAppStartForATextValueWithNoRepeatOfTheValue() {
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> IngestController.positiveWholeNumberFromEnvironmentValue("many", "OCTOMETER_TRUSTED_PROXY_COUNT", 1));
+        assertFalse(exception.getMessage().contains("many"));
     }
 }
