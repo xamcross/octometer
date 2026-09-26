@@ -327,6 +327,26 @@ class MongoAppReaderUnitTest {
         assertEquals("cursor-1", outcome.cursor, "An empty cycle must not lose the cursor of the app row.")
     }
 
+    // --- The cursor guard of the correction round (issue #187, MAJOR 1 of pull request #208) ---
+
+    // The maintainer's decision: a PATCH of the connection string can
+    // reset the cursor between the read of a page and its commit. The
+    // fetchPage hook below mimics that reset, right before runCycle
+    // reaches commitPage for the one page it read.
+    @Test
+    fun `runCycle leaves the cursor at NULL when a reset runs between the page read and its commit`() = runBlocking {
+        setCursor(database, appId, "old-cursor")
+        val page = fakePage(1, PAGE_LIMIT)
+
+        reader.runCycle(appId, "old-cursor", MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ ->
+            resetCursor(database, appId)
+            page
+        }
+
+        assertNull(readCursor(database, appId), "the reset must stay; a stale commit must not restore the old cursor")
+        assertEquals(0, countEvents(database, appId), "the rejected page must store no event")
+    }
+
     // --- The invalid-document skip (Kotlin review, MAJOR 2 of pull request #160) ---
 
     @Test
@@ -976,6 +996,38 @@ private suspend fun countEvents(database: SqliteDatabase, appId: Long): Int =
             select.executeQuery().use { result ->
                 result.next()
                 result.getInt(1)
+            }
+        }
+    }
+
+/** Writes one fixed cursor value into the app row, for the guard test of issue #187. */
+private suspend fun setCursor(database: SqliteDatabase, appId: Long, cursor: String) {
+    database.write { writer ->
+        writer.prepareStatement("UPDATE app SET cursor = ? WHERE id = ?").use { update ->
+            update.setString(1, cursor)
+            update.setLong(2, appId)
+            update.executeUpdate()
+        }
+    }
+}
+
+/** Mimics `AppRegistryService.resetPollState` for the one column that this reader guards. */
+private suspend fun resetCursor(database: SqliteDatabase, appId: Long) {
+    database.write { writer ->
+        writer.prepareStatement("UPDATE app SET cursor = NULL WHERE id = ?").use { update ->
+            update.setLong(1, appId)
+            update.executeUpdate()
+        }
+    }
+}
+
+private suspend fun readCursor(database: SqliteDatabase, appId: Long): String? =
+    database.read { reader ->
+        reader.prepareStatement("SELECT cursor FROM app WHERE id = ?").use { select ->
+            select.setLong(1, appId)
+            select.executeQuery().use { result ->
+                result.next()
+                result.getString(1)
             }
         }
     }

@@ -80,7 +80,7 @@ class SqlitePollStoreTest {
             val store = SqlitePollStore(database)
             val appId = insertApp(database, "demo", cursor = "old-cursor", nextPollAt = 0L)
 
-            store.writeResult(appId, nextPollAt = 5_000L, cursor = "new-cursor")
+            store.writeResult(appId, nextPollAt = 5_000L, cursor = "new-cursor", expectedCursor = "old-cursor")
 
             val row = store.readApps().single { it.appId == appId }
             assertEquals(5_000L, row.nextPollAt)
@@ -89,7 +89,29 @@ class SqlitePollStoreTest {
             // A deleted app gives zero updated rows, and this never
             // throws for that case (issue #17, decision 7).
             deleteApp(database, appId)
-            store.writeResult(appId, nextPollAt = 6_000L, cursor = "unreachable-cursor")
+            store.writeResult(appId, nextPollAt = 6_000L, cursor = "unreachable-cursor", expectedCursor = "new-cursor")
+        } finally {
+            database.close()
+        }
+    }
+
+    // Issue #187, MAJOR 1 of the correction round of pull request #208:
+    // a normal cycle with no new page must still move next_poll_at,
+    // with the new guard in place. expectedCursor here matches the
+    // cursor that the tick already read, the same as a cycle with 0
+    // pages (`PollOutcome.cursor` stays the initial cursor).
+    @Test
+    fun `writeResult with a matching expectedCursor moves next_poll_at, for a cycle with no new page`() = runBlocking {
+        val database = SqliteDatabase.open(dataDir)
+        try {
+            val store = SqlitePollStore(database)
+            val appId = insertApp(database, "demo", cursor = "old-cursor", nextPollAt = 0L)
+
+            store.writeResult(appId, nextPollAt = 5_000L, cursor = "old-cursor", expectedCursor = "old-cursor")
+
+            val row = store.readApps().single { it.appId == appId }
+            assertEquals(5_000L, row.nextPollAt, "next_poll_at must move even when the cursor does not change")
+            assertEquals("old-cursor", row.cursor)
         } finally {
             database.close()
         }

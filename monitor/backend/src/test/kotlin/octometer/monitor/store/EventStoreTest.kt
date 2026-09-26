@@ -40,7 +40,7 @@ class EventStoreTest {
 
     @Test
     fun `commitPage inserts each event and moves the cursor`() = runBlocking {
-        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1")
+        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1", expectedCursor = null)
 
         assertEquals(1, countEvents(database, appId))
         assertEquals("cursor-1", readCursor(database, appId))
@@ -51,9 +51,9 @@ class EventStoreTest {
     @Test
     fun `a replay of the same page adds 0 rows and still moves the cursor`() = runBlocking {
         val page = listOf(sampleEvent("e1"), sampleEvent("e2"))
-        store.commitPage(appId, page, cursor = "cursor-1")
+        store.commitPage(appId, page, cursor = "cursor-1", expectedCursor = null)
 
-        store.commitPage(appId, page, cursor = "cursor-2")
+        store.commitPage(appId, page, cursor = "cursor-2", expectedCursor = "cursor-1")
 
         assertEquals(2, countEvents(database, appId))
         assertEquals("cursor-2", readCursor(database, appId))
@@ -64,11 +64,11 @@ class EventStoreTest {
     // proves the rollback of the whole page, not only the call order.
     @Test
     fun `a failed insert leaves the cursor as it was and rolls back the good event too`() = runBlocking {
-        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1")
+        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1", expectedCursor = null)
 
         val badPage = listOf(sampleEvent("e2"), sampleEvent("e3", userId = ""))
         assertFailsWith<SQLException> {
-            store.commitPage(appId, badPage, cursor = "cursor-2")
+            store.commitPage(appId, badPage, cursor = "cursor-2", expectedCursor = "cursor-1")
         }
 
         assertEquals("cursor-1", readCursor(database, appId))
@@ -80,14 +80,14 @@ class EventStoreTest {
     // writer connection to a plain, non-transactional state.
     @Test
     fun `the store commits again after one failed page`() = runBlocking {
-        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1")
+        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1", expectedCursor = null)
 
         val badPage = listOf(sampleEvent("e2"), sampleEvent("e3", userId = ""))
         assertFailsWith<SQLException> {
-            store.commitPage(appId, badPage, cursor = "cursor-2")
+            store.commitPage(appId, badPage, cursor = "cursor-2", expectedCursor = "cursor-1")
         }
 
-        store.commitPage(appId, listOf(sampleEvent("e4")), cursor = "cursor-3")
+        store.commitPage(appId, listOf(sampleEvent("e4")), cursor = "cursor-3", expectedCursor = "cursor-1")
 
         assertEquals("cursor-3", readCursor(database, appId))
         assertEquals(2, countEvents(database, appId))
@@ -101,6 +101,7 @@ class EventStoreTest {
             appId,
             listOf(sampleEvent("e1")),
             cursor = "cursor-1",
+            expectedCursor = null,
             skippedEvents = listOf(SkippedEvent("bad-1", "ts missing"), SkippedEvent("bad-2", "userId empty")),
         )
 
@@ -114,7 +115,7 @@ class EventStoreTest {
 
     @Test
     fun `commitPage with no skippedEvents argument keeps the old caller of issue 16 valid`() = runBlocking {
-        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1")
+        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1", expectedCursor = null)
 
         assertEquals(1, countEvents(database, appId))
         assertEquals(0, readSkippedReasons(database, appId).size)
@@ -123,9 +124,9 @@ class EventStoreTest {
     @Test
     fun `a replay with the same skipped events adds 0 new skipped_event rows`() = runBlocking {
         val skipped = listOf(SkippedEvent("bad-1", "ts missing"))
-        store.commitPage(appId, emptyList(), cursor = "cursor-1", skippedEvents = skipped)
+        store.commitPage(appId, emptyList(), cursor = "cursor-1", expectedCursor = null, skippedEvents = skipped)
 
-        store.commitPage(appId, emptyList(), cursor = "cursor-2", skippedEvents = skipped)
+        store.commitPage(appId, emptyList(), cursor = "cursor-2", expectedCursor = "cursor-1", skippedEvents = skipped)
 
         assertEquals(1, readSkippedReasons(database, appId).size)
         assertEquals("cursor-2", readCursor(database, appId))
@@ -136,11 +137,17 @@ class EventStoreTest {
     // not only an event insert.
     @Test
     fun `a failed insert rolls back a skipped_event row too`() = runBlocking {
-        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1")
+        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1", expectedCursor = null)
 
         val badPage = listOf(sampleEvent("e2"), sampleEvent("e3", userId = ""))
         assertFailsWith<SQLException> {
-            store.commitPage(appId, badPage, cursor = "cursor-2", skippedEvents = listOf(SkippedEvent("bad-1", "ts missing")))
+            store.commitPage(
+                appId,
+                badPage,
+                cursor = "cursor-2",
+                expectedCursor = "cursor-1",
+                skippedEvents = listOf(SkippedEvent("bad-1", "ts missing")),
+            )
         }
 
         assertEquals("cursor-1", readCursor(database, appId))
@@ -155,6 +162,7 @@ class EventStoreTest {
             appId,
             listOf(sampleEvent("e1", path = "/checkout", referrerHost = "google.com", kind = 1)),
             cursor = "cursor-1",
+            expectedCursor = null,
         )
 
         val row = readEventColumns(database, appId, "e1")
@@ -165,7 +173,7 @@ class EventStoreTest {
 
     @Test
     fun `commitPage writes NULL for path and referrerHost when the event holds neither`() = runBlocking {
-        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1")
+        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1", expectedCursor = null)
 
         val row = readEventColumns(database, appId, "e1")
         assertEquals(null, row.path)
@@ -225,7 +233,7 @@ class EventStoreTest {
 
     @Test
     fun `recordFailure never moves the cursor`() = runBlocking {
-        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1")
+        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1", expectedCursor = null)
 
         store.recordFailure(appId, status = "ERROR", lastError = "IllegalStateException", nextPollAt = 5_000L, nowMillis = 1_000L)
 

@@ -924,7 +924,13 @@ private class FakePollStore(initialRows: List<AppRow> = emptyList()) : PollStore
         return rows.values.toList()
     }
 
-    override suspend fun writeResult(appId: Long, nextPollAt: Long, cursor: String?) {
+    // This fake carries no separate EventStore layer (issue #17,
+    // decision 7): no call here ever commits one page on its own
+    // behalf. writeResult stays unconditional, so [expectedCursor]
+    // does not have to match the row's cursor at each call; the real
+    // guard of writeSuccess (issue #187, MAJOR 1) has its own proof in
+    // SqlitePollStoreTest, against the real SQL text.
+    override suspend fun writeResult(appId: Long, nextPollAt: Long, cursor: String?, expectedCursor: String?) {
         val existing = rows[appId] ?: return
         rows[appId] = existing.copy(nextPollAt = nextPollAt, cursor = cursor)
     }
