@@ -11,6 +11,7 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.random.Random
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +25,7 @@ import octometer.monitor.captureLogEvents
 import octometer.monitor.mongo.MongoReadFailedException
 import octometer.monitor.mongo.PollOutcome
 import octometer.monitor.mongo.PollTarget
+import octometer.monitor.mongo.STATUS_ERROR
 import octometer.monitor.registerTempRoot
 import octometer.monitor.registry.ALLOWLISTED_WORD
 import octometer.monitor.registry.SecretStore
@@ -51,6 +53,12 @@ import kotlin.test.assertTrue
 // its own real dispatcher (Dispatchers.IO). awaitCondition below suspends
 // with `yield`, never with `delay`, so the virtual clock never has to move
 // for a real SecretStore call to finish.
+//
+// Issue #28 (design decision D8) adds the status, the backoff, and the
+// jitter of a failed cycle. Every test that does not test the backoff
+// itself gives a FixedJitterRandom of 0.0, so an exact next_poll_at
+// assertion needs no jitter tolerance. PollBackoffTest covers the
+// jitter band itself, with no coroutine and no virtual time.
 class PollSchedulerTest {
 
     private val root = Files.createTempDirectory("octometer-poll-scheduler-test-").toFile().also { registerTempRoot(it) }
@@ -219,6 +227,10 @@ class PollSchedulerTest {
     // exception leave the poll coroutine unhandled. The app then kept
     // its old next_poll_at. The loop re-tried it at every tick (MAJOR 1
     // and MAJOR 3 of the two reviews).
+    //
+    // Issue #28, the maintainer's decision 3: a failure that is not a
+    // MongoReadFailedException counts as ERROR, with the class name as
+    // the last error text.
     @Test
     fun `an unexpected exception from the cycle still moves next_poll_at, with one WARN naming its class`() = runTest {
         val store = FakePollStore()
@@ -241,7 +253,13 @@ class PollSchedulerTest {
         }
 
         assertEquals("old-cursor", store.cursorOf(appId), "an unexpected exception never moves the cursor")
-        assertEquals(5_000L, store.nextPollAtOf(appId), "an unexpected exception still moves next_poll_at")
+        assertEquals(
+            5_000L,
+            store.nextPollAtOf(appId),
+            "an unexpected exception still moves next_poll_at by the interval, on the first failed cycle",
+        )
+        assertEquals(STATUS_ERROR, store.statusOf(appId), "a catch-all failure counts as ERROR")
+        assertEquals("IllegalStateException", store.lastErrorOf(appId), "last_error holds the exception class name only")
         val warnings = events.filter { it.level == Level.WARN }
         assertEquals(1, warnings.size, "one WARN line for the failed cycle")
         assertTrue(
@@ -260,7 +278,7 @@ class PollSchedulerTest {
         val secretStore = SecretStore(dataDir)
         val appId = store.addApp(cursor = "old-cursor", nextPollAt = 0L)
         secretStore.put(appId, allowlistedSrvUri())
-        val cycle = RecordingPollCycle(failure = MongoReadFailedException(RuntimeException("a probe failure")))
+        val cycle = RecordingPollCycle(failure = MongoReadFailedException(status = STATUS_ERROR, code = null))
 
         val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5)
 
@@ -279,7 +297,11 @@ class PollSchedulerTest {
         }
 
         assertEquals("old-cursor", store.cursorOf(appId), "a failed cycle never moves the cursor")
-        assertEquals(5_000L, store.nextPollAtOf(appId), "a failed cycle still moves next_poll_at")
+        assertEquals(
+            5_000L,
+            store.nextPollAtOf(appId),
+            "a failed cycle still moves next_poll_at by the interval, on the first failed cycle",
+        )
         val warnings = events.filter { it.level == Level.WARN }
         assertEquals(1, warnings.size, "one WARN line for the failed cycle")
         assertTrue(
@@ -288,6 +310,30 @@ class PollSchedulerTest {
         )
         val combinedText = events.joinToString(" ") { it.formattedMessage }
         assertFalse(combinedText.contains(ALLOWLISTED_WORD), "no log line holds a part of the connection string")
+    }
+
+    // Issue #28, design decision D8: a MongoReadFailedException with a
+    // command error code writes that code as text, never the exception
+    // class name.
+    @Test
+    fun `a failed cycle with a command error code writes the code as text into last_error`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(nextPollAt = 0L)
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle(failure = MongoReadFailedException(status = "UNAUTHORIZED", code = 13))
+
+        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5)
+        scheduler.start()
+        try {
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 1 }
+        } finally {
+            scheduler.stop()
+        }
+
+        assertEquals("UNAUTHORIZED", store.statusOf(appId))
+        assertEquals("13", store.lastErrorOf(appId), "last_error holds the command error code as text")
     }
 
     // Issue #17, decision 1, second path: an app with no stored secret
@@ -517,6 +563,11 @@ class PollSchedulerTest {
     // cancellation side had a test. This case covers the false side: a
     // foreign CancellationException, thrown while the scheduler is
     // still active, must count as a failed cycle, not as a shutdown.
+    //
+    // Issue #28 changes the expected second delay: the first failed
+    // cycle backs off by the plain interval (5 s); the second failed
+    // cycle in sequence backs off by 2x the interval (10 s), from its
+    // own tick time of 5 000 ms. 5 000 + 10 000 = 15 000.
     @Test
     fun `a foreign CancellationException from the cycle, while active, still moves next_poll_at`() = runTest {
         val store = FakePollStore()
@@ -544,16 +595,102 @@ class PollSchedulerTest {
             }
         }
 
-        // Each failed cycle moves next_poll_at by the interval, from
-        // its own tick time. The first cycle moves it to 5 000. The
-        // second cycle, the proof that the loop stayed alive, moves it
-        // on to 10 000.
-        assertEquals(10_000L, store.nextPollAtOf(appId), "a false cancellation still moves next_poll_at")
+        // The first failed cycle backs off by the plain interval, from
+        // tick time 0: next_poll_at = 5 000. The second failed cycle in
+        // sequence, the proof that the loop stayed alive, backs off by
+        // 2x the interval, from its own tick time of 5 000: next_poll_at
+        // = 5 000 + 10 000 = 15 000.
+        assertEquals(15_000L, store.nextPollAtOf(appId), "the second failed cycle in sequence backs off by 2x the interval")
+        assertEquals(2, store.consecutiveFailuresOf(appId), "two failed cycles in sequence")
         val warnings = events.filter { it.level == Level.WARN }
         assertTrue(
             warnings.count { it.formattedMessage.contains("CancellationException") } == 2,
             "one WARN line per false cancellation names the cancellation class",
         )
+    }
+
+    // The acceptance criterion of issue #28: the delays with virtual
+    // time. Four failed cycles in sequence back off by the interval,
+    // 2x, 4x, and the cap of 300 s. A FixedJitterRandom of 0.0 keeps
+    // each next_poll_at exact. PollBackoffTest checks the jitter band
+    // itself, over 100 draws of a seeded Random, with no coroutine.
+    @Test
+    fun `four failed cycles in sequence back off by the interval, 2x, 4x, and the cap of 300 s`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(nextPollAt = 0L)
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle(failure = IllegalStateException("a probe failure"))
+
+        // A 60-second interval, the production value of D6, so the 300 s
+        // cap shows after the third failed cycle (interval * 2^3 = 480,
+        // already above the cap).
+        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 60)
+        scheduler.start()
+        try {
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 1 }
+            assertEquals(60_000L, store.nextPollAtOf(appId), "the first failed cycle backs off by the plain interval")
+
+            testScheduler.advanceTimeBy(60_000)
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 2 }
+            assertEquals(
+                60_000L + 120_000L,
+                store.nextPollAtOf(appId),
+                "the second failed cycle in sequence backs off by 2x the interval",
+            )
+
+            testScheduler.advanceTimeBy(120_000)
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 3 }
+            assertEquals(
+                180_000L + 240_000L,
+                store.nextPollAtOf(appId),
+                "the third failed cycle in sequence backs off by 4x the interval",
+            )
+
+            testScheduler.advanceTimeBy(240_000)
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 4 }
+            assertEquals(
+                420_000L + 300_000L,
+                store.nextPollAtOf(appId),
+                "the fourth failed cycle in sequence never backs off above the cap of 300 s",
+            )
+        } finally {
+            scheduler.stop()
+        }
+    }
+
+    // The acceptance criterion of issue #28: a success after failures
+    // gives consecutive_failures 0. PollScheduler itself never resets
+    // the count: EventStoreTest and MongoAppReaderContainerTest cover
+    // the reset, through EventStore.recordCycleSuccess, the one call
+    // that a good cycle makes. This test proves the other half at this
+    // layer: PollScheduler.recordSuccess touches next_poll_at and the
+    // cursor only, never the status columns.
+    @Test
+    fun `a success writes next_poll_at and the cursor only, with no status write of its own`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(nextPollAt = 0L, status = "ERROR", consecutiveFailures = 3)
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle(outcome = PollOutcome(eventsStored = 1, pagesRead = 1, cursor = "cursor-1"))
+
+        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5)
+        scheduler.start()
+        try {
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 1 }
+        } finally {
+            scheduler.stop()
+        }
+
+        assertEquals(5_000L, store.nextPollAtOf(appId))
+        assertEquals("cursor-1", store.cursorOf(appId))
+        assertEquals("ERROR", store.statusOf(appId), "PollScheduler's own success write touches no status column")
+        assertEquals(3, store.consecutiveFailuresOf(appId), "PollScheduler's own success write touches no failure count")
     }
 
     // MAJOR 1 of the third Kotlin review: a plain toList() call reads
@@ -589,6 +726,18 @@ private class DeceptiveSizeCollection<T> : Collection<T> {
     override fun containsAll(elements: Collection<T>): Boolean = false
 }
 
+/**
+ * A [Random] whose jitter draw is always [fraction] (issue #28). Each
+ * test that does not test the jitter itself gives the default of 0.0,
+ * so an exact next_poll_at assertion needs no jitter tolerance.
+ * [PollBackoffTest] covers the real jitter band, with a seeded
+ * [Random].
+ */
+private class FixedJitterRandom(private val fraction: Double = 0.0) : Random() {
+    override fun nextBits(bitCount: Int): Int = 0
+    override fun nextDouble(from: Double, until: Double): Double = fraction
+}
+
 private fun pollScheduler(
     pollStore: PollStore,
     secretStore: SecretStore,
@@ -598,6 +747,7 @@ private fun pollScheduler(
     tickIntervalMillis: Long = 1_000,
     stopGraceMillis: Long = 10_000,
     closeClient: (Long) -> Unit = {},
+    random: Random = FixedJitterRandom(),
 ): PollScheduler =
     PollScheduler(
         pollStore = pollStore,
@@ -609,6 +759,7 @@ private fun pollScheduler(
         pollIntervalSeconds = pollIntervalSeconds,
         tickIntervalMillis = tickIntervalMillis,
         stopGraceMillis = stopGraceMillis,
+        random = random,
     )
 
 /** A Clock that reads the virtual time of [scheduler] (issue #17, decision 2). */
@@ -651,12 +802,17 @@ private class RecordingPollCycle(
  * write resolves on the caller's own dispatcher, with no real thread hop.
  * A virtual-time test then sees no race between the test scheduler and a
  * background writer thread (MAJOR 7 of the Kotlin review).
+ *
+ * [lastErrors] tracks the last error text of [recordFailure] beside
+ * [rows] (issue #28): [AppRow] itself holds no such column, the same
+ * shape as the production `app` table's own read of decision 5.
  */
 private class FakePollStore(initialRows: List<AppRow> = emptyList()) : PollStore {
 
     private val rows = LinkedHashMap<Long, AppRow>().apply {
         initialRows.forEach { row -> put(row.appId, row) }
     }
+    private val lastErrors = mutableMapOf<Long, String?>()
     private var nextId = (initialRows.maxOfOrNull { it.appId } ?: 0L) + 1
     private var readFailuresRemaining = 0
     private var writeFailuresRemaining = 0
@@ -666,9 +822,11 @@ private class FakePollStore(initialRows: List<AppRow> = emptyList()) : PollStore
         collection: String = "octometer_events",
         cursor: String? = null,
         nextPollAt: Long?,
+        status: String? = null,
+        consecutiveFailures: Int = 0,
     ): Long {
         val appId = nextId++
-        rows[appId] = AppRow(appId, database, collection, cursor, nextPollAt)
+        rows[appId] = AppRow(appId, database, collection, cursor, nextPollAt, status, consecutiveFailures)
         return appId
     }
 
@@ -679,6 +837,12 @@ private class FakePollStore(initialRows: List<AppRow> = emptyList()) : PollStore
     fun cursorOf(appId: Long): String? = rows.getValue(appId).cursor
 
     fun nextPollAtOf(appId: Long): Long? = rows.getValue(appId).nextPollAt
+
+    fun statusOf(appId: Long): String? = rows.getValue(appId).status
+
+    fun consecutiveFailuresOf(appId: Long): Int = rows.getValue(appId).consecutiveFailures
+
+    fun lastErrorOf(appId: Long): String? = lastErrors[appId]
 
     /** The next [count] calls to [readApps] throw, and it does not read (issue #17, decision 1). */
     fun failNextReads(count: Int) {
@@ -703,13 +867,18 @@ private class FakePollStore(initialRows: List<AppRow> = emptyList()) : PollStore
         rows[appId] = existing.copy(nextPollAt = nextPollAt, cursor = cursor)
     }
 
-    override suspend fun recordFailure(appId: Long, nextPollAt: Long) {
+    override suspend fun recordFailure(appId: Long, status: String?, lastError: String?, nextPollAt: Long, now: Long) {
         if (writeFailuresRemaining > 0) {
             writeFailuresRemaining -= 1
             throw IllegalStateException("a probe write failure")
         }
         val existing = rows[appId] ?: return
-        rows[appId] = existing.copy(nextPollAt = nextPollAt)
+        rows[appId] = existing.copy(
+            nextPollAt = nextPollAt,
+            status = status,
+            consecutiveFailures = existing.consecutiveFailures + 1,
+        )
+        lastErrors[appId] = lastError
     }
 }
 

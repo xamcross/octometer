@@ -14,9 +14,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.random.Random
 import octometer.monitor.mongo.MongoReadFailedException
 import octometer.monitor.mongo.PollOutcome
 import octometer.monitor.mongo.PollTarget
+import octometer.monitor.mongo.STATUS_ERROR
 import octometer.monitor.registry.SecretStore
 import org.slf4j.LoggerFactory
 
@@ -53,10 +55,12 @@ fun interface PollCycle {
  * [octometer.monitor.mongo.MongoAppReader.pollOnce] already holds the
  * one timeout of design decision D6, inside the injected [pollCycle].
  *
- * `next_poll_at` moves by [pollIntervalSeconds] after each cycle, on a
- * success and on a failure alike (issue #17, decision 6). Issue #28
- * adds the backoff of a failed cycle. Issue #29 adds the wake rule of a
- * resumed process. Neither one is part of this class.
+ * `next_poll_at` moves by [pollIntervalSeconds] after a success (issue
+ * #17, decision 6). A failed cycle moves it by the backoff of design
+ * decision D6 and the maintainer's decision 3 of issue #28: `interval *
+ * 2^failures`, capped at 300 seconds, with a jitter of 10 percent from
+ * [random]. Issue #29 adds the wake rule of a resumed process; that one
+ * is not part of this class.
  *
  * Each epoch value of the `app` table, and of this class, is a count of
  * milliseconds since 1970. This is the unit of the column `created_at`
@@ -66,6 +70,9 @@ fun interface PollCycle {
  * [SqlitePollStore] is the production value. A test gives an in-memory
  * fake instead, so no test mixes virtual time with the real writer
  * thread of `SqliteDatabase`.
+ *
+ * [random] is the jitter source of issue #28. A test gives a seeded
+ * [Random], so the backoff delay stays reproducible.
  */
 class PollScheduler(
     private val pollStore: PollStore,
@@ -77,6 +84,7 @@ class PollScheduler(
     private val pollIntervalSeconds: Long,
     private val tickIntervalMillis: Long = DEFAULT_TICK_INTERVAL_MILLIS,
     private val stopGraceMillis: Long = DEFAULT_STOP_GRACE_MILLIS,
+    private val random: Random = Random,
 ) {
 
     private val supervisor = SupervisorJob()
@@ -195,7 +203,7 @@ class PollScheduler(
      */
     private fun startPoll(row: AppRow) {
         val target = PollTarget(row.appId, row.database, row.collection, row.cursor)
-        val job = scope.launch { runPollCycle(row.appId, target) }
+        val job = scope.launch { runPollCycle(row, target) }
         activePolls[row.appId] = job
         job.invokeOnCompletion { activePolls.remove(row.appId, job) }
     }
@@ -204,48 +212,56 @@ class PollScheduler(
      * Runs one poll cycle. It then records the result (issue #17,
      * decision 6). The secret read sits inside this same try (issue
      * #17, decision 1). An app with no stored secret gets one WARN,
-     * with no app id. Its `next_poll_at` still moves. The loop then
-     * reads the secret store once each interval, not once each second.
+     * with no app id, and one failed-cycle record with the status
+     * `ERROR` (issue #28: this path throws no exception, so the map of
+     * design decision D8 does not apply). The loop then reads the
+     * secret store once each interval, not once each second.
      *
-     * A timeout of the cycle, or a failed MongoDB read, still moves
-     * `next_poll_at` by the interval. The cursor never changes on that
-     * path. Issue #28 adds the backoff of this case.
+     * A timeout of the cycle, or a failed MongoDB read, moves
+     * `next_poll_at` by the backoff of issue #28, decision 3, never by
+     * the plain interval. The cursor never changes on that path.
+     * [readFailure] already carries the mapped status and the command
+     * error code of design decision D8 ([MongoReadFailedException]);
+     * each other failure counts as `ERROR` with its own class name (the
+     * maintainer's decision 3).
      *
      * A real cancellation of the scheduler propagates unchanged. The
      * guard below re-throws a [CancellationException] only when this
      * coroutine is no longer active (lesson 2 of the backend brief). A
-     * false one, from a still-active coroutine, moves `next_poll_at`
-     * like each other failed cycle. The last catch guards against each
-     * other exception, for example a SQLite failure of
-     * `EventStore.commitPage`. One bad cycle can then never leave this
-     * app stuck at its old `next_poll_at` for ever.
+     * false one, from a still-active coroutine, is a failed cycle
+     * instead. The last catch guards against each other exception, for
+     * example a SQLite failure of `EventStore.commitPage`. One bad
+     * cycle can then never leave this app stuck at its old
+     * `next_poll_at` for ever.
      */
-    private suspend fun runPollCycle(appId: Long, target: PollTarget) {
+    private suspend fun runPollCycle(row: AppRow, target: PollTarget) {
+        val appId = row.appId
         try {
             val connectionString = secretStore.get(appId)
             if (connectionString == null) {
                 log.warn("The poll skipped one app with no stored secret.")
-                recordFailure(appId)
+                recordFailure(row, STATUS_ERROR, "no stored secret")
                 return
             }
             val outcome = pollCycle.run(target, connectionString)
             recordSuccess(appId, outcome)
         } catch (timeout: TimeoutCancellationException) {
             log.warn("The poll cycle failed. {}", timeout.javaClass.simpleName)
-            recordFailure(appId)
+            recordFailure(row, STATUS_ERROR, timeout.javaClass.simpleName)
         } catch (readFailure: MongoReadFailedException) {
             log.warn("The poll cycle failed. {}", readFailure.javaClass.simpleName)
-            recordFailure(appId)
+            val lastError = readFailure.code?.toString() ?: readFailure.javaClass.simpleName
+            recordFailure(row, readFailure.status, lastError)
         } catch (cancellation: CancellationException) {
             // Lesson 2 of the backend brief: re-throw only a real
             // cancellation of this coroutine. A false one, from a
             // still-active coroutine, is a failed cycle instead.
             if (!currentCoroutineContext().isActive) throw cancellation
             log.warn("The poll cycle failed. {}", cancellation.javaClass.simpleName)
-            recordFailure(appId)
+            recordFailure(row, STATUS_ERROR, cancellation.javaClass.simpleName)
         } catch (failure: Exception) {
             log.warn("The poll cycle failed. {}", failure.javaClass.simpleName)
-            recordFailure(appId)
+            recordFailure(row, STATUS_ERROR, failure.javaClass.simpleName)
         }
     }
 
@@ -260,10 +276,21 @@ class PollScheduler(
         writeSafely { pollStore.writeResult(appId, nextPollAt, outcome.cursor) }
     }
 
-    /** Writes a failed outcome. See [recordSuccess] for the write-failure guard. */
-    private suspend fun recordFailure(appId: Long) {
-        val nextPollAt = clock.millis() + pollIntervalSeconds * 1000
-        writeSafely { pollStore.recordFailure(appId, nextPollAt) }
+    /**
+     * Writes a failed outcome (issue #28, design decision D6, D8). It
+     * applies the failed-cycle-count rule of the maintainer's decision
+     * 2 to [candidateStatus], against the status and the failure count
+     * of [row] from the start of this tick. It computes the backoff
+     * delay of decision 3 from that same failure count, the count
+     * before this cycle. See [recordSuccess] for the write-failure
+     * guard.
+     */
+    private suspend fun recordFailure(row: AppRow, candidateStatus: String, lastError: String) {
+        val now = clock.millis()
+        val status = failureStatus(candidateStatus, row.status, row.consecutiveFailures)
+        val delayMillis = backoffDelayMillis(pollIntervalSeconds, row.consecutiveFailures, random)
+        val nextPollAt = now + delayMillis
+        writeSafely { pollStore.recordFailure(row.appId, status, lastError, nextPollAt, now) }
     }
 
     private suspend fun writeSafely(write: suspend () -> Unit) {
