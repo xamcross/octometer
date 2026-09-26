@@ -10,15 +10,18 @@ import type { ElementsResponse } from './element-row';
 /**
  * Reads the elements filter from the route's query parameters, and
  * builds the request parameters of `GET /api/apps/{appId}/elements`
- * (D13). It reads `userId` or `anonymous=true`, the same as the API.
- * Issue #115 adds a third form for the parameter `sessionId`: it can
- * extend this one function, so the caller and the poll store of
- * `Elements` do not change.
+ * (D13). It reads `sessionId`, `anonymous=true`, or `userId`, the same
+ * as the API: exactly one of the three, else the API answers 400
+ * (issue #115).
  */
 export function buildElementsRequestParams(
   userId: string | null,
   anonymous: string | null,
+  sessionId: string | null,
 ): Record<string, string> {
+  if (sessionId) {
+    return { sessionId };
+  }
   if (anonymous === 'true') {
     return { anonymous: 'true' };
   }
@@ -31,15 +34,15 @@ export function buildElementsRequestParams(
 /**
  * The route "/apps/:appId/elements" (D28, level 3 of the design). It
  * shows one row for each element that the user touched, and it reads
- * `GET /api/apps/{appId}/elements?userId=<id>` or `?anonymous=true`
- * through the poll store of #164. `RefreshBar` of #92 stands between
- * the heading and the table.
+ * `GET /api/apps/{appId}/elements?userId=<id>`, `?anonymous=true`, or
+ * `?sessionId=<id>` (issue #115) through the poll store of #164.
+ * `RefreshBar` of #92 stands between the heading and the table.
  *
  * The table is one flat `<table>`. `@for` tracks each row by `element`
  * (D29), the stable key of one grouped row. The route guard of
- * `app.routes.ts` sends a request with neither `userId` nor
- * `anonymous=true` back to the user list, so this view always polls
- * with exactly one of the two.
+ * `app.routes.ts` sends a request with none of `userId`,
+ * `anonymous=true`, and `sessionId` back to the user list, so this
+ * view always polls with exactly one of the three.
  *
  * The router keeps one component instance for a change of `appId`
  * alone, or for a change of the filter alone, for example a move from
@@ -73,8 +76,19 @@ export class Elements {
   /** The `anonymous` query parameter, bound by the router. */
   readonly anonymous = input<string | null>(null);
 
-  /** The heading text. It names the same user as the last breadcrumb entry. */
+  /** The `sessionId` query parameter, bound by the router (issue #115). */
+  readonly sessionId = input<string | null>(null);
+
+  /**
+   * The heading text. It names the same user, or session, as the last
+   * breadcrumb entry, and it shows the full session id as text
+   * (issue #115).
+   */
   protected readonly heading = computed(() => {
+    const sessionId = this.sessionId();
+    if (sessionId) {
+      return `Elements of Session ${sessionId}`;
+    }
     if (this.anonymous() === 'true') {
       return 'Elements of Anonymous';
     }
@@ -88,7 +102,7 @@ export class Elements {
   /** The poll store of the element list of this app and this filter. */
   protected readonly store = createPollStore<ElementsResponse>(() =>
     this.http.get<ElementsResponse>(`/api/apps/${this.appId()}/elements`, {
-      params: buildElementsRequestParams(this.userId(), this.anonymous()),
+      params: buildElementsRequestParams(this.userId(), this.anonymous(), this.sessionId()),
     }),
   );
 
@@ -108,7 +122,7 @@ export class Elements {
     // #159).
     effect(() => {
       const appId = this.appId();
-      const key = `${appId}|${this.userId() ?? ''}|${this.anonymous() ?? ''}`;
+      const key = `${appId}|${this.userId() ?? ''}|${this.anonymous() ?? ''}|${this.sessionId() ?? ''}`;
       if (this.previousFilterKey !== null && this.previousFilterKey !== key) {
         if (this.previousAppId !== null && this.previousAppId !== appId) {
           this.store.reset();
