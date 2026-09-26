@@ -143,6 +143,43 @@ class PollSchedulerTest {
         }
     }
 
+    // MAJOR 1 of the review of pull request #219 (issue #30): the third
+    // clause of the due rule, `row.status == STATUS_OVERPRIVILEGED`, had
+    // no test of its own. The two earlier clauses cover only the time
+    // since the last check; this test covers the status clause, with a
+    // privilegesCheckedAt value that is fresh (one hour old, not due by
+    // time alone) for both apps.
+    @Test
+    fun `an OVERPRIVILEGED app runs the check again one hour later, and an OK app does not`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val oneHourMillis = 60 * 60 * 1000L
+        val overprivilegedAppId = store.addApp(nextPollAt = 0L, status = "OVERPRIVILEGED")
+        store.setPrivilegesCheckedAt(overprivilegedAppId, -oneHourMillis)
+        val okAppId = store.addApp(nextPollAt = 0L, status = "OK")
+        store.setPrivilegesCheckedAt(okAppId, -oneHourMillis)
+        secretStore.put(overprivilegedAppId, allowlistedSrvUri())
+        secretStore.put(okAppId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle()
+
+        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler)
+        scheduler.start()
+        try {
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 2 }
+
+            val overprivilegedTarget = cycle.calls.single { it.appId == overprivilegedAppId }
+            val okTarget = cycle.calls.single { it.appId == okAppId }
+            assertTrue(
+                overprivilegedTarget.checkPrivileges,
+                "an OVERPRIVILEGED app must run the check again, even one hour after the last one",
+            )
+            assertFalse(okTarget.checkPrivileges, "an OK app one hour after the last check must run no privilege check")
+        } finally {
+            scheduler.stop()
+        }
+    }
+
     @Test
     fun `a due app polls once and its next_poll_at moves by the interval`() = runTest {
         val store = FakePollStore()
