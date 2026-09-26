@@ -1,5 +1,7 @@
 package octometer.monitor.elements
 
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.classic.spi.IThrowableProxy
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
@@ -20,10 +22,13 @@ import octometer.monitor.devConfig
 import octometer.monitor.module
 import octometer.monitor.store.SqliteDatabase
 import octometer.monitor.testDataDir
+import org.slf4j.LoggerFactory
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 // Issue #51: the level 3 totals of GET /api/apps/{appId}/elements.
@@ -567,24 +572,100 @@ class ElementsRouteTest {
         assertTrue(plan.any { it.contains("INDEX event_session") }, plan.toString())
     }
 
+    // MAJOR 1 of the security review of correction round 1 (2026-09-26):
+    // the search now reads the formatted message, the raw message, each
+    // argument, and the whole throwableProxy chain, not the formatted
+    // message alone. The test also runs a 200, a 400, and a 404 request
+    // through one capture.
     @Test
-    fun `a request with a sessionId query string writes no log line that holds that value`() = runBlocking {
-        val appId = insertApp(database, "shop")
-        val sessionId = "44444444-4444-4444-4444-444444444444"
-        insertEvent(database, appId, "e1", sessionId, "user-1", element = "checkout.save", kind = 0)
-        database.close()
+    fun `a request with a sessionId query string writes no log line that holds that value, on 200, 400, and 404`() =
+        runBlocking {
+            val appId = insertApp(database, "shop")
+            val sessionId = "44444444-4444-4444-4444-444444444444"
+            insertEvent(database, appId, "e1", sessionId, "user-1", element = "checkout.save", kind = 0)
+            database.close()
 
-        testApplication {
-            application { module(devConfig(dataDir)) }
+            testApplication {
+                application { module(devConfig(dataDir)) }
 
-            val (_, events) = captureLogEvents {
-                client.get("/api/apps/$appId/elements?sessionId=$sessionId") { allowedHost() }
+                lateinit var okStatus: HttpStatusCode
+                lateinit var badRequestStatus: HttpStatusCode
+                lateinit var notFoundStatus: HttpStatusCode
+                val (_, events) = captureLogEvents {
+                    okStatus = client.get("/api/apps/$appId/elements?sessionId=$sessionId") { allowedHost() }.status
+                    badRequestStatus =
+                        client.get("/api/apps/$appId/elements?sessionId=not-a-uuid") { allowedHost() }.status
+                    notFoundStatus =
+                        client.get("/api/apps/999999/elements?sessionId=$sessionId") { allowedHost() }.status
+                }
+
+                assertEquals(HttpStatusCode.OK, okStatus)
+                assertEquals(HttpStatusCode.BadRequest, badRequestStatus)
+                assertEquals(HttpStatusCode.NotFound, notFoundStatus)
+                assertNoLogLineHoldsMarker(events, sessionId)
             }
-
-            assertTrue(events.none { it.formattedMessage.contains(sessionId) })
-            assertTrue(events.none { it.formattedMessage.contains("sessionId=") })
+            database = SqliteDatabase.open(dataDir)
         }
-        database = SqliteDatabase.open(dataDir)
+
+    // MAJOR 1 of the security review of correction round 1: a negative
+    // control proves that the sentinel is not vacuous. A marker inside
+    // an attached exception must fail the assertion.
+    @Test
+    fun `the sentinel catches a marker inside an attached exception`() = runBlocking {
+        val marker = "the-planted-marker-2a63"
+        val log = LoggerFactory.getLogger("octometer.monitor.elements.ElementsRouteTest")
+
+        val (_, events) = captureLogEvents {
+            log.info("a plain line with no marker")
+            log.error("an error with an attached cause", RuntimeException(marker))
+        }
+
+        val failure = assertFailsWith<AssertionError> { assertNoLogLineHoldsMarker(events, marker) }
+        assertTrue(failure.message.orEmpty().contains(marker))
+    }
+}
+
+// MAJOR 1 of the security review of correction round 1 (2026-09-26):
+// the sentinel searches the formatted message, the raw message, each
+// argument, and the whole throwableProxy chain, not the formatted
+// message alone. An empty capture is a defect of the test itself, so
+// this function asserts against it too.
+private fun assertNoLogLineHoldsMarker(events: List<ILoggingEvent>, marker: String) {
+    assertTrue(events.isNotEmpty(), "the sentinel captured no log event")
+    for (event in events) {
+        assertFalse(
+            event.formattedMessage.contains(marker),
+            "the formatted message held the marker: ${event.formattedMessage}",
+        )
+        assertFalse(
+            event.message?.contains(marker) == true,
+            "the raw message held the marker: ${event.message}",
+        )
+        for (argument in event.argumentArray.orEmpty()) {
+            assertFalse(
+                argument?.toString()?.contains(marker) == true,
+                "an argument held the marker: $argument",
+            )
+        }
+        assertNoThrowableHoldsMarker(event.throwableProxy, marker)
+    }
+}
+
+// Walks the cause chain and the suppressed list of a throwableProxy.
+// Logback prints an attached exception beside the message, thus a
+// marker inside a cause or a suppressed exception must fail this
+// check too.
+private fun assertNoThrowableHoldsMarker(proxy: IThrowableProxy?, marker: String) {
+    var current = proxy
+    while (current != null) {
+        assertFalse(
+            current.message?.contains(marker) == true,
+            "an exception message held the marker: ${current.message}",
+        )
+        for (suppressed in current.suppressed.orEmpty()) {
+            assertNoThrowableHoldsMarker(suppressed, marker)
+        }
+        current = current.cause
     }
 }
 

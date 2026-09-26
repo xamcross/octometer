@@ -53,68 +53,106 @@ internal sealed class SessionsResult {
     object AppNotFound : SessionsResult()
 }
 
-// Part 1 of the selection rule of D13 (the maintainer's correction of
-// 2026-09-26): a session qualifies when it holds a minimum of one event
-// with user_id IS NULL. This statement groups every event row of the
-// app by session_id, on the index event_session (design section 6, "the
-// event_session form"). The HAVING clause keeps a session only when one
-// of its rows has user_id IS NULL. The CASE expressions also give the
-// click count and the time of the first click, for a session without a
-// start row. Rule M4 of the design keeps the literal kind = 0 in the SQL
-// text, not a bound parameter.
-private const val SESSION_CANDIDATES_SQL =
-    "SELECT session_id, SUM(CASE WHEN kind = 0 THEN 1 ELSE 0 END) AS clicks, " +
-        "MIN(CASE WHEN kind = 0 THEN ts END) AS first_click_time FROM event " +
-        "WHERE app_id = ? GROUP BY session_id " +
-        "HAVING MAX(CASE WHEN user_id IS NULL THEN 1 ELSE 0 END) = 1"
-
-// Part 2 of the selection rule: the start row of a session, kind = 1
-// and user_id IS NULL (the maintainer's decision 2 of 2026-09-26; the
-// design states that a start row always has user_id IS NULL). This
-// statement runs on the index event_start. A session without a start
-// row gives no row here; the left join below then keeps the fallback of
-// part 1, the path (unknown) and the time of the first click.
+// Part 1 of the candidate sessions (correction round 1, BLOCKER 1 and
+// BLOCKER 2 of 2026-09-26): the start row of each session, kind = 1
+// and user_id IS NULL. This statement runs on the index event_start.
+//
+// A session can hold more than one start row, for example after a
+// retry that still reached the store (design decision D44). The
+// NOT EXISTS clause keeps the earliest row of each session, by ts,
+// then by rowid, so the choice is always the same row. `rowid` is the
+// built-in row id of SQLite; `event` carries no separate id column. A
+// GROUP BY or a window function would force a sort step, and it would
+// also push SQLite away from event_start, towards event_session; the
+// row-by-row form of this statement keeps the plan on event_start,
+// with no sort at all.
+//
 // internal, not private: the plan test of issue #113 runs
-// `EXPLAIN QUERY PLAN` over this exact text, the same rule as
-// ELEMENT_TOTALS_SQL of octometer.monitor.elements.
+// `EXPLAIN QUERY PLAN` over the statement that the route executes,
+// never over this text alone (BLOCKER 2). The text stays internal so a
+// KDoc reference can name it.
 internal const val SESSION_STARTS_SQL =
-    "SELECT session_id, path, referrer_host, ts AS start_time FROM event " +
-        "WHERE app_id = ? AND kind = 1 AND user_id IS NULL"
+    "SELECT session_id, path, referrer_host, ts AS start_time FROM event AS s " +
+        "WHERE app_id = ? AND kind = 1 AND user_id IS NULL AND NOT EXISTS (" +
+        "SELECT 1 FROM event AS earlier WHERE earlier.app_id = s.app_id " +
+        "AND earlier.session_id = s.session_id AND earlier.kind = 1 AND earlier.user_id IS NULL " +
+        "AND (earlier.ts < s.ts OR (earlier.ts = s.ts AND earlier.rowid < s.rowid))" +
+        ")"
 
-// The page statement: part 1 (sess) left-joined with part 2 (starts) on
-// session_id. The order startTime DESC, sessionId ASC is the fixed
-// order of D13; sessionId is the unique column that ends the order, so
-// a tie of startTime still gives one total order.
-private const val SESSION_PAGE_SQL =
-    "SELECT sess.session_id AS session_id, starts.path AS first_path, " +
-        "starts.referrer_host AS source, " +
-        "COALESCE(starts.start_time, sess.first_click_time) AS start_time, sess.clicks AS clicks " +
-        "FROM ($SESSION_CANDIDATES_SQL) AS sess " +
-        "LEFT JOIN ($SESSION_STARTS_SQL) AS starts ON starts.session_id = sess.session_id " +
-        "ORDER BY start_time DESC, sess.session_id ASC LIMIT ? OFFSET ?"
+// Part 2 of the candidate sessions: a session with no start row, but
+// with a minimum of one click of user_id IS NULL (the selection rule
+// of D13). This statement runs on the index event_agg, the same index
+// that the level 2 and the level 3 routes use for a click filter.
+// event_agg leads with app_id then user_id, thus "user_id IS NULL"
+// here is an index term, not a residual filter. The NOT EXISTS clause
+// keeps the earliest row, the same form as part 1, and for the same
+// reason: it keeps the plan on event_agg, with no sort.
+//
+// A session with an anonymous click always has its earliest click as
+// an anonymous row, because a click turns from anonymous to signed-in
+// once, never back. The row that this statement keeps thus gives the
+// time of the first click of that session, the fallback value of D44.
+internal const val SESSION_ANONYMOUS_CLICKS_SQL =
+    "SELECT session_id, ts AS start_time FROM event AS s " +
+        "WHERE app_id = ? AND user_id IS NULL AND kind = 0 AND NOT EXISTS (" +
+        "SELECT 1 FROM event AS earlier WHERE earlier.app_id = s.app_id " +
+        "AND earlier.session_id = s.session_id AND earlier.user_id IS NULL AND earlier.kind = 0 " +
+        "AND (earlier.ts < s.ts OR (earlier.ts = s.ts AND earlier.rowid < s.rowid))" +
+        ")"
 
-// The firstPath filter (a bound parameter, issue #113 step 2) keeps only
-// a session with a start row of that exact path. A session with no
-// start row can never carry a firstPath value, thus the join here is an
-// inner join, not a left join.
-private const val SESSION_PAGE_FILTERED_SQL =
-    "SELECT sess.session_id AS session_id, starts.path AS first_path, " +
-        "starts.referrer_host AS source, " +
-        "COALESCE(starts.start_time, sess.first_click_time) AS start_time, sess.clicks AS clicks " +
-        "FROM ($SESSION_CANDIDATES_SQL) AS sess " +
-        "JOIN ($SESSION_STARTS_SQL) AS starts ON starts.session_id = sess.session_id AND starts.path = ? " +
-        "ORDER BY start_time DESC, sess.session_id ASC LIMIT ? OFFSET ?"
+// The candidate sessions: part 1 (a start row) union part 2 (a session
+// with no start row). Each branch runs on its own index; this
+// statement reads no row of a signed-in click, thus it never scans
+// the whole table. A session of part 2 carries NULL for its path and
+// its source; the route resolves that to "(unknown)" and "(direct)"
+// (D44: "The API writes (unknown) for a NULL path").
+//
+// internal, not private: the four statements below embed this text,
+// and the plan test of issue #113 runs `EXPLAIN QUERY PLAN` over each
+// of those four statements (BLOCKER 2 of correction round 1).
+internal const val SESSION_CANDIDATES_SQL =
+    "SELECT session_id, path, referrer_host, start_time FROM ($SESSION_STARTS_SQL) " +
+        "UNION " +
+        "SELECT session_id, NULL AS path, NULL AS referrer_host, start_time " +
+        "FROM ($SESSION_ANONYMOUS_CLICKS_SQL) AS anon " +
+        "WHERE anon.session_id NOT IN (SELECT session_id FROM ($SESSION_STARTS_SQL))"
 
-private const val SESSION_COUNT_SQL = "SELECT COUNT(*) FROM ($SESSION_CANDIDATES_SQL)"
+// The page statement: the candidate sessions, in the fixed order of
+// D13. sessionId is the unique column that ends the order, so a tie of
+// startTime still gives one total order.
+//
+// internal, not private: the plan test of issue #113 runs
+// `EXPLAIN QUERY PLAN` over this exact text (BLOCKER 2 of correction
+// round 1, 2026-09-26); the test copies no SQL text of its own.
+internal const val SESSION_PAGE_SQL =
+    "SELECT session_id, path, referrer_host, start_time FROM ($SESSION_CANDIDATES_SQL) " +
+        "ORDER BY start_time DESC, session_id ASC LIMIT ? OFFSET ?"
 
-private const val SESSION_COUNT_FILTERED_SQL =
-    "SELECT COUNT(*) FROM ($SESSION_CANDIDATES_SQL) AS sess " +
-        "JOIN ($SESSION_STARTS_SQL) AS starts ON starts.session_id = sess.session_id AND starts.path = ?"
+// The firstPath filter (a bound parameter, issue #113 step 2) keeps
+// only a session with a start row of that exact path. A candidate
+// with no start row carries NULL for path, and NULL never equals a
+// bound value, thus that candidate never passes this filter.
+internal const val SESSION_PAGE_FILTERED_SQL =
+    "SELECT session_id, path, referrer_host, start_time FROM ($SESSION_CANDIDATES_SQL) " +
+        "WHERE path = ? ORDER BY start_time DESC, session_id ASC LIMIT ? OFFSET ?"
+
+internal const val SESSION_COUNT_SQL = "SELECT COUNT(*) FROM ($SESSION_CANDIDATES_SQL)"
+
+internal const val SESSION_COUNT_FILTERED_SQL =
+    "SELECT COUNT(*) FROM ($SESSION_CANDIDATES_SQL) WHERE path = ?"
+
+// The click count of one session (design decision D44: the count of
+// every kind = 0 row, also a row after a sign-in). This statement runs
+// once for each row of the page, on the index event_session. A page
+// holds a maximum of SESSION_PAGE_SIZE rows, thus this never scans the
+// whole table.
+internal const val SESSION_CLICKS_SQL =
+    "SELECT COUNT(*) FROM event WHERE app_id = ? AND session_id = ? AND kind = 0"
 
 // The user id of the earliest sign-in of a session (the maintainer's
 // correction of 2026-09-26, and the KDoc of SessionRow.userId above).
-// This statement runs once for each row of the page, never for the
-// whole app, because a page holds a maximum of SESSION_PAGE_SIZE rows.
+// This statement runs once for each row of the page too, on the index
+// event_session.
 private const val SESSION_SIGN_IN_SQL =
     "SELECT user_id FROM event WHERE app_id = ? AND session_id = ? AND user_id IS NOT NULL " +
         "ORDER BY ts ASC LIMIT 1"
@@ -201,10 +239,18 @@ internal suspend fun loadAnonymousSessions(
         val page = requestedPage.coerceAtMost(pageCount)
         val candidates = readSessionsPage(reader, appId, firstPath, page)
         val rows = candidates.map { candidate ->
-            candidate.toSessionRow(lookupSignInUserId(reader, appId, candidate.sessionId))
+            candidate.toSessionRow(
+                clicks = countClicks(reader, appId, candidate.sessionId),
+                userId = lookupSignInUserId(reader, appId, candidate.sessionId),
+            )
         }
         SessionsResult.Success(page = page, pageCount = pageCount, rows = rows)
     }
+
+// The number of appId placeholders of SESSION_CANDIDATES_SQL: the
+// start rows once, the anonymous clicks once, and the start rows a
+// second time, inside the NOT IN subquery.
+internal const val CANDIDATES_APP_ID_COUNT = 3
 
 // internal, not private: a test of a bound parameter reuses this
 // function directly, the same rule as octometer.monitor.users.countUserGroups.
@@ -212,9 +258,8 @@ internal fun countSessions(reader: Connection, appId: Long, firstPath: String?):
     val sql = if (firstPath == null) SESSION_COUNT_SQL else SESSION_COUNT_FILTERED_SQL
     return reader.prepareStatement(sql).use { statement ->
         var index = 1
-        statement.setLong(index++, appId)
+        repeat(CANDIDATES_APP_ID_COUNT) { statement.setLong(index++, appId) }
         if (firstPath != null) {
-            statement.setLong(index++, appId)
             statement.setString(index, firstPath)
         }
         statement.executeQuery().use { result ->
@@ -229,9 +274,8 @@ internal data class SessionCandidateRow(
     val path: String?,
     val referrerHost: String?,
     val startTimeMillis: Long,
-    val clicks: Long,
 ) {
-    fun toSessionRow(userId: String?): SessionRow =
+    fun toSessionRow(clicks: Long, userId: String?): SessionRow =
         SessionRow(
             sessionId = sessionId,
             firstPath = path ?: UNKNOWN_PATH,
@@ -251,8 +295,7 @@ internal fun readSessionsPage(
     val sql = if (firstPath == null) SESSION_PAGE_SQL else SESSION_PAGE_FILTERED_SQL
     return reader.prepareStatement(sql).use { statement ->
         var index = 1
-        statement.setLong(index++, appId)
-        statement.setLong(index++, appId)
+        repeat(CANDIDATES_APP_ID_COUNT) { statement.setLong(index++, appId) }
         if (firstPath != null) {
             statement.setString(index++, firstPath)
         }
@@ -263,16 +306,29 @@ internal fun readSessionsPage(
             while (result.next()) {
                 rows += SessionCandidateRow(
                     sessionId = result.getString("session_id"),
-                    path = result.getString("first_path"),
-                    referrerHost = result.getString("source"),
+                    path = result.getString("path"),
+                    referrerHost = result.getString("referrer_host"),
                     startTimeMillis = result.getLong("start_time"),
-                    clicks = result.getLong("clicks"),
                 )
             }
             rows
         }
     }
 }
+
+// internal, not private: a test of the query plan reuses this function
+// directly (BLOCKER 2 of correction round 1, 2026-09-26): the route
+// runs this exact statement, thus the plan test measures the plan of
+// this exact statement, never a bare subquery text.
+internal fun countClicks(reader: Connection, appId: Long, sessionId: String): Long =
+    reader.prepareStatement(SESSION_CLICKS_SQL).use { statement ->
+        statement.setLong(1, appId)
+        statement.setString(2, sessionId)
+        statement.executeQuery().use { result ->
+            result.next()
+            result.getLong(1)
+        }
+    }
 
 private fun lookupSignInUserId(reader: Connection, appId: Long, sessionId: String): String? =
     reader.prepareStatement(SESSION_SIGN_IN_SQL).use { statement ->

@@ -5,8 +5,11 @@ import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.classic.spi.IThrowableProxy
 import io.ktor.http.encodeURLQueryComponent
 import io.ktor.server.testing.testApplication
+import java.sql.Connection
 import java.sql.ResultSet
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -19,10 +22,13 @@ import octometer.monitor.devConfig
 import octometer.monitor.module
 import octometer.monitor.store.SqliteDatabase
 import octometer.monitor.testDataDir
+import org.slf4j.LoggerFactory
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -122,6 +128,39 @@ class SessionsRouteTest {
         val row = successRows(database, appId).single()
 
         assertEquals("user-first", row.userId)
+    }
+
+    // BLOCKER 1 of correction round 1 (2026-09-26): a retry can write a
+    // second octo:session-start row of one session (design decision
+    // D44). This test proves that the page still holds one row for
+    // that session, and the count still stays 1, with the values of
+    // the earliest start row.
+    @Test
+    fun `two start rows of one session give one page row and a count of 1, from the earliest one`() = runBlocking {
+        val appId = insertApp(database, "shop")
+        insertEvent(
+            database, appId, "e1", "dup", userId = null, element = "octo:session-start", kind = 1,
+            path = "/home", referrerHost = "ref.example", ts = 1_700_000_000_100L,
+        )
+        insertEvent(
+            database, appId, "e2", "dup", userId = null, element = "octo:session-start", kind = 1,
+            path = "/home", referrerHost = "other.example", ts = 1_700_000_000_101L,
+        )
+        insertEvent(database, appId, "e3", "dup", userId = null, element = "checkout.save", kind = 0, ts = 1_700_000_000_200L)
+
+        val count = database.read { reader -> countSessions(reader, appId, firstPath = null) }
+        val pageRows = database.read { reader -> readSessionsPage(reader, appId, firstPath = null, page = 1) }
+        val result = loadAnonymousSessions(database, appId, firstPath = null, requestedPage = 1)
+        check(result is SessionsResult.Success)
+
+        assertEquals(1, count, "the count statement must count the session once")
+        assertEquals(1, pageRows.size, "the page statement must give one row for the session")
+        assertEquals(1, result.pageCount)
+        val row = result.rows.single()
+        assertEquals("dup", row.sessionId)
+        assertEquals("ref.example", row.source, "the earlier start row wins the tie")
+        assertEquals("2023-11-14T22:13:20.100Z", row.startTime, "the earlier start row wins the tie")
+        assertEquals(1L, row.clicks)
     }
 
     // The selection rule (the maintainer's correction of 2026-09-26): a
@@ -298,19 +337,33 @@ class SessionsRouteTest {
 
     // -- The query plan (acceptance criterion) -------------------------------
 
+    // BLOCKER 2 of correction round 1 (2026-09-26): the plan of the
+    // sessions route must come from the four statements that
+    // countSessions and readSessionsPage execute, never from a bare
+    // subquery text that no code path runs. Each plan below must show
+    // an index, and none must show a full scan of the event table.
     @Test
-    fun `EXPLAIN QUERY PLAN shows the index event_start for the start-row statement`() = runBlocking {
+    fun `EXPLAIN QUERY PLAN of each executed statement shows an index, never a full scan of event`() = runBlocking {
         val appId = insertApp(database, "shop")
-        insertEvent(database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1)
+        insertEvent(database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1, path = "/a")
+        insertEvent(database, appId, "e2", "s2", userId = null, element = "checkout.save", kind = 0)
 
-        val plan = database.read { reader ->
-            reader.prepareStatement("EXPLAIN QUERY PLAN $SESSION_STARTS_SQL").use { statement ->
-                statement.setLong(1, appId)
-                statement.executeQuery().use { result -> collectPlanLines(result) }
-            }
+        val plans = database.read { reader ->
+            listOf(
+                explainCandidatesStatement(reader, SESSION_COUNT_SQL, appId, firstPath = null),
+                explainCandidatesStatement(reader, SESSION_COUNT_FILTERED_SQL, appId, firstPath = "/a"),
+                explainCandidatesStatement(reader, SESSION_PAGE_SQL, appId, firstPath = null),
+                explainCandidatesStatement(reader, SESSION_PAGE_FILTERED_SQL, appId, firstPath = "/a"),
+            )
         }
 
-        assertTrue(plan.any { it.contains("INDEX event_start") }, plan.toString())
+        for (plan in plans) {
+            assertTrue(plan.none { it.contains("SCAN event") }, plan.toString())
+        }
+        assertTrue(
+            plans.any { plan -> plan.any { it.contains("INDEX event_start") } },
+            "no executed statement used the index event_start: $plans",
+        )
     }
 
     // -- The HTTP layer (steps 1, 5) ------------------------------------------
@@ -468,33 +521,69 @@ class SessionsRouteTest {
     }
 
     // D15: the captured log holds no session id, no query string, and no
-    // raw path from a log call of this route.
+    // raw path from a log call of this route. MAJOR 1 of the security
+    // review of correction round 1 (2026-09-26): the search now reads
+    // the formatted message, the raw message, each argument, and the
+    // whole throwableProxy chain (the cause and the suppressed list),
+    // and it runs a 200, a 400, and a 404 request through one capture.
     @Test
-    fun `the captured log holds no session id, no query string, and no raw path`() = runBlocking {
-        val appId = insertApp(database, "shop")
-        insertEvent(
-            database, appId, "e1", "the-secret-session-id", userId = null,
-            element = "octo:session-start", kind = 1, path = "/the-secret-path",
-        )
-        database.close()
+    fun `the captured log holds no session id, no query string, and no raw path, on 200, 400, and 404`() =
+        runBlocking {
+            val appId = insertApp(database, "shop")
+            val sessionIdMarker = "the-secret-session-id"
+            val pathMarker = "/the-secret-path"
+            insertEvent(
+                database, appId, "e1", sessionIdMarker, userId = null,
+                element = "octo:session-start", kind = 1, path = pathMarker,
+            )
+            database.close()
 
-        testApplication {
-            application { module(devConfig(dataDir)) }
+            testApplication {
+                application { module(devConfig(dataDir)) }
+                val encodedPath = pathMarker.encodeURLQueryComponent()
 
-            val (response, events) = captureLogEvents {
-                client.get(
-                    "/api/apps/$appId/sessions?anonymous=true&firstPath=" + "/the-secret-path".encodeURLQueryComponent(),
-                ) { allowedHost() }
+                lateinit var okStatus: HttpStatusCode
+                lateinit var badRequestStatus: HttpStatusCode
+                lateinit var notFoundStatus: HttpStatusCode
+                val (_, events) = captureLogEvents {
+                    okStatus =
+                        client.get("/api/apps/$appId/sessions?anonymous=true&firstPath=$encodedPath") {
+                            allowedHost()
+                        }.status
+                    badRequestStatus =
+                        client.get("/api/apps/$appId/sessions?anonymous=true&firstPath=$encodedPath&page=bad") {
+                            allowedHost()
+                        }.status
+                    notFoundStatus =
+                        client.get("/api/apps/999999/sessions?anonymous=true&firstPath=$encodedPath") {
+                            allowedHost()
+                        }.status
+                }
+
+                assertEquals(HttpStatusCode.OK, okStatus)
+                assertEquals(HttpStatusCode.BadRequest, badRequestStatus)
+                assertEquals(HttpStatusCode.NotFound, notFoundStatus)
+                assertNoLogLineHoldsMarker(events, sessionIdMarker)
+                assertNoLogLineHoldsMarker(events, pathMarker)
             }
-
-            assertEquals(HttpStatusCode.OK, response.status)
-            val joinedMessages = events.joinToString("\n") { it.formattedMessage }
-            assertEquals(false, joinedMessages.contains("the-secret-session-id"))
-            assertEquals(false, joinedMessages.contains("the-secret-path"))
-            assertEquals(false, joinedMessages.contains("firstPath="))
-            assertEquals(false, joinedMessages.contains("anonymous="))
+            database = SqliteDatabase.open(dataDir)
         }
-        database = SqliteDatabase.open(dataDir)
+
+    // MAJOR 1 of the security review of correction round 1: a negative
+    // control proves that the sentinel is not vacuous. A marker inside
+    // an attached exception must fail the assertion.
+    @Test
+    fun `the sentinel catches a marker inside an attached exception`() = runBlocking {
+        val marker = "the-planted-marker-9f21"
+        val log = LoggerFactory.getLogger("octometer.monitor.sessions.SessionsRouteTest")
+
+        val (_, events) = captureLogEvents {
+            log.info("a plain line with no marker")
+            log.error("an error with an attached cause", RuntimeException(marker))
+        }
+
+        val failure = assertFailsWith<AssertionError> { assertNoLogLineHoldsMarker(events, marker) }
+        assertTrue(failure.message.orEmpty().contains(marker))
     }
 }
 
@@ -504,6 +593,73 @@ private fun collectPlanLines(result: ResultSet): List<String> {
         lines += result.getString("detail")
     }
     return lines
+}
+
+// Binds the same placeholders that countSessions and readSessionsPage
+// bind (BLOCKER 2 of correction round 1): CANDIDATES_APP_ID_COUNT
+// copies of appId, then firstPath when the statement is the filtered
+// form, then the limit and the offset when the statement carries them.
+private fun explainCandidatesStatement(
+    reader: Connection,
+    sql: String,
+    appId: Long,
+    firstPath: String?,
+): List<String> =
+    reader.prepareStatement("EXPLAIN QUERY PLAN $sql").use { statement ->
+        var index = 1
+        repeat(CANDIDATES_APP_ID_COUNT) { statement.setLong(index++, appId) }
+        if (firstPath != null) {
+            statement.setString(index++, firstPath)
+        }
+        if (sql.contains("LIMIT")) {
+            statement.setInt(index++, SESSION_PAGE_SIZE)
+            statement.setInt(index, 0)
+        }
+        statement.executeQuery().use { result -> collectPlanLines(result) }
+    }
+
+// MAJOR 1 of the security review of correction round 1 (2026-09-26):
+// the sentinel searches the formatted message, the raw message, each
+// argument, and the whole throwableProxy chain, not the formatted
+// message alone. An empty capture is a defect of the test itself, so
+// this function asserts against it too.
+private fun assertNoLogLineHoldsMarker(events: List<ILoggingEvent>, marker: String) {
+    assertTrue(events.isNotEmpty(), "the sentinel captured no log event")
+    for (event in events) {
+        assertFalse(
+            event.formattedMessage.contains(marker),
+            "the formatted message held the marker: ${event.formattedMessage}",
+        )
+        assertFalse(
+            event.message?.contains(marker) == true,
+            "the raw message held the marker: ${event.message}",
+        )
+        for (argument in event.argumentArray.orEmpty()) {
+            assertFalse(
+                argument?.toString()?.contains(marker) == true,
+                "an argument held the marker: $argument",
+            )
+        }
+        assertNoThrowableHoldsMarker(event.throwableProxy, marker)
+    }
+}
+
+// Walks the cause chain and the suppressed list of a throwableProxy.
+// Logback prints an attached exception beside the message, thus a
+// marker inside a cause or a suppressed exception must fail this
+// check too.
+private fun assertNoThrowableHoldsMarker(proxy: IThrowableProxy?, marker: String) {
+    var current = proxy
+    while (current != null) {
+        assertFalse(
+            current.message?.contains(marker) == true,
+            "an exception message held the marker: ${current.message}",
+        )
+        for (suppressed in current.suppressed.orEmpty()) {
+            assertNoThrowableHoldsMarker(suppressed, marker)
+        }
+        current = current.cause
+    }
 }
 
 private suspend fun successRows(database: SqliteDatabase, appId: Long): List<SessionRow> {
