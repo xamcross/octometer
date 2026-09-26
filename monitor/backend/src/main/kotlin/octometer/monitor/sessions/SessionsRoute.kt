@@ -53,49 +53,89 @@ internal sealed class SessionsResult {
     object AppNotFound : SessionsResult()
 }
 
-// Part 1 of the candidate sessions (correction round 1, BLOCKER 1 and
-// BLOCKER 2 of 2026-09-26): the start row of each session, kind = 1
-// and user_id IS NULL. This statement runs on the index event_start.
+// Part 1 of the candidate sessions (correction round 2 of 2026-09-26,
+// BLOCKER 3): the start row of each session, kind = 1 and
+// user_id IS NULL.
 //
-// A session can hold more than one start row, for example after a
-// retry that still reached the store (design decision D44). The
-// NOT EXISTS clause keeps the earliest row of each session, by ts,
-// then by rowid, so the choice is always the same row. `rowid` is the
-// built-in row id of SQLite; `event` carries no separate id column. A
-// GROUP BY or a window function would force a sort step, and it would
-// also push SQLite away from event_start, towards event_session; the
-// row-by-row form of this statement keeps the plan on event_start,
-// with no sort at all.
+// BLOCKER 3 of round 2: the shipped database holds no sqlite_stat1
+// table (no migration runs ANALYZE), and with no statistics, SQLite
+// drove the round-1 form of this statement on event_session (app_id=?
+// only), a scan of every event row of the app. The measured cost was
+// 4.4 s at 50 000 events, against 28 ms for the round-1 count
+// statement that this round replaces.
+//
+// This form is the round-1 form again: one alias, a plain filter
+// (app_id = ?, kind = 1, user_id IS NULL), and a correlated NOT EXISTS
+// that keeps the earliest row of each session. Embedded as the left
+// branch of a plain UNION, the outer UNION needs each branch sorted
+// for its merge step, and SQLite was seen to answer that need by
+// driving `s` on event_session (app_id=? only, session_id-ordered)
+// instead, a scan of every event row of the app. SESSION_CANDIDATES_SQL
+// below now joins the two branches with UNION ALL, not UNION: a plain
+// concatenation, with no merge step and no sort demand on either
+// branch, and `s` now drives on event_start again with no hint needed
+// (round 2 correction, third measurement).
+//
+// A second, worse defect stayed hidden behind the first one: the
+// correlated NOT EXISTS below names `session_id`, a column that
+// event_start carries only after `ts`, not next to `app_id` and
+// `user_id`. With no statistics, SQLite drove `earlier` on event_start
+// too, an unbounded scan for each row of `s` (a scan of up to 50 000
+// rows here, for each of up to 50 000 rows of `s`), never a search
+// bounded to one session. `INDEXED BY event_session` forces `earlier`
+// onto the index that leads with app_id then session_id, a search
+// bounded to the rows of one session, regardless of statistics. The
+// measured cost fell from about 300 s to the number that the pull
+// request text of correction round 2 gives, at 50 000 events.
+//
+// The NOT EXISTS clause keeps the earliest start row of each session,
+// by ts, then by rowid, so the choice is always the same row. `rowid`
+// is the built-in row id of SQLite; `event` carries no separate id
+// column.
 //
 // internal, not private: the plan test of issue #113 runs
 // `EXPLAIN QUERY PLAN` over the statement that the route executes,
-// never over this text alone (BLOCKER 2). The text stays internal so a
-// KDoc reference can name it.
+// never over this text alone (round 1, BLOCKER 2). The text stays
+// internal so a KDoc reference can name it.
 internal const val SESSION_STARTS_SQL =
     "SELECT session_id, path, referrer_host, ts AS start_time FROM event AS s " +
         "WHERE app_id = ? AND kind = 1 AND user_id IS NULL AND NOT EXISTS (" +
-        "SELECT 1 FROM event AS earlier WHERE earlier.app_id = s.app_id " +
+        "SELECT 1 FROM event AS earlier INDEXED BY event_session WHERE earlier.app_id = s.app_id " +
         "AND earlier.session_id = s.session_id AND earlier.kind = 1 AND earlier.user_id IS NULL " +
         "AND (earlier.ts < s.ts OR (earlier.ts = s.ts AND earlier.rowid < s.rowid))" +
         ")"
 
 // Part 2 of the candidate sessions: a session with no start row, but
 // with a minimum of one click of user_id IS NULL (the selection rule
-// of D13). This statement runs on the index event_agg, the same index
-// that the level 2 and the level 3 routes use for a click filter.
-// event_agg leads with app_id then user_id, thus "user_id IS NULL"
-// here is an index term, not a residual filter. The NOT EXISTS clause
-// keeps the earliest row, the same form as part 1, and for the same
-// reason: it keeps the plan on event_agg, with no sort.
+// of D13). event_agg is the intended index: it leads with app_id then
+// user_id, the same index that the level 2 and the level 3 routes use
+// for a click filter, thus "user_id IS NULL" here is meant as an index
+// term, not a residual filter.
+//
+// MINOR 1 of the round 2 review (2026-09-26): the shipped database
+// holds no sqlite_stat1 table (no migration runs ANALYZE), and with no
+// statistics, SQLite drives this statement on event_session (app_id=?
+// only) instead, the same statement that a click count and a sign-in
+// lookup already run on. Round 2 fixes only the start-row branch of
+// BLOCKER 3, part 1 above; this branch keeps its round-1 form. The
+// NOT EXISTS clause keeps the earliest row of each session, by ts,
+// then by rowid, the same tie rule as part 1.
 //
 // A session with an anonymous click always has its earliest click as
 // an anonymous row, because a click turns from anonymous to signed-in
 // once, never back. The row that this statement keeps thus gives the
 // time of the first click of that session, the fallback value of D44.
+//
+// `INDEXED BY event_session` on `earlier`, the same fix and the same
+// reason as SESSION_STARTS_SQL above: session_id sits after ts in
+// event_agg, thus a correlated NOT EXISTS on session_id alone could
+// drive `earlier` on an unbounded scan of event_agg with no
+// statistics. event_session leads with app_id then session_id, thus
+// this search stays bounded to the rows of one session.
 internal const val SESSION_ANONYMOUS_CLICKS_SQL =
     "SELECT session_id, ts AS start_time FROM event AS s " +
         "WHERE app_id = ? AND user_id IS NULL AND kind = 0 AND NOT EXISTS (" +
-        "SELECT 1 FROM event AS earlier WHERE earlier.app_id = s.app_id " +
+        "SELECT 1 FROM event AS earlier INDEXED BY event_session WHERE earlier.app_id = s.app_id " +
         "AND earlier.session_id = s.session_id AND earlier.user_id IS NULL AND earlier.kind = 0 " +
         "AND (earlier.ts < s.ts OR (earlier.ts = s.ts AND earlier.rowid < s.rowid))" +
         ")"
@@ -107,12 +147,22 @@ internal const val SESSION_ANONYMOUS_CLICKS_SQL =
 // its source; the route resolves that to "(unknown)" and "(direct)"
 // (D44: "The API writes (unknown) for a NULL path").
 //
+// BLOCKER 3 of correction round 2 (2026-09-26): UNION ALL, not UNION.
+// Part 1 already gives one row for each of its sessions (the NOT
+// EXISTS clause of SESSION_STARTS_SQL keeps the earliest start row
+// only), part 2 gives one row for each of its own sessions the same
+// way, and the NOT IN clause of part 2 keeps the two branches
+// disjoint. A plain UNION thus removed no row here; it only forced
+// SQLite to plan each branch for a sorted merge, which pushed the
+// plan of part 1 onto event_session (see the KDoc of
+// SESSION_STARTS_SQL). UNION ALL asks for no such sort.
+//
 // internal, not private: the four statements below embed this text,
 // and the plan test of issue #113 runs `EXPLAIN QUERY PLAN` over each
 // of those four statements (BLOCKER 2 of correction round 1).
 internal const val SESSION_CANDIDATES_SQL =
     "SELECT session_id, path, referrer_host, start_time FROM ($SESSION_STARTS_SQL) " +
-        "UNION " +
+        "UNION ALL " +
         "SELECT session_id, NULL AS path, NULL AS referrer_host, start_time " +
         "FROM ($SESSION_ANONYMOUS_CLICKS_SQL) AS anon " +
         "WHERE anon.session_id NOT IN (SELECT session_id FROM ($SESSION_STARTS_SQL))"

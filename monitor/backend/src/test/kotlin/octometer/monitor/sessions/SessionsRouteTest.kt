@@ -358,11 +358,41 @@ class SessionsRouteTest {
         }
 
         for (plan in plans) {
-            assertTrue(plan.none { it.contains("SCAN event") }, plan.toString())
+            assertFullScanOfEventAlias(plan)
         }
         assertTrue(
             plans.any { plan -> plan.any { it.contains("INDEX event_start") } },
             "no executed statement used the index event_start: $plans",
+        )
+    }
+
+    // BLOCKER 3 of correction round 2 (2026-09-26): the plan test above
+    // proves that no statement holds a full scan, but it does not name
+    // the driver of the start-row branch on its own. This test asserts
+    // that the first line of the plan of SESSION_STARTS_SQL, run in
+    // isolation, names event_start, the direct evidence that the round
+    // 1 form of BLOCKER 2 could not give.
+    @Test
+    fun `EXPLAIN QUERY PLAN of the start-row statement drives on event_start, its first line`() = runBlocking {
+        val appId = insertApp(database, "shop")
+        insertEvent(database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1)
+
+        val plan = database.read { reader ->
+            reader.prepareStatement("EXPLAIN QUERY PLAN $SESSION_STARTS_SQL").use { statement ->
+                statement.setLong(1, appId)
+                statement.executeQuery().use { result -> collectPlanLines(result) }
+            }
+        }
+
+        assertTrue(plan.first().contains("USING INDEX event_start"), plan.toString())
+        // The INDEXED BY event_session hint on `earlier`, the fix of
+        // BLOCKER 3: with no hint, SQLite drove `earlier` on
+        // event_start too, an unbounded scan for each row of `s`. This
+        // line names the index that keeps that lookup bounded to one
+        // session.
+        assertTrue(
+            plan.any { it.contains("earlier USING") && it.contains("INDEX event_session") },
+            plan.toString(),
         )
     }
 
@@ -593,6 +623,21 @@ private fun collectPlanLines(result: ResultSet): List<String> {
         lines += result.getString("detail")
     }
     return lines
+}
+
+// MAJOR 2 of correction round 2 (2026-09-26): "SCAN event" cannot
+// match, because SESSION_STARTS_SQL and SESSION_ANONYMOUS_CLICKS_SQL
+// each carry `event` under one of these two aliases; SQLite prints
+// the alias of a full scan, never the table name of an aliased
+// reference. This regex matches "SCAN s" or "SCAN earlier" at the
+// start of a plan line, the true guard against a full scan of event.
+// A plan line for a subquery of the outer UNION ALL, for example
+// "SCAN (subquery-9)", never matches this pattern.
+private val EVENT_ALIASES = listOf("s", "earlier")
+private val FULL_SCAN_OF_EVENT = Regex("^SCAN (${EVENT_ALIASES.joinToString("|")})\\b")
+
+private fun assertFullScanOfEventAlias(plan: List<String>) {
+    assertTrue(plan.none { line -> FULL_SCAN_OF_EVENT.containsMatchIn(line) }, plan.toString())
 }
 
 // Binds the same placeholders that countSessions and readSessionsPage
