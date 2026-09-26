@@ -158,7 +158,7 @@ Read sections 3 and 4 of `docs/integration-ktor.md` for the read-only database u
 the monitor and the three Atlas alerts. That user is not the app database user of this
 section.
 
-Read section 6 of `docs/integration-ktor.md` for `deleteByUserId`, the 3 passes, and the
+Read section 7 of `docs/integration-ktor.md` for `deleteByUserId`, the 3 passes, and the
 erasure order (contract rule C43, design decision D15).
 
 ## 3. The user id
@@ -251,7 +251,7 @@ ingest route needs no bearer token of its own.
 
 ## 5. The tracker
 
-Read section 7 of `docs/integration-ktor.md` for the install command, the `start()`
+Read section 8 of `docs/integration-ktor.md` for the install command, the `start()`
 call, and the `data-octo` attribute rules.
 
 The ingest path is exempt from the CSRF check of section 4. The tracker sends no
@@ -302,10 +302,64 @@ through the monitor. Read the app row of the monitor API, or open the level 1 vi
 the monitor UI. The new click raises the click count of your app within the poll
 interval of the monitor mode.
 
-## 7. Left for a later guide change
+## 7. The pilot settings
 
-Issue #119 adds the pilot route list, `OCTOMETER_RECORD_ANONYMOUS=true`, and the
-`start()` rule for an app with server-side rendering, to this same file.
+This section states the settings of the pilot app. Read section 6 of
+`docs/integration-ktor.md` for the general form of `OCTOMETER_PATH_PATTERNS`.
+
+**The route pattern list.** The pilot app gives this list to `OCTOMETER_PATH_PATTERNS`
+and to the tracker option `routes`:
+
+```
+/
+/register
+/login
+/verify
+/search
+/history
+/history/:id
+/tokens
+/payments/result
+/account
+/providers
+/articles
+/articles/*
+/ovdp/rates
+/ovdp/calculator
+/ovdp/vs-deposit
+/terms
+/privacy
+/editorial-policy
+/contact
+```
+
+The tracker takes the same list, in the same order, as a `routes` array:
+
+```ts
+const tracker = createTracker({
+  endpoint: '/api/octometer/v1/clicks',
+  routes: [
+    '/', '/register', '/login', '/verify', '/search', '/history',
+    '/history/:id', '/tokens', '/payments/result', '/account', '/providers',
+    '/articles', '/articles/*', '/ovdp/rates', '/ovdp/calculator',
+    '/ovdp/vs-deposit', '/terms', '/privacy', '/editorial-policy', '/contact',
+  ],
+});
+```
+
+**The anonymous setting.** The pilot app sets `OCTOMETER_RECORD_ANONYMOUS=true`. The
+default of design decision D19 stays off; only the pilot app turns the setting on.
+
+**The `start()` call for a server-rendered app.** The pilot app uses server-side
+rendering. Call `start()` in the browser only, for example from `afterNextRender`. The
+server has no `document` object, so a call to `start()` during a server render fails.
+`kit/tracker/README.md` states that `start()` waits for a visible, non-prerendering
+document before it sends the session start; a server render has no such document at
+all.
+
+This rule states the render side of the `start()` call only. Issue #41 still owns the
+consent moment: the app must call `start()` after its own consent signal, as section 5
+states.
 
 <!--
 Sources:
@@ -318,7 +372,11 @@ tools/consumer-smoke/spring34-maven/pom.xml
 tools/consumer-smoke/spring34-maven/src/main/java/com/octometer/smoke/SecurityConfiguration.java
 tools/consumer-smoke/spring34-maven/src/test/java/com/octometer/smoke/IngestControllerCsrfTest.java
 tools/consumer-smoke/spring41/build.gradle.kts
-docs/integration-ktor.md, the note at the top, and sections 1, 2, 3, 4, 6, 7, 8
+docs/integration-ktor.md, the note at the top, and sections 1, 2, 3, 4, 7, 8, 9
+Section 7 is new text of this guide, for issue #119. It states the 20 route patterns
+  and the OCTOMETER_RECORD_ANONYMOUS setting of issue #119's acceptance criteria, and
+  the K2 and T7 rules of the design brief in the first comment of issue #101. It keeps
+  the section number 7 of the earlier placeholder text.
 CHANGELOG.md, the 0.1.0 entry
 jitpack.yml
 docs/superpowers/specs/2026-09-21-octometer-design.md, section 2.3, D22, D23, D24, D25,
