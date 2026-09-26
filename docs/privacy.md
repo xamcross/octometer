@@ -126,6 +126,6 @@ The correction round of pull request #220 (2026-09-27, MAJOR 1 and MAJOR 2) corr
 Issue #119 added the sentence on the first page, the source, and the pre-sign-in
   buttons to section 2 (the owner's approval of 2026-09-27, issue #42). Section 2
   named neither the first page nor a button before a sign-in, so the new sentence
-  adds content. Lines 84-85 already state the join after a sign-in in section 9;
+  adds content. Lines 88-89 already state the join after a sign-in in section 9;
   both sentences stay, because each one states a different fact of the same rule.
 -->
