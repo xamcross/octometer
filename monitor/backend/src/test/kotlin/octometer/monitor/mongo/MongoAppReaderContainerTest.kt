@@ -192,6 +192,11 @@ class MongoAppReaderContainerTest {
     // org.mongodb to WARN. This test polls with a marker user name and
     // password, then it reads every captured log line of the cycle,
     // not only ERROR. It then asserts that no line holds either marker.
+    //
+    // Issue #31 correction 2: octometer.monitor.ConnectionStringSentinelContainerTest
+    // covers the same password rule, through the real scheduler and
+    // reader, with a wrong host and good events added around it. Both
+    // tests stay; this one calls MongoAppReader.pollOnce directly.
     @Test
     fun `a marker user name and password in the connection string stay out of every log line at the shipped level`() = runBlocking {
         val markerUser = "octomarkerloguser4c2b"
