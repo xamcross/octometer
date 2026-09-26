@@ -38,7 +38,12 @@ private const val INSERT_SKIPPED_EVENT_SQL = """
     ON CONFLICT(app_id, event_id) DO NOTHING
 """
 
-private const val UPDATE_CURSOR_SQL = "UPDATE app SET cursor = ? WHERE id = ?"
+// The maintainer's decision of the correction round of pull request
+// #208 (issue #187): the guard "AND cursor IS ?" rejects a stale
+// write. A PATCH of the connection string can reset the cursor to
+// NULL between the read of one page and this commit; the guard then
+// changes 0 rows, and commitPage rolls the whole page back.
+private const val UPDATE_CURSOR_SQL = "UPDATE app SET cursor = ? WHERE id = ? AND cursor IS ?"
 
 private const val RECORD_CYCLE_SUCCESS_SQL =
     "UPDATE app SET last_poll_at = ?, last_success_at = ?, status = ?, " +
@@ -52,9 +57,18 @@ private const val RECORD_FAILURE_SQL =
  * The repository function of step 6 (D4). One call commits one page. It
  * inserts each event, with a duplicate event dropped. It also inserts
  * each skipped document, with its fixed reason (issue #27, D5). It
- * moves the cursor. All three steps sit inside one `BEGIN IMMEDIATE`
- * transaction. A failed step rolls back the whole page, thus the cursor
- * keeps its old value.
+ * moves the cursor, guarded by [expectedCursor]: the value that the
+ * caller last saw in the app row, before this page. All three steps
+ * sit inside one `BEGIN IMMEDIATE` transaction. A failed step rolls
+ * back the whole page, thus the cursor keeps its old value.
+ *
+ * The maintainer's decision of the correction round of pull request
+ * #208 (issue #187, MAJOR 1): a PATCH of the connection string can
+ * reset the cursor between the read of this page and this call. The
+ * guard then changes 0 rows. This method rolls the page back, and it
+ * gives `false`, with no throw. [MongoAppReader.runCycle] then stops
+ * the cycle at once, so the reader reads this page again, of the new
+ * source, at the next cycle.
  *
  * A cancelled caller still lets the open page finish or roll back on the
  * writer thread. A JDBC call does not stop midway. The exception still
@@ -66,18 +80,22 @@ class EventStore(private val database: SqliteDatabase) {
         appId: Long,
         events: List<NewEvent>,
         cursor: String,
+        expectedCursor: String?,
         skippedEvents: List<SkippedEvent> = emptyList(),
-    ) {
+    ): Boolean =
         database.write { writer ->
             writer.createStatement().use { it.execute("BEGIN IMMEDIATE") }
             var committed = false
+            var cursorMoved = false
             var failure: Throwable? = null
             try {
                 insertEvents(writer, appId, events)
                 insertSkippedEvents(writer, appId, skippedEvents)
-                updateCursor(writer, appId, cursor)
-                writer.createStatement().use { it.execute("COMMIT") }
-                committed = true
+                cursorMoved = updateCursor(writer, appId, cursor, expectedCursor)
+                if (cursorMoved) {
+                    writer.createStatement().use { it.execute("COMMIT") }
+                    committed = true
+                }
             } catch (error: Throwable) {
                 failure = error
                 throw error
@@ -86,8 +104,8 @@ class EventStore(private val database: SqliteDatabase) {
                     rollback(writer, failure)
                 }
             }
+            cursorMoved
         }
-    }
 
     /**
      * Records a good poll cycle (issue #27, D5, D8). It sets
@@ -166,13 +184,14 @@ class EventStore(private val database: SqliteDatabase) {
         }
     }
 
-    private fun updateCursor(writer: Connection, appId: Long, cursor: String) {
+    /** Gives `true` when the guarded update moved the cursor of one row. */
+    private fun updateCursor(writer: Connection, appId: Long, cursor: String, expectedCursor: String?): Boolean =
         writer.prepareStatement(UPDATE_CURSOR_SQL).use { update ->
             update.setString(1, cursor)
             update.setLong(2, appId)
-            check(update.executeUpdate() == 1) { "No app row for id $appId." }
+            update.setString(3, expectedCursor)
+            update.executeUpdate() == 1
         }
-    }
 
     // MAJOR 4 of correction round 1 (Kotlin backend engineer): a finally
     // does the rollback, and a failed ROLLBACK never stays silent.
