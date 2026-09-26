@@ -165,7 +165,7 @@ jobs:
       - name: Publish the kit to mavenLocal()
         # Issue #68, decision 2. Each project reads the kit from the
         # local Maven repository at this coordinate, not from JitPack:
-        # com.github.xamcross.octometer:octometer-kit-mongo:0.1.0.
+        # com.github.xamcross.octometer:octometer-kit-mongo:0.2.0.
         run: ./gradlew publishToMavenLocal
       - name: Test the Maven project
         if: matrix.project.tool == 'maven'

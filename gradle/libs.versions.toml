@@ -24,7 +24,7 @@ sqlite-jdbc = "3.53.4.0"
 # The version of the three kit publications of JitPack (design decision
 # D25, issue #37). A release bump (D26, issue #39) changes this entry
 # only.
-octometer-kit = "0.1.0"
+octometer-kit = "0.2.0"
 # Test-only versions of kit/jvm-mongo. Each one is the current release on
 # Maven Central, confirmed on 2026-09-21.
 junit = "6.1.3"
