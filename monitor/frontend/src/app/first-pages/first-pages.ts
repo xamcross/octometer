@@ -1,7 +1,8 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, effect, inject, input } from '@angular/core';
+import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
+import { Announcer } from '../announcer';
 import { createPollStore } from '../poll/poll-store';
 import { RefreshBar } from '../refresh-bar/refresh-bar';
 import { numberFormat } from '../status-format';
@@ -40,6 +41,7 @@ import type { FirstPageRow, FirstPagesResponse } from './first-page-row';
 export class FirstPages {
   private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
+  private readonly announcer = inject(Announcer);
 
   /** The `appId` path parameter, bound by the router. */
   readonly appId = input.required<string>();
@@ -76,6 +78,25 @@ export class FirstPages {
   /** The `appId` of the last request that the effect below sent. */
   private previousAppId: string | null = null;
 
+  /**
+   * True after a pager click sends a fresh request, until that request
+   * answers. The announce effect below reads this flag, so it speaks the
+   * result after the answer, and never before the request (the form of
+   * `users.ts`, accessibility BLOCKER 1 of the correction round 1 of pull
+   * request #159, MAJOR 1 of the review of pull request #216).
+   */
+  private readonly pendingAnnouncement = signal(false);
+
+  /**
+   * The `data` and `dataError` of the store at the moment a page change
+   * starts a fresh request. Old rows stay on the screen while that
+   * request is in flight (D30), so the announce effect below compares
+   * each signal against these fields, and it waits until one of them
+   * holds a new reference.
+   */
+  private pendingBaselineData: FirstPagesResponse | undefined = undefined;
+  private pendingBaselineError: unknown = undefined;
+
   constructor() {
     // Calls refresh() once for each user action that changes appId or
     // page: a pager click, a reload, or the Back button. The store itself
@@ -90,6 +111,9 @@ export class FirstPages {
         if (this.previousAppId !== null && this.previousAppId !== appId) {
           this.store.reset();
         }
+        this.pendingBaselineData = this.store.data();
+        this.pendingBaselineError = this.store.dataError();
+        this.pendingAnnouncement.set(true);
         this.store.refresh();
       }
       this.previousAppId = appId;
@@ -97,6 +121,25 @@ export class FirstPages {
     });
 
     effect(() => this.redirectOnAppNotFound());
+
+    // Announces the result of a pager click, once that request answers
+    // (MAJOR 1 of the review of pull request #216). It stays silent for
+    // the first load, for an automatic poll tick, and for a failed
+    // request.
+    effect(() => {
+      const page = this.store.data();
+      const error = this.store.dataError();
+      if (!this.pendingAnnouncement()) {
+        return;
+      }
+      if (page === this.pendingBaselineData && error === this.pendingBaselineError) {
+        return; // The request of this action has not answered yet.
+      }
+      this.pendingAnnouncement.set(false);
+      if (page !== undefined && page !== this.pendingBaselineData) {
+        this.announceResult(page);
+      }
+    });
   }
 
   /** The text of a count cell. */
@@ -156,6 +199,27 @@ export class FirstPages {
     if (error instanceof HttpErrorResponse && error.status === 404) {
       void this.router.navigate(['/apps'], { queryParams: { notFoundAppId: this.appId() } });
     }
+  }
+
+  /**
+   * Announces the row count of a fresh answer, plus the page it belongs
+   * to (MAJOR 1 of the review of pull request #216).
+   */
+  private announceResult(page: FirstPagesResponse): void {
+    this.announcer.announce(
+      `${this.rowCountText(page.rows.length)} Page ${page.page} of ${page.pageCount}.`,
+    );
+  }
+
+  /** The count part of the announce text: "No first page." or "N first pages." */
+  private rowCountText(count: number): string {
+    if (count === 0) {
+      return 'No first page.';
+    }
+    if (count === 1) {
+      return '1 first page.';
+    }
+    return `${count} first pages.`;
   }
 
   /** True while the user selects text that touches the given cell. */

@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
+import { Announcer } from '../announcer';
 import { FirstPages } from './first-pages';
 import type { FirstPageRow, FirstPagesResponse } from './first-page-row';
 
@@ -429,6 +430,40 @@ describe('FirstPages', () => {
       httpMock
         .expectOne('/api/apps/7/first-pages?page=2')
         .flush(buildPage({ page: 2, pageCount: 5 }));
+    });
+
+    it('announces the row count and the new page after a Next click, once the answer arrives (MAJOR 1 of the review of #216)', () => {
+      startStore();
+      flushFirstPages(buildPage({ page: 1, pageCount: 5 }));
+      const announcer = TestBed.inject(Announcer);
+      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+      const buttons = Array.from(root().querySelectorAll('nav.pager button'));
+      const next = buttons.find((b) => b.textContent?.trim() === 'Next') as HTMLElement;
+      next.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(navigateSpy).toHaveBeenCalledWith(['/apps', '7', 'first-pages'], {
+        queryParams: { page: 2 },
+      });
+      vi.advanceTimersByTime(200);
+      // The click itself changes no route input (navigate is mocked), so
+      // the region stays silent until the router echoes the new page back.
+      expect(announcer.message()).toBe('');
+
+      // Simulates the router echoing the navigated page back as the route input.
+      fixture.componentRef.setInput('page', '2');
+      fixture.detectChanges();
+      httpMock.expectOne('/api/apps/7/first-pages?page=2').flush(
+        buildPage({
+          page: 2,
+          pageCount: 5,
+          rows: [buildRow(), buildRow({ path: '/other' })],
+        }),
+      );
+      fixture.detectChanges();
+      vi.advanceTimersByTime(200);
+
+      expect(announcer.message()).toBe('2 first pages. Page 2 of 5.');
     });
 
     it('gives the pager buttons a minimum target size of 24 by 24 CSS px', () => {
