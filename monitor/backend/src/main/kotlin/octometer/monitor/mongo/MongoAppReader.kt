@@ -382,6 +382,15 @@ class MongoAppReader(
      * skip or more, else `OK` (D8). This fixes the old failure of "one
      * bad document stops the app for ever" (Kotlin review, MAJOR 2 of
      * pull request #160).
+     *
+     * The maintainer's decision of the correction round of pull request
+     * #208 (issue #187, MAJOR 1): each page passes [cursor], the value
+     * before that page, as the guard of [EventStore.commitPage]. A
+     * PATCH of the connection string can reset the app row's cursor
+     * inside this window (between the read of one page and its
+     * commit). The guard then rejects the page, and this loop stops at
+     * once, with no further fetch and no further write; the outcome
+     * keeps the cursor of the last page that did commit.
      */
     internal suspend fun runCycle(
         appId: Long,
@@ -411,7 +420,8 @@ class MongoAppReader(
                 log.warn("The reader skipped {} invalid document(s) of one page.", skipped.size)
             }
             val newCursor = page.last().getObjectId("_id").toHexString()
-            eventStore.commitPage(appId, events, newCursor, skippedEvents = skipped)
+            val committed = eventStore.commitPage(appId, events, newCursor, expectedCursor = cursor, skippedEvents = skipped)
+            if (!committed) break
             cursor = newCursor
             eventsStored += events.size
             eventsSkipped += skipped.size
