@@ -2,21 +2,30 @@ package octometer.monitor.store
 
 import java.sql.Connection
 
-/** One event of a page, ready for the insert of step 6. */
+/**
+ * One event of a page, ready for the insert of step 6. [path] and
+ * [referrerHost] hold the value of the document as it is (design
+ * decision D5); the reader adds no rule of its own. [kind] is 1 for
+ * the element `octo:session-start`, and 0 for each other element
+ * (issue #110, section 6).
+ */
 data class NewEvent(
     val eventId: String,
     val ts: Long,
     val element: String,
     val sessionId: String,
     val userId: String?,
+    val path: String? = null,
+    val referrerHost: String? = null,
+    val kind: Int = 0,
 )
 
 /** One invalid document of a page: its hex `_id`, and a fixed reason (issue #27, D5). */
 data class SkippedEvent(val eventId: String, val reason: String)
 
 private const val INSERT_EVENT_SQL = """
-    INSERT INTO event (app_id, event_id, ts, element, session_id, user_id)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO event (app_id, event_id, ts, element, session_id, user_id, path, referrer_host, kind)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(app_id, event_id) DO NOTHING
 """
 
@@ -101,6 +110,9 @@ class EventStore(private val database: SqliteDatabase) {
                 insert.setString(4, event.element)
                 insert.setString(5, event.sessionId)
                 insert.setString(6, event.userId)
+                insert.setString(7, event.path)
+                insert.setString(8, event.referrerHost)
+                insert.setInt(9, event.kind)
                 insert.addBatch()
             }
             insert.executeBatch()
