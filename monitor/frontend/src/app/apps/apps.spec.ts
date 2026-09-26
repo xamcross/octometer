@@ -225,6 +225,36 @@ describe('Apps', () => {
       }
     });
 
+    it('adds a link cell "First pages" after the "Unique sessions" column (#114)', () => {
+      startStore();
+      flushApps([buildRow({ appId: 7 })]);
+
+      const headers = Array.from(root().querySelectorAll('thead th'));
+      const sessionsIndex = headers.findIndex((h) => h.textContent?.trim() === 'Unique sessions');
+      const firstPagesIndex = headers.findIndex((h) => h.textContent?.trim() === 'First pages');
+      expect(sessionsIndex).toBeGreaterThanOrEqual(0);
+      expect(firstPagesIndex).toBe(sessionsIndex + 1);
+
+      const link = root().querySelector('a.first-pages-link') as HTMLAnchorElement;
+      expect(link.textContent?.trim()).toBe('First pages');
+      expect(link.getAttribute('href')).toBe('/apps/7/first-pages');
+    });
+
+    it('gives the "First pages" link a minimum target size of 24 by 24 CSS px, and the keyboard reaches it in the row order (#114)', () => {
+      startStore();
+      flushApps([buildRow()]);
+
+      const link = root().querySelector('a.first-pages-link') as HTMLElement;
+      const style = getComputedStyle(link);
+      expect(style.minWidth).toBe('24px');
+      expect(style.minHeight).toBe('24px');
+      expect(link.hasAttribute('tabindex')).toBe(false);
+
+      const focusable = Array.from(root().querySelectorAll('tbody a'));
+      expect(focusable[0]).not.toBe(link);
+      expect(focusable[focusable.indexOf(link) - 1]?.textContent?.trim()).toBe('traficio');
+    });
+
     it('links the name cell to the level 2 view of that app', () => {
       startStore();
       flushApps([buildRow({ appId: 7 })]);
