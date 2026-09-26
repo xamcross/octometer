@@ -57,13 +57,17 @@ Issue #41 also holds the open decision on the consent method.
 
 ## 7. The processors
 
-We use MongoDB Atlas to store the record. The owner's monitor also reads
-the record, and it runs on Fly.io. Each processor sits outside the EU.
+We use MongoDB Atlas to store the record. We use `<the hosting provider
+of this app>` to run this app. Each processor sits outside the EU.
 
-The EU-US Data Privacy Framework adequacy decision covers these two
-companies in the USA. No EU adequacy decision covers Ukraine. For Ukraine
-we use the safeguards named at `<link to the safeguards list>`. You may
-ask us for a copy of them.
+The owner's monitor also reads the record, on the owner's own Windows
+computer (design decision D11). The owner is the controller of section
+1, so the monitor is no processor.
+
+The EU-US Data Privacy Framework adequacy decision covers MongoDB Inc.
+in the USA. No EU adequacy decision covers Ukraine. For Ukraine we use
+the safeguards named at `<link to the safeguards list>`. You may ask us
+for a copy of them.
 
 ## 8. Your rights
 
@@ -104,9 +108,15 @@ The owner's comment on issue #45 (2026-09-21): #41 is parked for the pilot. Sect
 Sections 2, 5, and 9 add the click data, the retention sources, and the erasure width
   that pull request #87 lacks (referrerHost of contract rule C40, decision D15, and
   contract rule C43).
-The proof-check of issue #42 (2026-09-27) corrected section 7: the app uses MongoDB
-  Atlas (design section 2.3) and the owner's monitor runs on Fly.io (design decision
-  O4, section 2.2); pull request #87 named Cloudflare and gave Fly.io to the app, and
-  neither claim has a source. The proof-check also added the right to object of
-  section 8 (GDPR Article 13(2)).
+The proof-check of issue #42 (2026-09-27) corrected section 7: pull request #87 named
+  Cloudflare with no source, and it named Fly.io as the host of the app. The
+  proof-check also added the right to object of section 8 (GDPR Article 13(2)).
+The correction round of pull request #220 (2026-09-27, MAJOR 1 and MAJOR 2) corrected
+  section 7 a second time. The monitor runs on the owner's own Windows computer, not
+  on Fly.io (decision D11, decision D34, `monitor/backend/README.md` line 15, issue
+  #38). Decision O4 names a Fly machine only as the cost that a metrics endpoint would
+  add; it gives the monitor a direct read of MongoDB instead. The owner is the
+  controller of section 1, so the monitor is a tool of the controller, not a
+  processor. The processor list now holds MongoDB Atlas and the hosting provider of
+  the app.
 -->
