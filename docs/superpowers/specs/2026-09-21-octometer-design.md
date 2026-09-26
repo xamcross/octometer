@@ -427,7 +427,7 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
 - **D25. Distribution.** JVM: JitPack with a `jitpack.yml` (`jdk: openjdk21`, an `install`
   command that publishes only the kit modules, `-x test`). Artifact IDs `octometer-kit-core`,
   `octometer-kit-mongo`, `octometer-kit-ktor`, `octometer-kit-spring`. An app depends only on
-  a release tag, and it limits the JitPack repository with `exclusiveContent`. Tracker: `npm pack`, the `.tgz` file on the GitHub Release. No npm account.
+  a release tag, and it limits the JitPack repository with `exclusiveContent`. Tracker: `npm pack`, the `.tgz` file on the GitHub Release. No npm account. (2026-09-27) Maven has no `exclusiveContent`; the Spring guide gives the repository order and the `settings.xml` mirror as the Maven form.
 - **D26. Release.** One SemVer tag `X.Y.Z` without a prefix. `release.yml` checks the top
   entry of `CHANGELOG.md` and the tracker version, builds `octometer-monitor-X.Y.Z.zip`
   (`distZip` with the Angular build), attaches the zip and the tracker `.tgz`, and requests
