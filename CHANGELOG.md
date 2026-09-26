@@ -11,6 +11,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Kit JVM
 
+- Document the route pattern list, the pilot settings, and the privacy notice text
+  for the first page. (#119)
+
 ### Tracker
 
 ### Monitor
