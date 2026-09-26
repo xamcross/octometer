@@ -22,36 +22,41 @@ export const REFERRER_SOURCE_LIST = ['google.com', 'bing.com'] as const;
 const IPV4_HOST_PATTERN = /^\d{1,3}(\.\d{1,3}){3}$/;
 
 /**
- * Builds the match pattern of one source entry, from its plain host
- * name. The `google` pattern of contract rule C40 is
- * `^([a-z0-9-]+\.)*google\.((com|co)\.[a-z]{2}|com|[a-z]{2})$`. The
- * `bing` pattern has the same form, with `bing` in place of `google`
- * (the maintainer's decision on issue #108). The README of this package
- * states the exact regex of each entry.
+ * The country pattern of contract rule C40. The rule states this
+ * pattern for the entry `google.com` only. It gives no such pattern
+ * for `bing.com`. The plain equals-or-suffix rule below covers each
+ * other entry. Thus a host such as `bing.co.uk` gives `other` (the
+ * correction of MAJOR 1, from both reviews of pull request #192). The
+ * server class `EventFieldValidator` holds one Google pattern, with no
+ * `bing` pattern.
  */
-function buildSourcePattern(name: string): RegExp {
-  return new RegExp(`^([a-z0-9-]+\\.)*${name}\\.((com|co)\\.[a-z]{2}|com|[a-z]{2})$`);
-}
+const GOOGLE_HOST_PATTERN = /^([a-z0-9-]+\.)*google\.((com|co)\.[a-z]{2}|com|[a-z]{2})$/;
 
-interface SourceEntry {
-  readonly host: string;
-  readonly pattern: RegExp;
+/**
+ * Checks the plain match rule of contract rule C40. A host matches an
+ * entry when it equals the entry. It also matches when it ends with
+ * `.` plus the entry.
+ */
+function matchesSourceEntry(host: string, entry: string): boolean {
+  return host === entry || host.endsWith(`.${entry}`);
 }
-
-const SOURCE_ENTRIES: readonly SourceEntry[] = REFERRER_SOURCE_LIST.map((host) => {
-  const name = host.split('.')[0] as string;
-  return { host, pattern: buildSourcePattern(name) };
-});
 
 /**
  * Matches a lower-case host against the source list. Gives the matched
  * entry, or the literal `other` for each other host.
+ *
+ * The order follows contract rule C40. The plain equals-or-suffix rule
+ * runs first, for each entry of the list. The country pattern of
+ * `google.com` runs second, as an extra rule.
  */
 export function matchSourceHost(host: string): string {
-  for (const entry of SOURCE_ENTRIES) {
-    if (entry.pattern.test(host)) {
-      return entry.host;
+  for (const entry of REFERRER_SOURCE_LIST) {
+    if (matchesSourceEntry(host, entry)) {
+      return entry;
     }
+  }
+  if (GOOGLE_HOST_PATTERN.test(host)) {
+    return 'google.com';
   }
   return REFERRER_HOST_OTHER;
 }

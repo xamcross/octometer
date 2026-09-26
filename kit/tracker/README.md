@@ -238,24 +238,26 @@ start. It gives no `referrerHost` field for one of five cases:
 - an IP literal;
 - a host without a dot.
 
-For each other referrer, the tracker takes the host, in lower case, and
-matches it against the source list below. A host that matches no entry
-gives the literal `other`. The tracker sends only the matched entry, or
-the literal `other`, never the raw host and never a part of the query
+For each other referrer, the tracker takes the host, in lower case. A
+host matches an entry when it equals the entry, or when it ends with
+`.` plus the entry. The tracker sends only the matched entry, or the
+literal `other`, never the raw host and never a part of the query
 string or the path of the referrer.
 
-The source list holds two entries, each with its own pattern:
+The source list holds two entries: `google.com` and `bing.com`.
+`src/referrer-source.ts` holds them as one list of constants.
 
-| Entry | Pattern |
-| --- | --- |
-| `google.com` | `^([a-z0-9-]+\.)*google\.((com\|co)\.[a-z]{2}\|com\|[a-z]{2})$` |
-| `bing.com` | `^([a-z0-9-]+\.)*bing\.((com\|co)\.[a-z]{2}\|com\|[a-z]{2})$` |
+Rule C40 gives one entry an extra pattern: a host that matches this
+regex also gives `google.com`.
 
-The `bing` pattern has the same form as the `google` pattern of contract
-rule C40, with `bing` in place of `google` (the maintainer's decision on
-issue #108). `src/referrer-source.ts` holds the two entries as one list
-of constants, and it builds each pattern from that one list, so the two
-never drift apart.
+```
+^([a-z0-9-]+\.)*google\.((com|co)\.[a-z]{2}|com|[a-z]{2})$
+```
+
+The entry `bing.com` gets no such pattern (the correction of MAJOR 1,
+from both reviews of pull request #192). A host such as `bing.co.uk`
+gives the literal `other`, the plain rule above, and the same answer as
+the server.
 
 The stored `referrerHost` value is exactly one of three literals:
 `google.com`, `bing.com`, or `other`. This is the same closed value set

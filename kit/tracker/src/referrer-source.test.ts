@@ -46,11 +46,26 @@ describe('matchSourceHost', () => {
     expect(matchSourceHost('www.bing.com')).toBe('bing.com');
   });
 
-  it('matches a google country host, the same way as a bing country host', () => {
+  it('matches a google country host, through the country pattern of rule C40', () => {
     expect(matchSourceHost('www.google.de')).toBe('google.com');
     expect(matchSourceHost('www.google.co.uk')).toBe('google.com');
-    expect(matchSourceHost('www.bing.de')).toBe('bing.com');
-    expect(matchSourceHost('www.bing.co.uk')).toBe('bing.com');
+  });
+
+  it('gives other for a bing country host, because rule C40 gives bing.com no country pattern', () => {
+    // Correction of MAJOR 1 (both reviews of pull request #192). Rule
+    // C40 states the country pattern for google.com alone. A bing host
+    // outside the plain equals-or-suffix rule gives other, the same
+    // answer as the server (EventFieldValidator.matchReferrerHost).
+    expect(matchSourceHost('www.bing.de')).toBe(REFERRER_HOST_OTHER);
+    expect(matchSourceHost('bing.co.uk')).toBe(REFERRER_HOST_OTHER);
+    expect(matchSourceHost('www.bing.co.uk')).toBe(REFERRER_HOST_OTHER);
+  });
+
+  it('matches a subdomain of google.com through the plain suffix rule, not only the country pattern', () => {
+    // The suffix rule of rule C40 now runs ahead of the country pattern,
+    // so an odd subdomain character, outside the pattern's own set,
+    // still matches through the plain rule.
+    expect(matchSourceHost('a_b.google.com')).toBe('google.com');
   });
 
   it('gives the literal other for a host that only looks like google', () => {
