@@ -16,9 +16,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.random.Random
 import octometer.monitor.mongo.MongoReadFailedException
+import octometer.monitor.mongo.PRIVILEGE_CHECK_INTERVAL_MILLIS
 import octometer.monitor.mongo.PollOutcome
 import octometer.monitor.mongo.PollTarget
 import octometer.monitor.mongo.STATUS_ERROR
+import octometer.monitor.mongo.STATUS_OVERPRIVILEGED
 import octometer.monitor.registry.SecretStore
 import org.slf4j.LoggerFactory
 
@@ -251,6 +253,19 @@ class PollScheduler(
         row.nextPollAt == null || row.nextPollAt <= now
 
     /**
+     * Tells whether the privilege check of design decision D9 (issue
+     * #30) is due this cycle: the first poll of the app
+     * (`privilegesCheckedAt IS NULL`), 24 hours or more since the last
+     * check, or a stored status of [STATUS_OVERPRIVILEGED] (a
+     * corrected role still needs one more check before the poll
+     * resumes).
+     */
+    private fun isPrivilegeCheckDue(row: AppRow, now: Long): Boolean =
+        row.privilegesCheckedAt == null ||
+            now - row.privilegesCheckedAt >= PRIVILEGE_CHECK_INTERVAL_MILLIS ||
+            row.status == STATUS_OVERPRIVILEGED
+
+    /**
      * Closes the reader client of each app id of the last tick that is
      * absent from [currentAppIds] now: a deleted app (issue #17,
      * decision 7). The app row is already gone, thus this tick starts
@@ -267,7 +282,8 @@ class PollScheduler(
      * on while the poll runs (issue #17, decision 6).
      */
     private fun startPoll(row: AppRow) {
-        val target = PollTarget(row.appId, row.database, row.collection, row.cursor)
+        val checkPrivileges = isPrivilegeCheckDue(row, clock.millis())
+        val target = PollTarget(row.appId, row.database, row.collection, row.cursor, checkPrivileges)
         val job = scope.launch { runPollCycle(row, target) }
         activePolls[row.appId] = job
         job.invokeOnCompletion { activePolls.remove(row.appId, job) }
@@ -315,7 +331,13 @@ class PollScheduler(
             recordFailure(row, STATUS_ERROR, timeout.javaClass.simpleName)
         } catch (readFailure: MongoReadFailedException) {
             log.warn("The poll cycle failed. {}", readFailure.javaClass.simpleName)
-            val lastError = readFailure.code?.toString() ?: readFailure.javaClass.simpleName
+            // The reason text of a failed privilege check (design
+            // decision D9, issue #30) is the fixed, safe text of
+            // PrivilegeCheck.kt: it holds no collection name, no user
+            // name, no role name, and no privilege. It reaches
+            // last_error, and so the display of apps.html, in place of
+            // the command error code that each other failure keeps.
+            val lastError = readFailure.reason ?: readFailure.code?.toString() ?: readFailure.javaClass.simpleName
             recordFailure(row, readFailure.status, lastError)
         } catch (cancellation: CancellationException) {
             // Lesson 2 of the backend brief: re-throw only a real

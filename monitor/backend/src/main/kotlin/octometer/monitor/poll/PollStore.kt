@@ -21,6 +21,8 @@ data class AppRow(
     val nextPollAt: Long?,
     val status: String?,
     val consecutiveFailures: Int,
+    /** `app.privileges_checked_at` (design decision D9, issue #30), or `null` before the first check. */
+    val privilegesCheckedAt: Long? = null,
 )
 
 /**
@@ -82,11 +84,13 @@ class SqlitePollStore(private val database: SqliteDatabase) : PollStore {
 private fun readAppRows(reader: Connection): List<AppRow> =
     reader.createStatement().use { statement ->
         statement.executeQuery(
-            "SELECT id, database_name, collection_name, cursor, next_poll_at, status, consecutive_failures FROM app",
+            "SELECT id, database_name, collection_name, cursor, next_poll_at, status, consecutive_failures, " +
+                "privileges_checked_at FROM app",
         ).use { result ->
             val rows = mutableListOf<AppRow>()
             while (result.next()) {
                 val nextPollAt = result.getLong("next_poll_at").takeUnless { result.wasNull() }
+                val privilegesCheckedAt = result.getLong("privileges_checked_at").takeUnless { result.wasNull() }
                 rows += AppRow(
                     appId = result.getLong("id"),
                     database = result.getString("database_name"),
@@ -95,6 +99,7 @@ private fun readAppRows(reader: Connection): List<AppRow> =
                     nextPollAt = nextPollAt,
                     status = result.getString("status"),
                     consecutiveFailures = result.getInt("consecutive_failures"),
+                    privilegesCheckedAt = privilegesCheckedAt,
                 )
             }
             rows
