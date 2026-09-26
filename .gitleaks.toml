@@ -53,11 +53,11 @@ regexes = [
 # at the commit tagged `v3.0.0`; its own log line "gitleaks version:
 # 8.24.3" (read on 2026-09-26) names the installed CLI version, one
 # minor version before 8.25.0. This repository therefore keeps the
-# rule-scoped `[[rules.allowlists]]` form, with `paths`, a field this
+# rule-scoped `[[rules.allowlists]]` form, with `regexes`, a field this
 # version already supports (the same README, the `[[rules.allowlists]]`
 # examples).
 [[rules.allowlists]]
 description = "A fake connection string of an early commit of pull request #195 (issue #28), a test fixture, never a real credential."
-paths = [
-  '''monitor/backend/src/test/kotlin/octometer/monitor/mongo/MongoAppReaderUnitTest\.kt''',
+regexes = [
+  '''mongodb\+srv://octomarkeruriuserf7b2:octomarkeruripassf7b2@cluster0\.example\.mongodb\.net$''',
 ]
