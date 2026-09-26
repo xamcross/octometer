@@ -31,6 +31,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add the Ktor ingest route in kit/jvm-ktor. (#12)
 - Add the store interface and the in-memory store to kit/jvm-core. (#26)
 - Add the anonymous per-minute limits and the proxy rule to the kit. (#116)
+- Add the daily anonymous cap and the user-agent filter to the kit. (#117)
 
 ### Tracker
 
@@ -76,6 +77,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Stop the TRACE log line of StatusPages that holds the query string. (#150)
 - Show a later failed data poll in the shell banner. (#164)
 - Remove each dead entry from the secret-scan allow-list. (#171)
+- Run only the tests of the changed modules in CI and on the owner machine. (#177)
 - Add minor_issues.md with the open MINOR findings of the reviews. (#186)
 - Add the visit rule to the end-to-end test. (#188)
 - Store the MINOR review rows in one file for each pull request. (#202)
