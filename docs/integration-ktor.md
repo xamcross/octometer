@@ -265,8 +265,8 @@ npm install https://github.com/xamcross/octometer/releases/download/<version>/oc
 Replace `<version>` with the tag of that later release.
 
 Add the tracker to your page script, for example `main.ts`. Call `start()` only after
-the consent signal of your app. `docs/privacy.md` holds the draft privacy notice text
-for that consent signal.
+the consent signal of your app. `docs/privacy.md` holds the approved privacy notice
+text. The legal basis of its section 6 waits for issue #41.
 
 ```ts
 import { createTracker } from 'octometer-tracker';
@@ -312,6 +312,125 @@ Read the event back through the monitor. Read the app row of the monitor API, or
 the level 1 view of the monitor UI. The new click raises the click count of your app
 within the poll interval of the monitor mode.
 
+## 9. The integration issues of an app
+
+This section holds two issue templates. Each filed issue belongs to the app
+repository, not to this repository. Copy the fenced block of one template into a
+file. Run `gh label list --repo <your app repository>` first. Create a missing label
+with `gh label create <name> --description "<the meaning>" --color <hex>`.
+
+**The agent template.** The title has the imperative form "Integrate Octometer into
+`<app>`". Add the label `enhancement`. File the issue with this command:
+
+```
+gh issue create --repo <your app repository> --title "Integrate Octometer into <app>" --label enhancement --body-file <file>
+```
+
+```markdown
+**Goal.** `<app>` sends its clicks to Octometer, and it shows the privacy text.
+
+**The guide.** https://github.com/xamcross/octometer/blob/main/docs/integration-ktor.md
+
+**Implementation steps.**
+1. Add the dependency of section 1: the JitPack repository with `exclusiveContent`,
+   plus the coordinates `octometer-kit-ktor` and `octometer-kit-mongo`.
+2. Add the driver client of section 2: `mongodb-driver-sync`, a connection pool of
+   `maxPoolSize=5`, a socket read timeout, against the database `<database>`.
+3. Mount the route of section 5, with a `resolveUserId` lambda. The lambda reads the
+   user id from your own session.
+4. Add the account deletion call of section 6: `deleteByUserId(userId)`.
+5. Install the tracker of section 7, and call `start()`. The `.tgz` asset needs a
+   release tag after `0.1.0`. The moment of the `start()` call follows the decision
+   of `xamcross/octometer#41` (open).
+6. Show the text of `xamcross/octometer#42`
+   (https://github.com/xamcross/octometer/blob/main/docs/privacy.md) where `<app>`
+   shows its notices. The legal-basis section stays a placeholder until
+   `xamcross/octometer#41` closes.
+
+**Acceptance criteria.**
+- [ ] The dependency of `<app>` uses `octometer-kit-ktor` and `octometer-kit-mongo`
+  (section 1).
+- [ ] The MongoDB client sets a socket read timeout and the write concern `wtimeout`
+  (section 2).
+- [ ] The Netty engine of `<app>` sets `requestReadTimeoutSeconds` (section 5).
+- [ ] Each environment variable of section 5 has its own value, or it keeps the
+  default value.
+- [ ] Each clickable element of `<app>` holds a `data-octo` name of contract rule C4.
+- [ ] The check of section 8 gives the status `204` for the POST with your session
+  cookie.
+- [ ] The test command of `<app>` passes.
+- [ ] A comment on this issue records the response status and the environment
+  variable values.
+
+**Related.**
+- `xamcross/octometer#42` holds the owner's approval of the privacy text.
+- `xamcross/octometer#41` holds the open decision on the legal basis and the consent
+  method.
+
+**Source.** `xamcross/octometer`; sections 1, 2, 5, 6, 7, and 8 of
+https://github.com/xamcross/octometer/blob/main/docs/integration-ktor.md;
+https://github.com/xamcross/octometer/blob/main/docs/privacy.md.
+```
+
+**The mixed template.** The title has the imperative form "Put `<app>` on the
+Octometer monitor (no cost, about 60 minutes)". Add the labels `enhancement` and
+`owner-only`. File the issue with this command:
+
+```
+gh issue create --repo <your app repository> --title "Put <app> on the Octometer monitor (no cost, about 60 minutes)" --label enhancement --label owner-only --body-file <file>
+```
+
+```markdown
+**Goal.** The owner adds `<app>` to the Octometer monitor, and an agent confirms the
+first numbers.
+
+**The guide.** https://github.com/xamcross/octometer/blob/main/docs/integration-ktor.md
+
+**Owner steps.**
+1. Create the database role and the read-only user of section 3, with the Atlas CLI
+   commands (`<project id>`, `<database>`).
+2. Extract `octometer-monitor-<monitor version>.zip` of the GitHub Release. Run
+   `bin\backend.bat` from the extracted folder. The distribution starts in the prod
+   mode by default.
+3. Register `<app>` on `/manage`, with the connection string form of section 3:
+   `mongodb+srv://octometer-reader:<password>@<cluster host>/<database>`.
+4. Create the three Atlas alerts of section 4: connections, network, and storage.
+5. Deploy `<app>`.
+
+**Implementation steps.**
+1. After the deployment of owner step 5, run the check of section 8. Send the POST
+   request with your session cookie and the user agent line.
+2. Confirm the response status is `204`.
+3. Read the click count of `<app>` in the level 1 view of the monitor.
+4. Confirm the click count rises within the poll interval of the monitor.
+5. Write a comment on this issue with the response status and the click count.
+
+**Acceptance criteria.**
+- [ ] The database role of section 3 holds only the `find` action on
+  `octometer_events`.
+- [ ] `<app>` is registered on `/manage`, with its connection string.
+- [ ] Each of the three Atlas alerts of section 4 exists for `<app>`.
+- [ ] The check of section 8 gives the status `204`.
+- [ ] The click count of `<app>` rises in the monitor within the poll interval.
+- [ ] A comment on this issue records the response status and the click count.
+
+**Related.**
+- Release `<monitor version>` of xamcross/octometer is out; D26: upgrade the monitor
+  before an app.
+- `xamcross/octometer#205`: Decide the reader rule for a raw path value from a
+  hand-written document.
+- `xamcross/octometer#42`: Approve the privacy notice text.
+- `xamcross/octometer#41`: Decide the legal basis and the consent method for click
+  tracking.
+- `xamcross/octometer#30`: Check the privileges of the database user.
+- Close each one before the production start.
+
+**Source.** `xamcross/octometer`; sections 3, 4, and 8 of
+https://github.com/xamcross/octometer/blob/main/docs/integration-ktor.md;
+https://github.com/xamcross/octometer/blob/main/docs/demo.md, lines 85-87; design
+decision D26; the GitHub Release page of `xamcross/octometer`.
+```
+
 <!--
 Sources:
 kit/jvm-ktor/README.md
@@ -350,4 +469,19 @@ Section 4, the storage alert metric name and its unit:
   https://www.mongodb.com/docs/atlas/reference/alert-host-metrics/, read 2026-09-26.
   The page holds `DB_DATA_SIZE_TOTAL`, not `DB_DATA_SIZE`, and states that this metric
   counts the document data of each database in bytes.
+Section 7, the link sentence to `docs/privacy.md`: updated for issue #42 (the owner
+  approval of 2026-09-27) to name the approved text and the open legal basis of
+  issue #41.
+Section 9 is new text of this guide, for issue #48. It cites the skill
+  `managing-github-issues` (title form, body order, label rules, `gh issue create`
+  form) and docs/superpowers/specs/2026-09-21-octometer-design.md, sections 4.4 and 8,
+  decisions D25 and D26.
+Section 9, the agent template: docs/privacy.md and the owner's approval comment on
+  xamcross/octometer#42 (2026-09-27); the parked consent decision on
+  xamcross/octometer#41 (the owner's comment on issue #45, 2026-09-21).
+Section 9, the mixed template: docs/demo.md, lines 85-87 (the prod mode default of the
+  distribution form of issue #38); the release artifact name and the D26 rule of
+  .github/workflows/release.yml. The open `production-blocker` issue list
+  (xamcross/octometer#205, #42, #41, #30) comes from `gh issue list --repo
+  xamcross/octometer --label production-blocker --state open`, read 2026-09-27.
 -->
