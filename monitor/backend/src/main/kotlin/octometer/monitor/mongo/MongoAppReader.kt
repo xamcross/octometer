@@ -86,6 +86,14 @@ internal const val PATH_MAX_BYTES = 150
 internal const val REFERRER_HOST_MAX_BYTES = 253
 
 /**
+ * The closed set of contract rule C40. A `referrerHost` value outside
+ * this set is not an invalid document (design decision D5, the
+ * correction of 2026-09-26); [normalizedReferrerHost] drops it to
+ * `null` instead.
+ */
+internal val REFERRER_HOST_VALUES = setOf("google.com", "bing.com", "other")
+
+/**
  * A failed MongoDB read of one poll cycle (design decision D8, the
  * maintainer's decision 1). [status] is the mapped candidate status of
  * [mongoFailureStatus]; the caller of [MongoAppReader.pollOnce] still
@@ -374,6 +382,12 @@ class MongoAppReader(
      * line names the skipped count of the page, with no field of a
      * document.
      *
+     * A `referrerHost` value outside the closed set of contract rule
+     * C40 is not invalid (design decision D5, the correction of
+     * 2026-09-26, issue #196): [parseEvent] drops it to `null`, the row
+     * still commits, and a second WARN line names the dropped count of
+     * the page, with no field of a document.
+     *
      * [pollOnce] sets the status `INVALID_DATA` after a cycle with one
      * skip or more, else `OK` (D8). This fixes the old failure of "one
      * bad document stops the app for ever" (Kotlin review, MAJOR 2 of
@@ -395,16 +409,21 @@ class MongoAppReader(
             if (page.isEmpty()) break
             val events = mutableListOf<NewEvent>()
             val skipped = mutableListOf<SkippedEvent>()
+            var droppedReferrerHost = 0
             for (document in page) {
                 val reason = invalidReason(document)
                 if (reason == null) {
                     events += parseEvent(document)
+                    if (referrerHostDropped(document)) droppedReferrerHost += 1
                 } else {
                     skipped += SkippedEvent(document.getObjectId("_id").toHexString(), reason)
                 }
             }
             if (skipped.isNotEmpty()) {
                 log.warn("The reader skipped {} invalid document(s) of one page.", skipped.size)
+            }
+            if (droppedReferrerHost > 0) {
+                log.warn("The reader dropped {} referrerHost value(s) outside the set.", droppedReferrerHost)
             }
             val newCursor = page.last().getObjectId("_id").toHexString()
             eventStore.commitPage(appId, events, newCursor, skippedEvents = skipped)
@@ -460,13 +479,17 @@ class MongoAppReader(
  *
  * [path] copies the value of the document as it is, for each element
  * (design decision D5: "the reader copies a `path` value ... as they
- * are"). [referrerHost] copies the value only for the element
- * [SESSION_START_ELEMENT]; each other element gives a `null`
- * `referrerHost`, even when the document holds the field (section 6:
- * "it copies `referrer_host` from a session start"; contract rule
- * C40). This function adds no normalisation of a copied value. `kind`
- * is [KIND_SESSION_START] for the element [SESSION_START_ELEMENT],
- * and [KIND_CLICK] for each other element (section 6).
+ * are"; RISK 1 of the security review of pull request #193 stays open
+ * by the owner's choice, issue #205). [referrerHost] copies the value
+ * only for the element [SESSION_START_ELEMENT], and only when the
+ * value is one of the three literals of contract rule C40
+ * ([normalizedReferrerHost]); each other element, and each other
+ * value, gives a `null` `referrerHost`, even when the document holds
+ * the field (section 6: "it copies `referrer_host` from a session
+ * start"; contract rule C40; design decision D5, the correction of
+ * 2026-09-26). `kind` is [KIND_SESSION_START] for the element
+ * [SESSION_START_ELEMENT], and [KIND_CLICK] for each other element
+ * (section 6).
  *
  * [MongoAppReader.runCycle] calls [invalidReason] first, so this
  * function runs only for a document that already passed that check.
@@ -479,7 +502,7 @@ internal fun parseEvent(document: Document): NewEvent {
     val userId = document.getString("userId")
     val path = document.getString("path")
     val isSessionStart = element == SESSION_START_ELEMENT
-    val referrerHost = if (isSessionStart) document.getString("referrerHost") else null
+    val referrerHost = if (isSessionStart) normalizedReferrerHost(document.getString("referrerHost")) else null
     val kind = if (isSessionStart) KIND_SESSION_START else KIND_CLICK
     return NewEvent(
         eventId = id.toHexString(),
@@ -491,6 +514,37 @@ internal fun parseEvent(document: Document): NewEvent {
         referrerHost = referrerHost,
         kind = kind,
     )
+}
+
+/**
+ * Gives [referrerHost] as it is when the value is one of the three
+ * literals of [REFERRER_HOST_VALUES] (contract rule C40: `google.com`,
+ * `bing.com`, `other`). It gives `null` for `null`, and for each other
+ * value. The check is case-sensitive: the source list of C40 is lower
+ * case, and neither the tracker nor the server converts the letter
+ * case.
+ *
+ * A value outside the set breaks no shape rule of C40, so
+ * [invalidReason] marks the document valid. This function drops the
+ * field instead, the form of contract rule C41 (design decision D5,
+ * the correction of 2026-09-26, issue #196): the row stays, because
+ * the event itself is valid, and a `skipped_event` row would drop the
+ * whole session from the counts of issues #112 and #113.
+ */
+internal fun normalizedReferrerHost(referrerHost: String?): String? =
+    referrerHost?.takeIf { it in REFERRER_HOST_VALUES }
+
+/**
+ * Tells whether [document] holds a `referrerHost` value that
+ * [normalizedReferrerHost] drops. [MongoAppReader.runCycle] uses this
+ * only to count the drop for its WARN line (a count only, design
+ * decision D5, the correction of 2026-09-26); [parseEvent] already
+ * applies the drop to the stored value.
+ */
+private fun referrerHostDropped(document: Document): Boolean {
+    if (document.getString("element") != SESSION_START_ELEMENT) return false
+    val raw = document.getString("referrerHost")
+    return raw != null && raw !in REFERRER_HOST_VALUES
 }
 
 /**

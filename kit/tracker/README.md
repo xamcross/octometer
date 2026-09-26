@@ -3,6 +3,18 @@
 The click tracker of Octometer. It records a click on a `data-octo` element
 and sends it to the ingest route of the app.
 
+## Install
+
+The tarball sits on the GitHub Release of the matching tag. No npm account
+and no token are needed.
+
+```
+npm install https://github.com/xamcross/octometer/releases/download/X.Y.Z/octometer-tracker-X.Y.Z.tgz
+```
+
+Replace `X.Y.Z` with the tag of the release. The release `0.1.0` holds no
+tarball; a later tag brings the first one.
+
 ## The consent gate
 
 The tracker stays off until the app calls `start()`. Call `start()` only
