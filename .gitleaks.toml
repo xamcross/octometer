@@ -32,8 +32,7 @@ tags = ["mongodb", "connection-string", "credentials"]
 # form without a finding.
 
 [[rules.allowlists]]
-description = "Two fake URIs. Neither is a real credential. The first is a test fixture: a future test of the CI job `secrets` (issue #7) or of kit/jvm-mongo can stage this exact string to check the rule and the allowlist together. The second is a placeholder from an early commit of the app management page (pull request #161, commit a92504b): a later commit of the same pull request replaced the value in the working tree, but the old commit stays on the remote branch, because project policy forbids a rewrite of a pushed commit. The second value never held a real credential: the host uses the reserved TLD .invalid, and the user name and the password are the literal words 'user' and 'password'."
+description = "One fake URI. It is not a real credential. It is a test fixture. A future test of the CI job `secrets` (issue #7), or of kit/jvm-mongo, can stage this exact string to check the rule and the allowlist."
 regexes = [
   '''mongodb\+srv://octotest:S3cr3t-Test-Only@cluster0\.example\.mongodb\.net$''',
-  '''mongodb\+srv://user:password@cluster0\.example\.invalid$''',
 ]
