@@ -30,6 +30,14 @@ octometer-kit = "0.1.0"
 junit = "6.1.3"
 mockito = "5.23.0"
 testcontainers = "2.0.5"
+# The compile version of kit/jvm-spring (design decision D17, issue #69):
+# the Spring Framework version of the Spring Boot 3.4.1 dependency list.
+# Confirmed on 2026-09-26 from the "v3.4.1" tag of spring-projects/spring-boot
+# on GitHub: gradle.properties holds "springFrameworkVersion=6.2.1", and
+# spring-boot-project/spring-boot-dependencies/build.gradle holds the
+# Jakarta Servlet entry "6.0.0" for the same tag.
+spring-framework = "6.2.1"
+jakarta-servlet-api = "6.0.0"
 
 [libraries]
 ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
@@ -37,6 +45,10 @@ ktor-server-netty = { module = "io.ktor:ktor-server-netty", version.ref = "ktor"
 ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negotiation", version.ref = "ktor" }
 ktor-server-status-pages = { module = "io.ktor:ktor-server-status-pages", version.ref = "ktor" }
 ktor-server-auto-head-response = { module = "io.ktor:ktor-server-auto-head-response", version.ref = "ktor" }
+# Issue #31: the CallLogging plugin, with a format of the method and the
+# path only (D11, D15). Same ktor version as every other Ktor artifact
+# of this catalog.
+ktor-server-call-logging = { module = "io.ktor:ktor-server-call-logging", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 ktor-server-test-host = { module = "io.ktor:ktor-server-test-host", version.ref = "ktor" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
@@ -61,6 +73,12 @@ testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version
 # reads this entry, and the ignore rule of .github/dependabot.yml stops
 # an update of it.
 mongodb-driver-sync = { module = "org.mongodb:mongodb-driver-sync", version.ref = "mongodb-driver-sync" }
+# The compile version of kit/jvm-spring (design decision D17, issue #69).
+# Dependabot reads each entry through this table (issue #138).
+spring-web = { module = "org.springframework:spring-web", version.ref = "spring-framework" }
+spring-webmvc = { module = "org.springframework:spring-webmvc", version.ref = "spring-framework" }
+spring-test = { module = "org.springframework:spring-test", version.ref = "spring-framework" }
+jakarta-servlet-api = { module = "jakarta.servlet:jakarta.servlet-api", version.ref = "jakarta-servlet-api" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
