@@ -21,9 +21,15 @@ import octometer.kit.core.path.PathPatternMatcher;
  * <p>{@code anonMaxEventsPerDay} and {@code anonEventsPerKeyPerDay} are
  * the two daily caps of design decision D43 and issue #117. A route
  * gives the two values to one {@link AnonymousDailyCap}.
+ *
+ * <p>{@code anonReqPerMinute}, {@code anonEventsPerMinute}, and {@code
+ * anonSessionsPerMinute} are the three per-minute limits of design
+ * decision D43 and issue #116. A route gives the three values to one
+ * {@link AnonymousMinuteLimiter}.
  */
 public record IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher pathPatternMatcher,
-        long anonMaxEventsPerDay, long anonEventsPerKeyPerDay) {
+        long anonMaxEventsPerDay, long anonEventsPerKeyPerDay, long anonReqPerMinute, long anonEventsPerMinute,
+        long anonSessionsPerMinute) {
 
     private static final Logger LOGGER = System.getLogger("octometer.kit.core");
 
@@ -36,27 +42,46 @@ public record IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher p
     /** The environment variable of the daily anonymous cap of one key (design decision D43). */
     private static final String ANON_EVENTS_PER_KEY_PER_DAY_VARIABLE = "OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY";
 
+    /** The environment variable of the per-minute request limit (design decision D43, issue #116). */
+    private static final String ANON_REQ_PER_MIN_VARIABLE = "OCTOMETER_ANON_REQ_PER_MIN";
+
+    /** The environment variable of the per-minute click entry limit (design decision D43, issue #116). */
+    private static final String ANON_EVENTS_PER_MIN_VARIABLE = "OCTOMETER_ANON_EVENTS_PER_MIN";
+
+    /** The environment variable of the per-minute session-start limit (design decision D43, issue #116). */
+    private static final String ANON_SESSIONS_PER_MIN_VARIABLE = "OCTOMETER_ANON_SESSIONS_PER_MIN";
+
     /** The default of {@value #ANON_MAX_EVENTS_PER_DAY_VARIABLE} (design decision D43). */
     public static final long DEFAULT_ANON_MAX_EVENTS_PER_DAY = 20_000;
 
     /** The default of {@value #ANON_EVENTS_PER_KEY_PER_DAY_VARIABLE} (design decision D43). */
     public static final long DEFAULT_ANON_EVENTS_PER_KEY_PER_DAY = 2_000;
 
-    /** Only an ASCII digit sets a daily cap. A Unicode digit does not. */
+    /** The default of {@value #ANON_REQ_PER_MIN_VARIABLE} (design decision D43, issue #116). */
+    public static final long DEFAULT_ANON_REQ_PER_MIN = 300;
+
+    /** The default of {@value #ANON_EVENTS_PER_MIN_VARIABLE} (design decision D43, issue #116). */
+    public static final long DEFAULT_ANON_EVENTS_PER_MIN = 900;
+
+    /** The default of {@value #ANON_SESSIONS_PER_MIN_VARIABLE} (design decision D43, issue #116). */
+    public static final long DEFAULT_ANON_SESSIONS_PER_MIN = 120;
+
+    /** Only an ASCII digit sets a daily cap or a per-minute limit. A Unicode digit does not. */
     private static final Pattern ASCII_DIGITS = Pattern.compile("[0-9]+");
 
     /**
-     * Builds a setting with no route pattern list and the default daily
-     * caps. A caller from before issue #104 still compiles with this
-     * constructor.
+     * Builds a setting with no route pattern list, the default daily
+     * caps, and the default per-minute limits. A caller from before
+     * issue #104 still compiles with this constructor.
      */
     public IngestSettings(boolean recordAnonymousClicks) {
         this(recordAnonymousClicks, null, DEFAULT_ANON_MAX_EVENTS_PER_DAY, DEFAULT_ANON_EVENTS_PER_KEY_PER_DAY);
     }
 
     /**
-     * Builds a setting with the default daily caps. A caller from before
-     * issue #117 still compiles with this constructor.
+     * Builds a setting with the default daily caps and the default
+     * per-minute limits. A caller from before issue #117 still compiles
+     * with this constructor.
      */
     public IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher pathPatternMatcher) {
         this(recordAnonymousClicks, pathPatternMatcher, DEFAULT_ANON_MAX_EVENTS_PER_DAY,
@@ -64,9 +89,21 @@ public record IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher p
     }
 
     /**
+     * Builds a setting with the default per-minute limits. A caller from
+     * before issue #116 still compiles with this constructor.
+     */
+    public IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher pathPatternMatcher,
+            long anonMaxEventsPerDay, long anonEventsPerKeyPerDay) {
+        this(recordAnonymousClicks, pathPatternMatcher, anonMaxEventsPerDay, anonEventsPerKeyPerDay,
+                DEFAULT_ANON_REQ_PER_MIN, DEFAULT_ANON_EVENTS_PER_MIN, DEFAULT_ANON_SESSIONS_PER_MIN);
+    }
+
+    /**
      * Reads {@code OCTOMETER_RECORD_ANONYMOUS}, {@code
      * OCTOMETER_PATH_PATTERNS}, {@code OCTOMETER_MAX_ANON_EVENTS_PER_DAY},
-     * and {@code OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY} from the process
+     * {@code OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY}, {@code
+     * OCTOMETER_ANON_REQ_PER_MIN}, {@code OCTOMETER_ANON_EVENTS_PER_MIN},
+     * and {@code OCTOMETER_ANON_SESSIONS_PER_MIN} from the process
      * environment, then builds the setting. This method is the one place
      * that reads each variable.
      */
@@ -79,8 +116,14 @@ public record IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher p
         long anonEventsPerKeyPerDay = positiveWholeNumberFromValue(
                 System.getenv(ANON_EVENTS_PER_KEY_PER_DAY_VARIABLE), ANON_EVENTS_PER_KEY_PER_DAY_VARIABLE,
                 DEFAULT_ANON_EVENTS_PER_KEY_PER_DAY);
+        long anonReqPerMinute = positiveWholeNumberFromValue(System.getenv(ANON_REQ_PER_MIN_VARIABLE),
+                ANON_REQ_PER_MIN_VARIABLE, DEFAULT_ANON_REQ_PER_MIN);
+        long anonEventsPerMinute = positiveWholeNumberFromValue(System.getenv(ANON_EVENTS_PER_MIN_VARIABLE),
+                ANON_EVENTS_PER_MIN_VARIABLE, DEFAULT_ANON_EVENTS_PER_MIN);
+        long anonSessionsPerMinute = positiveWholeNumberFromValue(System.getenv(ANON_SESSIONS_PER_MIN_VARIABLE),
+                ANON_SESSIONS_PER_MIN_VARIABLE, DEFAULT_ANON_SESSIONS_PER_MIN);
         return new IngestSettings(recordAnonymousClicks, pathPatternMatcher, anonMaxEventsPerDay,
-                anonEventsPerKeyPerDay);
+                anonEventsPerKeyPerDay, anonReqPerMinute, anonEventsPerMinute, anonSessionsPerMinute);
     }
 
     /**

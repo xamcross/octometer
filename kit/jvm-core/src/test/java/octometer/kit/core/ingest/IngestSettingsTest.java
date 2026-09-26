@@ -265,4 +265,38 @@ class IngestSettingsTest {
         assertEquals(20_000, settings.anonMaxEventsPerDay());
         assertEquals(2_000, settings.anonEventsPerKeyPerDay());
     }
+
+    // The tests below cover the three per-minute anonymous limits of
+    // design decision D43 and issue #116.
+
+    @Test
+    void theFourArgumentConstructorGivesTheDefaultPerMinuteLimits() {
+        IngestSettings settings = new IngestSettings(true, null, 500, 50);
+
+        assertEquals(300, settings.anonReqPerMinute());
+        assertEquals(900, settings.anonEventsPerMinute());
+        assertEquals(120, settings.anonSessionsPerMinute());
+    }
+
+    @Test
+    void theSevenArgumentConstructorHoldsEachPerMinuteLimit() {
+        IngestSettings settings = new IngestSettings(true, null, 500, 50, 30, 90, 12);
+
+        assertEquals(30, settings.anonReqPerMinute());
+        assertEquals(90, settings.anonEventsPerMinute());
+        assertEquals(12, settings.anonSessionsPerMinute());
+    }
+
+    @Test
+    void fromEnvironmentGivesTheDefaultPerMinuteLimitsWithNoEnvironmentVariable() {
+        // The process environment of the test run holds no
+        // OCTOMETER_ANON_REQ_PER_MIN entry, no
+        // OCTOMETER_ANON_EVENTS_PER_MIN entry, and no
+        // OCTOMETER_ANON_SESSIONS_PER_MIN entry.
+        IngestSettings settings = IngestSettings.fromEnvironment();
+
+        assertEquals(300, settings.anonReqPerMinute());
+        assertEquals(900, settings.anonEventsPerMinute());
+        assertEquals(120, settings.anonSessionsPerMinute());
+    }
 }

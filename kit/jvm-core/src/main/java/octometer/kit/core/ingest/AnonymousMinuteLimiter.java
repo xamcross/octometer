@@ -52,9 +52,9 @@ public final class AnonymousMinuteLimiter {
     private static final Logger LOGGER = System.getLogger("octometer.kit.core");
 
     private final Clock clock;
-    private final int requestLimit;
-    private final int clickEntryLimit;
-    private final int sessionStartLimit;
+    private final long requestLimit;
+    private final long clickEntryLimit;
+    private final long sessionStartLimit;
 
     private final Object lock = new Object();
     private final LinkedHashMap<String, Counters> keyCounters;
@@ -73,7 +73,7 @@ public final class AnonymousMinuteLimiter {
      * @param sessionStartLimit the limit of
      *   {@code OCTOMETER_ANON_SESSIONS_PER_MIN}. It must be 1 or more.
      */
-    public AnonymousMinuteLimiter(Clock clock, int requestLimit, int clickEntryLimit, int sessionStartLimit) {
+    public AnonymousMinuteLimiter(Clock clock, long requestLimit, long clickEntryLimit, long sessionStartLimit) {
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
         if (requestLimit < 1) {
             throw new IllegalArgumentException("requestLimit must be 1 or more");
@@ -214,9 +214,9 @@ public final class AnonymousMinuteLimiter {
      */
     private static final class Counters {
         private long windowStart = Long.MIN_VALUE;
-        private int requestCount;
-        private int clickEntryCount;
-        private int sessionStartCount;
+        private long requestCount;
+        private long clickEntryCount;
+        private long sessionStartCount;
 
         /**
          * Resets the three counters to zero, with no window, when
