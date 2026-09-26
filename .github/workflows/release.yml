@@ -74,6 +74,19 @@ jobs:
           fi
           echo "The tag $TAG matches the top entry of CHANGELOG.md."
 
+      # Issue #44. The GitHub Release must hold a tracker tarball whose
+      # version matches the tag, so an app installs the right code.
+      - name: Compare the tag with the version of kit/tracker/package.json
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          tracker_version=$(grep -m1 '"version"' kit/tracker/package.json | sed -E 's/.*"version": *"([^"]+)".*/\1/')
+          if [ "$TAG" != "$tracker_version" ]; then
+            echo "The tag $TAG does not match the version $tracker_version of kit/tracker/package.json." >&2
+            exit 1
+          fi
+          echo "The tag $TAG matches the version of kit/tracker/package.json."
+
       - name: Set up Temurin 21
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
@@ -93,6 +106,36 @@ jobs:
           node-version-file: monitor/frontend/.nvmrc
           cache: npm
           cache-dependency-path: monitor/frontend/package-lock.json
+
+      - name: Set up Node for the tracker build
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: kit/tracker/.nvmrc
+          cache: npm
+          cache-dependency-path: kit/tracker/package-lock.json
+
+      # Issue #44 (design decision D25). The tarball octometer-tracker-X.Y.Z.tgz
+      # becomes a second Release asset. A dry run builds the tarball and
+      # attaches nothing, because the attach step below runs on a push only.
+      - name: Build the tracker tarball
+        working-directory: kit/tracker
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          npm pack
+
+      - name: Find the built tracker tarball
+        id: tracker
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          tgz_path="kit/tracker/octometer-tracker-$TAG.tgz"
+          if [ ! -f "$tgz_path" ]; then
+            echo "The build produced no file $tgz_path. The package name or version differs from the tag." >&2
+            exit 1
+          fi
+          echo "The build produces the file $tgz_path."
+          echo "path=$tgz_path" >> "$GITHUB_OUTPUT"
 
       # Issue #39, step 4. distZip packages the Angular build inside the
       # monitor zip (see monitor/backend/build.gradle.kts, buildFrontend).
@@ -137,8 +180,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
           ZIP_PATH: ${{ steps.zip.outputs.path }}
+          TGZ_PATH: ${{ steps.tracker.outputs.path }}
         run: |
-          gh release create "$TAG" "$ZIP_PATH" \
+          gh release create "$TAG" "$ZIP_PATH" "$TGZ_PATH" \
             --title "$TAG" \
             --notes-file release-notes.md
 
