@@ -225,11 +225,44 @@ The kit reads each setting below from an environment variable.
 | `OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY` | `2000` | Limits the anonymous event count of one day, for one client address. |
 | `OCTOMETER_MAX_EVENTS` | `200000` | Caps the stored event count of the app (design decision D21). Above the cap, the store drops each new batch. |
 | `OCTOMETER_RETENTION_DAYS` | `30` | Sets the TTL retention of a stored event, in days. |
+| `OCTOMETER_PATH_PATTERNS` | none | Names the route pattern list of the app. Section 6 states its form. |
 
-This guide leaves out the route pattern list and the warning of rule R7. Issue #119
-adds that section to this same file.
+Section 6 states the route pattern list, the tracker option `routes`, and the
+warning for an app team.
 
-## 6. The account deletion
+## 6. The route pattern list
+
+The setting `OCTOMETER_PATH_PATTERNS` gives the kit an ordered list of route
+patterns (contract rule C42). A run of whitespace separates each pattern: a
+space, a tab, or a line break. Write one pattern for each line, or write the
+patterns with a space between them. Never use a comma as the separator. A
+comma is a valid character of a pattern under contract rule C39.
+
+The tracker option `routes` (`kit/tracker/README.md`) takes the same list, in
+the same order. Give the kit and the tracker the same list. A different list
+gives a different stored path for the same click.
+
+> A path can hold an identifier, a token, or a search term. Mark each such
+> segment with `:name` in the route list. Never use `*` for a segment that
+> holds a token, an email address, or a user id.
+
+**A path outside the list.** The kit stores the literal `/other` for a path
+that matches no pattern. It also stores `/other` for a path with an empty
+segment, a `.` segment, a `..` segment, or a bad `*` segment (contract rule
+C42). The kit never drops the `path` field for that case.
+
+**A bad `routes` value in the tracker.** One bad entry stops the whole list.
+A dropped entry would move a later pattern into its place, and that would
+change the match order. The tracker then sends no `path` field for the whole
+list. It writes one console warning, and the warning names the index of each
+bad entry. A `routes` value that is not an array gives the same result: no
+`path` field, with one console warning. An empty list also gives that same
+result.
+
+Without `OCTOMETER_PATH_PATTERNS`, the kit stores no `path` field, and it
+writes one warning at the start.
+
+## 7. The account deletion
 
 Call `deleteByUserId(userId)` on your store to erase one user (contract rule C43). Never
 pass a `null` value or an empty text as `userId`.
@@ -253,7 +286,7 @@ The contract of the call:
 A call to the monitor route before step 2 finishes lets a poll cycle read the erased
 events again.
 
-## 7. The tracker
+## 8. The tracker
 
 Install the tracker from the tarball of a GitHub release. The release `0.1.0` holds no
 tarball. A later tag brings the first one (issue #44).
@@ -284,7 +317,7 @@ with the pattern `[A-Za-z0-9_.:-]+` (contract rule C4). The prefix `octo:` stays
 reserved for the contract. Give each `data-octo` value a name outside that prefix
 (contract rule C38).
 
-## 8. The check
+## 9. The check
 
 Sign in to your app in a browser first. Copy the value of your session cookie from the
 browser developer tools.
@@ -312,7 +345,7 @@ Read the event back through the monitor. Read the app row of the monitor API, or
 the level 1 view of the monitor UI. The new click raises the click count of your app
 within the poll interval of the monitor mode.
 
-## 9. The integration issues of an app
+## 10. The integration issues of an app
 
 This section holds two issue templates. Each filed issue belongs to the app
 repository, not to this repository. Copy the fenced block of one template into a
@@ -338,8 +371,8 @@ gh issue create --repo <your app repository> --title "Integrate Octometer into <
    `maxPoolSize=5`, a socket read timeout, against the database `<database>`.
 3. Mount the route of section 5, with a `resolveUserId` lambda. The lambda reads the
    user id from your own session.
-4. Add the account deletion call of section 6: `deleteByUserId(userId)`.
-5. Install the tracker of section 7, and call `start()`. The `.tgz` asset needs a
+4. Add the account deletion call of section 7: `deleteByUserId(userId)`.
+5. Install the tracker of section 8, and call `start()`. The `.tgz` asset needs a
    release tag after `0.1.0`. The moment of the `start()` call follows the decision
    of `xamcross/octometer#41` (open).
 6. Show the text of `xamcross/octometer#42`
@@ -356,7 +389,7 @@ gh issue create --repo <your app repository> --title "Integrate Octometer into <
 - [ ] Each environment variable of section 5 has its own value, or it keeps the
   default value.
 - [ ] Each clickable element of `<app>` holds a `data-octo` name of contract rule C4.
-- [ ] The check of section 8 gives the status `204` for the POST with your session
+- [ ] The check of section 9 gives the status `204` for the POST with your session
   cookie.
 - [ ] The test command of `<app>` passes.
 - [ ] A comment on this issue records the response status and the environment
@@ -367,7 +400,7 @@ gh issue create --repo <your app repository> --title "Integrate Octometer into <
 - `xamcross/octometer#41` holds the open decision on the legal basis and the consent
   method.
 
-**Source.** `xamcross/octometer`; sections 1, 2, 5, 6, 7, and 8 of
+**Source.** `xamcross/octometer`; sections 1, 2, 5, 7, 8, and 9 of
 https://github.com/xamcross/octometer/blob/main/docs/integration-ktor.md;
 https://github.com/xamcross/octometer/blob/main/docs/privacy.md.
 ```
@@ -398,7 +431,7 @@ first numbers.
 5. Deploy `<app>`.
 
 **Implementation steps.**
-1. After the deployment of owner step 5, run the check of section 8. Send the POST
+1. After the deployment of owner step 5, run the check of section 9. Send the POST
    request with your session cookie and the user agent line.
 2. Confirm the response status is `204`.
 3. Read the click count of `<app>` in the level 1 view of the monitor.
@@ -410,7 +443,7 @@ first numbers.
   `octometer_events`.
 - [ ] `<app>` is registered on `/manage`, with its connection string.
 - [ ] Each of the three Atlas alerts of section 4 exists for `<app>`.
-- [ ] The check of section 8 gives the status `204`.
+- [ ] The check of section 9 gives the status `204`.
 - [ ] The click count of `<app>` rises in the monitor within the poll interval.
 - [ ] A comment on this issue records the response status and the click count.
 
@@ -425,7 +458,7 @@ first numbers.
 - `xamcross/octometer#30`: Check the privileges of the database user.
 - Close each one before the production start.
 
-**Source.** `xamcross/octometer`; sections 3, 4, and 8 of
+**Source.** `xamcross/octometer`; sections 3, 4, and 9 of
 https://github.com/xamcross/octometer/blob/main/docs/integration-ktor.md;
 https://github.com/xamcross/octometer/blob/main/docs/demo.md, lines 85-87; design
 decision D26; the GitHub Release page of `xamcross/octometer`.
@@ -469,17 +502,23 @@ Section 4, the storage alert metric name and its unit:
   https://www.mongodb.com/docs/atlas/reference/alert-host-metrics/, read 2026-09-26.
   The page holds `DB_DATA_SIZE_TOTAL`, not `DB_DATA_SIZE`, and states that this metric
   counts the document data of each database in bytes.
-Section 7, the link sentence to `docs/privacy.md`: updated for issue #42 (the owner
+Section 6 is new text of this guide, for issue #119. It cites contract rules C39 and
+  C42, kit/jvm-ktor/README.md ("OCTOMETER_PATH_PATTERNS"), kit/tracker/README.md (the
+  option `routes`, and the bad-value rule near line 229), and
+  kit/jvm-core/src/main/java/octometer/kit/core/ingest/IngestSettings.java (the
+  whitespace separator, near line 189). The quoted warning is the text of issue #119's
+  acceptance criteria.
+Section 8, the link sentence to `docs/privacy.md`: updated for issue #42 (the owner
   approval of 2026-09-27) to name the approved text and the open legal basis of
   issue #41.
-Section 9 is new text of this guide, for issue #48. It cites the skill
+Section 10 is new text of this guide, for issue #48. It cites the skill
   `managing-github-issues` (title form, body order, label rules, `gh issue create`
   form) and docs/superpowers/specs/2026-09-21-octometer-design.md, sections 4.4 and 8,
   decisions D25 and D26.
-Section 9, the agent template: docs/privacy.md and the owner's approval comment on
+Section 10, the agent template: docs/privacy.md and the owner's approval comment on
   xamcross/octometer#42 (2026-09-27); the parked consent decision on
   xamcross/octometer#41 (the owner's comment on issue #45, 2026-09-21).
-Section 9, the mixed template: docs/demo.md, lines 85-87 (the prod mode default of the
+Section 10, the mixed template: docs/demo.md, lines 85-87 (the prod mode default of the
   distribution form of issue #38); the release artifact name and the D26 rule of
   .github/workflows/release.yml. The open `production-blocker` issue list
   (xamcross/octometer#205, #42, #41, #30) comes from `gh issue list --repo
