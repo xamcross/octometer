@@ -141,8 +141,12 @@ private class CachedClient(val connectionStringHash: String, val client: MongoCl
  * ingest rate limiter (issue #33). Every JDK 21 runtime provides
  * SHA-256 (the Java Cryptography Architecture standard algorithm
  * list). This function never throws in practice.
+ *
+ * `internal`, so `AppRegistryService` compares the old and the new
+ * connection string by this same hash, and never by the plain string
+ * (issue #187).
  */
-private fun sha256Hex(text: String): String {
+internal fun sha256Hex(text: String): String {
     val digest = MessageDigest.getInstance("SHA-256")
     val hash = digest.digest(text.toByteArray(Charsets.UTF_8))
     val hex = StringBuilder(hash.size * 2)
