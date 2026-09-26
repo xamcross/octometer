@@ -91,15 +91,33 @@ class MongoAppReaderUnitTest {
     // --- path, referrerHost, and kind (issue #110, design decision D5) ---
 
     @Test
-    fun `parseEvent copies path and referrerHost as they are`() {
-        val document = goodDocument("checkout.save")
-            .append("path", "/checkout")
-            .append("referrerHost", "google.com")
+    fun `parseEvent copies path as it is, for a click and for a session start`() {
+        val click = goodDocument("checkout.save").append("path", "/checkout")
+        val sessionStart = goodDocument(SESSION_START_ELEMENT).append("path", "/")
+
+        assertEquals("/checkout", parseEvent(click).path)
+        assertEquals("/", parseEvent(sessionStart).path)
+    }
+
+    @Test
+    fun `parseEvent copies referrerHost as it is, for a session start`() {
+        val document = goodDocument(SESSION_START_ELEMENT).append("referrerHost", "google.com")
 
         val event = parseEvent(document)
 
-        assertEquals("/checkout", event.path)
         assertEquals("google.com", event.referrerHost)
+    }
+
+    // BLOCKER 1 of the security review of pull request #193: section 6
+    // states "it copies referrer_host from a session start". Contract
+    // rule C40 drops the field on each other element.
+    @Test
+    fun `parseEvent gives a null referrerHost for a click, even when the field is present`() {
+        val document = goodDocument("checkout.save").append("referrerHost", "google.com")
+
+        val event = parseEvent(document)
+
+        assertNull(event.referrerHost)
     }
 
     @Test
@@ -174,6 +192,18 @@ class MongoAppReaderUnitTest {
 
         val row = readEventColumns(database, appId, click.getObjectId("_id").toHexString())
         assertNull(row.path)
+        assertNull(row.referrerHost)
+        assertEquals(KIND_CLICK, row.kind)
+    }
+
+    // BLOCKER 1 of the security review of pull request #193.
+    @Test
+    fun `runCycle stores NULL for referrerHost when a click document holds the field`() = runBlocking {
+        val click = goodDocument("checkout.save").append("referrerHost", "google.com")
+
+        reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(click) }
+
+        val row = readEventColumns(database, appId, click.getObjectId("_id").toHexString())
         assertNull(row.referrerHost)
         assertEquals(KIND_CLICK, row.kind)
     }

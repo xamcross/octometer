@@ -448,12 +448,15 @@ class MongoAppReader(
  * C39, C40). An unknown field of the document stays out of the result
  * (contract rule C9).
  *
- * [path] and [referrerHost] copy the value of the document as it is
- * (design decision D5: "the reader copies a `path` value and a
- * `referrer_host` value as they are"). This function adds no
- * normalisation. `kind` is [KIND_SESSION_START] for the element
- * [SESSION_START_ELEMENT], and [KIND_CLICK] for each other element
- * (section 6).
+ * [path] copies the value of the document as it is, for each element
+ * (design decision D5: "the reader copies a `path` value ... as they
+ * are"). [referrerHost] copies the value only for the element
+ * [SESSION_START_ELEMENT]; each other element gives a `null`
+ * `referrerHost`, even when the document holds the field (section 6:
+ * "it copies `referrer_host` from a session start"; contract rule
+ * C40). This function adds no normalisation of a copied value. `kind`
+ * is [KIND_SESSION_START] for the element [SESSION_START_ELEMENT],
+ * and [KIND_CLICK] for each other element (section 6).
  *
  * [MongoAppReader.runCycle] calls [invalidReason] first, so this
  * function runs only for a document that already passed that check.
@@ -465,8 +468,9 @@ internal fun parseEvent(document: Document): NewEvent {
     val sessionId = document.getString("sessionId")
     val userId = document.getString("userId")
     val path = document.getString("path")
-    val referrerHost = document.getString("referrerHost")
-    val kind = if (element == SESSION_START_ELEMENT) KIND_SESSION_START else KIND_CLICK
+    val isSessionStart = element == SESSION_START_ELEMENT
+    val referrerHost = if (isSessionStart) document.getString("referrerHost") else null
+    val kind = if (isSessionStart) KIND_SESSION_START else KIND_CLICK
     return NewEvent(
         eventId = id.toHexString(),
         ts = ts.time,

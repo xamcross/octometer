@@ -443,6 +443,29 @@ class MongoAppReaderContainerTest {
         assertEquals(0, row.kind)
     }
 
+    // BLOCKER 1 of the security review of pull request #193: section 6
+    // states "it copies referrer_host from a session start". A click
+    // document with a present referrerHost field must give NULL.
+    @Test
+    fun `a click document with a referrerHost field stores NULL in referrer_host`() = runBlocking {
+        val rawCollection = rawClient.getDatabase(databaseName).getCollection("octometer_events")
+        rawCollection.insertOne(
+            invalidDocument()
+                .append("ts", Date())
+                .append("element", "checkout.save")
+                .append("sessionId", "session-1")
+                .append("userId", "user-1")
+                .append("referrerHost", "google.com"),
+        )
+        settle()
+
+        reader.pollOnce(target(cursor = null), MONGO.connectionString)
+
+        val row = readEventColumns(sqlite, appId).single()
+        assertEquals(null, row.referrerHost)
+        assertEquals(0, row.kind)
+    }
+
     @Test
     fun `a document with a wrong BSON type in referrerHost goes to skipped_event, and the cursor moves`() = runBlocking {
         val rawCollection = rawClient.getDatabase(databaseName).getCollection("octometer_events")
