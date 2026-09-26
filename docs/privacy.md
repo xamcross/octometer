@@ -8,17 +8,26 @@ The controller of this app is `<owner name, contact address>`, established in Uk
 
 ## 2. The click data we record
 
-We record your clicks so we can improve this app. Each record holds the
-time of the click, the name of the element, and the session id of your
-browser tab.
+We record your clicks so we can improve this app. Each record holds these
+items:
+
+- the time of the click;
+- the name of the element;
+- the path of the page;
+- the session id of your browser tab.
+
+The stored path is the pattern of the page route, or the word `/other`.
 
 The first record of a session also holds the host of the page that sent
 you here. The stored value is one of three words: `google.com`, `bing.com`,
 or `other`.
 
-A record never holds your name or your email address. A request with no
-signed-in user may use your IP address for one minute, in memory only, to
-limit abuse.
+A record never holds your name or your email address.
+
+A request with no signed-in user may use your IP address to limit abuse.
+We keep it in memory only. A counter of one minute always applies. A day
+counter keeps a key of your address for a maximum of 24 hours, when the
+app records anonymous clicks.
 
 ## 3. Your account id
 
@@ -78,7 +87,9 @@ erasure step, after one poll cycle of the monitor.
 Sources:
 contract/README.md, rules C4, C6, C39, C40, C42, C43
 docs/superpowers/specs/2026-09-21-octometer-design.md, section 4.1, section 8, section
-  10, decision D5, decision D15
+  10, decision D5, decision D15, decision D43
+docs/integration-ktor.md, lines 221 and 224-225 (`OCTOMETER_ANON_REQ_PER_MIN`,
+  `OCTOMETER_MAX_ANON_EVENTS_PER_DAY`, `OCTOMETER_ANON_EVENTS_PER_KEY_PER_DAY`)
 kit/jvm-mongo/src/main/java/octometer/kit/mongo/store/MongoEventLogStore.java, line 148
   (the default of OCTOMETER_RETENTION_DAYS, 30 days)
 monitor/backend/src/main/resources/octometer-defaults.conf, line 15 (retentionDays,
