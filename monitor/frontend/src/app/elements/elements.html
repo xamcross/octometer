@@ -1,3 +1,40 @@
 <h1 tabindex="-1">{{ heading() }}</h1>
 <app-refresh-bar />
-<p>This is a placeholder view for the element list of one user.</p>
+
+@if (store.data(); as page) {
+  @if (page.rows.length === 0) {
+    <p>No events yet.</p>
+  } @else {
+    <div class="table-scroll" tabindex="0" role="region" aria-labelledby="elements-caption">
+      <table>
+        <caption id="elements-caption">
+          The elements that this user touched, with the click totals of each element.
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Element</th>
+            <th scope="col" class="num">Clicks</th>
+            <th scope="col" class="num">Sessions</th>
+            <th scope="col">Last interaction ({{ zoneName }})</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of page.rows; track row.element) {
+            <tr>
+              <th scope="row">{{ row.element }}</th>
+              <td class="num">{{ formatCount(row.clicks) }}</td>
+              <td class="num">{{ formatCount(row.sessions) }}</td>
+              <td class="time">
+                <time [attr.datetime]="row.lastInteractionAt">{{
+                  formatDateTime(row.lastInteractionAt)
+                }}</time>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+} @else {
+  <p>Octometer reads the element list.</p>
+}
