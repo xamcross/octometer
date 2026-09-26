@@ -9,7 +9,9 @@ Read `App Description.md` for the product description. Read
 decisions and the contract rules.
 
 Read `minor_issues.md` for each open MINOR finding of a review. The owner
-decided on 2026-09-22 that a row stays in that file until a later fix.
+decided on 2026-09-22 that each row stays in that file, also after the
+production release. A later fix sets the status of the row to
+`fixed in #N`. No pull request fixes a MINOR finding of its own review.
 
 `./gradlew build` needs Node 24 and npm on the PATH for the demo app
 (Ktor review MAJOR 3, pull request #168). Read
