@@ -69,6 +69,10 @@ import kotlin.test.assertTrue
  * does not count toward the clicks total. `EXPECTED_FIRST_CLICKS` and
  * `EXPECTED_FINAL_CLICKS` hold the real click count of each source.
  *
+ * One visit-only session sends no click at all. It proves the visit
+ * rule of D44: a session start alone still counts as a session
+ * (issue #188).
+ *
  * **The PATCH criterion.** `MongoAppReader` kept its MongoDB client of
  * one app id for ever. It keyed the client on the app id alone. It
  * checked no connection string. Design decision D10 asks for a close
@@ -109,15 +113,20 @@ class EndToEndContainerTest {
         private const val USER_COOKIE_NAME = "octo_e2e_user"
 
         // The named counts of decision 3 of the brief: SENT_CLICKS,
-        // SENT_USERS, SENT_SESSIONS. Three user ids, four sessions (one
-        // user opens two sessions), three real clicks in each session.
+        // SENT_USERS, SENT_SESSIONS. Three user ids send four sessions
+        // with a click batch. One user opens two of the four sessions.
+        // Each session holds three real clicks. One visit-only session
+        // sends no click (issue #188).
         private const val SENT_USERS = 3
-        private const val SENT_SESSIONS = 4
+        private const val SESSIONS_WITH_CLICKS = 4
+        private const val VISIT_ONLY_SESSIONS = 1
+        private const val SENT_SESSIONS = SESSIONS_WITH_CLICKS + VISIT_ONLY_SESSIONS
         private const val CLICKS_PER_SESSION = 3
-        private const val SENT_CLICKS = SENT_SESSIONS * CLICKS_PER_SESSION
+        private const val SENT_CLICKS = SESSIONS_WITH_CLICKS * CLICKS_PER_SESSION
 
-        // The one session-start entry of each session holds kind = 1
-        // (see the class comment), so it does not count as a click.
+        // Each session-start entry holds kind = 1 (see the class
+        // comment), so it never counts as a click. The visit-only
+        // session sends no click, so it adds nothing here either.
         // EXPECTED_FIRST_CLICKS is the total that GET /api/apps must
         // show after the first source settles.
         private const val EXPECTED_FIRST_CLICKS = SENT_CLICKS
@@ -216,7 +225,7 @@ class EndToEndContainerTest {
                         userIds = firstUserIds,
                         sessionsPerExtraUser = listOf(2, 1, 1),
                         clicksPerSession = CLICKS_PER_SESSION,
-                    )
+                    ) + sendVisitOnlySession(firstIngestPort, firstUserIds.first())
 
                     // Step 5: register the app with the URI of the first
                     // container.
@@ -352,6 +361,16 @@ class EndToEndContainerTest {
             }
         }
         return sessionIds
+    }
+
+    /**
+     * Sends one session-start entry with no click batch (issue #188).
+     * A session without a click still counts as a visit under D44.
+     */
+    private fun sendVisitOnlySession(ingestPort: Int, userId: String): String {
+        val sessionId = UUID.randomUUID().toString()
+        postIngest(ingestPort, userId, sessionStartBody(sessionId))
+        return sessionId
     }
 
     private fun sessionStartBody(sessionId: String): String =
