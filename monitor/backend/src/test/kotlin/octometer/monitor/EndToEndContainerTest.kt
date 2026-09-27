@@ -451,9 +451,15 @@ class EndToEndContainerTest {
         return Json.parseToJsonElement(response.body()).jsonObject.getValue("appId").jsonPrimitive.long
     }
 
-    /** The PATCH of decision 5. The route accepts only `name` and `connectionString` (`UpdateAppRequest`). */
+    /**
+     * The PATCH of decision 5. The route accepts only `name` and
+     * `connectionString` (`UpdateAppRequest`). Issue #272:
+     * `UpdateAppRequest` carries no `database` field, so the path of
+     * [connectionString] must name one; this appends it, the same name
+     * that [createApp] already gives through its own `database` field.
+     */
     private fun patchConnectionString(monitorPort: Int, appId: Long, connectionString: String) {
-        val body = """{"connectionString":"$connectionString"}"""
+        val body = """{"connectionString":"$connectionString/$EXAMPLE_DATABASE"}"""
         val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$monitorPort/api/apps/$appId"))
             .header("Origin", "http://127.0.0.1:$monitorPort")
             .header("Content-Type", "application/json")

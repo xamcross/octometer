@@ -90,7 +90,7 @@ class AppRegistryServiceTest {
 
         val result = service.updateApp(
             created.summary.appId,
-            UpdateAppRequest(connectionString = allowlistedSrvUriWithoutCredential()),
+            UpdateAppRequest(connectionString = withDatabasePath(allowlistedSrvUriWithoutCredential())),
         )
 
         assertEquals(UpdateAppResult.Updated, result)
@@ -112,7 +112,7 @@ class AppRegistryServiceTest {
 
         val result = service.updateApp(
             created.summary.appId,
-            UpdateAppRequest(connectionString = allowlistedSrvUriWithoutCredential()),
+            UpdateAppRequest(connectionString = withDatabasePath(allowlistedSrvUriWithoutCredential())),
         )
 
         assertEquals(UpdateAppResult.Updated, result)
@@ -139,7 +139,7 @@ class AppRegistryServiceTest {
 
         val result = service.updateApp(
             created.summary.appId,
-            UpdateAppRequest(connectionString = allowlistedSrvUriWithoutCredential()),
+            UpdateAppRequest(connectionString = withDatabasePath(allowlistedSrvUriWithoutCredential())),
         )
 
         assertEquals(UpdateAppResult.Updated, result)
@@ -148,14 +148,18 @@ class AppRegistryServiceTest {
 
     @Test
     fun `updateApp with the same connection string keeps app_path`() = runBlocking {
+        // Issue #272: the PATCH derives a database name from the path, and
+        // gives 400 with no path. This test names one path, the same one
+        // on both calls, so the two connection strings stay byte-identical.
+        val connectionString = withDatabasePath(allowlistedSrvUri())
         val created = service.createApp(
-            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+            CreateAppRequest("demo", connectionString, "db", "octometer_events"),
         ) as CreateAppResult.Created
         seedAppPath(created.summary.appId, "/checkout")
 
         val result = service.updateApp(
             created.summary.appId,
-            UpdateAppRequest(connectionString = allowlistedSrvUri()),
+            UpdateAppRequest(connectionString = connectionString),
         )
 
         assertEquals(UpdateAppResult.Updated, result)
@@ -164,15 +168,16 @@ class AppRegistryServiceTest {
 
     @Test
     fun `updateApp with the same connection string keeps the poll state`() = runBlocking {
+        val connectionString = withDatabasePath(allowlistedSrvUri())
         val created = service.createApp(
-            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+            CreateAppRequest("demo", connectionString, "db", "octometer_events"),
         ) as CreateAppResult.Created
         seedPollState(created.summary.appId)
         val before = readPollState(created.summary.appId)
 
         val result = service.updateApp(
             created.summary.appId,
-            UpdateAppRequest(connectionString = allowlistedSrvUri()),
+            UpdateAppRequest(connectionString = connectionString),
         )
 
         assertEquals(UpdateAppResult.Updated, result)
@@ -559,7 +564,7 @@ class AppRegistryServiceTest {
             val thrown = assertFailsWith<java.util.concurrent.CancellationException> {
                 cancellingService.updateApp(
                     created.summary.appId,
-                    UpdateAppRequest(connectionString = allowlistedSrvUriWithoutCredential()),
+                    UpdateAppRequest(connectionString = withDatabasePath(allowlistedSrvUriWithoutCredential())),
                 )
             }
 
