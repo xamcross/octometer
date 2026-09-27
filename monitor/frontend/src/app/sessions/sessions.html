@@ -35,7 +35,7 @@
                   {{ row.sessionId }}
                 </a>
               </th>
-              <td (click)="onRowCellClick(row, $event)">{{ row.firstPath }}</td>
+              <td (click)="onRowCellClick(row, $event)">{{ formatFirstPath(row.firstPath) }}</td>
               <td (click)="onRowCellClick(row, $event)">{{ row.source }}</td>
               <td class="time" (click)="onRowCellClick(row, $event)">
                 <time [dateTime]="row.startTime">{{ formatDateTime(row.startTime) }}</time>

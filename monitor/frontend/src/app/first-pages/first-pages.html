@@ -17,15 +17,19 @@
           </tr>
         </thead>
         <tbody>
-          @for (row of page.rows; track row.path) {
+          @for (row of page.rows; track row.path ?? '\u0000') {
             <tr>
               <th scope="row">
-                <a
-                  [routerLink]="['/apps', appId(), 'sessions']"
-                  [queryParams]="{ anonymous: 'true', firstPath: row.path }"
-                >
-                  {{ row.path }}
-                </a>
+                @if (row.path !== null) {
+                  <a
+                    [routerLink]="['/apps', appId(), 'sessions']"
+                    [queryParams]="{ anonymous: 'true', firstPath: row.path }"
+                  >
+                    {{ row.path }}
+                  </a>
+                } @else {
+                  {{ row.path ?? '(unknown)' }}
+                }
               </th>
               <td class="num" (click)="onRowCellClick(row, $event)">
                 {{ formatCount(row.sessions) }}

@@ -131,7 +131,7 @@ describe('Sessions', () => {
     expect(root().textContent).toContain('First page: /pricing');
   });
 
-  it('sends firstPath=(unknown), and shows "No anonymous session yet." for the empty answer (issue #213 tracks the field change)', () => {
+  it('sends firstPath=(unknown), and shows "No anonymous session yet." for the empty answer', () => {
     fixture.componentRef.setInput('firstPath', '(unknown)');
     fixture.detectChanges();
     startStore();
@@ -225,15 +225,21 @@ describe('Sessions', () => {
       expect(sourceCell.querySelector('img')).toBeNull();
     });
 
-    it('shows the text "(unknown)" for a session with no start row, and "(direct)" for a start with no referrer (D44)', () => {
+    it('shows the text "(unknown)" for a null firstPath of a session with no start row, and "(direct)" for a start with no referrer (issue #213, D44)', () => {
       startStore();
-      flushSessions(
-        buildPage({ rows: [buildRow({ firstPath: '(unknown)', source: '(direct)' })] }),
-      );
+      flushSessions(buildPage({ rows: [buildRow({ firstPath: null, source: '(direct)' })] }));
 
       const cells = root().querySelectorAll('tbody td');
       expect(cells[0].textContent?.trim()).toBe('(unknown)');
       expect(cells[1].textContent?.trim()).toBe('(direct)');
+    });
+
+    it('shows a stored path with the text "(unknown)" as that same text, distinct from a null firstPath (issue #213)', () => {
+      startStore();
+      flushSessions(buildPage({ rows: [buildRow({ firstPath: '(unknown)' })] }));
+
+      const cells = root().querySelectorAll('tbody td');
+      expect(cells[0].textContent?.trim()).toBe('(unknown)');
     });
 
     it('shows the session link to the elements view with the sessionId value', () => {
