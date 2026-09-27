@@ -15,9 +15,12 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Monitor
 
+- Add the per-app cap on the distinct path values, with a shape check and an erasure rewrite. (#205)
 - Add the "Anonymous sessions" view, with a link from a first-page row and from the anonymous row of the user list. (#115)
 - Show the retention time above the app table of the level 1 view. (#66)
 - Return `null` for a missing path in the first-pages and the sessions answers; the views show `(unknown)`. (#213)
+- Add a rolling file log, next to the console log, with a 10 MB file limit, a 14-day
+  history, and a 200 MB total cap. (#57)
 - Record a gap after a long off-time, and show it in the level 1 view. (#62)
 
 ## 0.2.0 - 2026-09-27

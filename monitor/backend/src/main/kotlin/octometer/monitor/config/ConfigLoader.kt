@@ -19,6 +19,7 @@ private val ENVIRONMENT_VARIABLE_NAMES = mapOf(
     "retentionDays" to "OCTOMETER_STORE_RETENTION_DAYS",
     "backupDir" to "OCTOMETER_BACKUP_DIR",
     "pollIntervalSeconds" to "OCTOMETER_POLL_INTERVAL_SECONDS",
+    "pathValueCap" to "OCTOMETER_PATH_VALUE_CAP",
 )
 
 private val KNOWN_KEYS = ENVIRONMENT_VARIABLE_NAMES.keys
@@ -107,6 +108,15 @@ fun loadConfig(
             userConfig,
             modeDefaults.getString("pollIntervalSeconds"),
         )
+        // Issue #205, the D5 rule of 2026-09-27: the cap on the count
+        // of distinct path values of one app, in the table app_path.
+        val pathValueCap = resolveValue(
+            "pathValueCap",
+            arguments,
+            env,
+            userConfig,
+            bundled.getString("octometer.pathValueCap"),
+        )
         val validatedDataDir = validateDataDir(dataDir.value)
         // Issue #55: the bundled default is the folder "backups" beside
         // dataDir. The value depends on the resolved dataDir, so this
@@ -133,6 +143,7 @@ fun loadConfig(
                 "1 or more",
                 includeValueInMessage = false,
             ),
+            pathValueCap = toValidInt("pathValueCap", pathValueCap.value, 1..Int.MAX_VALUE, "1 or more"),
         )
 
         return ResolvedConfig(
@@ -145,6 +156,7 @@ fun loadConfig(
                 ResolvedValue("retentionDays", config.retentionDays.toString(), retentionDays.source),
                 ResolvedValue("backupDir", File(config.backupDir).absolutePath, backupDir.source),
                 ResolvedValue("pollIntervalSeconds", config.pollIntervalSeconds.toString(), pollIntervalSeconds.source),
+                ResolvedValue("pathValueCap", config.pathValueCap.toString(), pathValueCap.source),
             ),
             warnings = warnings,
         )

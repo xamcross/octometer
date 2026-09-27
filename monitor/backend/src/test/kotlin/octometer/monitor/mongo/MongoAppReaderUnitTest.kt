@@ -330,6 +330,112 @@ class MongoAppReaderUnitTest {
         assertEquals(KIND_CLICK, row.kind)
     }
 
+    // --- path admission (issue #205, the D5 rule of 2026-09-27) ---
+
+    @Test
+    fun `runCycle keeps a NULL path as NULL`() = runBlocking {
+        val click = goodDocument("checkout.save")
+
+        reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(click) }
+
+        assertNull(readEventColumns(database, appId, click.getObjectId("_id").toHexString()).path)
+    }
+
+    @Test
+    fun `runCycle keeps a path that passes the shape check and joins the set`() = runBlocking {
+        val click = goodDocument("checkout.save").append("path", "/checkout")
+
+        val outcome = reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(click) }
+
+        assertEquals(0, outcome.eventsSkipped)
+        assertEquals("/checkout", readEventColumns(database, appId, click.getObjectId("_id").toHexString()).path)
+        assertEquals(setOf("/checkout"), eventStore.pathValuesOf(appId))
+    }
+
+    @Test
+    fun `runCycle replaces a path that fails the shape check with OTHER_PATH, and writes one WARN line that counts it`() =
+        runBlocking {
+            val marker = "/octomarkerpathshape7b2c a"
+            val bad = goodDocument("checkout.save").append("path", marker)
+
+            val (outcome, logEvents) = captureLogEvents {
+                reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(bad) }
+            }
+
+            assertEquals(0, outcome.eventsSkipped, "A shape failure is not a skip; the row stays.")
+            assertEquals(OTHER_PATH, readEventColumns(database, appId, bad.getObjectId("_id").toHexString()).path)
+            assertEquals(emptySet(), eventStore.pathValuesOf(appId), "OTHER_PATH must not join the set.")
+            val warnLines = logEvents.filter { it.level == Level.WARN && it.loggerName.contains("MongoAppReader") }
+            assertEquals(1, warnLines.size, "One WARN line must count the replaced path values.")
+            assertTrue(warnLines.single().formattedMessage.contains("1"), "The line must hold the replaced count.")
+            logEvents.forEach { event ->
+                assertFalse(event.formattedMessage.contains(marker), "A log line of level ${event.level} must hold no raw path.")
+            }
+        }
+
+    @Test
+    fun `runCycle replaces the 201st distinct path value with OTHER_PATH, and keeps the 200 known values`() = runBlocking {
+        val firstPage = (0 until 200).map { index -> goodDocument("click-$index").append("path", "/path-$index") }
+        val overCap = goodDocument("click-over").append("path", "/path-200")
+
+        val firstOutcome = reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> firstPage }
+        val outcome = reader.runCycle(appId, firstOutcome.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(overCap) }
+
+        assertEquals(200, eventStore.pathValuesOf(appId).size)
+        assertEquals(OTHER_PATH, readEventColumns(database, appId, overCap.getObjectId("_id").toHexString()).path)
+        assertEquals(0, outcome.eventsSkipped)
+    }
+
+    // Decision 4 of the correction round: the set persists across a
+    // reader restart. A second reader instance, over the same
+    // EventStore, must load the set at the start of its own cycle and
+    // accept each known value as it is.
+    @Test
+    fun `the app_path set persists across a reader restart, and a second reader instance accepts the known values`() =
+        runBlocking {
+            val firstDocument = goodDocument("checkout.save").append("path", "/checkout")
+            val firstOutcome = reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(firstDocument) }
+
+            val secondReader = MongoAppReader(eventStore, settleLagSeconds = 2)
+            val secondDocument = goodDocument("checkout.save").append("path", "/checkout")
+
+            val outcome = secondReader.runCycle(appId, firstOutcome.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ ->
+                listOf(secondDocument)
+            }
+
+            assertEquals("/checkout", readEventColumns(database, appId, secondDocument.getObjectId("_id").toHexString()).path)
+            assertEquals(0, outcome.eventsSkipped)
+            secondReader.close()
+        }
+
+    // Marker probe of decision 8 (issue #205): a marker path outside
+    // the shape must stay out of every captured log level, at TRACE,
+    // and out of the exception chain (there is none here; the row
+    // stays, with no throw).
+    @Test
+    fun `a marker path outside the shape stays out of every log level`() = runBlocking {
+        val marker = "/octomarkerpathshape9d4e a"
+        val document = goodDocument("checkout.save").append("path", marker)
+
+        val (outcome, logEvents) = captureLogEvents {
+            reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(document) }
+        }
+
+        assertEquals(0, outcome.eventsSkipped)
+        assertTrue(logEvents.isNotEmpty(), "The cycle must write at least one log line, or this test proves nothing.")
+        logEvents.forEach { event ->
+            assertFalse(event.formattedMessage.contains(marker), "A log line of level ${event.level} must hold no raw path.")
+            var cause = event.throwableProxy
+            while (cause != null) {
+                assertFalse(
+                    (cause.message ?: "").contains(marker),
+                    "The exception chain of a log line must hold no raw path.",
+                )
+                cause = cause.cause
+            }
+        }
+    }
+
     @Test
     fun `runCycle skips a document with a wrong BSON type in path, and moves the cursor`() = runBlocking {
         val bad = goodDocument("checkout.save").append("path", 42)

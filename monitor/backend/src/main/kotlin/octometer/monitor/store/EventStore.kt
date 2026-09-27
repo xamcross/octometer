@@ -38,6 +38,17 @@ private const val INSERT_SKIPPED_EVENT_SQL = """
     ON CONFLICT(app_id, event_id) DO NOTHING
 """
 
+// Issue #205, decision 3 of the correction round (2026-09-27): a value
+// that the reader already admitted in an earlier page, or in an earlier
+// cycle, gives no conflict error; DO NOTHING keeps the first-seen time.
+private const val INSERT_APP_PATH_SQL = """
+    INSERT INTO app_path (app_id, path, first_seen_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(app_id, path) DO NOTHING
+"""
+
+private const val SELECT_APP_PATH_SQL = "SELECT path FROM app_path WHERE app_id = ?"
+
 // The maintainer's decision of the correction round of pull request
 // #208 (issue #187): the guard "AND cursor IS ?" rejects a stale
 // write. A PATCH of the connection string can reset the cursor to
@@ -98,6 +109,8 @@ class EventStore(private val database: SqliteDatabase) {
         cursor: String,
         expectedCursor: String?,
         skippedEvents: List<SkippedEvent> = emptyList(),
+        newPathValues: Collection<String> = emptyList(),
+        newPathValuesFirstSeenAt: Long = 0L,
     ): Boolean =
         database.write { writer ->
             writer.createStatement().use { it.execute("BEGIN IMMEDIATE") }
@@ -107,6 +120,7 @@ class EventStore(private val database: SqliteDatabase) {
             try {
                 insertEvents(writer, appId, events)
                 insertSkippedEvents(writer, appId, skippedEvents)
+                insertAppPathValues(writer, appId, newPathValues, newPathValuesFirstSeenAt)
                 cursorMoved = updateCursor(writer, appId, cursor, expectedCursor)
                 if (cursorMoved) {
                     writer.createStatement().use { it.execute("COMMIT") }
@@ -169,6 +183,27 @@ class EventStore(private val database: SqliteDatabase) {
     }
 
     /**
+     * Gives the distinct `path` values that `app_path` already holds
+     * for [appId] (issue #205, decision 4 of the correction round). The
+     * reader calls this one time at the start of each poll cycle; the
+     * cap of `pathValueCap` then counts this set plus each new value
+     * that the cycle admits.
+     */
+    suspend fun pathValuesOf(appId: Long): Set<String> =
+        database.read { reader ->
+            reader.prepareStatement(SELECT_APP_PATH_SQL).use { select ->
+                select.setLong(1, appId)
+                select.executeQuery().use { result ->
+                    val values = mutableSetOf<String>()
+                    while (result.next()) {
+                        values += result.getString(1)
+                    }
+                    values
+                }
+            }
+        }
+
+    /**
      * Records a passed privilege check (design decision D9, issue
      * #30). It sets `privileges_checked_at` to [nowMillis], epoch
      * milliseconds UTC, the unit of `created_at`. This runs in its
@@ -226,6 +261,27 @@ class EventStore(private val database: SqliteDatabase) {
                 insert.setString(7, event.path)
                 insert.setString(8, event.referrerHost)
                 insert.setInt(9, event.kind)
+                insert.addBatch()
+            }
+            insert.executeBatch()
+        }
+    }
+
+    /**
+     * Inserts each new distinct `path` value of one page into
+     * `app_path`, in the same transaction as the event rows and the
+     * cursor (issue #205, decision 3 of the correction round). A value
+     * that a concurrent cycle, or an earlier page, already admitted
+     * gives no conflict error (`ON CONFLICT DO NOTHING`); the
+     * first-seen time then keeps its old value.
+     */
+    private fun insertAppPathValues(writer: Connection, appId: Long, newPathValues: Collection<String>, firstSeenAt: Long) {
+        if (newPathValues.isEmpty()) return
+        writer.prepareStatement(INSERT_APP_PATH_SQL).use { insert ->
+            for (path in newPathValues) {
+                insert.setLong(1, appId)
+                insert.setString(2, path)
+                insert.setLong(3, firstSeenAt)
                 insert.addBatch()
             }
             insert.executeBatch()

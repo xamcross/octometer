@@ -18,4 +18,7 @@ data class MonitorConfig(
     val retentionDays: Int,
     val pollIntervalSeconds: Int,
     val backupDir: String = backupsDir(dataDir).absolutePath,
+    // Issue #205, the D5 rule of 2026-09-27: the per-app cap on the
+    // count of distinct path values of app_path.
+    val pathValueCap: Int = 200,
 )

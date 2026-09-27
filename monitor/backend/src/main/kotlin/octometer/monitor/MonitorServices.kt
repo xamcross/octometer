@@ -123,7 +123,11 @@ class MonitorServices private constructor(
                 // throw before this line never starts it. A throw after
                 // this line still stops it, in the catch block below.
                 val eventStore = EventStore(database)
-                val reader = MongoAppReader(eventStore, settleLagSeconds = config.settleLagSeconds.toLong())
+                val reader = MongoAppReader(
+                    eventStore,
+                    settleLagSeconds = config.settleLagSeconds.toLong(),
+                    pathValueCap = config.pathValueCap,
+                )
                 mongoAppReader = reader
                 pollScheduler = PollScheduler(
                     pollStore = SqlitePollStore(database),

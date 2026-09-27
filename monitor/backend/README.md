@@ -17,6 +17,7 @@ variable, the user file, the bundled default. See `octometer.monitor.config.load
 | `retentionDays` | `OCTOMETER_STORE_RETENTION_DAYS` | `395` |
 | `backupDir` | `OCTOMETER_BACKUP_DIR` | the sibling folder `backups` of `dataDir` |
 | `pollIntervalSeconds` | `OCTOMETER_POLL_INTERVAL_SECONDS` | `60` in prod, `5` in dev |
+| `pathValueCap` | `OCTOMETER_PATH_VALUE_CAP` | `200` |
 
 `pollIntervalSeconds` sets the gap between two poll cycles of one app (issue #17, design
 decision D6). The poll scheduler adds this gap to the clock time after each cycle, on a
@@ -45,9 +46,24 @@ A `referrerHost` value outside the closed set of contract rule C40 (`google.com`
 counts the dropped fields, a count only, never a value. The three set values land as they
 are, and the check is case-sensitive.
 
-A `path` value stays a raw copy: a pattern form of contract rule C42 cannot be told apart
-from a raw path at the reader. This risk stays open by the owner's choice; issue #205 tracks
-it, outside this issue.
+### The per-app cap on the distinct path values (issue #205, 2026-09-27)
+
+The reader keeps the set of distinct `path` values of each app, in the table `app_path`, with
+a cap (`pathValueCap`, default 200). A `path` value of a start or a click event is accepted as
+it is when it passes the shape check of contract rule C39, and it is in the set, or the set
+holds fewer than `pathValueCap` values (the value then joins the set). Each other value lands
+as the literal `/other` (the C42 fallback). The row stays. One WARN line of the cycle counts
+the replaced values, a count only, never a value. A `NULL` path stays `NULL`.
+
+A PATCH to a different connection string clears the set of the app. The retention purge
+removes each value with no matching event row of its own app any more. The erasure route also
+rewrites each event `path`, and deletes each `app_path` value, that holds the erased user id
+as a whole segment.
+
+A source that writes raw client paths keeps a maximum of `pathValueCap` distinct values until
+the owner reads the WARN line. An app with fewer distinct raw values than `pathValueCap`
+produces no WARN line, and the set never ages out on its own. The allow-list of a per-app
+pattern list is the stronger control; issue #226 holds it.
 
 ## The release zip (issue #38)
 
@@ -96,12 +112,31 @@ person skipped step 3. The start stops with one log line, and the code
 never deletes the two side files by itself; only a person, following the
 steps above, does that.
 
+## The log files (issue #57)
+
+The monitor writes each log line to the console, and to a rolling file. Each file appender
+uses one text pattern, with no query string, no header, and no connection string.
+
+- The file: `<logs>/octometer.log`. The folder `logs` is a sibling of `dataDir` (design
+  decisions D3 and D34). `configureLogDir` in `Application.kt` sets the folder after the
+  config load. It then loads `logback-file.xml`, a second Logback file that adds the
+  rolling file appender. `logback.xml` itself never loads a file appender.
+- Each file rolls over at 10 MB, or at midnight, whichever comes first.
+- The monitor keeps 14 days of files, up to 200 MB in total. A file beyond either bound is
+  gone.
+- The dev mode (`dataDir = build/dev-data`) writes to `build/logs`.
+
 ## The user erasure route (issue #61)
 
 `DELETE /api/apps/{appId}/events?userId=<id>` deletes each event of one user id of one app in
 the monitor store. It also deletes each event with `user_id IS NULL` of a session that holds
 an event of that user (contract rule C43). A row of a second user in the same session stays.
 The answer holds `deleted` (the row count) and `checkpointed` (see below).
+
+The route also rewrites each event `path` of the app that holds the erased id as a whole
+segment to `/other`, and it deletes each `app_path` value with that same shape (issue #205,
+design decision D5). Neither count joins `deleted`: the rewritten row keeps its own tie to its
+own session, with no other tie to the erased user.
 
 This route erases the monitor copy only. Each app also keeps its own copy of the events in its
 MongoDB store, through the kit (`EventLogStore.append`). Issue #35 gives the kit the same
