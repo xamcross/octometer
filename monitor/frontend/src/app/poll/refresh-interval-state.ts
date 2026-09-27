@@ -16,6 +16,7 @@ import {
 /** The part of the health response that the service reads. */
 interface HealthResponse {
   refreshSeconds: number;
+  retentionDays: number;
 }
 
 /** The interval to use when the health response holds no valid refreshSeconds. */
@@ -27,6 +28,11 @@ const HEALTH_RETRY_MS = 5_000;
 /** Returns true only for a finite number above 0. */
 function isPositiveNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+/** Returns true only for a positive integer. */
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
 /**
@@ -50,6 +56,15 @@ export class RefreshIntervalState {
   private readonly http = inject(HttpClient);
   private readonly errorState = signal<unknown>(undefined);
   private readonly dataErrorState = signal<unknown>(undefined);
+  private readonly retentionDaysState = signal<number | null>(null);
+
+  /**
+   * The retention length in days from `GET /api/health` (D13, issue #66).
+   * Null until the first good answer arrives, and null when the field is
+   * absent or not a positive integer. The service reads this from the one
+   * health request of the session (D29); it sends no second request.
+   */
+  readonly retentionDays: Signal<number | null> = this.retentionDaysState.asReadonly();
 
   /**
    * The error of the last failed health request, or of the last failed
@@ -67,6 +82,9 @@ export class RefreshIntervalState {
       this.http.get<HealthResponse>('/api/health').pipe(
         map((health) => {
           this.errorState.set(undefined);
+          this.retentionDaysState.set(
+            isPositiveInteger(health.retentionDays) ? health.retentionDays : null,
+          );
           return isPositiveNumber(health.refreshSeconds)
             ? health.refreshSeconds * 1000
             : FALLBACK_INTERVAL_MS;
