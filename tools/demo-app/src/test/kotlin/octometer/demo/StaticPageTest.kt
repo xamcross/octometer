@@ -33,7 +33,10 @@ class StaticPageTest {
         assertTrue(body.contains("demo_user"), "The page must set the cookie demo_user.")
         assertTrue(body.contains("flushIntervalMs: 1000"), "The tracker must use flushIntervalMs 1000.")
         assertTrue(body.contains("/tracker/index.js"), "The page must load the built tracker.")
-        assertTrue(body.contains("routes: ['/']"), "The page must give the route pattern list to the tracker.")
+        assertTrue(
+            !body.contains("routes"),
+            "The page must hold no routes option; the tracker sends the raw path (design decision D49).",
+        )
     }
 
     @Test
