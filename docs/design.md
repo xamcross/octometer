@@ -1,5 +1,10 @@
 # The design of the Octometer monitor UI
 
+`docs/components.md` lists each UI component of the monitor, with its purpose, its
+anatomy, its states, its accessibility contract, and its rules. Read that document for
+one component; read this page for the tokens and the six principles that each component
+follows.
+
 This page holds the cartoon look of the monitor UI (design decision D45). It lists the
 tokens, the type scale, the page column, the six principles, the status badges, the focus
 ring, and the contrast table. `docs/design/mockup.html` is the reference for the tokens and
