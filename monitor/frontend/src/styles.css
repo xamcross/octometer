@@ -181,24 +181,26 @@ a {
  * Each of the five data views wraps its table in a panel of this class.
  * The panel holds no padding of its own: the caption and each cell add
  * the inset instead, so the head row and the zebra rows reach the panel
- * border. `overflow: hidden` clips those rows to the round corner.
+ * border. The panel sets no overflow rule. This choice keeps the ring of
+ * `:focus-visible` visible outside the clip of `.table-scroll`.
  */
 .panel {
   background: var(--paper);
   border: var(--line-panel);
   border-radius: var(--radius-panel);
   box-shadow: var(--shadow-panel);
-  overflow: hidden;
 }
 
 /*
  * The scroll wrapper around a table (a view keeps `position: relative` in
  * its own component style, so the rule stays present for a unit test:
- * vitest links this file in browser mode only).
+ * vitest links this file in browser mode only). `border-radius: inherit`
+ * clips the rows to the panel corner.
  */
 .table-scroll {
   overflow-x: auto;
   padding-bottom: 4px;
+  border-radius: inherit;
 }
 
 .panel table {
@@ -282,6 +284,6 @@ a {
 .data-from {
   font-size: var(--text-s);
   color: var(--ink-soft);
-  margin-top: 4px;
+  margin: 4px 0 0;
   max-width: 22rem;
 }

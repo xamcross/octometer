@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
@@ -549,6 +551,41 @@ describe('Apps', () => {
       expect(getComputedStyle(td).display).toBe('table-cell');
       const th = root().querySelector('tbody th') as HTMLElement;
       expect(getComputedStyle(th).display).toBe('table-cell');
+    });
+
+    it('sets no overflow hidden on .panel, so the ring of .table-scroll stays visible (#249)', () => {
+      // Vitest links the global block of styles.css to document.styleSheets
+      // only in browser mode. This test reads the block and the component
+      // style as plain text instead. The test then walks the parsed rules
+      // by hand. The text holds only the #249 block, because the `@import`
+      // lines at the top of the file give jsdom a parse error. Each file
+      // path starts at the project root, the working directory of the
+      // test run.
+      const stylesCssText = readFileSync('src/styles.css', 'utf8');
+      const appsCssText = readFileSync('src/app/apps/apps.css', 'utf8');
+      const panelsBlockMarker = '/* The panels, the tables, and the badges (#249). */';
+      const panelsBlockText = stylesCssText.slice(stylesCssText.indexOf(panelsBlockMarker));
+
+      const panelRules: CSSStyleRule[] = [];
+      for (const cssText of [panelsBlockText, appsCssText]) {
+        const style = document.createElement('style');
+        style.textContent = cssText;
+        document.head.appendChild(style);
+        const rules = Array.from(style.sheet?.cssRules ?? []);
+        document.head.removeChild(style);
+        for (const rule of rules) {
+          const styleRule = rule as CSSStyleRule;
+          const selectorParts = styleRule.selectorText?.split(',').map((part) => part.trim()) ?? [];
+          if (selectorParts.includes('.panel')) {
+            panelRules.push(styleRule);
+          }
+        }
+      }
+
+      expect(panelRules.length).toBeGreaterThan(0);
+      for (const rule of panelRules) {
+        expect(rule.style.overflow).not.toBe('hidden');
+      }
     });
 
     it('gives the name link a minimum target size of 24 by 24 CSS px', () => {
