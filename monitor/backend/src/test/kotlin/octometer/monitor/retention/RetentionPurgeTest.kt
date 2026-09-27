@@ -259,7 +259,71 @@ class RetentionPurgeTest {
         )
     }
 
+    // --- gap aging (issue #227) ---
+
+    @Test
+    fun `purgeOnce deletes a gap row whose to_ts is older than the retention time`() = runBlocking {
+        val cutoff = NOW - RETENTION_DAYS * DAY_MILLIS
+        insertGap(appId, cutoff - DAY_MILLIS, cutoff - 1_000)
+
+        RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
+
+        assertEquals(emptyList(), remainingGaps())
+    }
+
+    @Test
+    fun `purgeOnce keeps a gap row whose to_ts is inside the retention time`() = runBlocking {
+        val cutoff = NOW - RETENTION_DAYS * DAY_MILLIS
+        insertGap(appId, cutoff - DAY_MILLIS, cutoff + DAY_MILLIS)
+
+        RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
+
+        assertEquals(listOf(cutoff - DAY_MILLIS to cutoff + DAY_MILLIS), remainingGaps())
+    }
+
+    // The app scope of the delete: while the purge deletes an old gap
+    // row of one app, a fresh gap row of another app stays. The loop
+    // must apply each app's own id to its own delete call, never the
+    // id of a different app.
+    @Test
+    fun `purgeOnce keeps a fresh gap row of another app`() = runBlocking {
+        val cutoff = NOW - RETENTION_DAYS * DAY_MILLIS
+        insertGap(appId, cutoff - DAY_MILLIS, cutoff - 1_000)
+        val otherAppId = insertApp(database, "other-app")
+        insertGap(otherAppId, cutoff - DAY_MILLIS, cutoff + DAY_MILLIS)
+
+        RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
+
+        assertEquals(emptyList(), remainingGaps(appId))
+        assertEquals(listOf(cutoff - DAY_MILLIS to cutoff + DAY_MILLIS), remainingGaps(otherAppId))
+    }
+
     private fun fixedClock(millis: Long): Clock = Clock.fixed(Instant.ofEpochMilli(millis), ZoneOffset.UTC)
+
+    private suspend fun insertGap(forAppId: Long, fromTs: Long, toTs: Long) {
+        database.write { writer ->
+            writer.prepareStatement(
+                "INSERT INTO gap (app_id, from_ts, to_ts) VALUES (?, ?, ?)",
+            ).use { insert ->
+                insert.setLong(1, forAppId)
+                insert.setLong(2, fromTs)
+                insert.setLong(3, toTs)
+                insert.executeUpdate()
+            }
+        }
+    }
+
+    private suspend fun remainingGaps(forAppId: Long = appId): List<Pair<Long, Long>> =
+        database.read { reader ->
+            reader.prepareStatement("SELECT from_ts, to_ts FROM gap WHERE app_id = ? ORDER BY from_ts").use { select ->
+                select.setLong(1, forAppId)
+                select.executeQuery().use { result ->
+                    val rows = mutableListOf<Pair<Long, Long>>()
+                    while (result.next()) rows += result.getLong(1) to result.getLong(2)
+                    rows
+                }
+            }
+        }
 
     private suspend fun insertAppPath(path: String) {
         database.write { writer ->

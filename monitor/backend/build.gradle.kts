@@ -80,7 +80,9 @@ application {
 }
 
 tasks.test {
-    useJUnitPlatform()
+    // Issue #63, step 3: the test task excludes the tag "perf", so a
+    // plain build run never pays for the perf test's own data build.
+    useJUnitPlatform { excludeTags("perf") }
     // Correction round 2 of issue #38 (MAJOR, second security review):
     // FrontendCspTest and WindowsStartScriptTest read these two files
     // directly, with no Gradle input link to them. Gradle could then
@@ -93,6 +95,28 @@ tasks.test {
     inputs.files(layout.buildDirectory.file("install/backend/bin/backend.bat"))
         .withPropertyName("windowsStartScript")
         .optional()
+}
+
+// Issue #63, step 4: a measurement task, never a correctness gate. It
+// runs only the tag "perf", at the sizes of the system property
+// "octometer.perf.sizes" (a comma-separated list; LevelQueryPerfTest
+// defaults to 1000000 and 10000000 with no such property). This task
+// stores no build cache entry (the changed-only-tests rule of the
+// owner, 2026-09-22): a measurement task must run every time, and
+// "upToDateWhen { false }" backs that up for a plain up-to-date check.
+// The two withType<Test> blocks above already declare the environment
+// inputs and a doNotCacheIf; they apply to this task too, because it is
+// a Test task, registered under the same configureEach.
+tasks.register<Test>("perfTest") {
+    group = "verification"
+    description = "Runs the perf tag test of issue #63, the three levels at 1 million and 10 million events."
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform { includeTags("perf") }
+    maxHeapSize = "2g"
+    systemProperty("octometer.perf.sizes", System.getProperty("octometer.perf.sizes") ?: "")
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
 }
 
 // Issue #177, step 1. Each test listener below reads OCTOMETER_REQUIRE_DOCKER
