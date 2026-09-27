@@ -2,6 +2,7 @@ package octometer.monitor.store
 
 import java.io.File
 import java.nio.file.Files
+import java.security.SecureRandom
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.SQLException
@@ -12,6 +13,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 // MAJOR 3 of correction round 1 (Kotlin backend engineer): a failed open()
@@ -96,6 +98,153 @@ class SqliteDatabaseReadTransactionTest {
         val count = database.read { reader -> countApps(reader) }
 
         assertEquals(0, count)
+    }
+}
+
+// Decision 1 of issue #58, the correction of 2026-09-27: random bytes
+// give SQLITE_NOTADB while SqlitePragmas.applyTo reads the file header,
+// before PRAGMA quick_check ever runs. The exception text is thus the
+// driver text, never a quick_check row. The file itself stays as it is:
+// SqliteDatabase.open writes nothing before this check runs.
+class SqliteDatabaseCorruptTest {
+
+    private val root = Files.createTempDirectory("octometer-corrupt-test-").toFile().also { registerTempRoot(it) }
+    private val dataDir = File(root, "data")
+
+    @AfterTest
+    fun tearDown() {
+        root.deleteRecursively()
+    }
+
+    @Test
+    fun `random bytes in octometer db give CorruptDatabaseException with the driver text, and the file stays as it is`() {
+        dataDir.mkdirs()
+        val dbFile = File(dataDir, "octometer.db")
+        val randomBytes = ByteArray(4096)
+        SecureRandom().nextBytes(randomBytes)
+        dbFile.writeBytes(randomBytes)
+        val bytesBeforeOpen = dbFile.readBytes()
+
+        val failure = assertFailsWith<CorruptDatabaseException> {
+            SqliteDatabase.open(dataDir.absolutePath)
+        }
+
+        assertTrue(
+            failure.message!!.contains("SQLITE_NOTADB", ignoreCase = true) ||
+                failure.message!!.contains("not a database", ignoreCase = true),
+            "the message names the driver text: ${failure.message}",
+        )
+        assertFalse(
+            failure.message!!.contains("quick_check"),
+            "the random-bytes path never gives the quick_check text",
+        )
+        assertTrue(bytesBeforeOpen.contentEquals(dbFile.readBytes()), "the file stays as it is")
+    }
+
+    // A file that quick_check itself catches: a good header (the file
+    // opens, and journal_mode=WAL applies), with its last page cut off.
+    // The header's own page count then no longer matches the file size,
+    // and quick_check gives "database disk image is malformed". This
+    // fails before MigrationRunner.run ever writes anything (decision
+    // 1's correction of 2026-09-27).
+    @Test
+    fun `a file cut off after its header fails PRAGMA quick_check`() {
+        dataDir.mkdirs()
+        val dbFile = File(dataDir, "octometer.db")
+        DriverManager.getConnection("jdbc:sqlite:${dbFile.absolutePath}").use { connection ->
+            connection.createStatement().use { it.execute("CREATE TABLE probe (id INTEGER, filler TEXT)") }
+            connection.prepareStatement("INSERT INTO probe (id, filler) VALUES (?, ?)").use { insert ->
+                val filler = "x".repeat(500)
+                for (i in 1..200) {
+                    insert.setInt(1, i)
+                    insert.setString(2, filler)
+                    insert.executeUpdate()
+                }
+            }
+        }
+        val fullLength = dbFile.length()
+        // Keep the first page (the header) whole, and cut the file well
+        // before its recorded end, so the last pages are simply gone.
+        val truncatedLength = minOf(4096L * 2, fullLength - 4096L)
+        java.io.RandomAccessFile(dbFile, "rw").use { it.setLength(truncatedLength) }
+
+        val failure = assertFailsWith<CorruptDatabaseException> {
+            SqliteDatabase.open(dataDir.absolutePath)
+        }
+
+        assertTrue(
+            failure.message!!.contains("quick_check") || failure.message!!.contains("malformed", ignoreCase = true),
+            "the message names the quick_check row: ${failure.message}",
+        )
+    }
+
+    // A direct test of the shared helper itself (decision 1: SqliteDatabase.open
+    // and DatabaseBackup.checkIntegrity both call runQuickCheck). A
+    // connection with no journal_mode=WAL pragma applied reaches this
+    // corrupt page with no earlier driver failure, so this proves the
+    // "answer != ok" branch of refuseIfCorrupt on its own, distinct from
+    // a driver failure at connection open.
+    @Test
+    fun `runQuickCheck gives a row other than ok for a page corrupted after the header`() {
+        dataDir.mkdirs()
+        val dbFile = File(dataDir, "octometer.db")
+        DriverManager.getConnection("jdbc:sqlite:${dbFile.absolutePath}").use { connection ->
+            connection.createStatement().use { it.execute("CREATE TABLE probe (id INTEGER, filler TEXT)") }
+            connection.prepareStatement("INSERT INTO probe (id, filler) VALUES (?, ?)").use { insert ->
+                val filler = "y".repeat(500)
+                for (i in 1..200) {
+                    insert.setInt(1, i)
+                    insert.setString(2, filler)
+                    insert.executeUpdate()
+                }
+            }
+        }
+        val corrupted = dbFile.readBytes().copyOf()
+        // Page 3 (offset 8192, the default page size 4096) holds table
+        // rows, well past the 100-byte file header of page 1. A byte
+        // flip well inside it corrupts a cell, not a page boundary.
+        val corruptFrom = 8192 + 500
+        for (i in corruptFrom until corruptFrom + 64) {
+            corrupted[i] = (corrupted[i] + 1).toByte()
+        }
+        dbFile.writeBytes(corrupted)
+
+        val answer = DriverManager.getConnection("jdbc:sqlite:${dbFile.absolutePath}").use { connection ->
+            runQuickCheck(connection)
+        }
+
+        assertTrue(answer != "ok", "a corrupted page gives a row other than ok: $answer")
+    }
+}
+
+// Decision 6 of issue #58: no ERROR line of the corrupt-database path or
+// the lock-failure path holds the data folder path, only a file name.
+class SqliteDatabaseCorruptLogMarkerTest {
+
+    private val root = Files.createTempDirectory("octometer-corrupt-marker-test-").toFile().also { registerTempRoot(it) }
+    private val dataDir = File(root, "data")
+
+    @AfterTest
+    fun tearDown() {
+        root.deleteRecursively()
+    }
+
+    @Test
+    fun `the CorruptDatabaseException message never holds the data folder path`() {
+        dataDir.mkdirs()
+        val dbFile = File(dataDir, "octometer.db")
+        val randomBytes = ByteArray(4096)
+        SecureRandom().nextBytes(randomBytes)
+        dbFile.writeBytes(randomBytes)
+
+        val failure = assertFailsWith<CorruptDatabaseException> {
+            SqliteDatabase.open(dataDir.absolutePath)
+        }
+
+        assertFalse(
+            failure.message!!.contains(dataDir.absolutePath),
+            "the message names a file name only, never the data folder path",
+        )
     }
 }
 

@@ -6,6 +6,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.sql.Connection
 import java.sql.DriverManager
+import octometer.monitor.store.runQuickCheck
 
 private const val MAX_MOVE_ATTEMPTS = 5
 private const val MOVE_RETRY_PAUSE_MILLIS = 50L
@@ -69,17 +70,12 @@ object DatabaseBackup {
 
     // Reliability MINOR 9 of the SQLite and file system review: a cheap
     // check at the moment of the write catches a bad page before the file
-    // takes the final name, not a year later at a restore.
+    // takes the final name, not a year later at a restore. Issue #58
+    // shares the check itself, runQuickCheck, with SqliteDatabase.open.
     private fun checkIntegrity(tempFile: File) {
         val url = "jdbc:sqlite:${tempFile.absolutePath}"
         val answer = try {
-            DriverManager.getConnection(url).use { connection ->
-                connection.createStatement().use { statement ->
-                    statement.executeQuery("PRAGMA quick_check").use { result ->
-                        if (result.next()) result.getString(1) else null
-                    }
-                }
-            }
+            DriverManager.getConnection(url).use { connection -> runQuickCheck(connection) }
         } catch (failure: Exception) {
             throw BackupFailedException("The backup integrity check did not run. ${failure.javaClass.simpleName}")
         }
