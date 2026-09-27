@@ -259,9 +259,11 @@ the automatic refresh.
 
 **Anatomy.**
 - `<app-pause-refresh-button>` then `<p>{{ intervalText() }}</p>`, in one flex row that
-  wraps (`refresh-bar.html:1-2`, `refresh-bar.css:6-11`).
+  wraps (`refresh-bar.html:1-2`, `refresh-bar.css:6-16`).
 - The button: `<button [attr.aria-pressed]="pressed()" (click)="toggle()">Pause
   refresh</button>` (`pause-refresh-button.html:1`).
+- The host keeps a bottom margin of `var(--space-4)` (16px), so a gap stays above the
+  panel of the view (`refresh-bar.css:6-16`, #271).
 
 **States.**
 
