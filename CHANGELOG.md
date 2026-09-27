@@ -13,6 +13,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Contract
 
+- Amend rules C41 and C42 for version 1.3: the tracker sends the raw page path, and the kit alone matches it; an invalid path value gives `/other`, never a dropped field. (#278)
+
 ### Kit JVM
 
 - Add the design decisions D46 to D49 for the route list from the app. (#275)
@@ -20,6 +22,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 ### Tracker
 
 - Name the tarball asset of the release `0.2.0` in the Ktor guide and the tracker README. (#229)
+- Send the raw page path with no `routes` option of its own; the kit alone matches it. (#278)
 
 ### Monitor
 
