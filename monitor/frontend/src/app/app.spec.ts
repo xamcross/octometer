@@ -200,6 +200,15 @@ describe('App', () => {
       expect(focusTransform).toBe('translateY(0)');
     });
 
+    it('moves the skip link 8px clear of the page corner on focus (minor_issues/254.md)', () => {
+      fixture.detectChanges();
+
+      const focusRule = findCssRule('.skip-link:focus');
+
+      expect(focusRule?.style.top).toBe('8px');
+      expect(focusRule?.style.left).toBe('8px');
+    });
+
     it('gives the skip link a minimum target size of 24 by 24 CSS px', () => {
       fixture.detectChanges();
 

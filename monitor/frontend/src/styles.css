@@ -287,3 +287,15 @@ a {
   margin: 4px 0 0;
   max-width: 22rem;
 }
+
+/* The band and the pills (#247) */
+
+/*
+ * The octo fill of the mark's head vanishes on the octo band, so the
+ * band gives the head the paper fill instead. `app.css` cannot reach
+ * this child template of `app-octo-mark`, because Angular scopes a
+ * component style to its own component; this rule stays here, unscoped.
+ */
+.band app-octo-mark .head {
+  fill: var(--paper);
+}

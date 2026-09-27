@@ -1,12 +1,22 @@
-/* The target size (WCAG 2.5.8). 24 by 24 CSS px is a minimum, not a goal. */
+/*
+ * The button is a pill, in the same form as a nav pill (D45). The target
+ * size keeps a 24px minimum width beside a 44px minimum height (WCAG
+ * 2.5.8), also given by a nav pill. This rule names its own font size,
+ * because Angular scopes it to this component: a shared `button` rule
+ * that #248 adds later cannot reach in and correct it. This scoped rule
+ * is the pill form of #247, not the shared `.btn` rule of #248.
+ */
 button {
-  min-block-size: 24px;
-  min-inline-size: 24px;
-  padding: 4px 12px;
-  border: 1px solid ButtonBorder;
-  border-radius: 4px;
-  background: ButtonFace;
-  color: ButtonText;
+  display: inline-flex;
+  align-items: center;
+  min-width: 24px;
+  min-height: 44px;
+  padding: 6px 16px;
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line-control);
+  border-radius: var(--radius-pill);
+  font: 600 var(--text-m) / 1.2 var(--display);
 }
 
 /* The check mark holds its space in both states, so the button keeps one size. */
@@ -15,11 +25,10 @@ button::before {
   visibility: hidden;
 }
 
-/* The pressed state (WCAG 1.4.1). A border form and an icon carry the state, not colour alone. */
+/* The pressed state (WCAG 1.4.1). The check mark carries the state, not colour alone. */
 button[aria-pressed='true'] {
-  border-style: inset;
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--sunny);
+  color: var(--on-bright);
 }
 
 button[aria-pressed='true']::before {

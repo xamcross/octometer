@@ -1,26 +1,36 @@
 ul {
   display: flex;
   flex-wrap: wrap;
+  gap: 8px;
   list-style-type: none;
   margin: 0;
   padding: 0;
 }
 
+/* Each link is a pill (D45): a paper fill, an ink line, a 44px target. */
 a {
   display: inline-flex;
   align-items: center;
   min-width: 24px;
-  min-height: 24px;
-  padding: 0.25rem 0.75rem;
-  text-decoration: underline;
+  min-height: 44px;
+  padding: 6px 16px;
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line-control);
+  border-radius: var(--radius-pill);
+  font-family: var(--display);
+  font-weight: 600;
+  text-decoration: none;
 }
 
 /*
- * The current link keeps its underline, so the state does not rely on
- * font-weight alone. The thicker underline is a second cue next to the
- * bold weight, not a cue of colour (WCAG 1.4.1).
+ * The current link gets the sunny fill, and keeps a second cue next to
+ * the colour (WCAG 1.4.1): a 3px underline under the text.
  */
 a.current-section {
-  font-weight: bold;
-  text-decoration-thickness: 0.2em;
+  background: var(--sunny);
+  color: var(--on-bright);
+  text-decoration: underline;
+  text-decoration-thickness: 3px;
+  text-underline-offset: 4px;
 }

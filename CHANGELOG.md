@@ -18,6 +18,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 ### Monitor
 
 - Put each data table of the five views in a panel, with a status badge and tabular numbers. (#249)
+- Restyle the header band, the nav pills, the pause button, the skip link, the banner, and the breadcrumb; add the mascot mark. (#247)
 - Add the design tokens, the two fonts, and the base stylesheet of the cartoon look. (#246)
 - Give the collection field of the add-app request the default `octometer_events`, and remove the field from the add form. (#244)
 - Show a hint with an example under each field of the add form and the edit form. (#245)

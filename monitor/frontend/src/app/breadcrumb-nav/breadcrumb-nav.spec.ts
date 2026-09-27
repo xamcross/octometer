@@ -66,8 +66,10 @@ describe('BreadcrumbNav', () => {
     ]);
 
     const last = items[items.length - 1];
-    expect(last.querySelector('[aria-current="page"]')?.textContent).toContain('Users');
+    const current = last.querySelector('[aria-current="page"]') as HTMLElement;
+    expect(current?.textContent).toContain('Users');
     expect(last.querySelector('a')).toBeNull();
+    expect(getComputedStyle(current).fontWeight).toBe('700');
   });
 
   it('marks the last entry as the current page, even when it carries a path', () => {
