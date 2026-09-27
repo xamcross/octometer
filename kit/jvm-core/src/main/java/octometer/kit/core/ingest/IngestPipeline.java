@@ -24,8 +24,11 @@ import octometer.kit.core.user.UserIdResolver;
  *   <li>the server drops an entry whose `element` starts with the
  *       reserved prefix `octo:` in each letter case, except the exact
  *       text `octo:session-start` (rule C38);</li>
- *   <li>the server checks `path` against rule C39, and drops an invalid
- *       value while it keeps the entry (rule C41);</li>
+ *   <li>the server checks `path` against rule C39, and, with a route
+ *       pattern matcher, maps an invalid value to {@code /other} (rule
+ *       C41, amended by design decision D49); with no matcher, the
+ *       server drops the value while it keeps the entry, the same as
+ *       before;</li>
  *   <li>the server checks `referrerHost` against rule C40 on the
  *       `octo:session-start` entry only, and drops an invalid value or a
  *       value of another entry while it keeps the entry (rules C40,
@@ -40,6 +43,13 @@ import octometer.kit.core.user.UserIdResolver;
  * IngestEvent#path()} hold the match result of that matcher, never the
  * raw client value. Without a matcher, {@link IngestEvent#path()} is
  * {@code null}, also for a shape-valid client value.
+ *
+ * <p>Issue #278 (design decision D49) amends rule C41 for `path`: the
+ * tracker sends the raw page path with no route list of its own, so a
+ * value that breaks rule C39 becomes {@code /other} on the server, never
+ * a dropped field, when a route pattern matcher exists. The tracker keeps
+ * tracking a route after a deploy that changes the route list, because it
+ * sends no list of its own.
  */
 public final class IngestPipeline {
 
@@ -122,6 +132,11 @@ public final class IngestPipeline {
                     if (pathPatternMatcher != null) {
                         path = pathPatternMatcher.match(click.path());
                     }
+                } else if (pathPatternMatcher != null) {
+                    // Contract rule C41 (amended by design decision D49): a
+                    // path value outside the grammar of rule C39 becomes
+                    // /other, never a dropped field or a dropped batch.
+                    path = "/other";
                 } else if (!warnedInvalidField) {
                     LOGGER.log(Level.WARNING, "The batch holds an entry with an invalid path or "
                             + "referrerHost value. The server drops the field and keeps the entry "
