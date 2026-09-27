@@ -98,11 +98,21 @@ fun main(args: Array<String>) {
     // processes must never both write the secret file). Only
     // SqliteDatabase.open made dataDir before this; validateDataDir
     // checks the text of the config value only.
-    File(resolved.config.dataDir).mkdirs()
+    //
+    // Correction round 1, MAJOR A: the old code dropped the result of
+    // mkdirs(). A dataDir on a drive that does not exist then reached
+    // InstanceLock.acquire, which threw an uncaught NoSuchFileException
+    // with the full path. This check gives one ERROR line and the exit
+    // code 2 instead, the same as each other invalid-start path.
+    val dataDirFile = File(resolved.config.dataDir)
+    if (!dataDirFile.mkdirs() && !dataDirFile.isDirectory) {
+        log.error("The data folder is not available.")
+        exitProcess(2)
+    }
     val instanceLock = try {
         InstanceLock.acquire(resolved.config.dataDir)
     } catch (lockFailure: InstanceLockFailedException) {
-        log.error("Another monitor instance holds octometer.lock in the data folder.")
+        log.error(lockFailure.message ?: "The instance lock failed.")
         exitProcess(2)
     }
     Runtime.getRuntime().addShutdownHook(Thread { instanceLock.close() })
@@ -125,10 +135,11 @@ fun main(args: Array<String>) {
             module = { module(resolved.config) },
         ).start(wait = true)
     } catch (corrupt: CorruptDatabaseException) {
-        log.error(
-            "The database file failed PRAGMA quick_check. The file stays as it is. {}",
-            corrupt.message,
-        )
+        // Correction round 1 (MAJOR B, the ERROR-sentence MINOR of both
+        // reviews): the message already names its own route (the driver
+        // check or the quick_check route); this line adds no fixed
+        // prefix of its own, so it never mislabels the driver route.
+        log.error(corrupt.message ?: "The database file is corrupt.")
         exitProcess(2)
     }
 }

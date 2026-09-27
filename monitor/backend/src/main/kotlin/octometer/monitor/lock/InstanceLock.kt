@@ -17,7 +17,7 @@ const val LOCK_FILE_NAME = "octometer.lock"
  * secret sweep of `open` must never race a second process on the same
  * secret file).
  */
-class InstanceLockFailedException(message: String) : Exception(message)
+class InstanceLockFailedException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
  * One held lock of [LOCK_FILE_NAME] in `dataDir`, for the life of the
@@ -40,17 +40,26 @@ class InstanceLock private constructor(
          * Opens [LOCK_FILE_NAME] inside [dataDir] and takes an exclusive
          * lock on it with `FileChannel.tryLock()`. Throws
          * [InstanceLockFailedException] when a second process (or, in one
-         * test JVM only, a second channel) already holds the lock. The
-         * message names the file name only, never the data folder path.
+         * test JVM only, a second channel) already holds the lock, or
+         * when the open call itself fails (for example a `dataDir` on a
+         * drive that does not exist). Each message names the file name
+         * only, never the data folder path (correction round 1 of issue
+         * #58, MAJOR A: the open call used to sit outside this try, and
+         * an unwritable `dataDir` gave an uncaught exception with the
+         * full path).
          */
         fun acquire(dataDir: String): InstanceLock {
             val file = File(dataDir, LOCK_FILE_NAME)
-            val channel = FileChannel.open(
-                file.toPath(),
-                StandardOpenOption.CREATE,
-                StandardOpenOption.READ,
-                StandardOpenOption.WRITE,
-            )
+            val channel = try {
+                FileChannel.open(
+                    file.toPath(),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.READ,
+                    StandardOpenOption.WRITE,
+                )
+            } catch (openFailure: IOException) {
+                throw InstanceLockFailedException("The data folder is not available.", openFailure)
+            }
             val fileLock = try {
                 channel.tryLock()
             } catch (heldInThisJvm: OverlappingFileLockException) {
@@ -67,10 +76,7 @@ class InstanceLock private constructor(
             return InstanceLock(channel, fileLock)
         }
 
-        private fun lockFailedException(cause: Throwable?): InstanceLockFailedException {
-            val failure = InstanceLockFailedException("Another monitor instance holds $LOCK_FILE_NAME in the data folder.")
-            if (cause != null) failure.initCause(cause)
-            return failure
-        }
+        private fun lockFailedException(cause: Throwable?): InstanceLockFailedException =
+            InstanceLockFailedException("Another monitor instance holds $LOCK_FILE_NAME in the data folder.", cause)
     }
 }
