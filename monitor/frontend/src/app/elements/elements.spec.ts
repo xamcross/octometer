@@ -26,20 +26,26 @@ function buildRow(overrides: Partial<ElementRow> = {}): ElementRow {
 }
 
 describe('buildElementsRequestParams', () => {
-  it('reads userId when anonymous is not set', () => {
-    expect(buildElementsRequestParams('42', null)).toEqual({ userId: '42' });
+  it('reads userId when anonymous and sessionId are not set', () => {
+    expect(buildElementsRequestParams('42', null, null)).toEqual({ userId: '42' });
   });
 
   it('reads anonymous=true, and drops a userId next to it', () => {
-    expect(buildElementsRequestParams('42', 'true')).toEqual({ anonymous: 'true' });
+    expect(buildElementsRequestParams('42', 'true', null)).toEqual({ anonymous: 'true' });
   });
 
-  it('gives no parameter when neither is set', () => {
-    expect(buildElementsRequestParams(null, null)).toEqual({});
+  it('reads sessionId, and drops a userId and an anonymous value next to it (issue #115)', () => {
+    expect(buildElementsRequestParams('42', 'true', 'session-9')).toEqual({
+      sessionId: 'session-9',
+    });
+  });
+
+  it('gives no parameter when none of the three is set', () => {
+    expect(buildElementsRequestParams(null, null, null)).toEqual({});
   });
 
   it('gives no parameter for anonymous with a value other than "true"', () => {
-    expect(buildElementsRequestParams(null, 'false')).toEqual({});
+    expect(buildElementsRequestParams(null, 'false', null)).toEqual({});
   });
 });
 
@@ -137,6 +143,24 @@ describe('Elements', () => {
     fixture.detectChanges();
     startStore();
     httpMock.expectOne('/api/apps/7/elements?anonymous=true').flush(buildResponse());
+  });
+
+  it('sends the request with the sessionId query parameter when the route carries it (issue #115)', () => {
+    fixture.componentRef.setInput('userId', null);
+    fixture.componentRef.setInput('sessionId', 'session-9');
+    fixture.detectChanges();
+    startStore();
+    httpMock.expectOne('/api/apps/7/elements?sessionId=session-9').flush(buildResponse());
+  });
+
+  it('shows the full session id as text in the heading (issue #115)', () => {
+    fixture.componentRef.setInput('userId', null);
+    fixture.componentRef.setInput('sessionId', 'session-9');
+    fixture.detectChanges();
+    startStore();
+    httpMock.expectOne('/api/apps/7/elements?sessionId=session-9').flush(buildResponse());
+
+    expect(root().querySelector('h1')?.textContent).toBe('Elements of Session session-9');
   });
 
   describe('once the element list answers', () => {

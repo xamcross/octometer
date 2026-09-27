@@ -1,0 +1,73 @@
+<h1 tabindex="-1">Anonymous sessions</h1>
+<app-refresh-bar />
+
+@if (firstPath(); as path) {
+  <p>First page: {{ path }}</p>
+}
+
+@if (store.data(); as page) {
+  @if (page.rows.length === 0) {
+    <p>No anonymous session yet.</p>
+  } @else {
+    <div class="table-scroll" tabindex="0" role="region" aria-labelledby="sessions-caption">
+      <table>
+        <caption id="sessions-caption">
+          The anonymous sessions of this app, with the click totals of each session.
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Session</th>
+            <th scope="col">First page</th>
+            <th scope="col">Source</th>
+            <th scope="col">Start time ({{ zoneName }})</th>
+            <th scope="col" class="num">Clicks</th>
+            <th scope="col">User</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of page.rows; track row.sessionId) {
+            <tr>
+              <th scope="row">
+                <a
+                  [routerLink]="['/apps', appId(), 'elements']"
+                  [queryParams]="{ sessionId: row.sessionId }"
+                >
+                  {{ row.sessionId }}
+                </a>
+              </th>
+              <td (click)="onRowCellClick(row, $event)">{{ row.firstPath }}</td>
+              <td (click)="onRowCellClick(row, $event)">{{ row.source }}</td>
+              <td class="time" (click)="onRowCellClick(row, $event)">
+                <time [dateTime]="row.startTime">{{ formatDateTime(row.startTime) }}</time>
+              </td>
+              <td class="num" (click)="onRowCellClick(row, $event)">
+                {{ formatCount(row.clicks) }}
+              </td>
+              <td (click)="onRowCellClick(row, $event)">{{ formatUser(row.userId) }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <nav class="pager" aria-label="Pages of the anonymous session list">
+      <button
+        type="button"
+        (click)="onPreviousPage()"
+        [attr.aria-disabled]="currentPage() <= 1 ? 'true' : null"
+      >
+        Previous
+      </button>
+      <span>Page {{ currentPage() }} of {{ page.pageCount }}</span>
+      <button
+        type="button"
+        (click)="onNextPage()"
+        [attr.aria-disabled]="currentPage() >= page.pageCount ? 'true' : null"
+      >
+        Next
+      </button>
+    </nav>
+  }
+} @else {
+  <p>Octometer reads the anonymous session list.</p>
+}
