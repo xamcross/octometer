@@ -19,7 +19,10 @@
 
 <main id="main-content" tabindex="-1">
   @if (!appReady()) {
-    <p class="first-load">Octometer is loading…</p>
+    <div class="first-load-row">
+      <app-octo-mark [size]="48" />
+      <p class="first-load">Octometer is loading…</p>
+    </div>
   }
 
   <router-outlet (activate)="onOutletActivated()" />

@@ -1,0 +1,10 @@
+<app-octo-mark [size]="96" />
+<p class="empty-text">
+  {{ text() }}
+  @if (linkPath()) {
+    <span class="empty-link"
+      ><a [routerLink]="linkPath()">{{ linkText() }}</a
+      >{{ textAfter() }}</span
+    >
+  }
+</p>

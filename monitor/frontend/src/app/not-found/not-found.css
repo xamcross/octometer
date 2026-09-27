@@ -1,6 +1,5 @@
-a {
-  display: inline-flex;
-  align-items: center;
-  min-width: 24px;
-  min-height: 24px;
-}
+/*
+ * The empty-state component of the panel below carries its own 24 by
+ * 24 CSS px link rule (empty-state.css): a rule of this file cannot
+ * reach a child component template.
+ */

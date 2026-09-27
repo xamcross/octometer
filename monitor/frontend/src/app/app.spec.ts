@@ -64,6 +64,18 @@ describe('App', () => {
     expect(compiled.querySelector('.first-load')).toBeTruthy();
   });
 
+  it('shows the mark at 48 CSS px before the first-load text (D45, #250)', () => {
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    const row = compiled.querySelector('.first-load-row') as HTMLElement;
+    const mark = row.querySelector('app-octo-mark svg');
+    const text = row.querySelector('.first-load');
+    expect(mark?.getAttribute('width')).toBe('48');
+    expect(mark?.getAttribute('height')).toBe('48');
+    const children = Array.from(row.children);
+    expect(children.indexOf(mark!.closest('app-octo-mark')!)).toBeLessThan(children.indexOf(text!));
+  });
+
   it('hides the first-load state once a route is ready', async () => {
     fixture.detectChanges();
     await router.navigateByUrl('/apps');

@@ -26,9 +26,21 @@ describe('NotFound', () => {
     expect(heading?.getAttribute('tabindex')).toBe('-1');
   });
 
-  it('shows a link back to /apps', () => {
+  it('shows a link "Go to the apps" back to /apps', () => {
     const link = fixture.nativeElement.querySelector('a');
     expect(link?.getAttribute('href')).toBe('/apps');
+    expect(link?.textContent?.trim()).toBe('Go to the apps');
+  });
+
+  it('shows the mark and the sentence of the empty state', () => {
+    expect(fixture.nativeElement.querySelector('app-octo-mark svg')).toBeTruthy();
+    expect(fixture.nativeElement.textContent).toContain('This page does not exist.');
+  });
+
+  it('puts the empty state inside a panel', () => {
+    const panel = fixture.nativeElement.querySelector('section.panel') as HTMLElement;
+    expect(panel).toBeTruthy();
+    expect(panel.querySelector('app-empty-state')).toBeTruthy();
   });
 
   it('gives the link a minimum target size of 24 by 24 CSS px', () => {

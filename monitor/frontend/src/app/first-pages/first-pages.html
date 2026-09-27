@@ -3,7 +3,9 @@
 
 @if (store.data(); as page) {
   @if (page.rows.length === 0) {
-    <p>No first page yet.</p>
+    <section class="panel">
+      <app-empty-state text="No first page yet." />
+    </section>
   } @else {
     <section class="panel">
       <div class="table-scroll" tabindex="0" role="region" aria-labelledby="first-pages-caption">

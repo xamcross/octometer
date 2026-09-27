@@ -1,10 +1,11 @@
 import { Component } from '@angular/core';
-import { RouterLink } from '@angular/router';
 
-/** View for an unknown URL. It shows a link back to the app list. */
+import { EmptyState } from '../empty-state/empty-state';
+
+/** View for an unknown URL. It shows a link back to the apps view. */
 @Component({
   selector: 'app-not-found',
-  imports: [RouterLink],
+  imports: [EmptyState],
   templateUrl: './not-found.html',
   styleUrl: './not-found.css',
 })

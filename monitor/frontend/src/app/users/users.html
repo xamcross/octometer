@@ -21,13 +21,9 @@
 
 @if (store.data(); as page) {
   @if (page.rows.length === 0) {
-    <p>
-      @if (qValue()) {
-        No user id matches "{{ qValue() }}".
-      } @else {
-        No app user has clicked yet.
-      }
-    </p>
+    <section class="panel">
+      <app-empty-state [text]="emptyText()" />
+    </section>
   } @else {
     <section class="panel">
       <div class="table-scroll" tabindex="0" role="region" aria-labelledby="users-caption">
