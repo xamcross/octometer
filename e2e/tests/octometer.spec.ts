@@ -1,5 +1,6 @@
 import { expect, test } from '../fixtures';
 import { AppsPage } from '../pages/apps-page';
+import { BreadcrumbPart } from '../pages/breadcrumb-part';
 import { DemoPage } from '../pages/demo-page';
 import { ElementsPage } from '../pages/elements-page';
 import { ManagePage } from '../pages/manage-page';
@@ -173,6 +174,30 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await expect(page.getByText('This page does not exist.')).toBeVisible();
     await page.getByRole('link', { name: 'Go to the apps' }).click();
     await expect(page).toHaveURL(/\/apps$/);
+  });
+
+  test('the breadcrumb names the app and leads to its users (issue #270)', async ({ page }) => {
+    const breadcrumb = new BreadcrumbPart(page);
+
+    // A direct load polls the users view's own data route only, so the
+    // trail starts with the fallback label "App <id>". The wait below
+    // retries until the name of one GET /api/apps/{id} arrives.
+    const users = new UsersPage(page);
+    await users.goto(appId);
+    await breadcrumb.expectLabels(['Apps', 'demo'], CHAIN_WAIT_MS);
+    await expect(breadcrumb.currentItem()).toHaveText('demo');
+    await expect(breadcrumb.currentItem().getByRole('link')).toHaveCount(0);
+
+    const elements = new ElementsPage(page);
+    await elements.gotoByUser(appId, 'amy');
+    await breadcrumb.expectLabels(['Apps', 'demo', 'User amy'], CHAIN_WAIT_MS);
+    await expect(breadcrumb.linkNamed('demo')).toHaveAttribute(
+      'href',
+      new RegExp(`/apps/${appId}/users$`),
+    );
+
+    await breadcrumb.linkNamed('demo').click();
+    await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible();
   });
 
   test('the refresh line keeps a gap above the table', async ({ page }) => {

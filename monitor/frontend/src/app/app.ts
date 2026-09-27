@@ -12,6 +12,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 
+import { AppNames } from './app-names';
 import { Announcer } from './announcer';
 import { Banner } from './banner/banner';
 import type { BreadcrumbItem } from './breadcrumb';
@@ -37,6 +38,7 @@ export class App {
   private readonly injector = inject(Injector);
   private readonly hostElement: ElementRef<HTMLElement> = inject(ElementRef);
   private readonly intervalState = inject(RefreshIntervalState);
+  private readonly appNames = inject(AppNames);
 
   /** The status text of the one permanent status region (D33). */
   protected readonly announcer = inject(Announcer);
@@ -53,8 +55,18 @@ export class App {
     this.intervalState.error() === undefined ? null : 'The monitor API did not answer.',
   );
 
-  /** The breadcrumb trail of the active route. */
-  protected readonly breadcrumbItems = signal<BreadcrumbItem[]>([]);
+  /** The breadcrumb trail of the active route, before the app-name resolution. */
+  private readonly rawBreadcrumbItems = signal<BreadcrumbItem[]>([]);
+
+  /**
+   * The breadcrumb trail of the active route (issue #270). Each entry
+   * with an `appId` gets the resolved app name as its label, through the
+   * app-name store; it keeps the fallback label of the route data until
+   * the name arrives.
+   */
+  protected readonly breadcrumbItems = computed<BreadcrumbItem[]>(() =>
+    this.rawBreadcrumbItems().map((item) => this.withResolvedName(item)),
+  );
 
   /** The path part of the previous URL. Null before the first navigation ends. */
   private previousPath: string | null = null;
@@ -94,7 +106,16 @@ export class App {
    * parameter alone. The focus moves on each later navigation that changes the path.
    */
   private onNavigationEnd(event: NavigationEnd): void {
-    this.breadcrumbItems.set(buildBreadcrumb(this.router.routerState.snapshot.root));
+    const items = buildBreadcrumb(this.router.routerState.snapshot.root);
+    this.rawBreadcrumbItems.set(items);
+    // Asks the app-name store for a missing id (issue #270), for example
+    // on a direct load of a level 2 or a level 3 view: that view polls
+    // its own data route only, so the store holds no name yet.
+    for (const item of items) {
+      if (item.appId !== undefined) {
+        this.appNames.ensureLoaded(item.appId);
+      }
+    }
 
     const path = event.urlAfterRedirects.split(/[?#]/)[0];
     const isFirstNavigation = this.previousPath === null;
@@ -120,6 +141,15 @@ export class App {
     this.announcer.announce(
       failed ? 'The monitor API stopped answering.' : 'The monitor API answers again.',
     );
+  }
+
+  /** Resolves the label of one app crumb from the app-name store, when it holds one. */
+  private withResolvedName(item: BreadcrumbItem): BreadcrumbItem {
+    if (item.appId === undefined) {
+      return item;
+    }
+    const name = this.appNames.nameFor(item.appId);
+    return name === undefined ? item : { ...item, label: name };
   }
 
   private focusHeading(): void {

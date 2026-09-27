@@ -38,6 +38,11 @@ testcontainers = "2.0.5"
 # Jakarta Servlet entry "6.0.0" for the same tag.
 spring-framework = "6.2.1"
 jakarta-servlet-api = "6.0.0"
+# Issue #176, decision 1. The coverage tool of each of the six JVM
+# modules. Confirmed on Maven Central on 2026-09-27
+# (repo1.maven.org/maven2/org/jacoco/org.jacoco.agent/maven-metadata.xml):
+# the release version is 0.8.15.
+jacoco = "0.8.15"
 
 [libraries]
 ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }

@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
+import { AppNames } from '../app-names';
 import { Announcer } from '../announcer';
 import { EmptyState } from '../empty-state/empty-state';
 import { createPollStore } from '../poll/poll-store';
@@ -45,6 +46,7 @@ export class Apps {
   private readonly router = inject(Router);
   private readonly announcer = inject(Announcer);
   private readonly refreshIntervalState = inject(RefreshIntervalState);
+  private readonly appNames = inject(AppNames);
 
   /**
    * The `notFoundAppId` query parameter, bound by the router. The level 2
@@ -80,6 +82,16 @@ export class Apps {
   });
 
   constructor() {
+    // Fills the app-name store from each answer of GET /api/apps (issue
+    // #270), so the breadcrumb of a level 2 or a level 3 view can show the
+    // name with no GET /api/apps/{id} of its own, once this view has run.
+    effect(() => {
+      const rows = this.store.data();
+      if (rows) {
+        this.appNames.setFromRows(rows);
+      }
+    });
+
     // Copies a fresh notFoundAppId into shownNotFoundAppId, announces the
     // message through the shared status region (accessibility MAJOR 1 of
     // the correction round 1 of pull request #159), then clears the query

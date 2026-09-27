@@ -24,12 +24,15 @@
 import org.gradle.api.tasks.testing.TestDescriptor
 import org.gradle.api.tasks.testing.TestListener
 import org.gradle.api.tasks.testing.TestResult
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
+import org.gradle.testing.jacoco.tasks.JacocoReport
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 plugins {
     `java-library`
     `maven-publish`
+    jacoco
 }
 
 group = "com.github.xamcross.octometer"
@@ -158,6 +161,29 @@ val testMongoSyncNewest = tasks.register<Test>("testMongoSyncNewest") {
 
 tasks.check {
     dependsOn(testMongoSyncNewest)
+}
+
+// Issue #176, decision 1 (correction of the brief review, 2026-09-27).
+// See kit/jvm-core/build.gradle.kts for the note on the missing
+// dependency of jacocoTestReport on test, and on the real command.
+jacoco {
+    toolVersion = libs.versions.jacoco.get()
+}
+
+val coverageOn = providers.gradleProperty("coverage").map { it == "true" }.getOrElse(false)
+
+tasks.withType<Test>().configureEach {
+    extensions.configure<JacocoTaskExtension> {
+        isEnabled = coverageOn
+    }
+}
+
+tasks.named<JacocoReport>("jacocoTestReport") {
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+    outputs.cacheIf { false }
 }
 
 // The publication for JitPack (design decision D25, issue #37). The

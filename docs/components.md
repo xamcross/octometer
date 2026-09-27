@@ -221,6 +221,14 @@ band.
 - `<nav aria-label="Breadcrumb"><ol><li>` for each item; the last item is a plain `<span
   aria-current="page">`, an earlier item with a path is a link, else a plain span
   (`breadcrumb-nav.html:1-15`).
+- The app-name item (issue #270): the second item of a level 2 or a level 3 trail shows
+  the app name, not the app id. `app-names.ts` holds the name of each app id, and the
+  shell (`app.ts`) resolves the label of this item through the store, with the fallback
+  text "App <id>" until the name arrives. The item links to the users view of that app
+  (`/apps/<id>/users`), except on the users view itself, where the item is the current
+  page and carries no link. A Sessions item of the elements trail links to the sessions
+  view with the query parameter `anonymous=true` (`breadcrumb-nav.html:8`, the
+  `[queryParams]` binding beside `[routerLink]`).
 
 **States.**
 
