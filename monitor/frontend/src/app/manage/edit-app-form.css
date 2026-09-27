@@ -13,9 +13,16 @@ label {
   font-weight: bold;
 }
 
-input {
+input,
+textarea {
   padding: 0.3rem 0.4rem;
   min-height: 24px;
+}
+
+textarea {
+  min-height: 4.5rem;
+  font-family: inherit;
+  resize: vertical;
 }
 
 .form-error {

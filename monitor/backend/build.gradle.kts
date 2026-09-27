@@ -49,6 +49,12 @@ dependencies {
     // dataDir is known. Each class needs logback-classic at compile
     // time now, not only at run time.
     implementation(libs.logback.classic)
+    // Issue #226, decision 2 of the correction round of the brief
+    // review of 2026-09-27: MongoAppReader.decidePath and
+    // AppRegistryService.updateApp/createApp call PathPatternMatcher,
+    // the kit grammar of contract rule C42. kit/jvm-core is plain Java
+    // 21 with no transitive jar (design decision D17).
+    implementation(project(":kit:jvm-core"))
 
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.kotlin.test.junit5)
@@ -64,7 +70,9 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.mongodb:mongodb-driver-sync:$mongoDriverSyncVersion")
     testImplementation(project(":kit:jvm-mongo"))
-    testImplementation(project(":kit:jvm-core"))
+    // kit/jvm-core is now a main implementation dependency (issue #226),
+    // so the test classpath already has it; no testImplementation entry
+    // stays here.
     // Issue #21: the end-to-end test starts the ingest route of
     // kit/jvm-ktor in this same process. It does not start the demo
     // app itself. A dependency on tools:demo-app would pull its

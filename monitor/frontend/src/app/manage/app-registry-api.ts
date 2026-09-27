@@ -1,20 +1,30 @@
 import { HttpErrorResponse } from '@angular/common/http';
 
-/** The body of `POST /api/apps` (D13). */
+/**
+ * The body of `POST /api/apps` (D13). `pathPatterns` is the route
+ * pattern list of issue #226, in the form of `OCTOMETER_PATH_PATTERNS`:
+ * patterns with whitespace between them. An absent or a blank text
+ * means the app gives no list.
+ */
 export interface CreateAppRequest {
   readonly name: string;
   readonly connectionString: string;
   readonly database: string;
   readonly collection: string;
+  readonly pathPatterns?: string;
 }
 
 /**
  * The body of `PATCH /api/apps/{id}` (D13). The caller gives a name, a
- * connection string, or both. An absent field means "keep the old value".
+ * connection string, a route pattern list, or a mix. An absent
+ * `name` or `connectionString` means "keep the old value". For
+ * `pathPatterns` (issue #226): an absent field keeps the stored list, a
+ * blank text clears it, a non-blank text sets it.
  */
 export interface UpdateAppRequest {
   readonly name?: string;
   readonly connectionString?: string;
+  readonly pathPatterns?: string;
 }
 
 /**
@@ -26,6 +36,17 @@ export interface AppSummary {
   readonly name: string;
   readonly database: string;
   readonly collection: string;
+}
+
+/**
+ * The answer of `GET /api/apps/{id}` (issue #226). It never holds a
+ * connection string. `pathPatterns` is the stored, normalized text, or
+ * `null` when the app gives no list.
+ */
+export interface AppDetail {
+  readonly appId: number;
+  readonly name: string;
+  readonly pathPatterns: string | null;
 }
 
 /** The two collection names the registry accepts (`ALLOWED_COLLECTION_NAMES` of the backend). */

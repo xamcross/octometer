@@ -17,6 +17,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Monitor
 
+- Add the per-app route pattern list, the path allow-list of the reader, with the API field, the manage form, and the guides. (#226)
 - Add the per-app cap on the distinct path values, with a shape check and an erasure rewrite. (#205)
 - Add the "Anonymous sessions" view, with a link from a first-page row and from the anonymous row of the user list. (#115)
 - Show the retention time above the app table of the level 1 view. (#66)
