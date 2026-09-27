@@ -1,10 +1,13 @@
 import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 
+/**
+ * Issue #272: the form has no "Database" field any more. The path of
+ * the connection string names the database.
+ */
 export interface AddAppFields {
   readonly name: string;
   readonly connectionString: string;
-  readonly database: string;
 }
 
 /**
@@ -30,10 +33,27 @@ export class ManagePage {
   async addApp(fields: AddAppFields): Promise<void> {
     await this.page.getByLabel('Name').fill(fields.name);
     await this.page.getByLabel('Connection string').fill(fields.connectionString);
-    await this.page.getByLabel('Database').fill(fields.database);
     await this.page.getByRole('button', { name: 'Add app' }).click();
     const row = this.page.getByRole('row', { name: new RegExp(`\\b${escapeRegExp(fields.name)}\\b`) });
     await expect(row).toBeVisible();
+  }
+
+  /**
+   * Fills the add-app form and submits it, for a create that the
+   * registry rejects (issue #272, design decision D13). It waits for
+   * the error area of `add-app-form.html`, never for a row, and gives
+   * the error text back to the caller. The name lookup is exact: once
+   * one row exists, its delete dialog gives a second control whose
+   * label text ("Type the app name to confirm") also holds the word
+   * "Name".
+   */
+  async addAppExpectingError(fields: AddAppFields): Promise<string> {
+    await this.page.getByLabel('Name', { exact: true }).fill(fields.name);
+    await this.page.getByLabel('Connection string').fill(fields.connectionString);
+    await this.page.getByRole('button', { name: 'Add app' }).click();
+    const error = this.page.locator('#add-app-error');
+    await expect(error).toBeVisible();
+    return (await error.textContent()) ?? '';
   }
 
   /** Waits for the status cell of one row to hold one of the given words (decision 5a). */

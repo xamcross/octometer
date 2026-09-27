@@ -33,8 +33,7 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await manage.goto();
     await manage.addApp({
       name: 'demo',
-      connectionString: `mongodb://127.0.0.1:${mongoPort}`,
-      database: 'exampledb',
+      connectionString: `mongodb://127.0.0.1:${mongoPort}/exampledb`,
     });
     // D8: the first poll cycle can run inside this same wait.
     await manage.expectStatusOneOf('demo', ['Not polled yet', 'OK'], CHAIN_WAIT_MS);
@@ -53,6 +52,21 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     }
     appId = demoRow.appId;
     expect(appId).toBeGreaterThan(0);
+
+    // Issue #272: the registry derives the database name from the path
+    // of the connection string. Two rejected submits, each read through
+    // the error area, with no wait for a row.
+    const noPathMessage = await manage.addAppExpectingError({
+      name: 'demo-no-db',
+      connectionString: `mongodb://127.0.0.1:${mongoPort}`,
+    });
+    expect(noPathMessage).toContain('Give the database name in the path of the connection string.');
+
+    const badPortMessage = await manage.addAppExpectingError({
+      name: 'demo-bad-port',
+      connectionString: 'mongodb://127.0.0.1:99999999/exampledb',
+    });
+    expect(badPortMessage).toContain('The driver cannot read the connection string.');
   });
 
   test('the level 1 view shows the status badge OK after the first poll', async ({ page }) => {
