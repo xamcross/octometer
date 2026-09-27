@@ -33,3 +33,11 @@ The dev server sends each request under `/api` to the monitor server at
 The dev server itself listens on `localhost` (`[::1]`), and not on
 `127.0.0.1`. Use `http://localhost:4200` to open or to check the app.
 `http://127.0.0.1:4200` does not connect.
+
+## Design
+
+- [The design of the monitor UI](../../docs/design.md) — the tokens, the type scale, and
+  the six principles of the cartoon look.
+- [The components of the monitor UI](../../docs/components.md) — the purpose, the
+  anatomy, the states, and the rules of each component.
+- [The mockup](../../docs/design/mockup.html) — the static reference page.
