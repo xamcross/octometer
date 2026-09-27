@@ -17,6 +17,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Monitor
 
+- Mark the invalid field of the add form and the edit form with a dashed outline under forced colors. (#266)
 - Record the accessibility verification of the cartoon look, with the measured contrast table and the contrast script. (#251)
 - Write the component design document of the monitor UI. (#260)
 - Show the mascot with one sentence in each empty view, on the first load, and on the not-found page. (#250)

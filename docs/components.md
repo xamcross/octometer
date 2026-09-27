@@ -333,6 +333,7 @@ edit-app form, the delete confirmation, and the user filter.
 | Rest | Paper fill, ink border | `var(--paper)`, `var(--line-control)` (`styles.css:349-354`) |
 | Focus | The shared 3px sunny outline plus the 7px ink ring | `var(--sunny)` (`styles.css:131-135`) |
 | Invalid | An inset coral ring, plus the ink ring on focus | `var(--coral)` (`add-app-form.css:17-31`) |
+| Invalid, forced colors | A 3px dashed outline, a 3px solid outline on focus | `currentColor` (`add-app-form.css:33-50`, issue #266) |
 
 **Accessibility.**
 - Role: `textbox` (native `input`/`textarea`).
