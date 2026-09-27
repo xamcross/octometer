@@ -99,9 +99,18 @@ describe('Users', () => {
 
     const children = Array.from(root().children);
     const refreshBarIndex = children.findIndex((el) => el.tagName === 'APP-REFRESH-BAR');
-    const tableWrapperIndex = children.findIndex((el) => el.classList.contains('table-scroll'));
+    const panelIndex = children.findIndex((el) => el.classList.contains('panel'));
 
-    expect(tableWrapperIndex).toBeGreaterThan(refreshBarIndex);
+    expect(panelIndex).toBeGreaterThan(refreshBarIndex);
+  });
+
+  it('puts the scroll container inside a panel (#249)', () => {
+    startStore();
+    flushUsers(buildPage());
+
+    const panel = root().querySelector('section.panel') as HTMLElement;
+    expect(panel).toBeTruthy();
+    expect(panel.querySelector('.table-scroll table')).toBeTruthy();
   });
 
   it('shows a loading text before the first answer arrives, and no table', () => {

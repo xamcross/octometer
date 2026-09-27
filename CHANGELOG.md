@@ -17,6 +17,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Monitor
 
+- Put each data table of the five views in a panel, with a status badge and tabular numbers. (#249)
 - Restyle the buttons, the form fields, and the delete dialog of the manage view with the cartoon look. (#248)
 - Restyle the header band, the nav pills, the pause button, the skip link, the banner, and the breadcrumb; add the mascot mark. (#247)
 - Add the design tokens, the two fonts, and the base stylesheet of the cartoon look. (#246)

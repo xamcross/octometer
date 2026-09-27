@@ -2,17 +2,10 @@
  * No table element gets a `display` value in this file, so the table
  * keeps its native semantics for a screen reader.
  */
-caption {
-  text-align: left;
-  font-weight: bold;
-  margin-bottom: 0.5rem;
-}
 
-th,
-td {
-  padding: 0.5rem 0.75rem;
-  text-align: left;
-  vertical-align: top;
+/* The table scrolls at 360 px instead of shrinking past a readable width (#249). */
+table {
+  min-width: 44rem;
 }
 
 /*
@@ -26,14 +19,19 @@ th[scope='row'] {
   min-width: 8rem;
 }
 
-.num,
-.time {
-  white-space: nowrap;
-}
-
+/*
+ * The shared panel style of styles.css (#249) repeats this text-align and
+ * this font-variant-numeric rule for `.num`: vitest links that file in
+ * browser mode only, so a unit test reads no rule of it (jsdom).
+ */
 .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.num,
+.time {
+  white-space: nowrap;
 }
 
 th[scope='row'] a {
@@ -55,15 +53,21 @@ tbody td {
   cursor: pointer;
 }
 
-tbody tr:hover,
-tbody tr:focus-within {
-  background-color: var(--shallows-deep);
+/*
+ * The hover targets each cell (`> *`), because the zebra rule of the
+ * shared panel style (styles.css, #249) paints a background on each cell
+ * too, above the row: a plain `tr:hover` rule would then stay hidden on
+ * an even row.
+ */
+tbody tr:hover > *,
+tbody tr:focus-within > * {
+  background: var(--shallows-deep);
 }
 
 @media (forced-colors: active) {
-  tbody tr:hover,
-  tbody tr:focus-within {
-    background-color: Highlight;
+  tbody tr:hover > *,
+  tbody tr:focus-within > * {
+    background: Highlight;
     color: HighlightText;
   }
 }

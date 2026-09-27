@@ -90,11 +90,20 @@ describe('Sessions', () => {
     const children = Array.from(root().children);
     const headingIndex = children.findIndex((el) => el.tagName === 'H1');
     const refreshBarIndex = children.findIndex((el) => el.tagName === 'APP-REFRESH-BAR');
-    const tableWrapperIndex = children.findIndex((el) => el.classList.contains('table-scroll'));
+    const panelIndex = children.findIndex((el) => el.classList.contains('panel'));
 
     expect(headingIndex).toBe(0);
     expect(refreshBarIndex).toBe(1);
-    expect(tableWrapperIndex).toBeGreaterThan(refreshBarIndex);
+    expect(panelIndex).toBeGreaterThan(refreshBarIndex);
+  });
+
+  it('puts the scroll container inside a panel (#249)', () => {
+    startStore();
+    flushSessions(buildPage());
+
+    const panel = root().querySelector('section.panel') as HTMLElement;
+    expect(panel).toBeTruthy();
+    expect(panel.querySelector('.table-scroll table')).toBeTruthy();
   });
 
   it('shows a loading text before the first answer arrives, and no table', () => {
