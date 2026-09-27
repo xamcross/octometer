@@ -17,6 +17,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Monitor
 
+- Remove the button press motion under prefers-reduced-motion, and raise the invalid field ring to 4.5:1 on white. (#263, #264)
 - Show the mascot with one sentence in each empty view, on the first load, and on the not-found page. (#250)
 - Put each data table of the five views in a panel, with a status badge and tabular numbers. (#249)
 - Restyle the buttons, the form fields, and the delete dialog of the manage view with the cartoon look. (#248)
