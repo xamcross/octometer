@@ -240,6 +240,27 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   a pattern form of contract rule C42 cannot be told apart from a raw path at the reader. This
   risk (RISK 1 of the security review of pull request #193) stays open by the owner's choice;
   issue #205 tracks it, outside this decision.
+- **D5, the per-app cap on the distinct path values (2026-09-27, issue #205, the owner's
+  delegation, the maintainer's rule).** The kit and the app role stay the first control (C39:
+  the server stores the match result only). The monitor adds a second control that needs no
+  app configuration: the set of distinct `path` values of each app, in the table `app_path`,
+  with a cap (`pathValueCap`, default 200). A real app has a small, bounded set of pattern
+  results (the pattern list plus `/other`); a source that writes a raw client path produces
+  one value per visitor. A `path` value of a start or a click event is accepted as it is when
+  it passes the shape check of contract rule C39 (`PathShape.isPatternResult`), and it is in
+  the set of the app, or the set holds fewer than `pathValueCap` values (the value then joins
+  the set). Each other value lands as the literal `/other` (the C42 fallback: a path outside
+  the known list); the row stays; one WARN line of the cycle counts the replaced values, a
+  count only, never a value. A `NULL` path stays `NULL` (an absent field, issue #213). The
+  reader (`MongoAppReader.runCycle`) loads the set of the app one time, at the start of each
+  cycle (`EventStore.pathValuesOf`), and it keeps that one set for each page of the cycle; each
+  page insert of a new value runs in the same transaction as the event rows and the cursor
+  (`EventStore.commitPage`). A PATCH to a different connection string (the reset of #187)
+  clears the set of the app; the retention purge removes each value with no matching event row
+  of its own app any more. The erasure of D15 also rewrites each event `path` and deletes each
+  `app_path` value that holds the erased user id as a whole segment (see D15). This risk
+  (RISK 1 of the security review of pull request #193) is now under this control, in place of
+  the earlier open state of D5.
 - **D6. Scheduler.** One loop with a tick of 1 second. It starts a poll for each app with
   `next_poll_at <= now` or `next_poll_at IS NULL`, and no active poll. One cycle reads a maximum of 10 pages inside
   `withTimeout(45 s)`. Success sets `next_poll_at = now + interval` (5 s dev, 60 s prod).
@@ -285,7 +306,9 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   one time, by its `_id` (issue #187). A cycle in flight can read the old cursor before this
   reset and write it back after; each cursor write of a cycle carries a guard, the cursor
   value that the cycle last saw, so a write after a reset changes 0 rows (maintainer decision,
-  2026-09-26, MAJOR 1 of the correction round of pull request #208).
+  2026-09-26, MAJOR 1 of the correction round of pull request #208). The same PATCH also
+  clears the app's `app_path` set (issue #205, `AppRegistryService.resetPollState`), so the new
+  source starts its per-app path cap with an empty set.
 - **D11. Secrets.** The registry stores each connection string in
   `%LOCALAPPDATA%\Octometer\secrets\apps.json`, outside `dataDir`, thus a database backup
   holds no credential. No encryption in the application. The run guide names BitLocker
@@ -356,7 +379,11 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   removes the anonymous events of each session of that user id. An event of a second user id
   in the same session stays. The kit (#35) and the monitor (#61) both apply the rule. Reason:
   after a sign-in in the same tab, the earlier anonymous events of that session describe an
-  identified person.
+  identified person. The erasure also rewrites each event `path` of the app that holds the
+  erased id as a whole segment to `/other`, and it deletes each `app_path` value with that
+  same shape, both inside the one transaction of the erasure (issue #205, decision 6 of the
+  correction round of 2026-09-27): a row with no other tie to the erased user must not keep
+  the id in `path` for the retention time.
 - **D16. Gap.** At the cycle start, a cursor time older than the server time minus 29 days
   writes a gap row: `from_ts` is the time of the cursor `_id`, and `to_ts` is the server time
   minus 30 days. The UI shows it.
@@ -598,12 +625,22 @@ CREATE INDEX event_start   ON event(app_id, user_id, ts, session_id) WHERE kind 
 CREATE TABLE skipped_event (app_id INTEGER NOT NULL, event_id TEXT NOT NULL, reason TEXT NOT NULL,
   PRIMARY KEY (app_id, event_id)) STRICT;
 CREATE TABLE gap (app_id INTEGER NOT NULL, from_ts INTEGER NOT NULL, to_ts INTEGER NOT NULL) STRICT;
+
+CREATE TABLE app_path (
+  app_id INTEGER NOT NULL REFERENCES app(id) ON DELETE CASCADE,
+  path TEXT NOT NULL, first_seen_at INTEGER NOT NULL,
+  PRIMARY KEY (app_id, path)
+) STRICT;
 ```
 
 Migration `002` adds the columns `path`, `referrer_host`, and `kind`, then replaces
 `event_agg` and `event_session`, and adds `event_first_page` and `event_start` (design
 decisions D40, D42, D44). The reader sets `kind = 1` for the element `octo:session-start`. It
 copies `path` from each event, and `referrer_host` from a session start.
+
+Migration `003` adds `app_path`, the set of distinct `path` values of each app, with the cap
+of `pathValueCap` (design decision D5, issue #205). `PRAGMA foreign_keys=ON` runs on each
+connection, so `ON DELETE CASCADE` removes each row of an app that a delete route removes.
 
 Level 1 uses three statements, each on one covering index: `COUNT(*)` and
 `COUNT(DISTINCT user_id)` with the filter `kind = 0`, and `COUNT(DISTINCT session_id)` with
@@ -641,8 +678,14 @@ new session id after 30 idle minutes, an hourly repair read, X.509 and AWS IAM a
   issue #43). It uses Spring Boot 3.4.1 with Maven, and Angular 17.3.
 - Verify the start after a reboot, and do the screen reader pass.
 - Accept the residual risks: a forged click, a hostile browser extension on the monitor
-  machine, a leaked reader password (M0 records no access history), and a reader role with a
-  write action that the monitor cannot see when the cluster reports no privilege list.
+  machine, a leaked reader password (M0 records no access history), a reader role with a
+  write action that the monitor cannot see when the cluster reports no privilege list, and a
+  source that writes raw paths keeps a maximum of `pathValueCap` distinct values in the
+  monitor until the owner reads the WARN line (issue #205). An app with fewer distinct raw
+  values than `pathValueCap` produces no WARN line; the set never ages out on its own; a
+  pattern-shaped raw path passes the shape check; the first `pathValueCap` raw values persist
+  in `event.path` until the retention purge or an erasure of the id they hold. The allow-list
+  of a per-app pattern list is the stronger control; issue #226 holds it.
 
 ## 9. Backlog
 

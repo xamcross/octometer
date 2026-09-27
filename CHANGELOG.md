@@ -15,6 +15,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Monitor
 
+- Add the per-app cap on the distinct path values, with a shape check and an erasure rewrite. (#205)
+
 ## 0.2.0 - 2026-09-27
 
 ### Contract
