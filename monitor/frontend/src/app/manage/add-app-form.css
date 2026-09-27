@@ -30,6 +30,25 @@ label {
     0 0 0 7px var(--ink);
 }
 
+/*
+ * Forced colors drops `box-shadow` (#266), so the invalid field needs a
+ * mark that forced colors keeps. `outline` with no color takes
+ * `currentColor`, and forced colors maps that to `CanvasText`. The dashed
+ * mark and the solid focus mark stay different, so the two states stay
+ * distinct.
+ */
+@media (forced-colors: active) {
+  [aria-invalid='true'] {
+    outline: 3px dashed;
+    outline-offset: 2px;
+  }
+
+  [aria-invalid='true']:focus-visible {
+    outline: 3px solid;
+    outline-offset: 2px;
+  }
+}
+
 .form-error {
   padding-left: 12px;
   border-left: 3px solid var(--coral);

@@ -36,6 +36,38 @@ function findCssRule(selectorText: string): CSSStyleRule | undefined {
   return undefined;
 }
 
+/**
+ * Finds a CSS rule with the given selector text inside a `@media` block
+ * whose condition text matches. The walk visits the same stylesheets as
+ * findCssRule, then looks one level inside each CSSMediaRule (#266).
+ */
+function findMediaRule(conditionText: string, selectorText: string): CSSStyleRule | undefined {
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules: CSSRuleList | undefined;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      continue;
+    }
+    for (const rule of Array.from(rules ?? [])) {
+      if (!(rule instanceof CSSMediaRule) || rule.conditionText !== conditionText) {
+        continue;
+      }
+      for (const innerRule of Array.from(rule.cssRules)) {
+        const styleRule = innerRule as CSSStyleRule;
+        const plainSelector = styleRule.selectorText
+          ?.replace(/\[_ngcontent-[\w-]+\]/g, '')
+          .replace(/\s+/g, ' ');
+        const selectorParts = plainSelector?.split(',').map((part) => part.trim()) ?? [];
+        if (selectorParts.includes(selectorText)) {
+          return styleRule;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 describe('AddAppForm', () => {
   let fixture: ComponentFixture<AddAppForm>;
   let httpMock: HttpTestingController;
@@ -155,6 +187,16 @@ describe('AddAppForm', () => {
     const shadow = rule?.style.getPropertyValue('box-shadow');
     expect(shadow).toContain('--coral');
     expect(shadow).toContain('--ink');
+  });
+
+  it('gives [aria-invalid="true"] a dashed outline under forced colors (#266)', () => {
+    const rule = findMediaRule('(forced-colors: active)', '[aria-invalid=true]');
+    expect(rule?.style.getPropertyValue('outline')).toContain('dashed');
+  });
+
+  it('gives the invalid field a solid outline on focus under forced colors, unlike the dashed mark (#266)', () => {
+    const rule = findMediaRule('(forced-colors: active)', '[aria-invalid=true]:focus-visible');
+    expect(rule?.style.getPropertyValue('outline')).toContain('solid');
   });
 
   it('sends POST /api/apps with the entered fields, and no collection key', () => {
