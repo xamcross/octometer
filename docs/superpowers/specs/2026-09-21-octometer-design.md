@@ -658,6 +658,55 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   rounded corners and bright colors. `docs/design.md` holds the tokens, the type scale, the
   principles, and the contrast table. Each asset of the look ships in the bundle under the CSP
   of D12.
+- **D46. Route derivation.** The kit derives the route pattern list from the framework at start,
+  and nobody types it. The Ktor adapter walks the routing tree; the Spring adapter reads the
+  request mapping handlers. It takes the GET routes only (a click carries a page path), and it
+  skips the ingest route of the kit and each route under a prefix of `OCTOMETER_PATH_EXCLUDE` (a
+  comma-free list of prefixes with whitespace between them, for example `/api/ /actuator/`).
+  Each route template becomes a C42 pattern: a literal segment stays; `{name}` and `{name?}`
+  become `:name`; a tail card `{...}` and a regex segment become `*`. The list is sorted so that
+  a literal segment stands before a parameter segment at each depth (`/articles/new` before
+  `/articles/:id`), then by text, and duplicates go. `OCTOMETER_PATH_PATTERNS` stays as an
+  optional addition: its entries stand after the derived ones (the first match wins, so a typed
+  pattern never hides a derived one), and an invalid entry follows the present C42 rule. The
+  bound of 200 patterns stays: above it the kit keeps the first 200 of the sorted list and
+  writes one warning with the count. The kit writes one INFO line at start with the count of the
+  derived patterns.
+  (The owner's choices of 2026-09-28: the database route, no manage field, the raw path in the
+  browser; milestone G, issues #275 to #279.)
+- **D47. Route publication.** After the derivation the kit writes one document into the
+  collection `octometer_config` of the app database: `{ _id: "route-patterns", patterns: [...],
+  kitVersion: "<version>", publishedAt: <date> }`, through an upsert with the app's own database
+  user. A failed write logs one warning and does not stop the app. The read-only user of the
+  monitor gets `find` on `octometer_config` beside `octometer_events` (the role command of the
+  guide gets a second privilege); the privilege check of D9 accepts `find` on these two
+  collections and flags each other privilege. Contract version 1.3 adds rule C44 (the config
+  document), amends C42 (the source of the list) and C35 (the role covers two collections); it
+  adds no field to the event document, so it is a minor change under C10.
+  (The owner's choices of 2026-09-28: the database route, no manage field, the raw path in the
+  browser; milestone G, issues #275 to #279.)
+- **D48. The admission list of the monitor.** The reader reads the config document at the start
+  of each poll cycle, before the events (one `findOne`); the list of the document is the
+  admission list of the cycle. The reader stores the list and its `publishedAt` in the app row
+  (`path_patterns` becomes the cached copy; migration 005 adds `path_patterns_published_at`), so
+  a failed read or an absent document in a later cycle keeps the last list. An app that never
+  published a list keeps the cap of #205. The manage view shows the published list read-only
+  with its time ("published by the app on <local time>"); `POST /api/apps` and `PATCH
+  /api/apps/{id}` take no `pathPatterns` any more; `GET /api/apps/{id}` gives `pathPatterns` and
+  `pathPatternsPublishedAt`. A list that an operator typed before this decision stays as the
+  cached copy until the app publishes.
+  (The owner's choices of 2026-09-28: the database route, no manage field, the raw path in the
+  browser; milestone G, issues #275 to #279.)
+- **D49. The path in the browser.** The tracker sends `location.pathname` as it is in the `path`
+  field of a click entry and of the session start (percent-encoded by the browser; a value above
+  150 bytes becomes `/other` before the send), and it holds no route list: the `routes` option
+  goes. The kit matches the received value against its derived list (D46) and stores the pattern
+  or `/other`, as rule C42 states for the server today. The raw path travels only to the app's
+  own server, which sees it on each page request; the event document never holds it. A tab that
+  was open before a deploy needs no reload. (The owner chose this form, 3c, on 2026-09-28; the
+  alternative 3a, a list served to the page, kept a stale list in an open tab.)
+  (The owner's choices of 2026-09-28: the database route, no manage field, the raw path in the
+  browser; milestone G, issues #275 to #279.)
 
 ## 6. Monitor data model (SQLite)
 
