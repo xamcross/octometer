@@ -41,7 +41,7 @@
     }
 
     <div class="actions">
-      <button type="submit" [disabled]="pending()">Save</button>
+      <button type="submit" [disabled]="pending() || pathPatternsReadFailed()">Save</button>
       <button type="button" class="cancel" (click)="cancel()">Cancel</button>
     </div>
   </form>

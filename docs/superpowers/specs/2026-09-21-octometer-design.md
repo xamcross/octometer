@@ -287,11 +287,15 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   `kit/jvm-core` and validates each pattern with `PathPatternMatcher.findInvalidIndices`, the
   kit's own check of contract rule C42, with no copy of that grammar in the monitor. When the
   app has a list, the reader (`MongoAppReader.runCycle`) admits a `path` value through
-  `PathPatternMatcher.match`: the stored value is the matcher's own result, never a raw client
-  value. The cap and the set of the D5 rule of 2026-09-27 (issue #205) stay in force for this
-  app only when its list holds a `*` pattern, because only a `*` pattern gives an unbounded
-  count of distinct results; an app whose list holds no `*` pattern writes no `app_path` row.
-  An app with no list keeps the cap of issue #205 unchanged. `GET /api/apps/{id}` gives the
+  `PathPatternMatcher.match`. **The ratified rule (the maintainer's decision on pull request
+  #243).** The reader stores `matcher.match(path)`, the same mapping as the kit (contract rule
+  C42: both sides agree), so a raw `/history/42` lands as `/history/:id` and a value that
+  matches no pattern lands as `/other`; a `*` segment keeps the client segment, so the
+  `app_path` set and the cap stay for a list with a `*` pattern. The cap and the set of the D5
+  rule of 2026-09-27 (issue #205) stay in force for this app only when its list holds a `*`
+  pattern, because only a `*` pattern gives an unbounded count of distinct results; an app whose
+  list holds no `*` pattern writes no `app_path` row. An app with no list keeps the cap of issue
+  #205 unchanged. `GET /api/apps/{id}` gives the
   id, the name, and the stored list, never the connection string, for the edit form of the
   manage view.
 - **D6. Scheduler.** One loop with a tick of 1 second. It starts a poll for each app with

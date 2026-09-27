@@ -31,8 +31,9 @@ import { AppDetail, UpdateAppRequest, readApiErrorMessage } from './app-registry
  *
  * The route pattern list field (issue #226) starts empty, and it reads
  * `GET /api/apps/{id}` on open, so it shows the stored list. A failed
- * read leaves the field empty, and the save then omits the field, so it
- * keeps the stored list, never a wrong clear.
+ * read (MAJOR 1 of the Angular review of pull request #243) shows a
+ * message, and the save then sends no PATCH at all, so the form never
+ * stores a wrong clear of the list.
  *
  * A 404 on the save means a second window already removed the app. The
  * form emits `staleList` in that case, so the parent reads the list again
@@ -70,6 +71,14 @@ export class EditAppForm {
   /** True once `GET /api/apps/{id}` loads. The save omits pathPatterns until then. */
   private readonly pathPatternsLoaded = signal(false);
 
+  /**
+   * True after a failed `GET /api/apps/{id}` (MAJOR 1 of the Angular
+   * review of pull request #243). The save button stays disabled, and
+   * a submit sends no PATCH, so the app never stores a list that the
+   * form could not read first.
+   */
+  protected readonly pathPatternsReadFailed = signal(false);
+
   protected get nameId(): string {
     return `edit-app-name-${this.app().appId}`;
   }
@@ -92,6 +101,7 @@ export class EditAppForm {
     this.connectionString.set('');
     this.pathPatterns.set('');
     this.pathPatternsLoaded.set(false);
+    this.pathPatternsReadFailed.set(false);
     this.errorMessage.set(null);
     this.editing.set(true);
     afterNextRender(() => this.nameField()?.nativeElement.focus(), { injector: this.injector });
@@ -100,9 +110,17 @@ export class EditAppForm {
         this.pathPatterns.set(detail.pathPatterns ?? '');
         this.pathPatternsLoaded.set(true);
       },
-      // A failed read leaves pathPatternsLoaded false, so the save omits
-      // the field and keeps the stored list (see the class KDoc).
-      error: () => undefined,
+      // MAJOR 1 of the Angular review of pull request #243: a failed
+      // read must not stay silent. It leaves pathPatternsLoaded false,
+      // so the save still omits the field and keeps the stored list
+      // (see the class KDoc), and it shows a message, so the user
+      // knows the field does not show the true stored value.
+      error: () => {
+        this.pathPatternsReadFailed.set(true);
+        this.errorMessage.set(
+          'Octometer cannot read the route pattern list. Close this form, then open it again.',
+        );
+      },
     });
   }
 
@@ -128,6 +146,12 @@ export class EditAppForm {
   protected onSubmit(event: Event): void {
     event.preventDefault();
     if (this.pending()) {
+      return;
+    }
+    // MAJOR 1 of the Angular review of pull request #243: the read of
+    // the stored list failed, so the form does not know the true
+    // value. The save sends no PATCH, and the message stays.
+    if (this.pathPatternsReadFailed()) {
       return;
     }
     const request: UpdateAppRequest = {

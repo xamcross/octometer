@@ -181,15 +181,22 @@ describe('EditAppForm', () => {
     expect(field.getAttribute('aria-describedby')).toContain('edit-app-error-');
   });
 
-  it('omits pathPatterns from the save when the GET on open fails, so the save keeps the stored list', () => {
+  // MAJOR 1 of the Angular review of pull request #243: a failed read
+  // must not stay silent, and it must block the save.
+  it('shows a message and disables Save when the GET on open fails, and a submit sends no PATCH', () => {
     openEditorWithFailedGet();
+
+    expect(root().textContent).toContain(
+      'Octometer cannot read the route pattern list. Close this form, then open it again.',
+    );
+    const save = root().querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(save.disabled).toBe(true);
+
     root()
       .querySelector('form')!
       .dispatchEvent(new Event('submit', { cancelable: true }));
 
-    const req = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
-    expect(req.request.body).toEqual({ name: 'traficio' });
-    req.flush(null, { status: 204, statusText: 'No Content' });
+    httpMock.expectNone({ url: '/api/apps/3', method: 'PATCH' });
   });
 
   it('sends PATCH /api/apps/{id} with the name, and no connectionString when that field is empty', () => {

@@ -731,6 +731,15 @@ internal fun normalizedReferrerHost(referrerHost: String?): String? =
  * issue #205 for that count, and the app writes no `app_path` row when
  * its list holds no `*` pattern.
  *
+ * **The ratified rule (the maintainer's decision on pull request #243,
+ * decision 4 of the correction round).** The reader stores
+ * `matcher.match(path)`, the same mapping as the kit (contract rule
+ * C42: both sides agree). A raw `/history/42` thus lands as
+ * `/history/:id` for the pattern `/history/:id`, and a value that
+ * matches no pattern lands as `/other`. A `*` segment keeps the client
+ * segment, so the `app_path` set and the cap stay in force for a list
+ * with a `*` pattern.
+ *
  * An app with no list ([patternMatcher] `null`) keeps the shape check
  * of [PathShape] and the per-app cap of [PathAdmission] (issue #205).
  */
