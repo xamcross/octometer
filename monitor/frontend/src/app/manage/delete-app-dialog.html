@@ -1,4 +1,11 @@
-<button type="button" class="delete-trigger" #triggerButton (click)="open()">Delete</button>
+<button
+  type="button"
+  class="btn btn-small btn-danger delete-trigger"
+  #triggerButton
+  (click)="open()"
+>
+  Delete
+</button>
 
 <dialog #dialogEl (close)="onDialogClose()" [attr.aria-labelledby]="headingId">
   <h2 [id]="headingId">Delete {{ app().name }}?</h2>
@@ -29,10 +36,10 @@
   }
 
   <div class="actions">
-    <button type="button" class="cancel" #cancelButton (click)="cancel()">Cancel</button>
+    <button type="button" class="btn cancel" #cancelButton (click)="cancel()">Cancel</button>
     <button
       type="button"
-      class="confirm-delete"
+      class="btn btn-danger confirm-delete"
       [disabled]="!canConfirm() || pending()"
       (click)="confirmDelete()"
     >
