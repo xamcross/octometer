@@ -42,8 +42,39 @@ run one module or one changed file, not the whole suite.
 - The tracker, only the specs that a changed file touches: `npm run
   test:changed` inside `kit/tracker`. It compares the working tree
   against `origin/main` by default.
+- The end-to-end suite has no changed-only script. Run `cd e2e && npm
+  test`. It always runs the whole suite.
 
 CI still runs the whole suite of each changed module.
+
+## End-to-end tests
+
+The folder `e2e/` holds one Playwright suite. It drives a real Chromium
+browser against the built distribution of the monitor and the demo app,
+from a click on the demo page to a number on the level 1 view.
+
+Build the two Gradle outputs first, from the repository root:
+
+```
+./gradlew.bat :monitor:backend:distZip :tools:demo-app:installDist
+```
+
+Run the suite, from `e2e/`:
+
+```
+cd e2e
+npm ci
+npx playwright install chromium
+npm test
+```
+
+The suite needs Docker and Node 24 (`e2e/.nvmrc` names the exact
+version). `npm test` starts one MongoDB container, one demo app process,
+and one monitor process, each on a free port; it stops each one at the
+end, also after a failed run. The measured run time of the suite, on the
+owner machine, is about 33 seconds; the CI job `e2e` keeps its own
+report as an artifact and has a 15-minute bound. Read the Playwright
+report with `npm run report` inside `e2e/`.
 
 The local cache folder has no integrity control. Every process of the
 owner account can write it. Run the last check before a push with

@@ -7,6 +7,10 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ## Unreleased
 
+### Tests
+
+- Add the Playwright end-to-end suite, against the built distribution and the demo app. (#175)
+
 ### Contract
 
 ### Kit JVM

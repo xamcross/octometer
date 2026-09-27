@@ -34,6 +34,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       tracker: ${{ steps.filter.outputs.tracker }}
       smoke: ${{ steps.filter.outputs.smoke }}
+      e2e: ${{ steps.filter.outputs.e2e }}
       ci: ${{ steps.filter.outputs.ci }}
     steps:
       - name: Check out the repository
@@ -75,6 +76,20 @@ jobs:
             tracker:
               - 'kit/tracker/**'
               - 'contract/**'
+            # Issue #175, step 4, decision 6. The "ci" filter below
+            # already covers a workflow change, so this filter leaves
+            # out '.github/**' (correction of the brief review).
+            e2e:
+              - 'e2e/**'
+              - 'monitor/**'
+              - 'tools/demo-app/**'
+              - 'kit/tracker/**'
+              - 'kit/jvm-*/**'
+              - 'contract/**'
+              - 'gradle/**'
+              - '*.gradle.kts'
+              - 'gradle.properties'
+              - 'gradlew*'
             ci:
               - '.github/**'
 
@@ -339,6 +354,62 @@ jobs:
         run: npm test
       - name: Build the tracker
         run: npm run build
+
+  e2e:
+    name: End-to-end (Playwright)
+    needs: changes
+    if: |
+      github.event_name != 'schedule' &&
+      (needs.changes.outputs.e2e == 'true' || needs.changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Temurin 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          # cache-read-only: same source and rule as the "jvm" job above.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: e2e/.nvmrc
+      - name: Build the distribution and the demo app
+        run: ./gradlew :monitor:backend:distZip :tools:demo-app:installDist
+      - name: Install the e2e dependencies
+        working-directory: e2e
+        run: npm ci
+      # npm ci above runs first, so the cache key and the browser install
+      # below both read the one pinned "@playwright/test" version of
+      # e2e/package-lock.json, never a version that "npx" could fetch on
+      # its own (a small, deliberate reorder of decision 6 of the brief).
+      - name: Cache the Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('e2e/package-lock.json') }}
+      - name: Install the Playwright browser
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+      - name: Run the end-to-end suite
+        working-directory: e2e
+        run: npm test
+      - name: Keep the Playwright report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
 
   secrets:
     name: Secret scan
