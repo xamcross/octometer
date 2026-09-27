@@ -116,6 +116,22 @@ describe('DeleteAppDialog', () => {
     expect(document.activeElement).toBe(cancelButton);
   });
 
+  it('gives the trigger, Cancel, and confirm buttons their classes', () => {
+    const trigger = root().querySelector<HTMLButtonElement>('button.delete-trigger')!;
+    expect(trigger.classList.contains('btn')).toBe(true);
+    expect(trigger.classList.contains('btn-small')).toBe(true);
+    expect(trigger.classList.contains('btn-danger')).toBe(true);
+
+    openDialog();
+    const cancel = root().querySelector<HTMLButtonElement>('button.cancel')!;
+    const confirm = root().querySelector<HTMLButtonElement>('button.confirm-delete')!;
+    expect(cancel.classList.contains('btn')).toBe(true);
+    expect(cancel.classList.contains('btn-danger')).toBe(false);
+    expect(confirm.classList.contains('btn')).toBe(true);
+    expect(confirm.classList.contains('btn-danger')).toBe(true);
+    expect(confirm.textContent?.trim()).toBe('Delete this app');
+  });
+
   it('shows the app name and the event count in the dialog text', () => {
     openDialog();
 

@@ -131,6 +131,7 @@ describe('Manage', () => {
       expect(root().querySelector('table')).toBeNull();
       const button = root().querySelector<HTMLButtonElement>('button[type="button"]');
       expect(button?.textContent?.trim()).toBe('Try again');
+      expect(button?.classList.contains('btn')).toBe(true);
       expect(announceSpy).toHaveBeenCalledWith('The monitor did not answer. Try again.');
     });
 
@@ -213,7 +214,7 @@ describe('Manage', () => {
       expect(statusCell.textContent).toContain('Not polled yet');
     });
 
-    it('gives each row an Edit control and a Delete trigger with a minimum target size of 24 by 24 CSS px', () => {
+    it('gives each row an Edit control and a Delete trigger a minimum height of 44 CSS px', () => {
       flushList([buildRow()]);
 
       const editToggle = root().querySelector('button.edit-toggle') as HTMLElement;
@@ -221,10 +222,20 @@ describe('Manage', () => {
       expect(editToggle).toBeTruthy();
       expect(deleteTrigger).toBeTruthy();
       for (const button of [editToggle, deleteTrigger]) {
-        const style = getComputedStyle(button);
-        expect(style.minWidth).toBe('24px');
-        expect(style.minHeight).toBe('24px');
+        expect(getComputedStyle(button).minHeight).toBe('44px');
       }
+    });
+
+    it('gives the Edit control and the Delete trigger the danger class only on Delete', () => {
+      flushList([buildRow()]);
+
+      const editToggle = root().querySelector('button.edit-toggle') as HTMLElement;
+      const deleteTrigger = root().querySelector('button.delete-trigger') as HTMLElement;
+      expect(editToggle.classList.contains('btn')).toBe(true);
+      expect(editToggle.classList.contains('btn-small')).toBe(true);
+      expect(deleteTrigger.classList.contains('btn')).toBe(true);
+      expect(deleteTrigger.classList.contains('btn-small')).toBe(true);
+      expect(deleteTrigger.classList.contains('btn-danger')).toBe(true);
     });
 
     it('tracks each row with the stable key appId, so a later answer keeps the tr node of a surviving row', () => {
