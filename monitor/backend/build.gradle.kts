@@ -3,13 +3,17 @@ import org.gradle.api.tasks.testing.TestDescriptor
 import org.gradle.api.tasks.testing.TestListener
 import org.gradle.api.tasks.testing.TestResult
 import org.gradle.jvm.application.tasks.CreateStartScripts
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
+import org.gradle.testing.jacoco.tasks.JacocoReport
 import java.io.IOException
+import java.net.ServerSocket
 import java.util.concurrent.TimeUnit
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
     application
+    jacoco
 }
 
 group = "octometer"
@@ -251,6 +255,156 @@ tasks.withType<Test>().configureEach {
     }
 }
 
+// Issue #176, decision 1 (correction of the brief review, 2026-09-27).
+// The jacoco plugin is applied always. Only the agent stays off by
+// default (see kit/jvm-core/build.gradle.kts for the shared note on
+// the real jacocoTestReport command).
+jacoco {
+    toolVersion = libs.versions.jacoco.get()
+}
+
+val coverageOn = providers.gradleProperty("coverage").map { it == "true" }.getOrElse(false)
+
+tasks.withType<Test>().configureEach {
+    extensions.configure<JacocoTaskExtension> {
+        isEnabled = coverageOn
+    }
+}
+
+tasks.named<JacocoReport>("jacocoTestReport") {
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+    outputs.cacheIf { false }
+}
+
+// Issue #176, decision 2 (correction of the brief review, 2026-09-27).
+// This task prints the JaCoCo agent line of the monitor process and of
+// the demo app process, plus the path of the JaCoCo CLI jar, one
+// "KEY=value" line each. A CI step appends the output straight into
+// "$GITHUB_ENV" (ci.yml, job "e2e"); a local run exports each line by
+// hand before "npm test" (README.md, "End-to-end tests").
+//
+// The agent writes over a TCP server, not to a destfile at exit. The
+// e2e teardown force-kills each JVM (global-teardown.ts: "taskkill /T
+// /F" on Windows, "SIGKILL" on a stuck process elsewhere), so a
+// shutdown hook never runs, and the default agent mode "dumponexit"
+// writes nothing. The teardown dumps each agent over this TCP port,
+// with the JaCoCo CLI jar named on the third line below, before the
+// kill (global-teardown.ts, function "dumpJacocoAgent").
+//
+// The agent jar: the configuration below resolves the artifact
+// "org.jacoco:org.jacoco.agent:<version>:runtime", the plain agent jar
+// with no wrapper. The default artifact of the same module (with no
+// classifier) is a wrapper jar that holds "jacocoagent.jar" inside
+// itself, one level down; the "runtime" classifier gives the inner jar
+// directly, confirmed against the JaCoCo distribution layout on
+// 2026-09-27.
+val jacocoAgentRuntime: Configuration = configurations.create("jacocoAgentRuntime") {
+    isCanBeConsumed = false
+}
+
+val jacocoCliTool: Configuration = configurations.create("jacocoCliTool") {
+    isCanBeConsumed = false
+}
+
+dependencies {
+    jacocoAgentRuntime("org.jacoco:org.jacoco.agent:${libs.versions.jacoco.get()}:runtime")
+    // isTransitive = false: the "nodeps" classifier is the CLI jar with
+    // its own dependencies shaded inside, but the module POM still
+    // declares them as ordinary dependencies. With no exclusion,
+    // Gradle resolved four extra jars beside it (confirmed on
+    // 2026-09-27 with "./gradlew :monitor:backend:dependencies
+    // --configuration jacocoCliTool"). This exclusion keeps the
+    // configuration at exactly the one jar that jacocoAgentArgs prints.
+    jacocoCliTool("org.jacoco:org.jacoco.cli:${libs.versions.jacoco.get()}:nodeps") {
+        isTransitive = false
+    }
+}
+
+// Opens a server socket on an ephemeral port and closes it at once, the
+// same free-port probe as "e2e/setup/pretest.mjs". A short race with
+// another process stays possible, the same bound as that script.
+fun findFreeLocalPort(): Int = ServerSocket(0).use { it.localPort }
+
+tasks.register("jacocoAgentArgs") {
+    group = "verification"
+    description = "Prints the JaCoCo agent line of the monitor and of the demo app, for one e2e run (issue #176)."
+    // Configuration resolution happens at execution time inside doLast,
+    // never at configuration time (a Gradle good practice), so this
+    // task stays cheap when nobody runs it.
+    doLast {
+        val agentJarPath = jacocoAgentRuntime.singleFile.absolutePath.replace('\\', '/')
+        val cliJarPath = jacocoCliTool.singleFile.absolutePath.replace('\\', '/')
+        val monitorPort = findFreeLocalPort()
+        val demoPort = findFreeLocalPort()
+        println(
+            "E2E_JAVA_OPTS_MONITOR=-javaagent:$agentJarPath=output=tcpserver," +
+                "address=127.0.0.1,port=$monitorPort,includes=octometer.*",
+        )
+        println(
+            "E2E_JAVA_OPTS_DEMO=-javaagent:$agentJarPath=output=tcpserver," +
+                "address=127.0.0.1,port=$demoPort,includes=octometer.*",
+        )
+        println("JACOCO_CLI_JAR=$cliJarPath")
+    }
+}
+
+// Issue #176, decision 4 (correction of the brief review, 2026-09-27).
+// Merges the two e2e JaCoCo destfiles (the monitor process and the demo
+// app process, one dump each, from "jacocoAgentArgs" and
+// "global-teardown.ts") into one XML report and one HTML report, with
+// the class files and the source files of the six JVM modules.
+val jacocoE2eModules = listOf(
+    project(":monitor:backend"),
+    project(":kit:jvm-core"),
+    project(":kit:jvm-ktor"),
+    project(":kit:jvm-mongo"),
+    project(":kit:jvm-spring"),
+    project(":tools:demo-app"),
+)
+
+tasks.register<JacocoReport>("jacocoE2eReport") {
+    group = "verification"
+    description = "Merges the two e2e JaCoCo destfiles (the monitor and the demo app) into one report."
+    val e2eCoverageDir = rootProject.layout.projectDirectory.dir("e2e/.run/coverage")
+    val monitorExec = e2eCoverageDir.file("monitor.exec")
+    val demoExec = e2eCoverageDir.file("demo.exec")
+    executionData.setFrom(files(monitorExec, demoExec))
+    classDirectories.setFrom(
+        jacocoE2eModules.map {
+            it.fileTree(it.layout.buildDirectory.dir("classes/java/main")) +
+                it.fileTree(it.layout.buildDirectory.dir("classes/kotlin/main"))
+        },
+    )
+    sourceDirectories.setFrom(
+        jacocoE2eModules.flatMap {
+            listOf(
+                it.layout.projectDirectory.dir("src/main/kotlin"),
+                it.layout.projectDirectory.dir("src/main/java"),
+            )
+        },
+    )
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+        xml.outputLocation.set(layout.buildDirectory.file("reports/jacoco/e2e/jacocoE2eReport.xml"))
+        html.outputLocation.set(layout.buildDirectory.dir("reports/jacoco/e2e/html"))
+    }
+    outputs.cacheIf { false }
+    doFirst {
+        val monitorFile = monitorExec.asFile
+        val demoFile = demoExec.asFile
+        if (!monitorFile.isFile || monitorFile.length() == 0L) {
+            logger.warn("jacocoE2eReport: '$monitorFile' is absent or empty. Run the e2e suite with the JaCoCo agent first.")
+        }
+        if (!demoFile.isFile || demoFile.length() == 0L) {
+            logger.warn("jacocoE2eReport: '$demoFile' is absent or empty. Run the e2e suite with the JaCoCo agent first.")
+        }
+    }
+}
+
 // The dev mode of D2 (docs/superpowers/specs/2026-09-21-octometer-design.md).
 // The environment variable is one level below the argument in the
 // precedence of octometer.monitor.config.loadConfig. An explicit
@@ -313,12 +467,21 @@ val npmInstall = tasks.register<Exec>("npmInstall") {
 // output now sits under build/, alongside every other Gradle output.
 val frontendBuildDir = layout.buildDirectory.dir("frontend-dist")
 
+// Issue #176, decision 3 (correction of the brief review, 2026-09-27).
+// "angular.json" line 54 sets "sourceMap": true under the "development"
+// configuration only; the "production" configuration (the one this
+// task builds) sets "outputHashing": "all" and no source map. The
+// property below appends "--source-map" to the build command, for the
+// one CI job that reads it (the e2e coverage job); a plain build asks
+// for no such property and keeps the present, unmapped output.
+val frontendSourceMap = providers.gradleProperty("frontendSourceMap").map { it == "true" }.getOrElse(false)
+
 val buildFrontend = tasks.register<Exec>("buildFrontend") {
     group = "frontend"
     description = "Builds the Angular app of monitor/frontend for the distribution."
     dependsOn(npmInstall)
     workingDir = frontendDir.asFile
-    commandLine(
+    val commandArgs = mutableListOf(
         npmCommand,
         "run",
         "build",
@@ -326,11 +489,16 @@ val buildFrontend = tasks.register<Exec>("buildFrontend") {
         "--output-path",
         frontendBuildDir.get().asFile.absolutePath,
     )
+    if (frontendSourceMap) {
+        commandArgs.add("--source-map")
+    }
+    commandLine(commandArgs)
     inputs.dir(frontendDir.dir("src"))
     inputs.dir(frontendDir.dir("public"))
     inputs.file(frontendDir.file("angular.json"))
     inputs.file(frontendDir.file("tsconfig.app.json"))
     inputs.file(frontendDir.file("tsconfig.json"))
+    inputs.property("frontendSourceMap", frontendSourceMap)
     // The Angular application builder nests its output under a "browser"
     // folder of the given output path, even with no server build.
     outputs.dir(frontendBuildDir.map { it.dir("browser") })

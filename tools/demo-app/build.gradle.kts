@@ -11,12 +11,15 @@
 // The task npmCiTracker checks the PATH first, and it fails with a clear
 // message when npm is absent.
 import org.gradle.internal.os.OperatingSystem
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
+import org.gradle.testing.jacoco.tasks.JacocoReport
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
     application
+    jacoco
 }
 
 group = "octometer"
@@ -55,6 +58,29 @@ application {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+// Issue #176, decision 1 (correction of the brief review, 2026-09-27).
+// See kit/jvm-core/build.gradle.kts for the note on the missing
+// dependency of jacocoTestReport on test, and on the real command.
+jacoco {
+    toolVersion = libs.versions.jacoco.get()
+}
+
+val coverageOn = providers.gradleProperty("coverage").map { it == "true" }.getOrElse(false)
+
+tasks.withType<Test>().configureEach {
+    extensions.configure<JacocoTaskExtension> {
+        isEnabled = coverageOn
+    }
+}
+
+tasks.named<JacocoReport>("jacocoTestReport") {
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+    outputs.cacheIf { false }
 }
 
 // Issue #177, step 3 (release review MAJOR 5). A container test skips

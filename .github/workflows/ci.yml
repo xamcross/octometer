@@ -382,8 +382,13 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: e2e/.nvmrc
+      # Issue #176, decision 4 (correction of the brief review,
+      # 2026-09-27), step (a). "-PfrontendSourceMap=true" adds
+      # "--source-map" to the Angular build of this job only, so
+      # coverage-report.mjs can map the served bundle back to
+      # monitor/frontend/src.
       - name: Build the distribution and the demo app
-        run: ./gradlew :monitor:backend:distZip :tools:demo-app:installDist
+        run: ./gradlew :monitor:backend:distZip :tools:demo-app:installDist -PfrontendSourceMap=true
       - name: Install the e2e dependencies
         working-directory: e2e
         run: npm ci
@@ -399,10 +404,27 @@ jobs:
       - name: Install the Playwright browser
         working-directory: e2e
         run: npx playwright install --with-deps chromium
+      # Issue #176, decision 4, step (b). "jacocoAgentArgs" prints three
+      # "KEY=value" lines (the monitor agent, the demo agent, the JaCoCo
+      # CLI jar); each line appends straight into $GITHUB_ENV, so the
+      # suite step below, and every later step of this job, read the
+      # three variables.
+      - name: Print the JaCoCo agent line of the monitor and of the demo app
+        run: ./gradlew -q :monitor:backend:jacocoAgentArgs >> "$GITHUB_ENV"
+      # Step (c).
       - name: Run the end-to-end suite
         working-directory: e2e
         run: npm test
-      - name: Keep the Playwright report
+      # Step (d). Converts the V8 coverage of the browser suite into one
+      # lcov file and one text summary of monitor/frontend/src.
+      - name: Build the frontend coverage report
+        run: node e2e/scripts/coverage-report.mjs
+      # Step (e). Merges the two JaCoCo destfiles of the JVM suite run
+      # (the monitor process, the demo app process) into one report.
+      - name: Merge the JVM coverage of the e2e run
+        run: ./gradlew :monitor:backend:jacocoE2eReport
+      # Step (f). if: always(), so a failed suite still keeps each report.
+      - name: Keep the Playwright report and the coverage reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -410,6 +432,8 @@ jobs:
           path: |
             e2e/playwright-report
             e2e/test-results
+            e2e/.run/coverage
+            monitor/backend/build/reports/jacoco/e2e
 
   secrets:
     name: Secret scan
