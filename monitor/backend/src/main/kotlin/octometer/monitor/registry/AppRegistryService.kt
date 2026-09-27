@@ -1,5 +1,6 @@
 package octometer.monitor.registry
 
+import com.mongodb.ConnectionString
 import java.sql.Connection
 import java.sql.SQLException
 import kotlinx.coroutines.NonCancellable
@@ -19,6 +20,14 @@ const val EVENT_DELETE_CHUNK_SIZE = 10_000
 private const val MAX_CONNECTION_STRING_LENGTH = 2_048
 private const val MAX_SHORT_FIELD_LENGTH = 200
 
+// Issue #272: the registry now derives the database name from the path
+// of the connection string (D13), instead of a required field. Each
+// message below is one fixed sentence, with no part of the checked
+// text, the same rule as the messages of ConnectionStringValidator.
+private const val MESSAGE_DATABASE_MISMATCH = "The database of the field and of the connection string differ."
+private const val MESSAGE_DATABASE_MISSING = "Give the database name in the path of the connection string."
+private const val MESSAGE_CONNECTION_STRING_UNREADABLE = "The driver cannot read the connection string."
+
 /**
  * MINOR 3 of the security review. Contract C1 fixes the collection name;
  * a major change of the contract uses the second name here.
@@ -29,7 +38,15 @@ private val ALLOWED_COLLECTION_NAMES = setOf("octometer_events", "octometer_even
 data class CreateAppRequest(
     val name: String,
     val connectionString: String,
-    val database: String,
+    /**
+     * Issue #272: the registry derives this name from the path of
+     * [connectionString] (design decision D13). An absent field, or a
+     * blank one, takes the derived name. A present field must equal
+     * the derived name, else the create gives a 400. When the
+     * connection string has no path, the field alone names the
+     * database (an API-only caller; see [resolvedDatabaseName]).
+     */
+    val database: String? = null,
     /**
      * Issue #244: an absent field takes this default. Contract rule C1
      * fixes this name; the second name of [ALLOWED_COLLECTION_NAMES] is
@@ -129,10 +146,6 @@ class AppRegistryService(
         val name = request.name.trim()
         if (name.isEmpty()) return CreateAppResult.InvalidRequest("Give a non-empty name.")
         if (name.length > MAX_SHORT_FIELD_LENGTH) return CreateAppResult.InvalidRequest("Give a shorter name.")
-        if (request.database.isBlank()) return CreateAppResult.InvalidRequest("Give a non-empty database.")
-        if (request.database.length > MAX_SHORT_FIELD_LENGTH) {
-            return CreateAppResult.InvalidRequest("Give a shorter database name.")
-        }
         if (request.collection !in ALLOWED_COLLECTION_NAMES) {
             return CreateAppResult.InvalidRequest("Give the collection octometer_events or octometer_events_v2.")
         }
@@ -140,8 +153,20 @@ class AppRegistryService(
             return CreateAppResult.InvalidRequest("Give a shorter connection string.")
         }
 
+        // Issue #272: the connection-string check runs first, so the
+        // derivation below never parses a string that already failed
+        // it. MAX_SHORT_FIELD_LENGTH then applies to the resolved
+        // name, never to the raw field.
         val check = ConnectionStringValidator.check(request.connectionString)
         if (check is ConnectionStringCheck.Invalid) return CreateAppResult.InvalidRequest(check.message)
+
+        val databaseName = when (val resolution = resolvedDatabaseName(request.connectionString, request.database)) {
+            is DatabaseNameResolution.Resolved -> resolution.name
+            is DatabaseNameResolution.Invalid -> return CreateAppResult.InvalidRequest(resolution.message)
+        }
+        if (databaseName.length > MAX_SHORT_FIELD_LENGTH) {
+            return CreateAppResult.InvalidRequest("Give a shorter database name.")
+        }
 
         val normalizedPathPatterns = when {
             request.pathPatterns.isNullOrBlank() -> null
@@ -153,7 +178,7 @@ class AppRegistryService(
 
         val appId = try {
             database.write { writer ->
-                insertApp(writer, name, request.database, request.collection, normalizedPathPatterns)
+                insertApp(writer, name, databaseName, request.collection, normalizedPathPatterns)
             }
         } catch (constraintFailure: SQLException) {
             if (isUniqueNameViolation(constraintFailure)) {
@@ -183,7 +208,7 @@ class AppRegistryService(
             }
             throw secretFailure
         }
-        return CreateAppResult.Created(AppSummary(appId, name, request.database, request.collection))
+        return CreateAppResult.Created(AppSummary(appId, name, databaseName, request.collection))
     }
 
     /**
@@ -201,6 +226,19 @@ class AppRegistryService(
      * only here, right before it writes the new one. A failed write of
      * the new string changes no column; the reset runs only after that
      * write succeeds.
+     *
+     * Issue #272, design decision D13: [UpdateAppRequest] carries no
+     * `database` field. A connection string of this PATCH derives a
+     * fresh database name from its path ([resolvedDatabaseName]); a
+     * connection string with no path gives the same 400 as a create
+     * with neither a field nor a path. A derived name that differs
+     * from the stored one writes `database_name` and always resets the
+     * poll state (a different database is a different source, D10 and
+     * #187), even when the raw connection string text happens to
+     * differ in no other way. A derived name that equals the stored
+     * one resets the poll state only when the connection string text
+     * itself changed. This closes the gap where a stale `database_name`
+     * made the reader open the old database (`MongoAppReader.kt`).
      */
     suspend fun updateApp(appId: Long, request: UpdateAppRequest): UpdateAppResult {
         val name = request.name?.trim()
@@ -220,6 +258,19 @@ class AppRegistryService(
         if (request.connectionString != null) {
             val check = ConnectionStringValidator.check(request.connectionString)
             if (check is ConnectionStringCheck.Invalid) return UpdateAppResult.InvalidRequest(check.message)
+        }
+
+        // Issue #272: UpdateAppRequest carries no database field, so the
+        // second argument is always null; the path of the new
+        // connection string is the only source. A missing path gives
+        // the same 400 as a create with neither a field nor a path.
+        val newDatabaseName: String? = if (request.connectionString != null) {
+            when (val resolution = resolvedDatabaseName(request.connectionString, null)) {
+                is DatabaseNameResolution.Resolved -> resolution.name
+                is DatabaseNameResolution.Invalid -> return UpdateAppResult.InvalidRequest(resolution.message)
+            }
+        } else {
+            null
         }
 
         // Issue #226, decision 3: an absent field or a JSON null keeps
@@ -270,7 +321,18 @@ class AppRegistryService(
             } catch (secretFailure: SecretStoreUnavailableException) {
                 return UpdateAppResult.SecretStoreUnavailable
             }
-            if (connectionStringChanged(oldConnectionString, request.connectionString)) {
+            // Issue #272: a database name that differs from the stored
+            // one is a new source, the same as a different host (D10,
+            // #187); it writes database_name and always resets. A
+            // database name that stays the same resets only when the
+            // connection string text itself changed.
+            val storedDatabaseName = database.read { reader -> readAppDatabaseName(reader, appId) }
+            if (newDatabaseName != storedDatabaseName) {
+                database.write { writer ->
+                    updateAppDatabaseName(writer, appId, requireNotNull(newDatabaseName))
+                    resetPollState(writer, appId)
+                }
+            } else if (connectionStringChanged(oldConnectionString, request.connectionString)) {
                 database.write { writer -> resetPollState(writer, appId) }
             }
         }
@@ -343,6 +405,59 @@ private fun insertApp(
     }
 }
 
+/**
+ * Derives the database name from the path of a connection string (issue
+ * #272, design decision D13). It reuses the MongoDB driver's own parser
+ * ([ConnectionString.getDatabase]), the same class that
+ * `defaultMongoClient` of `MongoAppReader.kt` applies to the client
+ * settings; the driver already decodes the path and applies the exact
+ * grammar of `mongodb://` and `mongodb+srv://`, so this function parses
+ * no text on its own. The result is `null` when the connection string
+ * has no path.
+ *
+ * A text that [ConnectionStringValidator.check] already accepts can
+ * still fail here, with [IllegalArgumentException] (for example, a bad
+ * port or a bad option); the caller catches it.
+ */
+fun databaseOf(connectionString: String): String? = ConnectionString(connectionString).database
+
+/** The result of [resolvedDatabaseName]. */
+private sealed class DatabaseNameResolution {
+    data class Resolved(val name: String) : DatabaseNameResolution()
+    data class Invalid(val message: String) : DatabaseNameResolution()
+}
+
+/**
+ * Resolves the database name of a create request, or of a connection
+ * string PATCH (issue #272, design decision D13). The path of
+ * [connectionString] is the source of truth. [requestDatabase] is the
+ * legacy field of [CreateAppRequest]; it is always `null` for a PATCH,
+ * because [UpdateAppRequest] carries no such field.
+ *
+ * The cases: an absent or a blank [requestDatabase] with a path takes
+ * the path; a present [requestDatabase] with no path keeps the field
+ * (an API-only caller, with no path to check the field against — no
+ * end-to-end test drives this case); a present field that equals the
+ * path passes; a present field that differs from the path gives
+ * [MESSAGE_DATABASE_MISMATCH]; neither a field nor a path gives
+ * [MESSAGE_DATABASE_MISSING].
+ */
+private fun resolvedDatabaseName(connectionString: String, requestDatabase: String?): DatabaseNameResolution {
+    val derived = try {
+        databaseOf(connectionString)
+    } catch (malformed: IllegalArgumentException) {
+        return DatabaseNameResolution.Invalid(MESSAGE_CONNECTION_STRING_UNREADABLE)
+    }
+    val field = requestDatabase?.trim()?.takeIf { it.isNotEmpty() }
+    return when {
+        field == null && derived != null -> DatabaseNameResolution.Resolved(derived)
+        field == null -> DatabaseNameResolution.Invalid(MESSAGE_DATABASE_MISSING)
+        derived == null -> DatabaseNameResolution.Resolved(field)
+        field == derived -> DatabaseNameResolution.Resolved(derived)
+        else -> DatabaseNameResolution.Invalid(MESSAGE_DATABASE_MISMATCH)
+    }
+}
+
 private fun updateAppName(writer: Connection, appId: Long, name: String): Boolean =
     writer.prepareStatement("UPDATE app SET name = ? WHERE id = ?").use { update ->
         update.setString(1, name)
@@ -371,6 +486,27 @@ private fun appExists(reader: Connection, appId: Long): Boolean =
         select.setLong(1, appId)
         select.executeQuery().use { it.next() }
     }
+
+// Issue #272: reads the stored database name of one app, so updateApp
+// can tell a PATCH to a different database apart from one to the same
+// database (design decision D13).
+private fun readAppDatabaseName(reader: Connection, appId: Long): String? =
+    reader.prepareStatement("SELECT database_name FROM app WHERE id = ?").use { select ->
+        select.setLong(1, appId)
+        select.executeQuery().use { result ->
+            if (result.next()) result.getString("database_name") else null
+        }
+    }
+
+// Issue #272: writes the derived database name of a connection string
+// PATCH. MongoAppReader.kt reads this column at the next poll cycle.
+private fun updateAppDatabaseName(writer: Connection, appId: Long, databaseName: String) {
+    writer.prepareStatement("UPDATE app SET database_name = ? WHERE id = ?").use { update ->
+        update.setString(1, databaseName)
+        update.setLong(2, appId)
+        update.executeUpdate()
+    }
+}
 
 private fun readAppDetail(reader: Connection, appId: Long): AppDetail? =
     reader.prepareStatement("SELECT name, path_patterns FROM app WHERE id = ?").use { select ->

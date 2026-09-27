@@ -5,10 +5,13 @@
 // (confirmed on docs.jitpack.io, page "Guide to publishing libraries",
 // section "Multi-module projects", on 2026-09-22).
 import org.gradle.api.tasks.PathSensitivity
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
+import org.gradle.testing.jacoco.tasks.JacocoReport
 
 plugins {
     `java-library`
     `maven-publish`
+    jacoco
 }
 
 group = "com.github.xamcross.octometer"
@@ -40,6 +43,37 @@ tasks.test {
     inputs.dir(rootProject.layout.projectDirectory.dir("contract/examples"))
         .withPropertyName("contractExamples")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
+// Issue #176, decision 1 (correction of the brief review, 2026-09-27).
+// The jacoco plugin is applied in every JVM module, always. Only the
+// agent stays off by default, so a plain test run keeps its present
+// cache key and its present speed (the changed-only-tests pattern of
+// the owner, 2026-09-22).
+jacoco {
+    toolVersion = libs.versions.jacoco.get()
+}
+
+val coverageOn = providers.gradleProperty("coverage").map { it == "true" }.getOrElse(false)
+
+tasks.withType<Test>().configureEach {
+    extensions.configure<JacocoTaskExtension> {
+        isEnabled = coverageOn
+    }
+}
+
+// Criterion 1 of issue #176 reads "./gradlew jacocoTestReport"; the
+// jacoco plugin gives this task no dependency on "test" (confirmed
+// against the Gradle manual, "The JaCoCo Plugin", 2026-09-27: "the
+// jacocoTestReport task does not depend on the test task"). The real
+// command is "./gradlew test jacocoTestReport -Pcoverage=true" (stated
+// in the pull request and in the README).
+tasks.named<JacocoReport>("jacocoTestReport") {
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+    outputs.cacheIf { false }
 }
 
 // The publication for JitPack (design decision D25, issue #37). The

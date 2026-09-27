@@ -25,6 +25,19 @@ fun allowlistedSrvUriWithoutCredential(option: String? = null): String {
 /** A rejected mongodb:// connection string, with a public host and no credential. */
 fun publicHostUri(): String = "mongodb" + "://" + "example.com" + ":27017"
 
+// Issue #272: the registry derives the database name from the path of
+// the connection string. This appends one path segment to a fixture
+// that has none yet, right before its query string, when it has one, so
+// a test can still name one database for a create or a PATCH.
+fun withDatabasePath(connectionString: String, databaseName: String = "db"): String {
+    val queryStart = connectionString.indexOf('?')
+    val beforeQuery = if (queryStart == -1) connectionString else connectionString.substring(0, queryStart)
+    val query = if (queryStart == -1) "" else connectionString.substring(queryStart)
+    val afterScheme = beforeQuery.substringAfter("://")
+    val hasPath = afterScheme.contains('/')
+    return if (hasPath) connectionString else "$beforeQuery/$databaseName$query"
+}
+
 /** A loopback mongodb:// connection string, with no credential. */
 fun loopbackUri(): String = "mongodb" + "://" + "localhost" + ":27017"
 

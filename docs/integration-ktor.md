@@ -103,7 +103,8 @@ status `OVERPRIVILEGED` for a wider role, once issue #30 reaches `main`.
 mongodb+srv://octometer-reader:<password>@<cluster host>/<database>
 ```
 
-Use the SRV host. The form above holds no option. Design decision D11 also allows a
+The path of this URI names the database (issue #272); the manage form has no separate
+database field. Use the SRV host. The form above holds no option. Design decision D11 also allows a
 `tls=true` option or a `ssl=true` option in a connection string, but this form adds
 none.
 

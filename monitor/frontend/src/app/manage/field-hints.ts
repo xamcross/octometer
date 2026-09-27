@@ -5,11 +5,16 @@
  * a placeholder need no HTML escape.
  */
 
-/** The hint of "Connection string" on the add form. */
+/**
+ * The hint of "Connection string" on the add form (issue #272). The
+ * path of the URI names the database; the form has no separate
+ * database field any more.
+ */
 export const CONNECTION_STRING_HINT =
   'The MongoDB URI of the database of the app, with the read-only user of the monitor. ' +
+  'The path of the URI names the database. ' +
   'Example: mongodb+srv://octometer-reader:<password>@<cluster host>/<database>. ' +
-  'A local server without a user: mongodb://127.0.0.1:27017.';
+  'A local server without a user: mongodb://127.0.0.1:27017/<database>.';
 
 /**
  * The hint of "New connection string" on the edit form. The base text
@@ -18,10 +23,6 @@ export const CONNECTION_STRING_HINT =
  */
 export const EDIT_CONNECTION_STRING_HINT =
   CONNECTION_STRING_HINT + ' Leave the field empty to keep the stored string.';
-
-/** The hint of "Database" on the add form. The edit form has no database field. */
-export const DATABASE_HINT =
-  'The name of the database of the app that holds the collection octometer_events. Example: exampledb.';
 
 /**
  * The hint of "Route patterns" on the add form and the edit form. The

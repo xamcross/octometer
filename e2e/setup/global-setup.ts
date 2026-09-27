@@ -180,10 +180,17 @@ async function globalSetup(): Promise<void> {
   if (process.platform !== 'win32') {
     fs.chmodSync(demoScript, 0o755);
   }
+  // Issue #176, decision 2 (correction of the brief review, 2026-09-27).
+  // Each JVM process reads its own agent line, never the same line
+  // twice: E2E_JAVA_OPTS_DEMO for this process, E2E_JAVA_OPTS_MONITOR
+  // for the monitor below. Both come from "jacocoAgentArgs"
+  // (monitor/backend/build.gradle.kts). A run with no such variable
+  // changes nothing (decision 2, last sentence).
   const demoEnv: NodeJS.ProcessEnv = {
     ...process.env,
     OCTOMETER_DEMO_MONGO_URI: `mongodb://127.0.0.1:${ports.mongo}`,
     OCTOMETER_DEMO_PORT: String(ports.demo),
+    ...(process.env.E2E_JAVA_OPTS_DEMO ? { JAVA_OPTS: process.env.E2E_JAVA_OPTS_DEMO } : {}),
   };
   state.pids.demo = spawnScript(demoScript, demoEnv, demoAppDir, path.join(RUN_DIR, 'demo.log'));
   writeState(state);
@@ -226,6 +233,7 @@ async function globalSetup(): Promise<void> {
     OCTOMETER_DATA_DIR: monitorDataDir,
     OCTOMETER_SETTLE_LAG_SECONDS: '1',
     OCTOMETER_POLL_INTERVAL_SECONDS: '2',
+    ...(process.env.E2E_JAVA_OPTS_MONITOR ? { JAVA_OPTS: process.env.E2E_JAVA_OPTS_MONITOR } : {}),
   };
   state.pids.monitor = spawnScript(
     monitorScript,

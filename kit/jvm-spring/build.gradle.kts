@@ -9,9 +9,13 @@
 // tag of spring-projects/spring-boot on GitHub (see the comment of
 // gradle/libs.versions.toml for the exact source).
 
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
+import org.gradle.testing.jacoco.tasks.JacocoReport
+
 plugins {
     `java-library`
     `maven-publish`
+    jacoco
 }
 
 group = "com.github.xamcross.octometer"
@@ -43,6 +47,33 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+// Issue #176, decision 1 (correction of the brief review, 2026-09-27).
+// This module is the sixth JVM module of the coverage measurement
+// (settings.gradle.kts, the "include(\":kit:jvm-spring\")" line;
+// IngestControllerTest is its test class). See
+// kit/jvm-core/build.gradle.kts for the note on the
+// missing dependency of jacocoTestReport on test, and on the real
+// command.
+jacoco {
+    toolVersion = libs.versions.jacoco.get()
+}
+
+val coverageOn = providers.gradleProperty("coverage").map { it == "true" }.getOrElse(false)
+
+tasks.withType<Test>().configureEach {
+    extensions.configure<JacocoTaskExtension> {
+        isEnabled = coverageOn
+    }
+}
+
+tasks.named<JacocoReport>("jacocoTestReport") {
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+    outputs.cacheIf { false }
 }
 
 // The publication for JitPack (design decision D25, issue #37, issue
