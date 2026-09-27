@@ -9,7 +9,7 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
+import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 
 import { Announcer } from './announcer';
@@ -18,15 +18,16 @@ import type { BreadcrumbItem } from './breadcrumb';
 import { buildBreadcrumb } from './breadcrumb';
 import { BreadcrumbNav } from './breadcrumb-nav/breadcrumb-nav';
 import { MainNav } from './main-nav/main-nav';
+import { OctoMark } from './octo-mark/octo-mark';
 import { RefreshIntervalState } from './poll/refresh-interval-state';
 
 /**
  * Root shell of the app.
- * It holds the skip link, the main nav, the breadcrumb, the banner, the status
- * region, and the router outlet.
+ * It holds the skip link, the band with the mark and the main nav, the
+ * banner, the breadcrumb, the status region, and the router outlet.
  */
 @Component({
-  imports: [RouterOutlet, Banner, BreadcrumbNav, MainNav],
+  imports: [RouterOutlet, RouterLink, Banner, BreadcrumbNav, MainNav, OctoMark],
   selector: 'app-root',
   styleUrl: './app.css',
   templateUrl: './app.html',

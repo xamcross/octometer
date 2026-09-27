@@ -2,11 +2,18 @@
   Skip to the main content
 </a>
 
-<header>
-  <app-banner [apiError]="monitorApiError()" />
+<header class="band">
+  <div class="band-row">
+    <a routerLink="/apps" class="brand">
+      <app-octo-mark />
+      <span class="wordmark">Octometer</span>
+    </a>
 
-  <app-main-nav />
+    <app-main-nav />
+  </div>
 </header>
+
+<app-banner [apiError]="monitorApiError()" />
 
 <app-breadcrumb-nav [items]="breadcrumbItems()" />
 
