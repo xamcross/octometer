@@ -38,6 +38,20 @@ export class ElementsPage {
     await expect(locators.clicks).toHaveText(String(totals.clicks), { timeout: timeoutMs });
     await expect(locators.sessions).toHaveText(String(totals.sessions), { timeout: timeoutMs });
   }
+
+  /**
+   * The gap in CSS px between the bottom of the refresh line and the top
+   * of the table panel (#271). A negative value means the panel starts
+   * above the refresh line, which never happens in a correct layout.
+   */
+  async gapAbovePanel(): Promise<number> {
+    const line = await this.page.locator('app-refresh-bar').boundingBox();
+    const panel = await this.page.locator('section.panel').first().boundingBox();
+    if (!line || !panel) {
+      throw new Error('The refresh line or the panel has no bounding box.');
+    }
+    return panel.y - (line.y + line.height);
+  }
 }
 
 function escapeRegExp(value: string): string {
