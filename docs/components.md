@@ -56,8 +56,8 @@ element of each page (design principle 3, `docs/design.md:75`).
 **Rules.**
 - Do keep ink text on the octo fill, so the band follows principle 2, ink text on each
   bright fill (`app.css:52-55`).
-- Do not give `.band` a shadow or an outline; only the bottom border marks it, so the band
-  stays the one bold element and the table stays calm (`app.css:56`).
+- Do not give `.band` a shadow or an outline. Only the bottom border marks it. The band
+  stays the one bold element, and the table stays calm (`app.css:56`).
 
 ## The wordmark
 
@@ -78,8 +78,8 @@ element of each page (design principle 3, `docs/design.md:75`).
 - Role: none of its own; it sits inside the link `a.brand`, whose accessible name is
   "Octo­meter" (the mark is `aria-hidden`, so only the text names the link).
 - Second cue beside color: not applicable; the wordmark carries no state.
-- Target size: the whole `a.brand` link, not the span alone, gives the 44px line-height
-  of the band row.
+- Target size: not applicable to the link itself; the nav pill sets the 44px height of
+  the band row (`main-nav.css:14-15`).
 
 **Rules.**
 - Do style the wordmark through `.brand`'s type rule; one place holds the font, the
@@ -113,8 +113,8 @@ of `minor_issues/259.md`).
 **Rules.**
 - Do keep `aria-hidden="true"` and `focusable="false"` on the `<svg>`, so a screen reader
   skips a mark with no meaning (`octo-mark.html:5-6`).
-- Do not give the octo head its own fill inside the band; `styles.css` gives it the paper
-  fill there instead, because the octo fill would vanish on the octo background
+- Do not give the octo head its own fill inside the band. `styles.css` gives it the paper
+  fill there instead. The octo fill would vanish on the octo background
   (`monitor/frontend/src/styles.css:370-372`).
 
 ## The nav pill
@@ -147,8 +147,8 @@ current section.
 **Rules.**
 - Do give the current pill a second cue beside color, an underline next to the sunny
   fill, per WCAG 1.4.1 (`main-nav.css:30-36`).
-- Do not mark a descendant page with `aria-current="page"`; use `"page"` for the exact
-  page only and `"true"` for a page below it in the section, so the token stays accurate
+- Do not mark a descendant page with `aria-current="page"`. Use `"page"` for the exact
+  page only. Use `"true"` for a page below it in the section, so the token stays accurate
   (`main-nav.ts:37-44`).
 
 ## The skip link
@@ -177,8 +177,8 @@ band.
 - Do move the link off-screen with `transform: translateY(-100%)`, never with
   `display: none` or `visibility: hidden`, so a screen reader still reaches it
   (`app.css:23-38`).
-- Do not place the focused link at `top: 0; left: 0`; give it an 8px offset from each
-  edge, so the outer focus ring does not clip at the page corner (fixed finding of
+- Do not place the focused link at `top: 0; left: 0`. Give it an 8px offset from each
+  edge. The outer focus ring then does not clip at the page corner (fixed finding of
   `minor_issues/254.md`, `app.css:40-44`).
 
 ## The banner strip
@@ -209,8 +209,8 @@ band.
 - Do keep the coral fill full width, but keep the mark and the text on the same 76rem
   column as the band row and `main` (rule: "a full-width strip keeps its text on the page
   column", `banner.css:14-24`).
-- Do not give the banner its own live region; the one status region of the shell already
-  announces each transition, so a second region would announce the same fact twice
+- Do not give the banner its own live region. The one status region of the shell already
+  announces each transition. A second region would announce the same fact twice
   (`app.html:31`, `app.ts:114-123`).
 
 ## The breadcrumb
@@ -250,8 +250,8 @@ band.
 the automatic refresh.
 
 **Anatomy.**
-- `<app-pause-refresh-button>` then `<p>{{ intervalText() }}</p>`, in one wrapping flex
-  row (`refresh-bar.html:1-2`, `refresh-bar.css:6-11`).
+- `<app-pause-refresh-button>` then `<p>{{ intervalText() }}</p>`, in one flex row that
+  wraps (`refresh-bar.html:1-2`, `refresh-bar.css:6-11`).
 - The button: `<button [attr.aria-pressed]="pressed()" (click)="toggle()">Pause
   refresh</button>` (`pause-refresh-button.html:1`).
 
@@ -259,7 +259,7 @@ the automatic refresh.
 
 | State | Cue | Token |
 | --- | --- | --- |
-| Rest | Paper pill, hidden check mark holding its space | `var(--paper)` (`pause-refresh-button.css:9-26`) |
+| Rest | Paper pill, a hidden check mark that holds its space | `var(--paper)` (`pause-refresh-button.css:9-26`) |
 | Focus | The shared 3px sunny outline plus the 7px ink ring | `var(--sunny)` (`monitor/frontend/src/styles.css:131-135`) |
 | Pressed | Sunny fill, visible check mark | `var(--sunny)`, `var(--on-bright)` (`pause-refresh-button.css:29-36`) |
 
@@ -277,9 +277,9 @@ the automatic refresh.
 - Do keep the check-mark cue of the pause button in both states, so the pressed state
   never relies on the sunny fill alone (rule: "the pause button keeps its check-mark
   cue", `pause-refresh-button.css:22-26`).
-- Do not expect the shared `.btn` class of #248 to reach this button; the pill needs its
-  own scoped rule, because Angular's component scope keeps a later shared rule from
-  correcting it (`pause-refresh-button.css:1-8`).
+- Do not expect the shared `.btn` class of #248 to reach this button. The pill needs its
+  own scoped rule. Angular's component scope keeps this rule out of reach, so a later
+  shared rule cannot correct it (`pause-refresh-button.css:1-8`).
 
 ## The button
 
@@ -307,9 +307,9 @@ same cartoon shape.
 - Target size: `min-height: 44px` (`styles.css:295`).
 
 **Rules.**
-- Do give `.btn:focus-visible` a combined `box-shadow` (its own control shadow, then the
-  7px ink ring), so a control with its own shadow does not replace the shared ring (rule:
-  "a state rule that sets `box-shadow` repeats the focus ring", `styles.css:338-342`).
+- Do give `.btn:focus-visible` a combined `box-shadow`: its own control shadow, then the
+  7px ink ring. A control with its own shadow then does not replace the shared ring
+  (rule: "a state rule that sets `box-shadow` repeats the focus ring", `styles.css:338-342`).
 - Do not leave `.btn[disabled]` at `opacity: 0.55`; on the coral fill the ink label then
   measures about 2.1:1, under the WCAG 1.4.3 floor (open finding of `minor_issues/258.md`,
   `styles.css:332-336`).
@@ -345,11 +345,11 @@ edit-app form, the delete confirmation, and the user filter.
   (`add-app-form.html:16-20`).
 
 **Rules.**
-- Do give `[aria-invalid='true']:focus-visible` both shadows (the coral inset ring, then
-  the 7px ink ring), because the invalid rule's higher specificity would otherwise
-  replace the shared ring (rule: "a state rule that sets `box-shadow` repeats the focus
-  ring", `add-app-form.css:21-31`).
-- Do not let the shared `width: 100%` rule stand alone in a flex-wrapped row; the filter
+- Do give `[aria-invalid='true']:focus-visible` both shadows: the coral inset ring, then
+  the 7px ink ring. The invalid rule's higher specificity would otherwise replace the
+  shared ring (rule: "a state rule that sets `box-shadow` repeats the focus ring",
+  `add-app-form.css:21-31`).
+- Do not let the shared `width: 100%` rule stand alone in a flex-wrapped row. The filter
   input then pushes its label and its button to a line of their own (open finding of
   `minor_issues/258.md`, `styles.css:344-349` with `users.css:74`).
 
@@ -400,16 +400,16 @@ separate guide.
 **Accessibility.**
 - Role: none; a plain `<p>`.
 - Accessible name: not applicable; the text is the content.
-- Second cue beside color: the bold weight, next to the coral border; the text itself
+- Second cue beside color: the bold weight, next to the coral border. The text itself
   stays ink, not coral, because coral text on paper measures 2.78:1, under the WCAG 1.4.3
-  floor (the accepted departure of the #254 design review).
+  floor. This is the accepted departure of the #254 design review.
 - `aria-*` that changes: the field's `aria-describedby` adds this paragraph's id once it
   shows (`add-app-form.html:16-20`).
 
 **Rules.**
 - Do keep the error text in ink, not coral, so the message stays above 4.5:1 on the
   paper fill (`add-app-form.css:33-39`, the accepted departure of the #254 design review).
-- Do not omit the margin reset when a shared rule changes; `.form-error` sets
+- Do not omit the margin reset when a shared rule changes. `.form-error` sets
   `margin: 8px 0 0` in its own rule, because the base sheet resets no `<p>` margin (rule:
   "a paragraph inside a new rule sets its margin", `add-app-form.css:38`).
 
@@ -436,8 +436,8 @@ region lets a keyboard or a touch user scroll a wide table sideways.
   own.
 
 **Rules.**
-- Do not set `overflow: hidden` on `.panel`; that container holds `.table-scroll`, a
-  focusable child that sits at its edge, and the clip would remove the child's focus ring
+- Do not set `overflow: hidden` on `.panel`. That container holds `.table-scroll`, a
+  focusable child that sits at its edge. The clip would remove the child's focus ring
   (fixed BLOCKER of the #257 and the #258 design reviews; rule: "no `overflow: hidden` on
   a container with a focusable child at its edge", `monitor/frontend/src/styles.css:186-192`).
 - Do give `.table-scroll` `border-radius: inherit` and `position: relative`, so the rows
@@ -466,18 +466,18 @@ and the rest.
 **Accessibility.**
 - Role: `table` (native, no `display` value on any table element).
 - Accessible name: the `<caption>` text.
-- Second cue beside color: none needed; the zebra and the hover tints carry no meaning on
-  their own, only a visual grouping.
+- Second cue beside color: none needed. The zebra and the hover tints carry no meaning
+  on their own; they mark a visual group only.
 
 **Rules.**
 - Do target the row hover at `tr:hover > *` and `tr:focus-within > *`, because the zebra
   rule already paints a background on each cell above the row (rule: "a zebra tint on the
   cells needs the hover on the cells", `apps.css:67-76`, `styles.css:236-238`).
-- Do not assert a shared class by name alone when a test needs the real value; a test
+- Do not assert a shared class by name alone when a test needs the real value. A test
   that reads a token from a computed style names the exact value, for example
-  `toBe('var(--shallows)')` (rule: "a global class is asserted by name in a unit test, a
-  computed value needs a component rule"; fixed finding of `minor_issues/254.md`,
-  `apps.css:32-35`).
+  `toBe('var(--shallows-deep)')` (rule: "a global class is asserted by name in a unit
+  test, a computed value needs a component rule"; open finding of `minor_issues/254.md`,
+  `apps.spec.ts:604`).
 
 ## The status badge
 
@@ -509,7 +509,7 @@ together.
 **Rules.**
 - Do give every status a mark, a word, and a color together, never the color alone
   (rule: "a status is a mark plus a word plus a color", `apps.html:73-76`).
-- Do not give the mark any meaning of its own; `aria-hidden="true"` keeps it out of the
+- Do not give the mark any meaning of its own. `aria-hidden="true"` keeps it out of the
   accessibility tree, so a screen reader reads the word only (`apps.html:74`).
 
 ## The note under a badge
@@ -535,24 +535,25 @@ the last success, or the last error text.
 - Do give the shared note rule its own margin, `margin: 4px 0 0`, so the browser default
   bottom margin never returns (rule: "a paragraph inside a new rule sets its margin",
   `styles.css:282-289`).
-- Do not leave `.error-text` outside the shared note rule; today it keeps its own line
-  spacing while `.gap-text` and `.data-from` share one rule, so one status cell can mix
-  two note styles (open finding of `minor_issues/257.md` and `minor_issues/258.md`,
-  `apps.css:28-30` against `styles.css:282-289`).
+- Do not leave `.error-text` outside the shared note rule. Today it keeps its own line
+  spacing, while `.gap-text` and `.data-from` share one rule. One status cell can then mix
+  two note styles (open finding of `minor_issues/257.md`, `apps.css:50-53` against
+  `styles.css:283-289`).
 
 ## The pager
 
 **Purpose.** The pager moves the user list one page back or forward.
 
 **Anatomy.**
-- `<nav aria-label="Pages of the user list">`, a "Previous" button, a plain
-  `<span aria-current="true">Page X of Y</span>`, and a "Next" button (`users.html:66-84`).
+- `<nav aria-label="Pages of the user list">` holds a "Previous" button and a "Next"
+  button, each `class="btn btn-small"` (`users.html:68`, `:77`), plus a plain
+  `<span aria-current="true">Page X of Y</span>` (`users.html:66-84`).
 
 **States.**
 
 | State | Cue | Token |
 | --- | --- | --- |
-| Rest | Small paper button | `var(--paper)` (`users.css:83-91`) |
+| Rest | Small paper button | `var(--paper)` (`styles.css:293-301`), small size (`styles.css:327-330`) |
 | Focus | The shared 3px sunny outline plus the 7px ink ring | `var(--sunny)` (`monitor/frontend/src/styles.css:131-135`) |
 | Disabled (at a boundary) | Ink-soft text and border, no pointer, still reachable by Tab | `var(--ink-soft)`, `var(--shallows)` (`users.css:100-112`) |
 
@@ -564,16 +565,16 @@ the last success, or the last error text.
   next to the missing pointer cursor.
 - Target size: `min-width: 24px; min-height: 24px` on each button (`users.css:83-91`).
 - Live region: the one `role="status"` region announces the row count plus "Page X of Y"
-  after each page change; the focus stays on the button that the user pressed, so the
-  announced text is the only feedback for a screen reader (rule: "one place for one
+  after each page change. The focus stays on the button that the user pressed. The
+  announced text is then the only feedback for a screen reader (rule: "one place for one
   control", D33; `users.ts:309-318`, fixed finding of PR #159 and PR #216 per the module
   brief).
 
 **Rules.**
 - Do keep `aria-disabled`, not the native `disabled` attribute, on a boundary pager
   button, so it stays in the tab order (`users.css:107-112`, `users.html:71-72`).
-- Do not open a second live region for the pager; the one status region of `app.html:31`
-  carries the row count and the page text, so a second region would repeat the
+- Do not open a second live region for the pager. The one status region of `app.html:31`
+  carries the row count and the page text. A second region would repeat the
   announcement (rule: "one place for one control", `users.ts:314-318`).
 
 ## The dialog
@@ -601,13 +602,14 @@ the last success, or the last error text.
   (`delete-app-dialog.css:46-48`, `styles.css:293-336`).
 
 **Rules.**
-- Do give the trigger and the confirm button their own scoped `min-height: 44px` copy,
-  because vitest links no global sheet in a unit test (rule: "a global class is asserted
-  by name in a unit test, a computed value needs a component rule",
-  `delete-app-dialog.css:46-48`).
-- Do not add `.btn-danger` to the row Delete trigger; the coral fill stays on the one
-  confirm action, so a status badge and a row action never share the same color for two
-  different meanings (fixed MAJOR of the #258 design review, `delete-app-dialog.html:1-3`).
+- Do give the row trigger its own scoped `min-height: 44px` copy, because vitest links
+  no global sheet in a unit test (rule: "a global class is asserted by name in a unit
+  test, a computed value needs a component rule", `delete-app-dialog.css:46-48`). The
+  confirm button takes its 44px from the global `.btn` rule instead (`styles.css:295`).
+- Do not add `.btn-danger` to the row Delete trigger. The coral fill stays on the one
+  confirm action. A status badge and a row action then never share the same color for
+  two different meanings (fixed MAJOR of the #258 design review,
+  `delete-app-dialog.html:1-3`).
 
 ## The empty state
 
@@ -634,7 +636,7 @@ no row.
 - Do wrap the empty state in `<section class="panel">` in every view, so the mascot never
   floats on the page background alone (fixed BLOCKER of the #259 design review,
   `manage.html:5-7`).
-- Do not give `.empty-text a` an unbounded `inline-flex` box; a label over about 32
+- Do not give `.empty-text a` an unbounded `inline-flex` box. A label over about 32
   characters can overflow the paragraph at 360px, because an atomic inline box does not
   wrap (open finding of `minor_issues/259.md`, `empty-state.css:31-36`).
 
@@ -663,6 +665,6 @@ first route renders.
 **Rules.**
 - Do keep the mark at 48px before the text, in one row, so the loading state uses the
   same mascot as the band and the empty state (`app.css:2-7`).
-- Do not use a literal like `1rem` for the row's padding where a space token exists; the
+- Do not use a literal like `1rem` for the row's padding where a space token exists. The
   rule keeps `var(--space-4)` instead (open finding of `minor_issues/259.md`,
   `app.css:6`).
