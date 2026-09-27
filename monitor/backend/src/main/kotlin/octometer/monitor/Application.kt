@@ -29,10 +29,14 @@ import octometer.monitor.config.escapeForLog
 import octometer.monitor.config.loadConfig
 import octometer.monitor.frontend.defaultStaticDir
 import octometer.monitor.frontend.staticFrontend
+import octometer.monitor.lock.InstanceLock
+import octometer.monitor.lock.InstanceLockFailedException
 import octometer.monitor.security.installRequestGuard
 import octometer.monitor.security.requireLoopbackBindAddress
+import octometer.monitor.store.CorruptDatabaseException
 import org.slf4j.LoggerFactory
 import java.io.File
+import java.nio.file.Files
 import java.util.Properties
 import kotlin.system.exitProcess
 
@@ -52,12 +56,17 @@ private const val INVALID_PATH_LOG_TEXT = "<invalid path>"
 // One value now sets both the poll rate and the UI refresh rate. An
 // earlier form read a separate, duplicate value of Mode; that field is
 // gone.
+// databaseBytes and freeDiskBytes are decision 5 of issue #58: the
+// database file size (octometer.db plus octometer.db-wal, when that
+// file exists) and the free space of the disk that holds dataDir.
 @Serializable
 data class HealthResponse(
     val version: String,
     val mode: String,
     val refreshSeconds: Int,
     val retentionDays: Int,
+    val databaseBytes: Long,
+    val freeDiskBytes: Long,
 )
 
 // The version stays the same for the life of the process, so the route
@@ -83,6 +92,20 @@ fun main(args: Array<String>) {
         log.error("The bind address is invalid. {}", invalidBindAddress.message)
         exitProcess(2)
     }
+    // Decision 2 of issue #58: main creates dataDir and takes the lock
+    // right after loadConfig, and before MonitorServices.open runs (the
+    // note of 2026-09-22: open() runs the orphan-secret sweep, and two
+    // processes must never both write the secret file). Only
+    // SqliteDatabase.open made dataDir before this; validateDataDir
+    // checks the text of the config value only.
+    File(resolved.config.dataDir).mkdirs()
+    val instanceLock = try {
+        InstanceLock.acquire(resolved.config.dataDir)
+    } catch (lockFailure: InstanceLockFailedException) {
+        log.error("Another monitor instance holds octometer.lock in the data folder.")
+        exitProcess(2)
+    }
+    Runtime.getRuntime().addShutdownHook(Thread { instanceLock.close() })
     logStart(resolved)
     embeddedServer(
         factory = Netty,
@@ -97,7 +120,21 @@ fun Application.module(config: MonitorConfig, staticDir: File? = defaultStaticDi
     // this issue owns the open call and the close call. MonitorServices
     // opens the store, the secret store, and runs the orphan-secret sweep
     // one time, at the start; it closes when the application stops.
-    val services = MonitorServices.open(config)
+    //
+    // Decision 1 of issue #58: a corrupt database fails the quick_check
+    // of SqliteDatabase.open. This call runs inside
+    // embeddedServer(...).start(wait = true), so the catch sits here,
+    // not in main. The file stays as it is; the process exits with the
+    // code 2, the form of the two exitProcess(2) calls of main.
+    val services = try {
+        MonitorServices.open(config)
+    } catch (corrupt: CorruptDatabaseException) {
+        log.error(
+            "The database file failed PRAGMA quick_check. The file stays as it is. {}",
+            corrupt.message,
+        )
+        exitProcess(2)
+    }
     monitor.subscribe(ApplicationStopped) {
         services.close()
     }
@@ -177,6 +214,8 @@ fun Application.module(config: MonitorConfig, staticDir: File? = defaultStaticDi
                     mode = config.mode,
                     refreshSeconds = config.pollIntervalSeconds,
                     retentionDays = config.retentionDays,
+                    databaseBytes = databaseBytes(config.dataDir),
+                    freeDiskBytes = freeDiskBytes(config.dataDir),
                 ),
             )
         }
@@ -205,6 +244,21 @@ private fun logStart(resolved: ResolvedConfig) {
         log.warn(escapeForLog(warning))
     }
 }
+
+// Decision 5 of issue #58: octometer.db plus octometer.db-wal, when the
+// wal file exists (the store keeps journal_mode=WAL, D3).
+private fun databaseBytes(dataDir: String): Long {
+    val databaseFile = File(dataDir, "octometer.db")
+    val walFile = File(dataDir, "octometer.db-wal")
+    val databaseSize = if (databaseFile.isFile) Files.size(databaseFile.toPath()) else 0L
+    val walSize = if (walFile.isFile) Files.size(walFile.toPath()) else 0L
+    return databaseSize + walSize
+}
+
+// Decision 5 of issue #58: the free space of the disk that holds
+// dataDir, so the operator sees a full disk before the store does.
+private fun freeDiskBytes(dataDir: String): Long =
+    Files.getFileStore(File(dataDir).toPath()).usableSpace
 
 private fun readVersion(): String {
     val properties = Properties()
