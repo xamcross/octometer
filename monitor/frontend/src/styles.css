@@ -1,6 +1,139 @@
 /* You can add global styles to this file, and also import other style files */
 
 /*
+ * The two bundled typefaces of the cartoon look (D45). Each import pulls one
+ * weight of the latin subset only, so the bundle ships no glyph that the UI
+ * does not use. Each font file sits in the bundle under the CSP of D12; the
+ * page makes no request to an outside font host.
+ */
+@import '@fontsource/fredoka/latin-600.css';
+@import '@fontsource/nunito/latin-400.css';
+@import '@fontsource/nunito/latin-700.css';
+
+/*
+ * The design tokens of the cartoon look (docs/design.md). A component style
+ * reads a token here; it holds no color literal and no font name of its
+ * own.
+ */
+:root {
+  /* Color */
+  --ink: #241f3d;
+  --ink-soft: #4b4763;
+  --paper: #ffffff;
+  --paper-raised: #ffffff;
+  --shallows: #e6f3ff;
+  --shallows-deep: #bfdfff;
+  --coral: #ff6b6b;
+  --sunny: #ffd93d;
+  --seaweed: #6ee7b7;
+  --octo: #a78bfa;
+  --on-bright: #241f3d;
+  --backdrop: rgb(36 31 61 / 0.6);
+
+  /* Radius */
+  --radius-panel: 20px;
+  --radius-control: 12px;
+  --radius-pill: 999px;
+
+  /* Outline and shadow */
+  --line-panel: 3px solid var(--ink);
+  --line-control: 2px solid var(--ink);
+  --shadow-panel: 6px 6px 0 var(--ink);
+  --shadow-control: 3px 3px 0 var(--ink);
+
+  /* Type families */
+  --display: 'Fredoka', 'Trebuchet MS', sans-serif;
+  --body: 'Nunito', 'Segoe UI', sans-serif;
+
+  /* Type scale (ratio 1.25 on 16px) */
+  --text-s: 0.8rem;
+  --text-m: 1rem;
+  --text-l: 1.25rem;
+  --text-xl: 1.5625rem;
+  --text-2xl: 1.953rem;
+  --text-3xl: 2.441rem;
+
+  /* Space scale (a 4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+}
+
+body {
+  margin: 0;
+  background: var(--shallows);
+  color: var(--ink);
+  font: 400 1rem/1.5 var(--body);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+h1 {
+  font-size: var(--text-xl);
+}
+
+h2 {
+  font-size: var(--text-l);
+}
+
+h3 {
+  font-size: var(--text-m);
+}
+
+a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--coral);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+/*
+ * The quality floor. A sunny outline alone gives 1.2:1 on the shallows
+ * background, so the ring adds a 7px hard ink shadow next to it. A button
+ * keeps its own control shadow beside the ring (D31, the mockup line 138).
+ */
+:focus-visible {
+  outline: 3px solid var(--sunny);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 7px var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none;
+    animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  button,
+  a,
+  input,
+  textarea,
+  select {
+    outline: 2px solid;
+    outline-offset: 0;
+  }
+
+  :focus-visible {
+    outline: 3px solid Highlight;
+  }
+}
+
+/*
  * Hides an element from sight, but keeps it for a screen reader. Angular
  * scopes a component style to that component, so this class stays global,
  * for use across each component.
