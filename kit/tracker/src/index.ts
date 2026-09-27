@@ -9,7 +9,6 @@
  * server-side rendering, where `document` is absent.
  */
 
-import { matchPreparedPath, prepareRoutes, type PreparedRoute } from './path-match.js';
 import { splitIntoRequestBatches, type ClickPayload } from './batch.js';
 import { computeSessionStartReferrerHost } from './referrer-source.js';
 
@@ -23,15 +22,6 @@ export interface TrackerOptions {
   headers?: () => Record<string, string>;
   /** The delay, in milliseconds, before the tracker sends a filled queue. The default is 5000. */
   flushIntervalMs?: number;
-  /**
-   * The ordered route pattern list of the app (contract rule C42), for
-   * example `['/', '/articles', '/articles/*', '/history/:id']`. With this
-   * option, each click entry holds `path`: the pattern text, with a `*`
-   * segment kept as the real segment. Without this option, no click entry
-   * holds `path`. One bad pattern, or a value that is not an array, gives
-   * the same result as a missing option: no click entry holds `path`.
-   */
-  routes?: readonly string[];
   /**
    * Turns off the `navigator.webdriver` filter (design decision D41). The
    * default is `false`. A browser sets `navigator.webdriver` to `true`
@@ -52,6 +42,13 @@ export interface Tracker {
    */
   stop(): void;
 }
+
+/** The stored path has a maximum of 150 bytes in UTF-8 (contract rule C39). */
+const MAX_RAW_PATH_BYTES = 150;
+/** The stored path form for a value above the byte limit, or for a matcher throw. */
+const OTHER_PATH = '/other';
+
+const textEncoder = new TextEncoder();
 
 const SESSION_STORAGE_KEY = 'octo_session_id';
 /** The `element` rule of the contract, rule C4: 1 to 100 characters, this pattern. */
@@ -122,8 +119,8 @@ let moduleFallbackSessionId: string | null = null;
 interface QueueEntry {
   element: string;
   queuedAt: number;
-  /** The stored path of the click, present only with the routes option. */
-  path?: string;
+  /** The raw page path of the click (design decision D49). */
+  path: string;
 }
 
 /** Creates one tracker instance. The tracker holds its own queue and its own session id. */
@@ -135,10 +132,6 @@ export function createTracker(options: TrackerOptions): Tracker {
   const credentials = options.credentials ?? DEFAULT_CREDENTIALS;
   const getExtraHeaders = options.headers;
   const flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
-  // The tracker checks the routes option one time here, not at each click.
-  // One bad entry stops the whole list, and the tracker then sends no
-  // path field. Rule C42 of the contract gives the server the same rule.
-  const preparedRoutes = prepareRoutesOption(options.routes);
   const ignoreWebdriver = options.ignoreWebdriver === true;
 
   let queue: QueueEntry[] = [];
@@ -271,23 +264,22 @@ export function createTracker(options: TrackerOptions): Tracker {
     // The path of a click is the page at the time of the click, not the
     // page at the time of the later flush. An app can navigate between
     // the two, because the tracker holds the click in its queue.
-    const path = computePath(preparedRoutes);
+    const path = computeRawPath();
     enqueue(name, path);
   }
 
   /**
-   * Matches the current page against the prepared routes list. Gives
-   * `undefined` without a routes option. Gives `/other` when the matcher
-   * itself throws: no throw of the tracker reaches the page, also here.
+   * Reads `location.pathname` at the time of the call, and gives its raw
+   * form for the send (design decision D49). The kit alone matches this
+   * value against the route pattern list of the app; the tracker holds no
+   * list of its own. A read of `location.pathname` that throws gives
+   * `/other`: no throw of the tracker reaches the page, also here.
    */
-  function computePath(routes: readonly PreparedRoute[] | undefined): string | undefined {
-    if (routes === undefined) {
-      return undefined;
-    }
+  function computeRawPath(): string {
     try {
-      return matchPreparedPath(routes, location.pathname);
+      return encodeRawPathForSend(location.pathname);
     } catch {
-      return '/other';
+      return OTHER_PATH;
     }
   }
 
@@ -353,14 +345,11 @@ export function createTracker(options: TrackerOptions): Tracker {
     // ends before this point stores no id, so the next document of the
     // same tab starts a fresh session instead of a silent, lost one.
     writeStoredSessionId(sessionId);
-    const path = computePath(preparedRoutes);
-    const click: { element: string; ageMs: number; path?: string; referrerHost?: string } = {
+    const click: { element: string; ageMs: number; path: string; referrerHost?: string } = {
       element: SESSION_START_ELEMENT,
       ageMs: 0,
+      path: computeRawPath(),
     };
-    if (path !== undefined) {
-      click.path = path;
-    }
     // Contract rule C40, design decision D42, issue #108: the referrerHost
     // field sits on the session start entry only. toClickPayload builds a
     // click entry with no call to this function, thus a click never
@@ -376,15 +365,12 @@ export function createTracker(options: TrackerOptions): Tracker {
     }
   }
 
-  function enqueue(element: string, path: string | undefined): void {
+  function enqueue(element: string, path: string): void {
     if (queue.length >= MAX_QUEUE_SIZE) {
       // The queue drops the oldest entry when it is full (design decision D24).
       queue.shift();
     }
-    const entry: QueueEntry = { element, queuedAt: monotonicNow() };
-    if (path !== undefined) {
-      entry.path = path;
-    }
+    const entry: QueueEntry = { element, queuedAt: monotonicNow(), path };
     queue.push(entry);
     if (queue.length === 1) {
       scheduleFlush();
@@ -458,14 +444,11 @@ export function createTracker(options: TrackerOptions): Tracker {
   }
 
   function toClickPayload(entry: QueueEntry, now: number): ClickPayload {
-    const click: { element: string; ageMs: number; path?: string } = {
+    return {
       element: entry.element,
       ageMs: Math.max(0, Math.round(now - entry.queuedAt)),
+      path: entry.path,
     };
-    if (entry.path !== undefined) {
-      click.path = entry.path;
-    }
-    return click;
   }
 
   /**
@@ -644,59 +627,42 @@ export function createTracker(options: TrackerOptions): Tracker {
 }
 
 /**
- * Checks and splits the `routes` option one time. It fails closed: one
- * bad entry counts as no route list. A dropped entry would move a later
- * pattern into its place, and change the match order. Contract rule C42
- * gives the server the same rule.
+ * Percent-encodes `pathname` for the send, and gives `/other` for a
+ * result above 150 bytes (design decision D49).
  *
- * This function gives `undefined` in four cases. The option is missing.
- * The option is not an array. The option is an empty array. The option
- * holds one bad entry or more. Each case sends no `path` field. A value
- * that is not an array writes one console warning. A list with one bad
- * entry or more writes exactly one console warning, and it names the
- * index of each bad entry. No warning holds the text of a pattern.
+ * It percent-encodes each byte outside the character set of contract
+ * rule C39: the four ASCII characters `[`, `]`, `^`, and `|`, and each
+ * non-ASCII byte. It also turns a lone `%` into `%25`: Chromium can leave
+ * such a `%` in `location.pathname`, a `%` with no two hex digits after
+ * it. It never decodes a `%` escape that is already well formed. A
+ * slash, a letter, a digit, and each other C39 character stay as they
+ * are. The kit alone matches the result against a route pattern, or maps
+ * a value that still breaks rule C39 to `/other` (rule C41, amended).
  */
-function prepareRoutesOption(routes: unknown): readonly PreparedRoute[] | undefined {
-  if (routes === undefined) {
-    return undefined;
-  }
-  if (!Array.isArray(routes)) {
-    console.warn('octometer: the routes option must be an array. The tracker sends no path.');
-    return undefined;
-  }
-  const { routes: prepared, invalidIndexes } = prepareRoutes(routes);
-  if (invalidIndexes.length > 0) {
-    // One warning for the whole list, not one warning for each bad entry
-    // (issue #140). One bad entry stops the whole list, so the match
-    // order stays fixed.
-    console.warn(
-      `octometer: the routes option holds an invalid entry at ${formatIndexList(invalidIndexes)}. ` +
-        'The tracker sends no path field.',
-    );
-    return undefined;
-  }
-  if (prepared.length === 0) {
-    console.warn('octometer: the routes option holds no valid pattern. The tracker sends no path.');
-    return undefined;
-  }
-  return prepared;
+function encodeRawPathForSend(pathname: string): string {
+  const withEscapedPercent = pathname.replace(/%(?![0-9A-Fa-f]{2})/g, '%25');
+  const encoded = Array.from(withEscapedPercent)
+    .map((character) => (needsPercentEncoding(character) ? encodeURIComponent(character) : character))
+    .join('');
+  return withinRawPathByteLimit(encoded) ? encoded : OTHER_PATH;
 }
 
 /**
- * Builds the index list text of the routes warning, for example
- * `index 0`, `index 0 and index 2`, or `index 0, index 2, and index 4`.
- * The text never holds a pattern, only a plain index number.
+ * Tells whether one Unicode code point of a path needs a percent escape
+ * before the send. `character` holds one code point: one UTF-16 code
+ * unit, or a surrogate pair for a code point above U+FFFF.
  */
-function formatIndexList(indexes: readonly number[]): string {
-  const labels = indexes.map((index) => `index ${index}`);
-  if (labels.length === 1) {
-    return labels[0] as string;
+function needsPercentEncoding(character: string): boolean {
+  if (character.length > 1) {
+    // A surrogate pair: a non-ASCII code point above U+FFFF.
+    return true;
   }
-  if (labels.length === 2) {
-    return `${labels[0]} and ${labels[1]}`;
-  }
-  const lastLabel = labels[labels.length - 1];
-  return `${labels.slice(0, -1).join(', ')}, and ${lastLabel}`;
+  const code = character.charCodeAt(0);
+  return code > 0x7f || character === '[' || character === ']' || character === '^' || character === '|';
+}
+
+function withinRawPathByteLimit(path: string): boolean {
+  return textEncoder.encode(path).length <= MAX_RAW_PATH_BYTES;
 }
 
 /**
