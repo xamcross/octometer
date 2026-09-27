@@ -23,6 +23,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Return `null` for a missing path in the first-pages and the sessions answers; the views show `(unknown)`. (#213)
 - Add a rolling file log, next to the console log, with a 10 MB file limit, a 14-day
   history, and a 200 MB total cap. (#57)
+- Record a gap after a long off-time, and show it in the level 1 view. (#62)
 
 ## 0.2.0 - 2026-09-27
 

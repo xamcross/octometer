@@ -538,6 +538,10 @@ class EndToEndContainerTest {
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 }
 
+/** One gap of D16. Mirrors `GapPeriod` of `AppTotalsRoute.kt` (issue #62). */
+@Serializable
+private data class AppGap(val from: String, val to: String)
+
 /** One row of `GET /api/apps` (D13, level 1). Mirrors `AppTotalsRow` of `AppTotalsRoute.kt`. */
 @Serializable
 private data class AppRow(
@@ -550,4 +554,5 @@ private data class AppRow(
     val lastSuccessAt: String?,
     val lastError: String?,
     val nextPollAt: String?,
+    val gaps: List<AppGap>,
 )

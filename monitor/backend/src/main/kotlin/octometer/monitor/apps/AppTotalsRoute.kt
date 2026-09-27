@@ -12,10 +12,17 @@ import kotlinx.serialization.Serializable
 import octometer.monitor.store.SqliteDatabase
 
 /**
+ * One gap of design decision D16 (issue #62). `from` and `to` are UTC
+ * ISO 8601 strings with milliseconds, never null: a gap row always
+ * holds both times.
+ */
+@Serializable
+data class GapPeriod(val from: String, val to: String)
+
+/**
  * One row of `GET /api/apps` (D13, level 1 of the design). Each time field
  * is a UTC ISO 8601 string with milliseconds, or null when the app holds
- * no such time yet. D13 also names a tenth field, `gaps` (D16). Issue #62
- * owns that field; this issue (#18) does not add it.
+ * no such time yet. `gaps` (D16, issue #62) is `[]` for an app with no gap.
  */
 @Serializable
 data class AppTotalsRow(
@@ -28,6 +35,7 @@ data class AppTotalsRow(
     val lastSuccessAt: String?,
     val lastError: String?,
     val nextPollAt: String?,
+    val gaps: List<GapPeriod>,
 )
 
 // Rule M4 of the design change (#109, #18): the literal `kind = 0` keeps
@@ -53,6 +61,11 @@ private const val APPS_SQL =
     "SELECT id, name, status, last_poll_at, last_success_at, last_error, next_poll_at " +
         "FROM app ORDER BY id"
 
+// The maintainer's correction of the brief review of 2026-09-27 (issue
+// #62): the gap table holds no NULL from_ts or to_ts, so this query
+// needs no app join and no LEFT JOIN.
+internal const val GAPS_SQL = "SELECT app_id, from_ts, to_ts FROM gap ORDER BY app_id, from_ts"
+
 private val TIMESTAMP_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC)
 
@@ -64,9 +77,10 @@ fun Route.appTotals(database: SqliteDatabase) {
 }
 
 /**
- * Reads the app rows and the three level 1 statements of section 6, and
- * merges them. One `read` call holds the read-only connection for the
- * four statements; no connection escapes this function.
+ * Reads the app rows, the three level 1 statements of section 6, and
+ * the gap rows of D16, and merges them. One `read` call holds the
+ * read-only connection for the five statements; no connection escapes
+ * this function.
  */
 suspend fun loadAppTotals(database: SqliteDatabase): List<AppTotalsRow> =
     database.read { reader ->
@@ -74,10 +88,16 @@ suspend fun loadAppTotals(database: SqliteDatabase): List<AppTotalsRow> =
         val clicks = readTotals(reader, CLICKS_SQL)
         val uniqueUsers = readTotals(reader, UNIQUE_USERS_SQL)
         val uniqueSessions = readTotals(reader, UNIQUE_SESSIONS_SQL)
+        val gaps = readGaps(reader)
         // MINOR 1 of correction round 1: named arguments, in the order of
-        // D13, stop a silent swap of the three maps at a later edit.
+        // D13, stop a silent swap of the maps at a later edit.
         apps.map { app ->
-            app.toRow(clicks = clicks, uniqueUsers = uniqueUsers, uniqueSessions = uniqueSessions)
+            app.toRow(
+                clicks = clicks,
+                uniqueUsers = uniqueUsers,
+                uniqueSessions = uniqueSessions,
+                gaps = gaps[app.id] ?: emptyList(),
+            )
         }
     }
 
@@ -98,6 +118,7 @@ private data class AppRecord(
         clicks: Map<Long, Long>,
         uniqueUsers: Map<Long, Long>,
         uniqueSessions: Map<Long, Long>,
+        gaps: List<GapPeriod>,
     ) = AppTotalsRow(
         appId = id,
         name = name,
@@ -108,6 +129,7 @@ private data class AppRecord(
         lastSuccessAt = formatInstant(lastSuccessAt),
         lastError = lastError,
         nextPollAt = formatInstant(nextPollAt),
+        gaps = gaps,
     )
 }
 
@@ -131,6 +153,24 @@ private fun readApps(connection: Connection): List<AppRecord> {
     return apps
 }
 
+/** Reads each gap row of D16, grouped by app id, in the order of [GAPS_SQL]. */
+private fun readGaps(connection: Connection): Map<Long, List<GapPeriod>> {
+    val gaps = mutableMapOf<Long, MutableList<GapPeriod>>()
+    connection.createStatement().use { statement ->
+        statement.executeQuery(GAPS_SQL).use { result ->
+            while (result.next()) {
+                val appId = result.getLong("app_id")
+                val period = GapPeriod(
+                    from = formatInstantRequired(result.getLong("from_ts")),
+                    to = formatInstantRequired(result.getLong("to_ts")),
+                )
+                gaps.getOrPut(appId) { mutableListOf() }.add(period)
+            }
+        }
+    }
+    return gaps
+}
+
 private fun readTotals(connection: Connection, sql: String): Map<Long, Long> {
     val totals = mutableMapOf<Long, Long>()
     connection.createStatement().use { statement ->
@@ -144,4 +184,8 @@ private fun readTotals(connection: Connection, sql: String): Map<Long, Long> {
 }
 
 private fun formatInstant(epochMillis: Long?): String? =
-    epochMillis?.let { TIMESTAMP_FORMATTER.format(Instant.ofEpochMilli(it)) }
+    epochMillis?.let { formatInstantRequired(it) }
+
+/** Formats a gap row's `from_ts` or `to_ts` (D16); a gap row holds no NULL time. */
+private fun formatInstantRequired(epochMillis: Long): String =
+    TIMESTAMP_FORMATTER.format(Instant.ofEpochMilli(epochMillis))

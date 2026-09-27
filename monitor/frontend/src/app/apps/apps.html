@@ -78,6 +78,9 @@
                 @if (isFailed(row.status) && row.lastError) {
                   <p class="error-text">{{ row.lastError }}</p>
                 }
+                @for (gap of row.gaps; track gap.from) {
+                  <p class="gap-text">{{ gapText(gap) }}</p>
+                }
               </td>
               <td class="data-time" (click)="onRowCellClick(row, $event)">
                 @if (row.lastSuccessAt) {

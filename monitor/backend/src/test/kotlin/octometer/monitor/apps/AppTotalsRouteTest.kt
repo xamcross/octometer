@@ -65,6 +65,7 @@ class AppTotalsRouteTest {
         assertNull(row.lastSuccessAt)
         assertNull(row.lastError)
         assertNull(row.nextPollAt)
+        assertEquals(emptyList(), row.gaps, "An app with no gap row gives an empty list (D16, issue #62).")
     }
 
     @Test
@@ -107,8 +108,28 @@ class AppTotalsRouteTest {
             assertEquals(2L, row.uniqueSessions, "the session without a click still counts")
         }
 
+    // D16, issue #62: gaps is the tenth field of the row. from and to
+    // are ISO 8601 UTC texts, the form of lastSuccessAt, and the rows
+    // keep the order of GAPS_SQL (app id, then from_ts).
     @Test
-    fun `each row holds the nine fields, and a time field is UTC ISO 8601 with milliseconds`() =
+    fun `the gaps field lists each gap of the app in ISO 8601, and an app with no gap gives an empty list`() =
+        runBlocking {
+            val withGaps = insertApp(database, name = "app-with-gaps")
+            val withoutGaps = insertApp(database, name = "app-without-gaps")
+            insertGap(database, withGaps, fromTs = 1_700_000_000_000L, toTs = 1_700_100_000_000L)
+            insertGap(database, withGaps, fromTs = 1_701_000_000_000L, toTs = 1_701_100_000_000L)
+
+            val rows = loadAppTotals(database).associateBy { it.name }
+
+            val gaps = rows.getValue("app-with-gaps").gaps
+            assertEquals(2, gaps.size)
+            assertEquals(GapPeriod(from = "2023-11-14T22:13:20.000Z", to = "2023-11-16T02:00:00.000Z"), gaps[0])
+            assertEquals(GapPeriod(from = "2023-11-26T12:00:00.000Z", to = "2023-11-27T15:46:40.000Z"), gaps[1])
+            assertEquals(emptyList(), rows.getValue("app-without-gaps").gaps)
+        }
+
+    @Test
+    fun `each row holds the ten fields, and a time field is UTC ISO 8601 with milliseconds`() =
         runBlocking {
             val appId = insertApp(
                 database,
@@ -132,6 +153,7 @@ class AppTotalsRouteTest {
             assertEquals("2023-11-14T22:13:20.123Z", row.lastSuccessAt)
             assertNull(row.lastError)
             assertEquals("2023-11-14T22:14:20.000Z", row.nextPollAt)
+            assertEquals(emptyList(), row.gaps)
         }
 
     // MINOR 2 of correction round 1: the exact plan line, not a
@@ -215,6 +237,7 @@ class AppTotalsRouteTest {
     fun `GET api-apps answers with the rows and Cache-Control no-store`() = testApplication {
         val appId = insertApp(database, name = "http-app")
         insertEvent(database, appId, eventId = "e1", sessionId = "s1", userId = "user-1", kind = 0)
+        insertGap(database, appId, fromTs = 1_700_000_000_000L, toTs = 1_700_100_000_000L)
         database.close()
 
         application { module(devConfig(dataDir = dataDir.absolutePath)) }
@@ -228,6 +251,9 @@ class AppTotalsRouteTest {
         val row = body.single().jsonObject
         assertEquals("http-app", row.getValue("name").jsonPrimitive.content)
         assertEquals(1, row.getValue("clicks").jsonPrimitive.content.toInt())
+        val gap = row.getValue("gaps").jsonArray.single().jsonObject
+        assertEquals("2023-11-14T22:13:20.000Z", gap.getValue("from").jsonPrimitive.content)
+        assertEquals("2023-11-16T02:00:00.000Z", gap.getValue("to").jsonPrimitive.content)
     }
 }
 
@@ -291,6 +317,17 @@ private suspend fun insertEvent(
         insert.executeUpdate()
     }
 }
+
+/** Inserts one gap row of D16 (issue #62), for a test to read back through `GET /api/apps`. */
+private suspend fun insertGap(database: SqliteDatabase, appId: Long, fromTs: Long, toTs: Long) =
+    database.write { writer ->
+        writer.prepareStatement("INSERT INTO gap (app_id, from_ts, to_ts) VALUES (?, ?, ?)").use { insert ->
+            insert.setLong(1, appId)
+            insert.setLong(2, fromTs)
+            insert.setLong(3, toTs)
+            insert.executeUpdate()
+        }
+    }
 
 private suspend fun explainPlan(database: SqliteDatabase, sql: String): String =
     database.read { reader -> explainPlanText(reader, sql) }
