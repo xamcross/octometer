@@ -71,6 +71,27 @@ class AppRegistryRoutesTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
+    // Issue #244: an absent collection field takes the default
+    // octometer_events. A service test calls the Kotlin constructor and
+    // never runs the JSON decode, so this test runs the real route.
+    @Test
+    fun `POST with no collection field gets 201, and stores octometer_events`() = testApplication {
+        val dataDir = testDataDir()
+        application { module(prodConfig(dataDir = dataDir)) }
+
+        val response = client.post("/api/apps") {
+            allowedHost()
+            header(HttpHeaders.Origin, "http://localhost:7431")
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"demo","connectionString":"${allowlistedSrvUri()}","database":"db"}""")
+        }
+
+        assertEquals(HttpStatusCode.Created, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("octometer_events", body["collection"]!!.jsonPrimitive.content)
+        assertEquals("octometer_events", readCollectionName(dataDir))
+    }
+
     @Test
     fun `POST with a body that is not JSON gets 400`() = testApplication {
         application { module(prodConfig()) }
@@ -441,6 +462,18 @@ private fun countAppRows(dataDir: String): Int {
             statement.executeQuery("SELECT COUNT(*) FROM app").use { result ->
                 result.next()
                 result.getInt(1)
+            }
+        }
+    }
+}
+
+// A single-row read for a test that creates exactly one app.
+private fun readCollectionName(dataDir: String): String? {
+    val url = "jdbc:sqlite:" + File(dataDir, "octometer.db").absolutePath
+    return DriverManager.getConnection(url).use { connection ->
+        connection.createStatement().use { statement ->
+            statement.executeQuery("SELECT collection_name FROM app LIMIT 1").use { result ->
+                if (!result.next()) null else result.getString(1)
             }
         }
     }
