@@ -1,0 +1,36 @@
+/*
+ * The empty-state layout (D45, docs/design/mockup.html line 139): the
+ * mark, then the sentence, in one column with a start-aligned edge.
+ */
+:host {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+  padding: var(--space-5) var(--space-4);
+}
+
+.empty-text {
+  max-width: 68ch;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * A soft-wrap opportunity sits at the edge of an atomic inline box, such
+ * as this `inline-flex` link, even with no space in the source (the
+ * `</a\n>{{ textAfter() }}` join of empty-state.html). Without this
+ * rule, a narrow screen can wrap the closing full stop onto its own
+ * line. `white-space: nowrap` on the wrapping span keeps the link and
+ * the words after it on one line, while the sentence before the link
+ * still wraps at each word space.
+ */
+.empty-link {
+  white-space: nowrap;
+}
+
+.empty-text a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 24px;
+  min-height: 24px;
+}
