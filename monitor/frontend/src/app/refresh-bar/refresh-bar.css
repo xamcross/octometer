@@ -6,10 +6,12 @@
 :host {
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
 p {
   margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--text-s);
 }

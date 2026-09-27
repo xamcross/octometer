@@ -1,3 +1,15 @@
+nav {
+  max-width: 76rem;
+  margin-inline: auto;
+  padding-inline: 16px;
+}
+
+@media (min-width: 48rem) {
+  nav {
+    padding-inline: 32px;
+  }
+}
+
 ol {
   display: flex;
   flex-wrap: wrap;
@@ -11,9 +23,9 @@ li {
 }
 
 li:not(:last-child)::after {
-  /* The empty alternative text keeps the slash out of the accessibility tree. */
-  content: '/' / '';
-  padding: 0 0.5rem;
+  /* The empty alternative text keeps the separator out of the accessibility tree. */
+  content: '\203a' / '';
+  margin: 0 8px;
   color: var(--ink-soft);
 }
 
@@ -22,4 +34,9 @@ a {
   align-items: center;
   min-width: 24px;
   min-height: 24px;
+}
+
+/* The current item stays plain text, with a bold weight as its own cue. */
+[aria-current='page'] {
+  font-weight: 700;
 }
