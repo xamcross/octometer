@@ -1,5 +1,10 @@
 # The design of the Octometer monitor UI
 
+`docs/components.md` lists each UI component of the monitor, with its purpose, its
+anatomy, its states, its accessibility contract, and its rules. Read that document for
+one component; read this page for the tokens and the six principles that each component
+follows.
+
 This page holds the cartoon look of the monitor UI (design decision D45). It lists the
 tokens, the type scale, the page column, the six principles, the status badges, the focus
 ring, and the contrast table. `docs/design/mockup.html` is the reference for the tokens and
@@ -16,6 +21,7 @@ the base rules.
 | `--shallows` | `#E6F3FF` | The page background, the zebra row tint. |
 | `--shallows-deep` | `#BFDFFF` | The table head, the neutral status fill. |
 | `--coral` | `#FF6B6B` | The danger fill, the error edge, the link underline. |
+| `--coral-deep` | `#D93A3A` | The invalid field ring; keeps 3:1 or more on `--paper` (WCAG 1.4.11). |
 | `--sunny` | `#FFD93D` | The primary fill, the current nav pill, the focus ring, the warning fill. |
 | `--seaweed` | `#6EE7B7` | The OK fill. |
 | `--octo` | `#A78BFA` | The header band, the mascot body. Never a text background. |
@@ -113,7 +119,8 @@ pair stays at 4.5:1 or above, the floor of WCAG 1.4.3 for normal text.
 | `--ink` | `--coral` | 5.7:1 |
 | `--ink` | `--octo` | 5.8:1 |
 | `--ink-soft` | `--paper` | 8.8:1 |
+| `--coral-deep` | `--paper` | 4.5:1 |
 
 `--on-bright` equals `--ink` (both `#241F3D`), so the four `--on-bright` pairs (on `--sunny`,
 `--seaweed`, `--coral`, `--octo`) repeat the four `--ink` rows above; the table keeps the
-eight rows only.
+nine rows only.
