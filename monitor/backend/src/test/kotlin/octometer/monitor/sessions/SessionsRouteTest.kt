@@ -460,32 +460,48 @@ class SessionsRouteTest {
             val oldTs = FIXTURE_NOW - (RETENTION_DAYS_FOR_FIXTURE + 10) * DAY_MILLIS_FOR_FIXTURE
             val recentTs = FIXTURE_NOW
 
+            // MAJOR 1 of the review of 2026-09-27: each event carries its
+            // own distinct path, so a duplicate row of one session (the
+            // defect that the HAVING NOT EXISTS clause of part 2 must
+            // stop) shows a different value, not an accidental copy.
             val committed = eventStore.commitPage(
                 appId,
                 events = listOf(
-                    NewEvent("start-1", oldTs, "octo:session-start", "with-start", userId = null, kind = 1),
-                    NewEvent("click-1", recentTs, "checkout.save", "with-start", userId = null, kind = 0),
-                    NewEvent("click-2", recentTs, "checkout.save", "no-start", userId = null, kind = 0),
+                    NewEvent(
+                        "start-1", oldTs, "octo:session-start", "with-start",
+                        userId = null, path = "/p-start-1", kind = 1,
+                    ),
+                    NewEvent(
+                        "click-1", recentTs, "checkout.save", "with-start",
+                        userId = null, path = "/p-click-1", kind = 0,
+                    ),
+                    NewEvent(
+                        "click-2", recentTs, "checkout.save", "no-start",
+                        userId = null, path = "/p-click-2", kind = 0,
+                    ),
                     NewEvent(
                         "click-3", recentTs, "checkout.save", "signed-in-only",
-                        userId = "user-x", kind = 0,
+                        userId = "user-x", path = "/p-click-3", kind = 0,
                     ),
                     NewEvent(
                         "start-4", recentTs, "octo:session-start", "anon-then-signed-in",
-                        userId = null, kind = 1,
+                        userId = null, path = "/p-start-4", kind = 1,
                     ),
                     NewEvent(
                         "click-4a", recentTs, "checkout.save", "anon-then-signed-in",
-                        userId = null, kind = 0,
+                        userId = null, path = "/p-click-4a", kind = 0,
                     ),
                     NewEvent(
                         "click-4b", recentTs + 1_000, "checkout.save", "anon-then-signed-in",
-                        userId = "user-y", kind = 0,
+                        userId = "user-y", path = "/p-click-4b", kind = 0,
                     ),
-                    NewEvent("click-5a", recentTs, "checkout.save", "erased", userId = null, kind = 0),
+                    NewEvent(
+                        "click-5a", recentTs, "checkout.save", "erased",
+                        userId = null, path = "/p-click-5a", kind = 0,
+                    ),
                     NewEvent(
                         "click-5b", recentTs, "checkout.save", "erased",
-                        userId = "user-erase", kind = 0,
+                        userId = "user-erase", path = "/p-click-5b", kind = 0,
                     ),
                 ),
                 cursor = "cursor-1",
@@ -496,11 +512,18 @@ class SessionsRouteTest {
             RetentionPurge(database, fixedClock(recentTs)).purgeOnce(RETENTION_DAYS_FOR_FIXTURE)
             eraseUserEvents(database, appId, "user-erase")
 
-            val plain = database.read { reader -> candidateMap(reader, PLAIN_CANDIDATES_SQL, appId) }
-            val new = database.read { reader -> candidateMap(reader, SESSION_CANDIDATES_SQL, appId) }
+            // MAJOR 1: two sorted lists of rows, not two maps. A map
+            // keyed by session_id would collapse a duplicate row of one
+            // session into one entry, and it would hide the loss of the
+            // HAVING NOT EXISTS clause of part 2.
+            val plain = database.read { reader -> candidateRows(reader, PLAIN_CANDIDATES_SQL, appId) }
+            val new = database.read { reader -> candidateRows(reader, SESSION_CANDIDATES_SQL, appId) }
 
             assertEquals(plain, new)
-            assertEquals(setOf("with-start", "no-start", "anon-then-signed-in"), new.keys)
+            assertEquals(
+                setOf("with-start", "no-start", "anon-then-signed-in"),
+                new.map { it.sessionId }.toSet(),
+            )
         }
 
     // -- The HTTP layer (steps 1, 5) ------------------------------------------
@@ -778,28 +801,44 @@ private const val DAY_MILLIS_FOR_FIXTURE = 86_400_000L
 
 private fun fixedClock(millis: Long): Clock = Clock.fixed(Instant.ofEpochMilli(millis), ZoneOffset.UTC)
 
+// MAJOR 1 of the review of 2026-09-27: one row of the result, never
+// deduplicated by session_id. A `Map` keyed by session_id hid a
+// duplicate row of one session; this class keeps every row.
+private data class CandidateRow(
+    val sessionId: String,
+    val path: String?,
+    val referrerHost: String?,
+    val startTime: Long,
+)
+
+private val CANDIDATE_ROW_ORDER: Comparator<CandidateRow> =
+    compareBy({ it.sessionId }, { it.path.orEmpty() }, { it.referrerHost.orEmpty() }, { it.startTime })
+
 // Reads a candidates statement (PLAIN_CANDIDATES_SQL or
 // SESSION_CANDIDATES_SQL) with CANDIDATES_APP_ID_COUNT copies of
-// appId, and gives one row for each session id, for the equality test.
-private fun candidateMap(
+// appId, and gives every row, sorted, for the equality test. The sort
+// gives a fixed order, so two equal row sets compare equal, whatever
+// order SQLite gives the rows.
+private fun candidateRows(
     reader: Connection,
     sql: String,
     appId: Long,
-): Map<String, List<Any?>> {
-    val rows = mutableMapOf<String, List<Any?>>()
+): List<CandidateRow> {
+    val rows = mutableListOf<CandidateRow>()
     reader.prepareStatement(sql).use { statement ->
         repeat(CANDIDATES_APP_ID_COUNT) { index -> statement.setLong(index + 1, appId) }
         statement.executeQuery().use { result ->
             while (result.next()) {
-                rows[result.getString("session_id")] = listOf(
-                    result.getString("path"),
-                    result.getString("referrer_host"),
-                    result.getLong("start_time"),
+                rows += CandidateRow(
+                    sessionId = result.getString("session_id"),
+                    path = result.getString("path"),
+                    referrerHost = result.getString("referrer_host"),
+                    startTime = result.getLong("start_time"),
                 )
             }
         }
     }
-    return rows
+    return rows.sortedWith(CANDIDATE_ROW_ORDER)
 }
 
 // MAJOR 2 of correction round 2 (2026-09-26): "SCAN event" alone
