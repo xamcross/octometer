@@ -78,9 +78,9 @@ describe('Apps', () => {
   });
 
   /** Answers the one health request of the page, and runs the first data tick. */
-  function startStore(refreshSeconds = 10): void {
+  function startStore(refreshSeconds = 10, retentionDays?: number): void {
     vi.advanceTimersByTime(0);
-    httpMock.expectOne('/api/health').flush({ refreshSeconds });
+    httpMock.expectOne('/api/health').flush({ refreshSeconds, retentionDays });
     vi.advanceTimersByTime(0);
   }
 
@@ -180,6 +180,27 @@ describe('Apps', () => {
     expect(announcer.message()).toBe('App 9 is not registered.');
     startStore();
     flushApps([]);
+  });
+
+  it('shows no retention text before the health answer arrives', () => {
+    expect(root().textContent).not.toContain('Totals of the last');
+  });
+
+  it('shows "Totals of the last <n> days." with the number from the health answer (issue #66)', () => {
+    startStore(10, 395);
+    flushApps([]);
+
+    const text = root().querySelector('p.retention-text');
+    expect(text?.textContent?.trim()).toBe(
+      `Totals of the last ${new Intl.NumberFormat().format(395)} days.`,
+    );
+  });
+
+  it('shows no retention text when the health answer lacks retentionDays (issue #66)', () => {
+    startStore(10);
+    flushApps([]);
+
+    expect(root().querySelector('p.retention-text')).toBeNull();
   });
 
   describe('once the app list answers', () => {

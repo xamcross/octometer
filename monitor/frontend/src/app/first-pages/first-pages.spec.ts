@@ -271,18 +271,17 @@ describe('FirstPages', () => {
       expect(document.getElementById(labelledBy ?? '')?.tagName).toBe('CAPTION');
     });
 
-    it('renders two rows that share the text "(unknown)" (issue #213 tracks the present behaviour)', () => {
+    it('renders a null row and a stored "(unknown)" row as two distinct rows, with no NG0955 (issue #213)', () => {
       startStore();
 
-      // The API of #112 maps every NULL path to the same text "(unknown)"
-      // (D44), so `track row.path` gives Angular a duplicate key across
-      // these two rows. Both rows still render with the right count.
-      // Issue #213 later changes the field to `path: string | null`, so
-      // Angular can tell the two rows apart by identity instead.
+      // A null path and a stored path of the text "(unknown)" give two
+      // different track keys: row.path ?? '\u0000' for the null row,
+      // and the stored text "(unknown)" for the other row. Angular
+      // thus raises no NG0955 duplicate-key error.
       flushFirstPages(
         buildPage({
           rows: [
-            buildRow({ path: '(unknown)', sessions: 5 }),
+            buildRow({ path: null, sessions: 5 }),
             buildRow({ path: '(unknown)', sessions: 2 }),
           ],
         }),
@@ -292,6 +291,28 @@ describe('FirstPages', () => {
       expect(rows.length).toBe(2);
       expect(rows[0].textContent).toContain(new Intl.NumberFormat().format(5));
       expect(rows[1].textContent).toContain(new Intl.NumberFormat().format(2));
+
+      const firstHeader = rows[0].querySelector('th') as HTMLElement;
+      expect(firstHeader.textContent?.trim()).toBe('(unknown)');
+      expect(firstHeader.querySelector('a')).toBeNull();
+
+      const secondHeader = rows[1].querySelector('th') as HTMLElement;
+      const secondLink = secondHeader.querySelector('a') as HTMLAnchorElement;
+      expect(secondLink.textContent?.trim()).toBe('(unknown)');
+      expect(secondLink.getAttribute('href')).toBe(
+        '/apps/7/sessions?anonymous=true&firstPath=(unknown)',
+      );
+    });
+
+    it('does not navigate on a click on the count cell of a null-path row (issue #213)', () => {
+      startStore();
+      flushFirstPages(buildPage({ rows: [buildRow({ path: null, sessions: 5 })] }));
+      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+      const numCell = root().querySelector('td.num') as HTMLElement;
+      numCell.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+      expect(navigateSpy).not.toHaveBeenCalled();
     });
 
     it('tracks each row with the stable key path: a second answer that drops a row and changes the order keeps the tr node of each surviving row', () => {

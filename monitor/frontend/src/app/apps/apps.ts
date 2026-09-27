@@ -1,9 +1,10 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, effect, inject, input, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
 import { Announcer } from '../announcer';
 import { createPollStore } from '../poll/poll-store';
+import { RefreshIntervalState } from '../poll/refresh-interval-state';
 import { RefreshBar } from '../refresh-bar/refresh-bar';
 import {
   STATUS_ICON,
@@ -41,6 +42,7 @@ export class Apps {
   private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
   private readonly announcer = inject(Announcer);
+  private readonly refreshIntervalState = inject(RefreshIntervalState);
 
   /**
    * The `notFoundAppId` query parameter, bound by the router. The level 2
@@ -64,6 +66,16 @@ export class Apps {
 
   /** The zone name for the "Data time" column header (D31). */
   protected readonly zoneName = readZoneName();
+
+  /**
+   * The "Totals of the last <n> days." text (D13, D15, issue #66). Null
+   * while `retentionDays` of the health answer is null, so the view shows
+   * no text before the answer arrives and no text for an invalid value.
+   */
+  protected readonly retentionText = computed(() => {
+    const days = this.refreshIntervalState.retentionDays();
+    return days === null ? null : `Totals of the last ${numberFormat.format(days)} days.`;
+  });
 
   constructor() {
     // Copies a fresh notFoundAppId into shownNotFoundAppId, announces the
