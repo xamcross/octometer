@@ -112,10 +112,10 @@ describe('Manage', () => {
     expect(root().querySelector('table')).toBeTruthy();
   });
 
-  it('shows "No app is registered." when the list is empty, and no table', () => {
+  it('shows "No app yet. Add one below." when the list is empty, and no table', () => {
     flushList([]);
 
-    expect(root().textContent).toContain('No app is registered.');
+    expect(root().textContent).toContain('No app yet. Add one below.');
     expect(root().querySelector('table')).toBeNull();
   });
 
@@ -333,7 +333,7 @@ describe('Manage', () => {
       fixture.detectChanges();
 
       flushList([]);
-      expect(root().textContent).toContain('No app is registered.');
+      expect(root().textContent).toContain('No app yet. Add one below.');
     });
   });
 
@@ -402,7 +402,7 @@ describe('Manage', () => {
       fixture.detectChanges();
 
       flushList([]);
-      expect(root().textContent).toContain('No app is registered.');
+      expect(root().textContent).toContain('No app yet. Add one below.');
     });
   });
 

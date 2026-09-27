@@ -4,6 +4,7 @@ import type { Subscription } from 'rxjs';
 
 import { Announcer } from '../announcer';
 import type { AppRow, AppStatus } from '../apps/app-row';
+import { EmptyState } from '../empty-state/empty-state';
 import { STATUS_ICON, STATUS_LABEL } from '../status-format';
 import { AddAppForm } from './add-app-form';
 import { readApiErrorMessage } from './app-registry-api';
@@ -26,7 +27,7 @@ import { EditAppForm } from './edit-app-form';
  */
 @Component({
   selector: 'app-manage',
-  imports: [AddAppForm, EditAppForm, DeleteAppDialog],
+  imports: [AddAppForm, DeleteAppDialog, EditAppForm, EmptyState],
   styleUrl: './manage.css',
   templateUrl: './manage.html',
 })

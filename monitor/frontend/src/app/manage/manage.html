@@ -2,7 +2,7 @@
 
 @if (apps(); as rows) {
   @if (rows.length === 0) {
-    <p>No app is registered. Add one below.</p>
+    <app-empty-state text="No app yet. Add one below." />
   } @else {
     <section class="panel">
       <div class="table-scroll" tabindex="0" role="region" aria-labelledby="manage-caption">
