@@ -41,10 +41,24 @@ private const val RESTORE_BUSY_TIMEOUT_SQL = "PRAGMA busy_timeout=$DEFAULT_BUSY_
 // gives the reader's cap no further protection; it only holds a stale
 // slot. This deletes each app_path row that no event row of its own
 // app still holds, one app at a time (design decision D5).
+//
+// BLOCKER 1 of the Kotlin and SQLite review of pull request #232: a
+// correlated "NOT EXISTS" subquery here has no index to use, because
+// event_first_page is partial (WHERE kind = 1) and this statement must
+// not add a "kind = 1" term (a click row holds a path too, and D5
+// counts each row, not each start row). Each correlated run then reads
+// the app's event rows one time for each app_path row: 5 305 ms with
+// 50 000 events and 400 rows, on the one writer thread.
+//
+// The "NOT IN" form builds the path list one time, so the plan reads
+// the app's events one time in total, no matter the app_path row
+// count: 35.8 ms in the same probe, 148 times faster. "path IS NOT
+// NULL" is necessary: one NULL in the list turns "NOT IN" itself into
+// NULL for every row, and the statement would then delete no row.
 private const val SELECT_APP_PATH_APP_IDS_SQL = "SELECT DISTINCT app_id FROM app_path"
-private const val DELETE_STALE_APP_PATH_SQL = """
-    DELETE FROM app_path WHERE app_id = ? AND NOT EXISTS (
-      SELECT 1 FROM event WHERE event.app_id = app_path.app_id AND event.path = app_path.path
+internal const val DELETE_STALE_APP_PATH_SQL = """
+    DELETE FROM app_path WHERE app_id = ? AND path NOT IN (
+      SELECT path FROM event WHERE app_id = ? AND path IS NOT NULL
     )
 """
 
@@ -139,6 +153,7 @@ class RetentionPurge(
             database.write { writer ->
                 writer.prepareStatement(DELETE_STALE_APP_PATH_SQL).use { delete ->
                     delete.setLong(1, appId)
+                    delete.setLong(2, appId)
                     delete.executeUpdate()
                 }
             }

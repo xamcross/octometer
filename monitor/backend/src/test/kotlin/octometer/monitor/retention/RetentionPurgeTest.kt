@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
 import octometer.monitor.registerTempRoot
 import octometer.monitor.store.SqliteDatabase
+import kotlin.system.measureTimeMillis
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -200,6 +201,62 @@ class RetentionPurgeTest {
         RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
 
         assertEquals(emptySet(), remainingAppPathValues())
+    }
+
+    // BLOCKER 1 of the Kotlin and SQLite review of pull request #232:
+    // the statement must read the event rows of the app one time in
+    // total, never once for each app_path row. This runs the same SQL
+    // constant that RetentionPurge runs (the database brief rule), so
+    // a later change back to a correlated form fails this test.
+    @Test
+    fun `the app_path aging statement plans one list subquery, not a correlated scan of event`() = runBlocking {
+        val plan = database.write { writer ->
+            writer.prepareStatement("EXPLAIN QUERY PLAN $DELETE_STALE_APP_PATH_SQL").use { statement ->
+                statement.setLong(1, appId)
+                statement.setLong(2, appId)
+                statement.executeQuery().use { result ->
+                    val lines = mutableListOf<String>()
+                    while (result.next()) lines += result.getString("detail")
+                    lines
+                }
+            }
+        }
+        println("EXPLAIN QUERY PLAN for the app_path aging delete: $plan")
+        assertTrue(
+            plan.none { line -> line.contains("CORRELATED") },
+            "the plan must hold no correlated subquery: $plan",
+        )
+        assertTrue(
+            plan.any { line -> line.contains("LIST SUBQUERY") },
+            "the plan must build the path list one time: $plan",
+        )
+        assertTrue(
+            plan.any { line -> line.contains("SEARCH event USING INDEX event_session (app_id=?)") },
+            "the list subquery must scan the app's own event rows one time: $plan",
+        )
+    }
+
+    // The reviewer's probe measured 5 305 ms for the correlated form,
+    // and 35.8 ms for the "NOT IN" form, with 50 000 events and 400
+    // app_path rows. This repeats that setup, and it keeps a generous
+    // bound (2 s) so a slower CI runner does not flake; the elapsed
+    // time is printed for the pull request comment.
+    @Test
+    fun `purgeOnce ages 400 app_path rows of 50 000 events well under the old correlated cost`() = runBlocking {
+        repeat(50_000) { index -> insertEvent("evt-$index", NOW, kind = index % 2, path = "/path-${index % 400}") }
+        repeat(400) { index -> insertAppPath("/path-$index") }
+        insertAppPath("/stale-value")
+
+        val elapsedMillis = measureTimeMillis {
+            RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
+        }
+
+        println("purgeOnce with 50 000 events and 400 app_path rows took $elapsedMillis ms.")
+        assertEquals(400, remainingAppPathValues().size, "the 400 matched values must stay")
+        assertTrue(
+            elapsedMillis < 2_000,
+            "expected the aging delete to finish well under 2 s, took $elapsedMillis ms",
+        )
     }
 
     private fun fixedClock(millis: Long): Clock = Clock.fixed(Instant.ofEpochMilli(millis), ZoneOffset.UTC)
