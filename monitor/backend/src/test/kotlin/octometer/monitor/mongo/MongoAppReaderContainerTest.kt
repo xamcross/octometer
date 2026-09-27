@@ -404,6 +404,27 @@ class MongoAppReaderContainerTest {
         clockReader.close()
     }
 
+    // --- The gap check of design decision D16 (issue #62), one end-to-end case ---
+    //
+    // MongoAppReaderUnitTest covers checkGap directly, with a fake
+    // server time (the correction of the brief review of 2026-09-27),
+    // because each of its other cases injects a throwing
+    // serverTimeSource. This is the one case that runs the check
+    // through a real pollOnce, against the real hello command of
+    // MONGO, so the seam between readBound and checkGap stays proven
+    // end-to-end.
+    @Test
+    fun `a real poll cycle with a cursor 40 days old writes one gap row`() = runBlocking {
+        val store = MongoEventLogStore(rawClient.getDatabase(databaseName))
+        store.append(listOf(ingestEvent("nav.open")), "user-1")
+        settle()
+        val oldCursor = org.bson.types.ObjectId(Date(System.currentTimeMillis() - 40L * 24 * 60 * 60 * 1000)).toHexString()
+
+        reader.pollOnce(target(cursor = oldCursor), MONGO.connectionString)
+
+        assertEquals(1, readGaps(sqlite, appId).size, "A cursor 40 days old must write one gap row from a real cycle.")
+    }
+
     // --- path, referrerHost, and kind (issue #110, design decision D5) ---
 
     @Test
@@ -790,6 +811,21 @@ private suspend fun readEventColumns(database: SqliteDatabase, appId: Long): Lis
                         referrerHost = result.getString(2),
                         kind = result.getInt(3),
                     )
+                }
+                rows
+            }
+        }
+    }
+
+/** Counts the `gap` rows of one app (design decision D16, issue #62). */
+private suspend fun readGaps(database: SqliteDatabase, appId: Long): List<Pair<Long, Long>> =
+    database.read { reader ->
+        reader.prepareStatement("SELECT from_ts, to_ts FROM gap WHERE app_id = ?").use { select ->
+            select.setLong(1, appId)
+            select.executeQuery().use { result ->
+                val rows = mutableListOf<Pair<Long, Long>>()
+                while (result.next()) {
+                    rows += result.getLong(1) to result.getLong(2)
                 }
                 rows
             }

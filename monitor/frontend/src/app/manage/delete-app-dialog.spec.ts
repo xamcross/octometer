@@ -17,6 +17,7 @@ function buildRow(overrides: Partial<AppRow> = {}): AppRow {
     lastSuccessAt: '2026-09-21T14:23:07.512Z',
     lastError: null,
     nextPollAt: '2026-09-21T14:24:07.512Z',
+    gaps: [],
     ...overrides,
   };
 }

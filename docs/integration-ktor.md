@@ -288,14 +288,13 @@ events again.
 
 ## 8. The tracker
 
-Install the tracker from the tarball of a GitHub release. The release `0.1.0` holds no
-tarball. A later tag brings the first one (issue #44).
+Install the tracker from the tarball of a GitHub release.
 
 ```
-npm install https://github.com/xamcross/octometer/releases/download/<version>/octometer-tracker-<version>.tgz
+npm install https://github.com/xamcross/octometer/releases/download/0.2.0/octometer-tracker-0.2.0.tgz
 ```
 
-Replace `<version>` with the tag of that later release.
+Use the tag of the monitor you run.
 
 Add the tracker to your page script, for example `main.ts`. Call `start()` only after
 the consent signal of your app. `docs/privacy.md` holds the approved privacy notice
@@ -372,9 +371,10 @@ gh issue create --repo <your app repository> --title "Integrate Octometer into <
 3. Mount the route of section 5, with a `resolveUserId` lambda. The lambda reads the
    user id from your own session.
 4. Add the account deletion call of section 7: `deleteByUserId(userId)`.
-5. Install the tracker of section 8, and call `start()`. The `.tgz` asset needs a
-   release tag after `0.1.0`. The moment of the `start()` call follows the decision
-   of `xamcross/octometer#41` (open).
+5. Install the tracker of section 8, and call `start()`:
+   `npm install https://github.com/xamcross/octometer/releases/download/0.2.0/octometer-tracker-0.2.0.tgz`.
+   Use the tag of the monitor you run. The moment of the `start()` call follows
+   the decision of `xamcross/octometer#41` (open).
 6. Show the text of `xamcross/octometer#42`
    (https://github.com/xamcross/octometer/blob/main/docs/privacy.md) where `<app>`
    shows its notices. The legal-basis section stays a placeholder until

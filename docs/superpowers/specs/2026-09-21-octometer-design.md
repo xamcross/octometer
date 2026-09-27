@@ -396,6 +396,15 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   writes a gap row: `from_ts` is the time of the cursor `_id`, and `to_ts` is the server time
   minus 30 days. The UI shows it.
 
+  Note (issue #62, the correction of the brief review of 2026-09-27): the write runs only
+  when `from_ts < to_ts`, because a cursor aged between 29 and 30 days would else put
+  `from_ts` after `to_ts`. One off-time gives one row: `EventStore.recordGap` skips the
+  write when an existing row of the app already overlaps the new `from_ts` to `to_ts` range,
+  through `INSERT INTO gap (app_id, from_ts, to_ts) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1
+  FROM gap WHERE app_id = ? AND from_ts <= ? AND to_ts >= ?)`. A catch-up cycle over the same
+  off-time then adds no second row, even when the cursor and the server time both move a
+  small amount between two cycles.
+
 ### App side (the kit)
 
 - **D17. Languages.** `kit/jvm-core`, `kit/jvm-mongo`, and `kit/jvm-spring` use Java 21 with

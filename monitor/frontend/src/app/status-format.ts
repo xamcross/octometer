@@ -44,6 +44,12 @@ export function formatLocalTime(iso: string): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+/** Formats an ISO time in local time, the date part only: `yyyy-MM-dd` (D16, the gap text). */
+export function formatLocalDate(iso: string): string {
+  const date = new Date(iso);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 /** Reads the short zone name of the browser, for example "UTC" or "GMT+2" (D31). */
 export function readZoneName(): string {
   const part = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
