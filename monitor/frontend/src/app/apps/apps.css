@@ -40,7 +40,6 @@ th[scope='row'] {
 }
 
 th[scope='row'] a,
-.manage-link,
 .first-pages-link {
   display: inline-flex;
   align-items: center;

@@ -3,6 +3,7 @@ import { Component, computed, effect, inject, input, signal } from '@angular/cor
 import { Router, RouterLink } from '@angular/router';
 
 import { Announcer } from '../announcer';
+import { EmptyState } from '../empty-state/empty-state';
 import { createPollStore } from '../poll/poll-store';
 import { RefreshIntervalState } from '../poll/refresh-interval-state';
 import { RefreshBar } from '../refresh-bar/refresh-bar';
@@ -35,7 +36,7 @@ import type { AppRow, AppStatus, Gap } from './app-row';
  */
 @Component({
   selector: 'app-apps',
-  imports: [RefreshBar, RouterLink],
+  imports: [EmptyState, RefreshBar, RouterLink],
   styleUrl: './apps.css',
   templateUrl: './apps.html',
 })

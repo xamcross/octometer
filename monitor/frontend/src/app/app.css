@@ -1,6 +1,14 @@
+/* The mark at 48 px, before the text, in one row (D45, issue #250). */
+.first-load-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: 1rem;
+}
+
 .first-load {
   margin: 0;
-  padding: 1rem;
+  color: var(--ink-soft);
 }
 
 /*

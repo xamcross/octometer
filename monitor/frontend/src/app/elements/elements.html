@@ -3,7 +3,9 @@
 
 @if (store.data(); as page) {
   @if (page.rows.length === 0) {
-    <p>No events yet.</p>
+    <section class="panel">
+      <app-empty-state text="No events yet." />
+    </section>
   } @else {
     <section class="panel">
       <div class="table-scroll" tabindex="0" role="region" aria-labelledby="elements-caption">

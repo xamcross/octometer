@@ -1,3 +1,9 @@
 <h1 tabindex="-1">Page not found</h1>
-<p>The address does not match a page of Octometer.</p>
-<p><a routerLink="/apps">Go to the app list.</a></p>
+<section class="panel">
+  <app-empty-state
+    text="This page does not exist."
+    linkText="Go to the apps"
+    linkPath="/apps"
+    textAfter="."
+  />
+</section>

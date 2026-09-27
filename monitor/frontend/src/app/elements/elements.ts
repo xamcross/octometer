@@ -2,6 +2,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, effect, inject, input } from '@angular/core';
 import { Router } from '@angular/router';
 
+import { EmptyState } from '../empty-state/empty-state';
 import { createPollStore } from '../poll/poll-store';
 import { RefreshBar } from '../refresh-bar/refresh-bar';
 import { formatLocalDateTime, numberFormat, readZoneName } from '../status-format';
@@ -59,7 +60,7 @@ export function buildElementsRequestParams(
  */
 @Component({
   selector: 'app-elements',
-  imports: [RefreshBar],
+  imports: [EmptyState, RefreshBar],
   styleUrl: './elements.css',
   templateUrl: './elements.html',
 })
