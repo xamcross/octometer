@@ -9,6 +9,31 @@ function shortSessionId(sessionId: string): string {
   return sessionId.slice(0, 8);
 }
 
+/**
+ * The numeric app id of the active route, for the app crumb (issue #270).
+ * Each route title below still reads the raw text of `paramMap.get`, and
+ * it keeps the fallback text "App <id>": the title is not the breadcrumb
+ * trail, and the maintainer accepts the fallback title with this note.
+ */
+function appIdOf(snapshot: ActivatedRouteSnapshot): number {
+  return Number(snapshot.paramMap.get('appId'));
+}
+
+/**
+ * The app crumb of the breadcrumb trail (issue #270): the store resolves
+ * `label` to the app name, with this fallback text until the name
+ * arrives. `path` links to the users view, except when `isCurrent` is
+ * true, because the users view is the current page.
+ */
+function appCrumb(snapshot: ActivatedRouteSnapshot, isCurrent: boolean): BreadcrumbItem {
+  const appId = appIdOf(snapshot);
+  return {
+    label: `App ${appId}`,
+    path: isCurrent ? null : `/apps/${appId}/users`,
+    appId,
+  };
+}
+
 /** Builds the breadcrumb and title label of the current user for the Elements view. */
 function elementsUserLabel(snapshot: ActivatedRouteSnapshot): string {
   const sessionId = snapshot.queryParamMap.get('sessionId');
@@ -78,8 +103,7 @@ export const routes: Routes = [
     data: {
       breadcrumb: (snapshot: ActivatedRouteSnapshot): BreadcrumbItem[] => [
         { label: 'Apps', path: '/apps' },
-        { label: `App ${snapshot.paramMap.get('appId')}`, path: null },
-        { label: 'Users', path: null },
+        appCrumb(snapshot, true),
       ],
     },
   },
@@ -91,7 +115,7 @@ export const routes: Routes = [
     data: {
       breadcrumb: (snapshot: ActivatedRouteSnapshot): BreadcrumbItem[] => [
         { label: 'Apps', path: '/apps' },
-        { label: `App ${snapshot.paramMap.get('appId')}`, path: null },
+        appCrumb(snapshot, false),
         { label: 'First pages', path: null },
       ],
     },
@@ -108,7 +132,7 @@ export const routes: Routes = [
     data: {
       breadcrumb: (snapshot: ActivatedRouteSnapshot): BreadcrumbItem[] => [
         { label: 'Apps', path: '/apps' },
-        { label: `App ${snapshot.paramMap.get('appId')}`, path: null },
+        appCrumb(snapshot, false),
         { label: 'Sessions', path: null },
       ],
     },
@@ -125,20 +149,29 @@ export const routes: Routes = [
     loadComponent: () => import('./elements/elements').then((m) => m.Elements),
     data: {
       breadcrumb: (snapshot: ActivatedRouteSnapshot): BreadcrumbItem[] => {
-        const appId = snapshot.paramMap.get('appId');
+        const appId = appIdOf(snapshot);
         // A session comes from the Sessions view (issue #115), not the
-        // Users view. The Sessions entry carries no link: BreadcrumbItem
-        // holds a path only, and the Sessions route needs the query
-        // parameter anonymous=true, which no plain path can carry.
-        const middleEntry = snapshot.queryParamMap.has('sessionId')
-          ? { label: 'Sessions', path: null }
-          : { label: 'Users', path: `/apps/${appId}/users` };
-        return [
+        // Users view. The app crumb above then links to the users view
+        // itself (issue #270), and the trail needs the Sessions crumb
+        // only for a session: it carries a link to the sessions view,
+        // with the query parameter anonymous=true that a plain path
+        // cannot carry.
+        const sessionsCrumb: BreadcrumbItem | null = snapshot.queryParamMap.has('sessionId')
+          ? {
+              label: 'Sessions',
+              path: `/apps/${appId}/sessions`,
+              queryParams: { anonymous: 'true' },
+            }
+          : null;
+        const items: BreadcrumbItem[] = [
           { label: 'Apps', path: '/apps' },
-          { label: `App ${appId}`, path: null },
-          middleEntry,
-          { label: elementsUserLabel(snapshot), path: null },
+          appCrumb(snapshot, false),
         ];
+        if (sessionsCrumb) {
+          items.push(sessionsCrumb);
+        }
+        items.push({ label: elementsUserLabel(snapshot), path: null });
+        return items;
       },
     },
   },
