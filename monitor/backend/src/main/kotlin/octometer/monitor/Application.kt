@@ -1,5 +1,7 @@
 package octometer.monitor
 
+import ch.qos.logback.classic.LoggerContext
+import ch.qos.logback.classic.joran.JoranConfigurator
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.URLDecodeException
 import io.ktor.http.decodeURLPart
@@ -28,6 +30,7 @@ import octometer.monitor.config.ResolvedConfig
 import octometer.monitor.config.escapeForLog
 import octometer.monitor.config.loadConfig
 import octometer.monitor.frontend.defaultStaticDir
+import octometer.monitor.log.logsDir
 import octometer.monitor.frontend.staticFrontend
 import octometer.monitor.security.installRequestGuard
 import octometer.monitor.security.requireLoopbackBindAddress
@@ -67,12 +70,20 @@ private val VERSION: String = readVersion()
 private val log = LoggerFactory.getLogger("octometer.monitor.Application")
 
 fun main(args: Array<String>) {
+    // Issue #57, MAJOR 1 of the JVM operations review of pull request
+    // #231: logback.xml holds the two console appenders only. It
+    // loads no file appender at the class load of this file, before
+    // this function starts. The ERROR line of the catch block right
+    // below therefore reaches the console alone. configureLogDir
+    // loads a second Logback file with the file appender, once
+    // dataDir is known.
     val resolved = try {
         loadConfig(args = args)
     } catch (invalidConfig: InvalidConfigException) {
         log.error("The config is invalid. {}", invalidConfig.message)
         exitProcess(2)
     }
+    configureLogDir(resolved.config.dataDir)
     // Step 6 of issue #5: refuse a non-loopback bind address. D2 names no
     // bind-address config key, thus HOST is a constant, and this call
     // cannot throw today. The call stays, so a future bind-address key
@@ -195,6 +206,29 @@ fun Application.module(config: MonitorConfig, staticDir: File? = defaultStaticDi
             staticFrontend(staticDir)
         }
     }
+}
+
+/**
+ * Adds the rolling file appender at the real logs folder (issue #57,
+ * D3, D34). It sets the system property `OCTOMETER_LOG_DIR` from
+ * [dataDir]. It then resets the shared `LoggerContext`, and runs
+ * [JoranConfigurator] on `logback-file.xml`. That file includes
+ * `logback.xml`, then adds the file appender.
+ *
+ * MAJOR 1 of the JVM operations review of pull request #231:
+ * `logback.xml` alone never loads a file appender. A file appender
+ * of the first config pass, before `dataDir` is known, would open a
+ * file in the working folder of the process on each start.
+ */
+private fun configureLogDir(dataDir: String) {
+    System.setProperty("OCTOMETER_LOG_DIR", logsDir(dataDir).absolutePath)
+    val context = LoggerFactory.getILoggerFactory() as LoggerContext
+    context.reset()
+    val configurator = JoranConfigurator()
+    configurator.context = context
+    val resource = Thread.currentThread().contextClassLoader.getResource("logback-file.xml")
+        ?: error("The file logback-file.xml is missing from the classpath.")
+    configurator.doConfigure(resource)
 }
 
 private fun logStart(resolved: ResolvedConfig) {

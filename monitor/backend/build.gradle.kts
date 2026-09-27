@@ -44,7 +44,11 @@ dependencies {
     implementation(libs.typesafe.config)
     implementation(libs.sqlite.jdbc)
     implementation(libs.mongodb.driver.kotlin.coroutine)
-    runtimeOnly(libs.logback.classic)
+    // Issue #57: Application.kt calls JoranConfigurator and LoggerContext
+    // directly, to move the file appender to the real logs folder once
+    // dataDir is known. Each class needs logback-classic at compile
+    // time now, not only at run time.
+    implementation(libs.logback.classic)
 
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.kotlin.test.junit5)

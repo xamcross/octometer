@@ -345,6 +345,70 @@ class ConfigLoaderTest {
         assertEquals(1, resolved.config.retentionDays)
     }
 
+    // Issue #205, the D5 rule of 2026-09-27: the bundled default of
+    // pathValueCap, the same rule form as retentionDays.
+    @Test
+    fun `the bundled default of pathValueCap is 200`() {
+        val userFile = missingUserConfigFile()
+
+        val resolved = loadConfig(args = emptyArray(), env = emptyMap(), userConfigFile = userFile)
+
+        assertEquals(200, resolved.config.pathValueCap)
+        assertEquals(ConfigSource.BUNDLED_DEFAULT, resolved.values.single { it.key == "pathValueCap" }.source)
+    }
+
+    @Test
+    fun `a pathValueCap of 0 gives an InvalidConfigException`() {
+        val userFile = missingUserConfigFile()
+
+        assertFailsWith<InvalidConfigException> {
+            loadConfig(
+                args = arrayOf("-P:octometer.pathValueCap=0"),
+                env = emptyMap(),
+                userConfigFile = userFile,
+            )
+        }
+    }
+
+    @Test
+    fun `a negative pathValueCap gives an InvalidConfigException`() {
+        val userFile = missingUserConfigFile()
+
+        assertFailsWith<InvalidConfigException> {
+            loadConfig(
+                args = arrayOf("-P:octometer.pathValueCap=-1"),
+                env = emptyMap(),
+                userConfigFile = userFile,
+            )
+        }
+    }
+
+    @Test
+    fun `a pathValueCap that is not a number gives an InvalidConfigException`() {
+        val userFile = missingUserConfigFile()
+
+        assertFailsWith<InvalidConfigException> {
+            loadConfig(
+                args = arrayOf("-P:octometer.pathValueCap=many"),
+                env = emptyMap(),
+                userConfigFile = userFile,
+            )
+        }
+    }
+
+    @Test
+    fun `a pathValueCap of 1 is valid`() {
+        val userFile = missingUserConfigFile()
+
+        val resolved = loadConfig(
+            args = arrayOf("-P:octometer.pathValueCap=1"),
+            env = emptyMap(),
+            userConfigFile = userFile,
+        )
+
+        assertEquals(1, resolved.config.pathValueCap)
+    }
+
     // BLOCKER 2: a syntax error in the user file, the single-backslash form
     // of a Windows path, gives exit code 2 through InvalidConfigException,
     // and never a raw ConfigException with a stack trace.
