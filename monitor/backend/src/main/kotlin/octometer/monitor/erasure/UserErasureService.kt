@@ -78,15 +78,37 @@ internal const val SQL_DELETE_USER_OTHER_KIND =
 internal const val SQL_DELETE_ANONYMOUS_OF_SESSION =
     "DELETE FROM event INDEXED BY event_session WHERE app_id = ? AND session_id = ? AND user_id IS NULL"
 
+// Issue #205, decision 6 of the correction round (2026-09-27, the
+// maintainer's rule change): a hand-written document can put the
+// erased user id into path, with no other tie to that user (D15). SQLite
+// LIKE ignores the ASCII letter case and needs an ESCAPE clause for a
+// literal "%" or "_" of the id; instr avoids both problems. Each
+// candidate segment sits between two "/" characters, so this appends a
+// trailing "/" to path and wraps the id with "/" on each side. The
+// match is byte-exact: instr never folds the letter case.
+internal const val SQL_REWRITE_PATH_OF_USER =
+    "UPDATE event SET path = '/other' WHERE app_id = ? AND path IS NOT NULL AND instr(path || '/', '/' || ? || '/') > 0"
+internal const val SQL_DELETE_APP_PATH_OF_USER =
+    "DELETE FROM app_path WHERE app_id = ? AND instr(path || '/', '/' || ? || '/') > 0"
+
 /**
  * The row counts of one erasure call. [total] is the field `deleted` of
  * the response. [checkpointed] is `true` only when the WAL checkpoint
  * after the commit moved every frame into the main file (BLOCKER 1).
+ *
+ * [rewrittenPathEventRows] and [deletedAppPathRows] name the width of
+ * the path rewrite of issue #205, decision 6 of the correction round
+ * (2026-09-27). Neither count joins [total]: the rewritten `event` row
+ * keeps its tie to its own session, and it may hold no tie at all to
+ * the erased user; the response field `deleted` names the erasure of
+ * D15 only.
  */
 data class UserErasureResult(
     val deletedUserRows: Int,
     val deletedAnonymousRows: Int,
     val checkpointed: Boolean,
+    val rewrittenPathEventRows: Int = 0,
+    val deletedAppPathRows: Int = 0,
 ) {
     val total: Int get() = deletedUserRows + deletedAnonymousRows
 }
@@ -128,13 +150,19 @@ suspend fun eraseUserEvents(database: SqliteDatabase, appId: Long, userId: Strin
             val sessionIds = sessionIdsOfUser(writer, appId, userId)
             val deletedUserRows = deleteUserRows(writer, appId, userId)
             val deletedAnonymousRows = deleteAnonymousRowsOfSessions(writer, appId, sessionIds)
+            // Issue #205, decision 6 (the maintainer's rule change of
+            // the correction round, 2026-09-27): the rewrite of the
+            // event rows runs before the app_path delete, and both run
+            // before COMMIT, so the checkpoint below covers them too.
+            val rewrittenPathEventRows = rewritePathRowsOfUser(writer, appId, userId)
+            val deletedAppPathRows = deleteAppPathRowsOfUser(writer, appId, userId)
             writer.createStatement().use { it.execute("COMMIT") }
             committed = true
             val checkpointed = checkpointAfterCommit(writer)
             if (!checkpointed) {
                 log.warn("The WAL checkpoint after the erasure of app {} did not complete.", appId)
             }
-            UserErasureResult(deletedUserRows, deletedAnonymousRows, checkpointed)
+            UserErasureResult(deletedUserRows, deletedAnonymousRows, checkpointed, rewrittenPathEventRows, deletedAppPathRows)
         } catch (error: Throwable) {
             failure = error
             throw error
@@ -256,6 +284,29 @@ private fun deleteAnonymousRowsOfSessions(writer: Connection, appId: Long, sessi
     }
     return deletedRows
 }
+
+// Issue #205, decision 6 of the correction round: the id can sit in the
+// path of an event row with no other tie to the user (a hostile or a
+// hand-written document, contract rule C39). This rewrites each such
+// row of the app to '/other', so the id leaves event.path at once,
+// with no wait for the retention purge.
+private fun rewritePathRowsOfUser(writer: Connection, appId: Long, userId: String): Int =
+    writer.prepareStatement(SQL_REWRITE_PATH_OF_USER).use { update ->
+        update.setLong(1, appId)
+        update.setString(2, userId)
+        update.executeUpdate()
+    }
+
+// Issue #205, decision 6: the set of the app can hold the id too, from
+// the same kind of row. This removes each such value, so the reader's
+// next cycle no longer counts it toward the cap, and no later cycle
+// stores it again from app_path.
+private fun deleteAppPathRowsOfUser(writer: Connection, appId: Long, userId: String): Int =
+    writer.prepareStatement(SQL_DELETE_APP_PATH_OF_USER).use { delete ->
+        delete.setLong(1, appId)
+        delete.setString(2, userId)
+        delete.executeUpdate()
+    }
 
 // The same rollback pattern as EventStore.commitPage: a failed ROLLBACK
 // never stays silent, and it never replaces the first failure.

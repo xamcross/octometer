@@ -112,6 +112,74 @@ class UserErasureServiceTest {
         assertEquals(0, countEvents(database, appId))
     }
 
+    // --- The path rewrite of issue #205, decision 6 of the correction round (2026-09-27) ---
+
+    @Test
+    fun `the erasure rewrites an event path that holds the erased id as a whole segment to OTHER_PATH`() = runBlocking {
+        val appId = insertApp(database, "demo")
+        val userId = "user-a"
+        insertEvent(database, appId, "e1", sessionId = "s1", userId = "user-b", path = "/users/$userId")
+
+        val result = eraseUserEvents(database, appId, userId)
+
+        assertEquals("/other", readEventPath(database, appId, "e1"))
+        assertEquals(1, result.rewrittenPathEventRows)
+        assertEquals(0, result.total, "the rewritten row holds no other tie to the erased user")
+    }
+
+    @Test
+    fun `the erasure keeps an event path that holds the erased id inside a segment, not as a whole segment`() = runBlocking {
+        val appId = insertApp(database, "demo")
+        val userId = "user-a"
+        insertEvent(database, appId, "e1", sessionId = "s1", userId = "user-b", path = "/users/${userId}suffix")
+
+        val result = eraseUserEvents(database, appId, userId)
+
+        assertEquals("/users/${userId}suffix", readEventPath(database, appId, "e1"))
+        assertEquals(0, result.rewrittenPathEventRows)
+    }
+
+    @Test
+    fun `the erasure deletes an app_path row that holds the erased id as a whole segment`() = runBlocking {
+        val appId = insertApp(database, "demo")
+        val userId = "user-a"
+        insertAppPath(database, appId, "/users/$userId")
+        insertAppPath(database, appId, "/checkout")
+
+        val result = eraseUserEvents(database, appId, userId)
+
+        assertEquals(setOf("/checkout"), readAppPathValues(database, appId))
+        assertEquals(1, result.deletedAppPathRows)
+    }
+
+    @Test
+    fun `the erasure keeps an app_path row that holds the erased id inside a segment`() = runBlocking {
+        val appId = insertApp(database, "demo")
+        val userId = "user-a"
+        insertAppPath(database, appId, "/users/${userId}suffix")
+
+        val result = eraseUserEvents(database, appId, userId)
+
+        assertEquals(setOf("/users/${userId}suffix"), readAppPathValues(database, appId))
+        assertEquals(0, result.deletedAppPathRows)
+    }
+
+    // The rewrite and the app_path delete both scope on app_id, the
+    // same rule as each other erasure statement.
+    @Test
+    fun `the path rewrite and the app_path delete keep the same user id and path of a second app untouched`() = runBlocking {
+        val appA = insertApp(database, "app-a")
+        val appB = insertApp(database, "app-b")
+        val userId = "user-a"
+        insertEvent(database, appB, "e1", sessionId = "s1", userId = "user-b", path = "/users/$userId")
+        insertAppPath(database, appB, "/users/$userId")
+
+        eraseUserEvents(database, appA, userId)
+
+        assertEquals("/users/$userId", readEventPath(database, appB, "e1"))
+        assertEquals(setOf("/users/$userId"), readAppPathValues(database, appB))
+    }
+
     @Test
     fun `the erasure covers the session-start kind too`() = runBlocking {
         val appId = insertApp(database, "demo")
@@ -396,11 +464,12 @@ private suspend fun insertEvent(
     sessionId: String,
     userId: String?,
     kind: Int = 0,
+    path: String? = null,
 ) {
     database.write { writer ->
         writer.prepareStatement(
-            "INSERT INTO event (app_id, event_id, ts, element, session_id, user_id, kind) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO event (app_id, event_id, ts, element, session_id, user_id, kind, path) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         ).use { insert ->
             insert.setLong(1, appId)
             insert.setString(2, eventId)
@@ -409,10 +478,48 @@ private suspend fun insertEvent(
             insert.setString(5, sessionId)
             insert.setString(6, userId)
             insert.setInt(7, kind)
+            insert.setString(8, path)
             insert.executeUpdate()
         }
     }
 }
+
+private suspend fun readEventPath(database: SqliteDatabase, appId: Long, eventId: String): String? =
+    database.read { reader ->
+        reader.prepareStatement("SELECT path FROM event WHERE app_id = ? AND event_id = ?").use { select ->
+            select.setLong(1, appId)
+            select.setString(2, eventId)
+            select.executeQuery().use { result ->
+                check(result.next()) { "No event row for $eventId." }
+                result.getString(1)
+            }
+        }
+    }
+
+private suspend fun insertAppPath(database: SqliteDatabase, appId: Long, path: String) {
+    database.write { writer ->
+        writer.prepareStatement(
+            "INSERT INTO app_path (app_id, path, first_seen_at) VALUES (?, ?, ?)",
+        ).use { insert ->
+            insert.setLong(1, appId)
+            insert.setString(2, path)
+            insert.setLong(3, 1_700_000_000_000L)
+            insert.executeUpdate()
+        }
+    }
+}
+
+private suspend fun readAppPathValues(database: SqliteDatabase, appId: Long): Set<String> =
+    database.read { reader ->
+        reader.prepareStatement("SELECT path FROM app_path WHERE app_id = ?").use { select ->
+            select.setLong(1, appId)
+            select.executeQuery().use { result ->
+                val values = mutableSetOf<String>()
+                while (result.next()) values += result.getString(1)
+                values
+            }
+        }
+    }
 
 private suspend fun countEvents(database: SqliteDatabase, appId: Long): Int =
     database.read { reader ->
