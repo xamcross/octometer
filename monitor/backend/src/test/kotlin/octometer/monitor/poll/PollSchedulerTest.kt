@@ -31,6 +31,8 @@ import octometer.monitor.registerTempRoot
 import octometer.monitor.registry.ALLOWLISTED_WORD
 import octometer.monitor.registry.SecretStore
 import octometer.monitor.registry.allowlistedSrvUri
+import org.sqlite.SQLiteErrorCode
+import org.sqlite.SQLiteException
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -426,6 +428,72 @@ class PollSchedulerTest {
 
         assertEquals("UNAUTHORIZED", store.statusOf(appId))
         assertEquals("13", store.lastErrorOf(appId), "last_error holds the command error code as text")
+    }
+
+    // Decision 3 of issue #58: EventStore.commitPage sits outside
+    // withMongoFailure, so a writer that waits longer than busy_timeout
+    // reaches this catch-all as a SQLiteException with the result code
+    // SQLITE_BUSY. The mapped last_error text names no path and no
+    // value. SqliteDatabaseBusyTimeoutTest proves the real driver gives
+    // this result code, with a real second connection holding the write
+    // lock; this test proves the mapping and the status ERROR.
+    @Test
+    fun `a SQLITE_BUSY failure of the cycle sets last_error to the fixed busy text and the status ERROR`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(cursor = "old-cursor", nextPollAt = 0L)
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle(
+            failure = SQLiteException("[SQLITE_BUSY] the database file is locked", SQLiteErrorCode.SQLITE_BUSY),
+        )
+
+        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5)
+        scheduler.start()
+        try {
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 1 }
+        } finally {
+            scheduler.stop()
+        }
+
+        assertEquals(STATUS_ERROR, store.statusOf(appId), "a busy writer counts as ERROR")
+        assertEquals(
+            "the database was locked for more than 5 s",
+            store.lastErrorOf(appId),
+            "last_error holds the fixed busy text, with no path and no value",
+        )
+        assertEquals("old-cursor", store.cursorOf(appId), "a busy writer never moves the cursor")
+    }
+
+    // Decision 4 of issue #58: the same catch-all maps SQLITE_FULL to
+    // its own fixed text. SqliteDatabaseFullDatabaseTest proves the real
+    // driver gives this result code with a small max_page_count.
+    @Test
+    fun `a SQLITE_FULL failure of the cycle sets last_error to the fixed full text and the status ERROR`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(cursor = "old-cursor", nextPollAt = 0L)
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle(
+            failure = SQLiteException("[SQLITE_FULL] database or disk is full", SQLiteErrorCode.SQLITE_FULL),
+        )
+
+        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5)
+        scheduler.start()
+        try {
+            testScheduler.runCurrent()
+            awaitCondition(testScheduler) { cycle.calls.size == 1 }
+        } finally {
+            scheduler.stop()
+        }
+
+        assertEquals(STATUS_ERROR, store.statusOf(appId), "a full database counts as ERROR")
+        assertEquals(
+            "the database is full",
+            store.lastErrorOf(appId),
+            "last_error holds the fixed full text, with no path",
+        )
+        assertEquals("old-cursor", store.cursorOf(appId), "a full database never moves the cursor")
     }
 
     // Issue #17, decision 1, second path: an app with no stored secret
