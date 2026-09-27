@@ -402,6 +402,10 @@ private data class SentinelResponses(
     val firstPagesBody: String,
 )
 
+/** One gap of D16. Mirrors `GapPeriod` of `AppTotalsRoute.kt` (issue #62). */
+@Serializable
+private data class SentinelGap(val from: String, val to: String)
+
 /** One row of `GET /api/apps` (D13, level 1). Mirrors `AppTotalsRow` of `AppTotalsRoute.kt`. */
 @Serializable
 private data class SentinelAppRow(
@@ -414,4 +418,5 @@ private data class SentinelAppRow(
     val lastSuccessAt: String?,
     val lastError: String?,
     val nextPollAt: String?,
+    val gaps: List<SentinelGap>,
 )
