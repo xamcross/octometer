@@ -7,7 +7,7 @@
 }
 
 dialog {
-  border: 1px solid #333;
+  border: 1px solid var(--ink);
   border-radius: 0.25rem;
   padding: 1.5rem;
   max-width: 28rem;
@@ -34,7 +34,7 @@ input {
 }
 
 .form-error {
-  color: #8a1f11;
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 

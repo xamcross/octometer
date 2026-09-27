@@ -44,7 +44,7 @@ th[scope='row'] {
 }
 
 .list-error {
-  color: #8a1f11;
+  color: var(--ink);
 }
 
 button[type='button'] {
@@ -60,5 +60,5 @@ button[type='button'] {
 }
 
 .add-app h2 {
-  font-size: 1.1rem;
+  font-size: var(--text-l);
 }

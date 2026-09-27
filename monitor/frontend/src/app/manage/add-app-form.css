@@ -24,15 +24,15 @@ textarea {
 }
 
 .form-error {
-  color: #8a1f11;
+  color: var(--ink);
   margin: 0.5rem 0;
   overflow-wrap: anywhere;
 }
 
 .form-hint {
-  color: #595959;
+  color: var(--ink-soft);
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--text-s);
   overflow-wrap: anywhere;
 }
 

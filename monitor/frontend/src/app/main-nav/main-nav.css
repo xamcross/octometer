@@ -15,11 +15,6 @@ a {
   text-decoration: underline;
 }
 
-a:focus-visible {
-  outline: 3px solid #001f3f;
-  outline-offset: 2px;
-}
-
 /*
  * The current link keeps its underline, so the state does not rely on
  * font-weight alone. The thicker underline is a second cue next to the
