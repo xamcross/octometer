@@ -206,13 +206,14 @@ describe('Apps', () => {
   });
 
   describe('once the app list answers', () => {
-    it('shows "No app is registered." and a link to /manage when the list is empty', () => {
+    it('shows "No app yet." and a link "Manage apps" to /manage when the list is empty', () => {
       startStore();
       flushApps([]);
 
-      expect(root().textContent).toContain('No app is registered.');
+      expect(root().textContent).toContain('No app yet.');
       const link = root().querySelector('a[href="/manage"]') as HTMLAnchorElement;
       expect(link).toBeTruthy();
+      expect(link.textContent?.trim()).toBe('Manage apps');
     });
 
     it('gives the link of the empty state a minimum target size of 24 by 24 CSS px', () => {

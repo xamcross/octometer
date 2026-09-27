@@ -11,10 +11,14 @@
 
 @if (store.data(); as rows) {
   @if (rows.length === 0) {
-    <p>
-      No app is registered.
-      <a class="manage-link" routerLink="/manage">Go to the app management page.</a>
-    </p>
+    <section class="panel">
+      <app-empty-state
+        text="No app yet. Add one on"
+        linkText="Manage apps"
+        linkPath="/manage"
+        textAfter="."
+      />
+    </section>
   } @else {
     <section class="panel">
       <div class="table-scroll" tabindex="0" role="region" aria-labelledby="apps-caption">
