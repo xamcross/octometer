@@ -18,6 +18,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 ### Monitor
 
 - Remove the button press motion under prefers-reduced-motion, and raise the invalid field ring to 4.5:1 on white. (#263, #264)
+- Record the accessibility verification of the cartoon look, with the measured contrast table and the contrast script. (#251)
 - Write the component design document of the monitor UI. (#260)
 - Show the mascot with one sentence in each empty view, on the first load, and on the not-found page. (#250)
 - Put each data table of the five views in a panel, with a status badge and tabular numbers. (#249)
