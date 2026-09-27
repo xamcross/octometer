@@ -3,6 +3,7 @@
 package octometer.monitor.poll
 
 import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.spi.ILoggingEvent
 import java.io.File
 import java.nio.file.Files
 import java.time.Clock
@@ -852,6 +853,66 @@ class PollSchedulerTest {
         assertEquals(3, store.consecutiveFailuresOf(appId), "PollScheduler's own success write touches no failure count")
     }
 
+    // Issue #57, step 5, decision 4 of the maintainer's correction: a
+    // good poll cycle writes no log line. The row starts at status OK,
+    // and the stub outcome carries no skipped event, so the derived
+    // status stays OK. The filter keeps only the INFO events of the
+    // scheduler and the reader loggers, the two sources of the status
+    // change line.
+    @Test
+    fun `a good poll cycle writes no log line`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(nextPollAt = 0L, status = "OK")
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle(outcome = PollOutcome(eventsStored = 1, pagesRead = 1, cursor = "cursor-1"))
+        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5)
+
+        val (_, events) = captureLogEvents {
+            scheduler.start()
+            try {
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 1 }
+            } finally {
+                scheduler.stop()
+            }
+        }
+
+        assertTrue(
+            schedulerOrReaderInfoEvents(events).isEmpty(),
+            "a good poll cycle writes no INFO line of the scheduler or the reader",
+        )
+    }
+
+    // Issue #57, step 5: a status change writes one line. The row
+    // starts at status ERROR (a past failure), and the stub outcome
+    // carries no skipped event, so the derived status moves to OK.
+    @Test
+    fun `a status change writes one line`() = runTest {
+        val store = FakePollStore()
+        val secretStore = SecretStore(dataDir)
+        val appId = store.addApp(nextPollAt = 0L, status = "ERROR")
+        secretStore.put(appId, allowlistedSrvUri())
+        val cycle = RecordingPollCycle(outcome = PollOutcome(eventsStored = 1, pagesRead = 1, cursor = "cursor-1"))
+        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5)
+
+        val (_, events) = captureLogEvents {
+            scheduler.start()
+            try {
+                testScheduler.runCurrent()
+                awaitCondition(testScheduler) { cycle.calls.size == 1 }
+            } finally {
+                scheduler.stop()
+            }
+        }
+
+        assertEquals(
+            1,
+            schedulerOrReaderInfoEvents(events).size,
+            "a status change writes one INFO line of the scheduler or the reader",
+        )
+    }
+
     // MAJOR 1 of the fourth Kotlin review: no test proved a non-zero
     // jitter fraction reaches next_poll_at through the scheduler
     // itself. Every other test here gives FixedJitterRandom(0.0). This
@@ -1098,6 +1159,21 @@ private class FixedJitterRandom(private val fraction: Double = 0.0) : Random() {
     override fun nextBits(bitCount: Int): Int = 0
     override fun nextDouble(from: Double, until: Double): Double = fraction
 }
+
+/**
+ * The INFO events of the two loggers that carry the status-change line
+ * of issue #57 step 5: the scheduler logger, and the reader logger for
+ * a later poll cycle of a different test. [PollSchedulerTest] stubs
+ * [PollCycle], so only the scheduler logger writes a line here today.
+ */
+private fun schedulerOrReaderInfoEvents(events: List<ILoggingEvent>): List<ILoggingEvent> =
+    events.filter { event ->
+        event.level == Level.INFO &&
+            (
+                event.loggerName == "octometer.monitor.poll.PollScheduler" ||
+                    event.loggerName == "octometer.monitor.mongo.MongoAppReader"
+            )
+    }
 
 private fun pollScheduler(
     pollStore: PollStore,

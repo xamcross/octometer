@@ -280,6 +280,12 @@ private fun connectionStringChanged(oldConnectionString: String?, newConnectionS
 // connection string names a new database user; the check of design
 // decision D9 has no evidence yet of that user's privileges, so the
 // next cycle must run it again, the same as a brand new app.
+// Issue #205, decision 5 of the correction round: a PATCH to a
+// different connection string also clears app_path, the set of
+// distinct path values of the old source. MongoAppReader.runCycle
+// reads app_path fresh at the start of each cycle (decision 4), so no
+// call here needs to reach the reader; the next cycle of the new
+// source then starts with an empty set.
 private fun resetPollState(writer: Connection, appId: Long) {
     writer.prepareStatement(
         "UPDATE app SET cursor = NULL, next_poll_at = NULL, last_poll_at = NULL, " +
@@ -288,6 +294,10 @@ private fun resetPollState(writer: Connection, appId: Long) {
     ).use { update ->
         update.setLong(1, appId)
         update.executeUpdate()
+    }
+    writer.prepareStatement("DELETE FROM app_path WHERE app_id = ?").use { delete ->
+        delete.setLong(1, appId)
+        delete.executeUpdate()
     }
 }
 

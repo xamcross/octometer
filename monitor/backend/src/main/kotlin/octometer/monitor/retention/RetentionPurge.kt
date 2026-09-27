@@ -36,6 +36,32 @@ private const val CHECKPOINT_SQL = "PRAGMA wal_checkpoint(TRUNCATE)"
 private const val NO_WAIT_SQL = "PRAGMA busy_timeout=0"
 private const val RESTORE_BUSY_TIMEOUT_SQL = "PRAGMA busy_timeout=$DEFAULT_BUSY_TIMEOUT_MILLIS"
 
+// Issue #205, the aging rule of the correction round (2026-09-27): once
+// the purge above has removed every event row of a path, that value
+// gives the reader's cap no further protection; it only holds a stale
+// slot. This deletes each app_path row that no event row of its own
+// app still holds, one app at a time (design decision D5).
+//
+// BLOCKER 1 of the Kotlin and SQLite review of pull request #232: a
+// correlated "NOT EXISTS" subquery here has no index to use, because
+// event_first_page is partial (WHERE kind = 1) and this statement must
+// not add a "kind = 1" term (a click row holds a path too, and D5
+// counts each row, not each start row). Each correlated run then reads
+// the app's event rows one time for each app_path row: 5 305 ms with
+// 50 000 events and 400 rows, on the one writer thread.
+//
+// The "NOT IN" form builds the path list one time, so the plan reads
+// the app's events one time in total, no matter the app_path row
+// count: 35.8 ms in the same probe, 148 times faster. "path IS NOT
+// NULL" is necessary: one NULL in the list turns "NOT IN" itself into
+// NULL for every row, and the statement would then delete no row.
+private const val SELECT_APP_PATH_APP_IDS_SQL = "SELECT DISTINCT app_id FROM app_path"
+internal const val DELETE_STALE_APP_PATH_SQL = """
+    DELETE FROM app_path WHERE app_id = ? AND path NOT IN (
+      SELECT path FROM event WHERE app_id = ? AND path IS NOT NULL
+    )
+"""
+
 /**
  * The purge function of issue #59, steps 2 and 3 (D15). One call to
  * [purgeOnce] deletes each event older than `retentionDays`, counted
@@ -45,6 +71,12 @@ private const val RESTORE_BUSY_TIMEOUT_SQL = "PRAGMA busy_timeout=$DEFAULT_BUSY_
  * The purge never changes `app.cursor`. The reader resumes each app from
  * that cursor, not from a row of the local `event` table. A deleted
  * event never reaches the store a second time.
+ *
+ * After the event batches, [purgeOnce] also deletes each `app_path`
+ * row that no `event` row of its own app still holds (issue #205, the
+ * aging rule of the correction round of 2026-09-27). A stale value
+ * then stops holding a slot of `pathValueCap`, once every event of
+ * that value has aged out.
  *
  * The delete runs in batches of [PURGE_BATCH_SIZE] rows. The write call
  * of each batch checks the cancel state on entry, so
@@ -78,6 +110,7 @@ class RetentionPurge(
             totalDeleted += deleted
             if (deleted < PURGE_BATCH_SIZE) break
         }
+        purgeStaleAppPathValues()
         runCheckpoint()
         logResult(totalDeleted)
     }
@@ -99,6 +132,33 @@ class RetentionPurge(
         }
         onWrite()
         return deleted
+    }
+
+    // Issue #205, the aging rule of the correction round: one delete
+    // for each app that still holds an app_path row. The purge event
+    // batches above already ran, so this sees the post-purge event
+    // table. A small app count keeps this cheap; the purge already
+    // runs each 24 hours, not on the request path of a route.
+    private suspend fun purgeStaleAppPathValues() {
+        val appIds = database.read { reader ->
+            reader.createStatement().use { statement ->
+                statement.executeQuery(SELECT_APP_PATH_APP_IDS_SQL).use { result ->
+                    val ids = mutableListOf<Long>()
+                    while (result.next()) ids += result.getLong(1)
+                    ids
+                }
+            }
+        }
+        for (appId in appIds) {
+            database.write { writer ->
+                writer.prepareStatement(DELETE_STALE_APP_PATH_SQL).use { delete ->
+                    delete.setLong(1, appId)
+                    delete.setLong(2, appId)
+                    delete.executeUpdate()
+                }
+            }
+            onWrite()
+        }
     }
 
     // Decision 7 of correction round 1: read the answer row of the

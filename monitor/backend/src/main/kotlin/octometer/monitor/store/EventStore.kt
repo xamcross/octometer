@@ -38,6 +38,17 @@ private const val INSERT_SKIPPED_EVENT_SQL = """
     ON CONFLICT(app_id, event_id) DO NOTHING
 """
 
+// Issue #205, decision 3 of the correction round (2026-09-27): a value
+// that the reader already admitted in an earlier page, or in an earlier
+// cycle, gives no conflict error; DO NOTHING keeps the first-seen time.
+private const val INSERT_APP_PATH_SQL = """
+    INSERT INTO app_path (app_id, path, first_seen_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(app_id, path) DO NOTHING
+"""
+
+private const val SELECT_APP_PATH_SQL = "SELECT path FROM app_path WHERE app_id = ?"
+
 // The maintainer's decision of the correction round of pull request
 // #208 (issue #187): the guard "AND cursor IS ?" rejects a stale
 // write. A PATCH of the connection string can reset the cursor to
@@ -52,6 +63,22 @@ private const val RECORD_CYCLE_SUCCESS_SQL =
 private const val RECORD_FAILURE_SQL =
     "UPDATE app SET status = ?, last_error = ?, consecutive_failures = consecutive_failures + 1, " +
         "last_poll_at = ?, next_poll_at = ? WHERE id = ?"
+
+// The maintainer's correction of the brief review of 2026-09-27 (issue
+// #62): the guard is an overlap check, not a from_ts key alone. The
+// cursor moves at each committed page of a catch-up cycle, so to_ts
+// (the server time minus 30 days) can move a small amount between two
+// cycles of the same off-time. The overlap test finds any existing row
+// of the app whose own range touches the new range: an existing row
+// overlaps the new one when its from_ts sits at or before the new
+// to_ts, and its to_ts sits at or after the new from_ts.
+private const val RECORD_GAP_SQL = """
+    INSERT INTO gap (app_id, from_ts, to_ts)
+    SELECT ?, ?, ?
+    WHERE NOT EXISTS (
+        SELECT 1 FROM gap WHERE app_id = ? AND from_ts <= ? AND to_ts >= ?
+    )
+"""
 
 /**
  * The repository function of step 6 (D4). One call commits one page. It
@@ -82,6 +109,8 @@ class EventStore(private val database: SqliteDatabase) {
         cursor: String,
         expectedCursor: String?,
         skippedEvents: List<SkippedEvent> = emptyList(),
+        newPathValues: Collection<String> = emptyList(),
+        newPathValuesFirstSeenAt: Long = 0L,
     ): Boolean =
         database.write { writer ->
             writer.createStatement().use { it.execute("BEGIN IMMEDIATE") }
@@ -91,6 +120,7 @@ class EventStore(private val database: SqliteDatabase) {
             try {
                 insertEvents(writer, appId, events)
                 insertSkippedEvents(writer, appId, skippedEvents)
+                insertAppPathValues(writer, appId, newPathValues, newPathValuesFirstSeenAt)
                 cursorMoved = updateCursor(writer, appId, cursor, expectedCursor)
                 if (cursorMoved) {
                     writer.createStatement().use { it.execute("COMMIT") }
@@ -153,6 +183,27 @@ class EventStore(private val database: SqliteDatabase) {
     }
 
     /**
+     * Gives the distinct `path` values that `app_path` already holds
+     * for [appId] (issue #205, decision 4 of the correction round). The
+     * reader calls this one time at the start of each poll cycle; the
+     * cap of `pathValueCap` then counts this set plus each new value
+     * that the cycle admits.
+     */
+    suspend fun pathValuesOf(appId: Long): Set<String> =
+        database.read { reader ->
+            reader.prepareStatement(SELECT_APP_PATH_SQL).use { select ->
+                select.setLong(1, appId)
+                select.executeQuery().use { result ->
+                    val values = mutableSetOf<String>()
+                    while (result.next()) {
+                        values += result.getString(1)
+                    }
+                    values
+                }
+            }
+        }
+
+    /**
      * Records a passed privilege check (design decision D9, issue
      * #30). It sets `privileges_checked_at` to [nowMillis], epoch
      * milliseconds UTC, the unit of `created_at`. This runs in its
@@ -171,6 +222,32 @@ class EventStore(private val database: SqliteDatabase) {
         }
     }
 
+    /**
+     * Records one gap row of design decision D16 (issue #62, the
+     * maintainer's decision 1, corrected in the brief review of
+     * 2026-09-27). The MongoDB reader's gap check calls this in its
+     * own `write {}`, before the page loop of the cycle: a gap is a
+     * fact of the off-time, not of the page, so a failed page later
+     * still keeps this row.
+     *
+     * The write skips when an existing row of [appId] already overlaps
+     * [fromTs] to [toTs] (one gap row for one off-time, even across
+     * several catch-up cycles).
+     */
+    suspend fun recordGap(appId: Long, fromTs: Long, toTs: Long) {
+        database.write { writer ->
+            writer.prepareStatement(RECORD_GAP_SQL).use { insert ->
+                insert.setLong(1, appId)
+                insert.setLong(2, fromTs)
+                insert.setLong(3, toTs)
+                insert.setLong(4, appId)
+                insert.setLong(5, toTs)
+                insert.setLong(6, fromTs)
+                insert.executeUpdate()
+            }
+        }
+    }
+
     private fun insertEvents(writer: Connection, appId: Long, events: List<NewEvent>) {
         if (events.isEmpty()) return
         writer.prepareStatement(INSERT_EVENT_SQL).use { insert ->
@@ -184,6 +261,27 @@ class EventStore(private val database: SqliteDatabase) {
                 insert.setString(7, event.path)
                 insert.setString(8, event.referrerHost)
                 insert.setInt(9, event.kind)
+                insert.addBatch()
+            }
+            insert.executeBatch()
+        }
+    }
+
+    /**
+     * Inserts each new distinct `path` value of one page into
+     * `app_path`, in the same transaction as the event rows and the
+     * cursor (issue #205, decision 3 of the correction round). A value
+     * that a concurrent cycle, or an earlier page, already admitted
+     * gives no conflict error (`ON CONFLICT DO NOTHING`); the
+     * first-seen time then keeps its old value.
+     */
+    private fun insertAppPathValues(writer: Connection, appId: Long, newPathValues: Collection<String>, firstSeenAt: Long) {
+        if (newPathValues.isEmpty()) return
+        writer.prepareStatement(INSERT_APP_PATH_SQL).use { insert ->
+            for (path in newPathValues) {
+                insert.setLong(1, appId)
+                insert.setString(2, path)
+                insert.setLong(3, firstSeenAt)
                 insert.addBatch()
             }
             insert.executeBatch()

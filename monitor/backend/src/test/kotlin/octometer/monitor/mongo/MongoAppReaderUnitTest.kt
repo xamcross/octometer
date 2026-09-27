@@ -330,6 +330,112 @@ class MongoAppReaderUnitTest {
         assertEquals(KIND_CLICK, row.kind)
     }
 
+    // --- path admission (issue #205, the D5 rule of 2026-09-27) ---
+
+    @Test
+    fun `runCycle keeps a NULL path as NULL`() = runBlocking {
+        val click = goodDocument("checkout.save")
+
+        reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(click) }
+
+        assertNull(readEventColumns(database, appId, click.getObjectId("_id").toHexString()).path)
+    }
+
+    @Test
+    fun `runCycle keeps a path that passes the shape check and joins the set`() = runBlocking {
+        val click = goodDocument("checkout.save").append("path", "/checkout")
+
+        val outcome = reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(click) }
+
+        assertEquals(0, outcome.eventsSkipped)
+        assertEquals("/checkout", readEventColumns(database, appId, click.getObjectId("_id").toHexString()).path)
+        assertEquals(setOf("/checkout"), eventStore.pathValuesOf(appId))
+    }
+
+    @Test
+    fun `runCycle replaces a path that fails the shape check with OTHER_PATH, and writes one WARN line that counts it`() =
+        runBlocking {
+            val marker = "/octomarkerpathshape7b2c a"
+            val bad = goodDocument("checkout.save").append("path", marker)
+
+            val (outcome, logEvents) = captureLogEvents {
+                reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(bad) }
+            }
+
+            assertEquals(0, outcome.eventsSkipped, "A shape failure is not a skip; the row stays.")
+            assertEquals(OTHER_PATH, readEventColumns(database, appId, bad.getObjectId("_id").toHexString()).path)
+            assertEquals(emptySet(), eventStore.pathValuesOf(appId), "OTHER_PATH must not join the set.")
+            val warnLines = logEvents.filter { it.level == Level.WARN && it.loggerName.contains("MongoAppReader") }
+            assertEquals(1, warnLines.size, "One WARN line must count the replaced path values.")
+            assertTrue(warnLines.single().formattedMessage.contains("1"), "The line must hold the replaced count.")
+            logEvents.forEach { event ->
+                assertFalse(event.formattedMessage.contains(marker), "A log line of level ${event.level} must hold no raw path.")
+            }
+        }
+
+    @Test
+    fun `runCycle replaces the 201st distinct path value with OTHER_PATH, and keeps the 200 known values`() = runBlocking {
+        val firstPage = (0 until 200).map { index -> goodDocument("click-$index").append("path", "/path-$index") }
+        val overCap = goodDocument("click-over").append("path", "/path-200")
+
+        val firstOutcome = reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> firstPage }
+        val outcome = reader.runCycle(appId, firstOutcome.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(overCap) }
+
+        assertEquals(200, eventStore.pathValuesOf(appId).size)
+        assertEquals(OTHER_PATH, readEventColumns(database, appId, overCap.getObjectId("_id").toHexString()).path)
+        assertEquals(0, outcome.eventsSkipped)
+    }
+
+    // Decision 4 of the correction round: the set persists across a
+    // reader restart. A second reader instance, over the same
+    // EventStore, must load the set at the start of its own cycle and
+    // accept each known value as it is.
+    @Test
+    fun `the app_path set persists across a reader restart, and a second reader instance accepts the known values`() =
+        runBlocking {
+            val firstDocument = goodDocument("checkout.save").append("path", "/checkout")
+            val firstOutcome = reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(firstDocument) }
+
+            val secondReader = MongoAppReader(eventStore, settleLagSeconds = 2)
+            val secondDocument = goodDocument("checkout.save").append("path", "/checkout")
+
+            val outcome = secondReader.runCycle(appId, firstOutcome.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ ->
+                listOf(secondDocument)
+            }
+
+            assertEquals("/checkout", readEventColumns(database, appId, secondDocument.getObjectId("_id").toHexString()).path)
+            assertEquals(0, outcome.eventsSkipped)
+            secondReader.close()
+        }
+
+    // Marker probe of decision 8 (issue #205): a marker path outside
+    // the shape must stay out of every captured log level, at TRACE,
+    // and out of the exception chain (there is none here; the row
+    // stays, with no throw).
+    @Test
+    fun `a marker path outside the shape stays out of every log level`() = runBlocking {
+        val marker = "/octomarkerpathshape9d4e a"
+        val document = goodDocument("checkout.save").append("path", marker)
+
+        val (outcome, logEvents) = captureLogEvents {
+            reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { _ -> listOf(document) }
+        }
+
+        assertEquals(0, outcome.eventsSkipped)
+        assertTrue(logEvents.isNotEmpty(), "The cycle must write at least one log line, or this test proves nothing.")
+        logEvents.forEach { event ->
+            assertFalse(event.formattedMessage.contains(marker), "A log line of level ${event.level} must hold no raw path.")
+            var cause = event.throwableProxy
+            while (cause != null) {
+                assertFalse(
+                    (cause.message ?: "").contains(marker),
+                    "The exception chain of a log line must hold no raw path.",
+                )
+                cause = cause.cause
+            }
+        }
+    }
+
     @Test
     fun `runCycle skips a document with a wrong BSON type in path, and moves the cursor`() = runBlocking {
         val bad = goodDocument("checkout.save").append("path", 42)
@@ -968,6 +1074,84 @@ class MongoAppReaderUnitTest {
         reflectingReader.close()
     }
 
+    // --- checkGap (design decision D16, issue #62) ---
+    //
+    // Each case calls checkGap directly, with a fixed cursor age and a
+    // fake server time (the correction of the brief review of
+    // 2026-09-27): MongoAppReaderUnitTest cannot run a good pollOnce,
+    // because each other case of this class injects a throwing
+    // serverTimeSource.
+
+    @Test
+    fun `checkGap writes one gap row for a cursor 40 days old, with the right from_ts and to_ts`() = runBlocking {
+        val serverTime = Date(1_700_000_000_000L)
+        val cursor = ObjectId(Date(serverTime.time - 40 * MILLIS_PER_DAY_TEST))
+
+        reader.checkGap(appId, cursor.toHexString(), serverTime)
+
+        val gap = readGaps(database, appId).single()
+        assertEquals(cursor.date.time, gap.fromTs)
+        assertEquals(serverTime.time - 30 * MILLIS_PER_DAY_TEST, gap.toTs)
+    }
+
+    @Test
+    fun `checkGap writes no row for a cursor 10 days old`() = runBlocking {
+        val serverTime = Date(1_700_000_000_000L)
+        val cursor = ObjectId(Date(serverTime.time - 10 * MILLIS_PER_DAY_TEST))
+
+        reader.checkGap(appId, cursor.toHexString(), serverTime)
+
+        assertTrue(readGaps(database, appId).isEmpty())
+    }
+
+    // The correction of the brief review of 2026-09-27: a cursor aged
+    // 29 to 30 days would else put from_ts after to_ts. This case
+    // proves the write stays off in that band.
+    @Test
+    fun `checkGap writes no row for a cursor 29point5 days old, because from_ts would land after to_ts`() = runBlocking {
+        val serverTime = Date(1_700_000_000_000L)
+        val cursor = ObjectId(Date(serverTime.time - (29.5 * MILLIS_PER_DAY_TEST).toLong()))
+
+        reader.checkGap(appId, cursor.toHexString(), serverTime)
+
+        assertTrue(readGaps(database, appId).isEmpty(), "from_ts must never land after to_ts.")
+    }
+
+    @Test
+    fun `checkGap writes no row when the app has no cursor`() = runBlocking {
+        reader.checkGap(appId, null, Date(1_700_000_000_000L))
+
+        assertTrue(readGaps(database, appId).isEmpty())
+    }
+
+    @Test
+    fun `two cycles with the same old cursor give one gap row`() = runBlocking {
+        val serverTime = Date(1_700_000_000_000L)
+        val cursor = ObjectId(Date(serverTime.time - 40 * MILLIS_PER_DAY_TEST)).toHexString()
+
+        reader.checkGap(appId, cursor, serverTime)
+        reader.checkGap(appId, cursor, serverTime)
+
+        assertEquals(1, readGaps(database, appId).size, "One off-time must give one gap row.")
+    }
+
+    // The maintainer's correction of the brief review of 2026-09-27: the
+    // cursor moves at each committed page of a catch-up cycle, and the
+    // server time moves with the real clock too. Three cycles, each
+    // with a cursor a little further on and a server time a little
+    // later, must still give one gap row of the same off-time.
+    @Test
+    fun `three catch-up cycles with a moving cursor give one gap row`() = runBlocking {
+        val baseServerTime = 1_700_000_000_000L
+        val baseCursorTime = baseServerTime - 40 * MILLIS_PER_DAY_TEST
+
+        reader.checkGap(appId, ObjectId(Date(baseCursorTime)).toHexString(), Date(baseServerTime))
+        reader.checkGap(appId, ObjectId(Date(baseCursorTime + 5_000)).toHexString(), Date(baseServerTime + 10_000))
+        reader.checkGap(appId, ObjectId(Date(baseCursorTime + 10_000)).toHexString(), Date(baseServerTime + 20_000))
+
+        assertEquals(1, readGaps(database, appId).size, "Three cycles of the same off-time must give one gap row.")
+    }
+
     private fun singleCachedClient(reader: MongoAppReader): Any {
         val field = reader.javaClass.getDeclaredField("clients")
         field.isAccessible = true
@@ -1150,6 +1334,27 @@ private suspend fun readCursor(database: SqliteDatabase, appId: Long): String? =
             select.executeQuery().use { result ->
                 result.next()
                 result.getString(1)
+            }
+        }
+    }
+
+/** The day length in milliseconds, for the checkGap tests of design decision D16 (issue #62). */
+private const val MILLIS_PER_DAY_TEST = 24 * 60 * 60 * 1000L
+
+/** One `gap` row of design decision D16 (issue #62). */
+private data class GapRow(val fromTs: Long, val toTs: Long)
+
+/** Reads each `gap` row of one app (design decision D16, issue #62). */
+private suspend fun readGaps(database: SqliteDatabase, appId: Long): List<GapRow> =
+    database.read { reader ->
+        reader.prepareStatement("SELECT from_ts, to_ts FROM gap WHERE app_id = ? ORDER BY from_ts").use { select ->
+            select.setLong(1, appId)
+            select.executeQuery().use { result ->
+                val rows = mutableListOf<GapRow>()
+                while (result.next()) {
+                    rows += GapRow(result.getLong(1), result.getLong(2))
+                }
+                rows
             }
         }
     }

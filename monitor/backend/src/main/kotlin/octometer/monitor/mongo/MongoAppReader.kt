@@ -65,6 +65,20 @@ internal const val PAGE_BYTE_BUDGET = 8L * 1024 * 1024
 internal const val CYCLE_TIMEOUT_MILLIS = 45_000L
 
 /**
+ * The gap check of design decision D16 (issue #62). A cursor older
+ * than this many days makes [MongoAppReader.checkGap] write a gap row.
+ */
+internal const val GAP_CHECK_DAYS = 29L
+
+/**
+ * The gap check of design decision D16 (issue #62). [MongoAppReader.checkGap]
+ * sets a gap row's `to_ts` to the server time minus this many days.
+ */
+internal const val GAP_TO_TS_DAYS = 30L
+
+private const val MILLIS_PER_DAY = 24 * 60 * 60 * 1000L
+
+/**
  * The interval of the privilege check of design decision D9 (issue
  * #30): the first poll of an app, and every 24 hours after that.
  * [octometer.monitor.poll.PollScheduler] computes the due flag from
@@ -135,6 +149,16 @@ data class PollTarget(
     val cursor: String?,
     val checkPrivileges: Boolean = false,
 )
+
+/**
+ * The bound of one cycle's [MongoAppReader.readBound] call: the server
+ * time itself, and the bound [ObjectId] that [boundObjectId] derives
+ * from it (the correction of the brief review of 2026-09-27, issue
+ * #62). [MongoAppReader.checkGap] needs the server time on its own:
+ * [bound] already subtracts the settle lag and cuts to the full
+ * second, so a caller must never derive the server time from [bound].
+ */
+internal data class CycleBound(val serverTime: Date, val bound: ObjectId)
 
 /** The result of one poll cycle: the stored count, the page count, the cursor, and the skipped count (issue #27). */
 data class PollOutcome(
@@ -226,6 +250,10 @@ class MongoAppReader(
     private val serverTimeSource: suspend (MongoDatabase) -> Date = ::helloLocalTime,
     internal val cycleTimeoutMillis: Long = CYCLE_TIMEOUT_MILLIS,
     private val clock: Clock = Clock.systemUTC(),
+    // Issue #205, the D5 rule of 2026-09-27: the cap on the count of
+    // distinct path values of one app. MonitorServices.open passes
+    // config.pathValueCap here.
+    private val pathValueCap: Int = 200,
 ) : AutoCloseable {
 
     private val clients = ConcurrentHashMap<Long, CachedClient>()
@@ -254,8 +282,9 @@ class MongoAppReader(
                 eventStore.recordPrivilegeCheck(target.appId, clock.millis())
             }
             val bound = readBound(database)
+            checkGap(target.appId, target.cursor, bound.serverTime)
             val outcome = runCycle(target.appId, target.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { cursor ->
-                readPage(database, target.collection, cursor, bound, PAGE_LIMIT)
+                readPage(database, target.collection, cursor, bound.bound, PAGE_LIMIT)
             }
             recordCycleSuccess(target.appId, outcome.eventsSkipped)
             outcome
@@ -373,12 +402,49 @@ class MongoAppReader(
         return fresh
     }
 
-    private suspend fun readBound(database: MongoDatabase): ObjectId =
+    private suspend fun readBound(database: MongoDatabase): CycleBound =
         withMongoFailure {
             withContext(Dispatchers.IO) {
-                boundObjectId(serverTimeSource(database), settleLagSeconds)
+                val serverTime = serverTimeSource(database)
+                CycleBound(serverTime, boundObjectId(serverTime, settleLagSeconds))
             }
         }
+
+    /**
+     * The gap check of design decision D16 (issue #62, the maintainer's
+     * decision 1, corrected in the brief review of 2026-09-27). It runs
+     * after [readBound], with [serverTime] the value of this one
+     * cycle, never a local clock of the monitor process.
+     *
+     * An app with no [cursor] writes no row (a new app has no
+     * off-time yet). A [cursor] younger than [GAP_CHECK_DAYS] days
+     * writes no row either: a normal cycle, so the app's own catch-up
+     * still moves forward with no gap row added.
+     *
+     * `from_ts` is the cursor's own `_id` time (contract C2, the `_id`
+     * and `ts` relation). `to_ts` is [serverTime] minus
+     * [GAP_TO_TS_DAYS] days. The write runs only when `from_ts <
+     * to_ts` (the correction of 2026-09-27): a cursor aged between 29
+     * and 30 days would else put `from_ts` after `to_ts`.
+     * [EventStore.recordGap] itself skips a row that overlaps an
+     * existing row of the app, so a catch-up cycle over the same
+     * off-time writes no second row.
+     *
+     * `internal`, so [MongoAppReaderUnitTest] calls this seam with a
+     * fixed cursor age and a fake server time, with no real
+     * `pollOnce` call: each unit test case of that class injects a
+     * throwing `serverTimeSource`.
+     */
+    internal suspend fun checkGap(appId: Long, cursor: String?, serverTime: Date) {
+        if (cursor == null) return
+        val cursorTime = ObjectId(cursor).date.time
+        val checkCutoff = serverTime.time - GAP_CHECK_DAYS * MILLIS_PER_DAY
+        if (cursorTime >= checkCutoff) return
+        val fromTs = cursorTime
+        val toTs = serverTime.time - GAP_TO_TS_DAYS * MILLIS_PER_DAY
+        if (fromTs >= toTs) return
+        eventStore.recordGap(appId, fromTs, toTs)
+    }
 
     private suspend fun readPage(
         database: MongoDatabase,
@@ -476,16 +542,25 @@ class MongoAppReader(
         var pagesRead = 0
         var eventsStored = 0
         var eventsSkipped = 0
+        // Issue #205, decision 4 of the correction round: the reader
+        // loads the set one time, at the start of this cycle. The cap
+        // then counts this loaded set plus each value that this cycle
+        // itself admits, across its pages.
+        val admission = PathAdmission(eventStore.pathValuesOf(appId), pathValueCap)
         while (pagesRead < maxPages) {
             val page = fetchPage(cursor)
             if (page.isEmpty()) break
             val events = mutableListOf<NewEvent>()
             val skipped = mutableListOf<SkippedEvent>()
             var droppedReferrerHost = 0
+            var replacedPath = 0
             for (document in page) {
                 val reason = invalidReason(document)
                 if (reason == null) {
-                    events += parseEvent(document)
+                    val parsed = parseEvent(document)
+                    val decidedPath = decidePath(parsed.path, admission)
+                    if (parsed.path != null && decidedPath != parsed.path) replacedPath += 1
+                    events += parsed.copy(path = decidedPath)
                     if (referrerHostDropped(document)) droppedReferrerHost += 1
                 } else {
                     skipped += SkippedEvent(document.getObjectId("_id").toHexString(), reason)
@@ -497,8 +572,20 @@ class MongoAppReader(
             if (droppedReferrerHost > 0) {
                 log.warn("The reader dropped {} referrerHost value(s) outside the set.", droppedReferrerHost)
             }
+            if (replacedPath > 0) {
+                log.warn("The reader replaced {} path value(s) outside the shape or the app cap.", replacedPath)
+            }
             val newCursor = page.last().getObjectId("_id").toHexString()
-            val committed = eventStore.commitPage(appId, events, newCursor, expectedCursor = cursor, skippedEvents = skipped)
+            val newPathValues = admission.drainNewValues()
+            val committed = eventStore.commitPage(
+                appId,
+                events,
+                newCursor,
+                expectedCursor = cursor,
+                skippedEvents = skipped,
+                newPathValues = newPathValues,
+                newPathValuesFirstSeenAt = clock.millis(),
+            )
             if (!committed) break
             cursor = newCursor
             eventsStored += events.size
@@ -550,10 +637,12 @@ class MongoAppReader(
  * C39, C40). An unknown field of the document stays out of the result
  * (contract rule C9).
  *
- * [path] copies the value of the document as it is, for each element
- * (design decision D5: "the reader copies a `path` value ... as they
- * are"; RISK 1 of the security review of pull request #193 stays open
- * by the owner's choice, issue #205). [referrerHost] copies the value
+ * [path] copies the value of the document as it is, for each element.
+ * [MongoAppReader.runCycle] then calls [decidePath] on this value, so
+ * the stored row keeps a value only when it passes the shape check of
+ * [PathShape] and the per-app cap of [PathAdmission] (issue #205, the
+ * D5 rule of 2026-09-27, in place of RISK 1 of the security review of
+ * pull request #193). [referrerHost] copies the value
  * only for the element [SESSION_START_ELEMENT], and only when the
  * value is one of the three literals of contract rule C40
  * ([normalizedReferrerHost]); each other element, and each other
@@ -606,6 +695,19 @@ internal fun parseEvent(document: Document): NewEvent {
  */
 internal fun normalizedReferrerHost(referrerHost: String?): String? =
     referrerHost?.takeIf { it in REFERRER_HOST_VALUES }
+
+/**
+ * Decides the stored value of one `path` (issue #205, the D5 rule of
+ * 2026-09-27). A `null` value stays `null` (an absent field, issue
+ * #213). A value that fails the shape check of [PathShape] gives
+ * [OTHER_PATH]. Each other value goes to [PathAdmission.admit], which
+ * applies the per-app cap on the count of distinct values.
+ */
+private fun decidePath(path: String?, admission: PathAdmission): String? {
+    if (path == null) return null
+    if (!PathShape.isPatternResult(path)) return OTHER_PATH
+    return admission.admit(path)
+}
 
 /**
  * Tells whether [document] holds a `referrerHost` value that

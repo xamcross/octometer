@@ -9,12 +9,13 @@ import { RefreshBar } from '../refresh-bar/refresh-bar';
 import {
   STATUS_ICON,
   STATUS_LABEL,
+  formatLocalDate,
   formatLocalDateTime,
   formatLocalTime,
   numberFormat,
   readZoneName,
 } from '../status-format';
-import type { AppRow, AppStatus } from './app-row';
+import type { AppRow, AppStatus, Gap } from './app-row';
 
 /**
  * The route "/apps" (D28, level 1 of the design). It shows one row for each
@@ -125,6 +126,11 @@ export class Apps {
 
   protected formatTime(iso: string): string {
     return formatLocalTime(iso);
+  }
+
+  /** The text of one gap row of D16 (issue #62): the date part only, in local time. */
+  protected gapText(gap: Gap): string {
+    return `Events from ${formatLocalDate(gap.from)} to ${formatLocalDate(gap.to)} can be absent.`;
   }
 
   /**

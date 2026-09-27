@@ -12,8 +12,8 @@ and no token are needed.
 npm install https://github.com/xamcross/octometer/releases/download/X.Y.Z/octometer-tracker-X.Y.Z.tgz
 ```
 
-Replace `X.Y.Z` with the tag of the release. The release `0.1.0` holds no
-tarball; a later tag brings the first one.
+Replace `X.Y.Z` with the tag of the release. Use the tag of the monitor
+you run.
 
 ## The consent gate
 

@@ -20,6 +20,8 @@ import octometer.monitor.mongo.PRIVILEGE_CHECK_INTERVAL_MILLIS
 import octometer.monitor.mongo.PollOutcome
 import octometer.monitor.mongo.PollTarget
 import octometer.monitor.mongo.STATUS_ERROR
+import octometer.monitor.mongo.STATUS_INVALID_DATA
+import octometer.monitor.mongo.STATUS_OK
 import octometer.monitor.mongo.STATUS_OVERPRIVILEGED
 import octometer.monitor.registry.SecretStore
 import org.slf4j.LoggerFactory
@@ -327,7 +329,7 @@ class PollScheduler(
                 return
             }
             val outcome = pollCycle.run(target, connectionString)
-            recordSuccess(appId, outcome)
+            recordSuccess(row, outcome)
         } catch (timeout: TimeoutCancellationException) {
             log.warn("The poll cycle failed. {}", timeout.javaClass.simpleName)
             recordFailure(row, STATUS_ERROR, timeout.javaClass.simpleName)
@@ -375,11 +377,27 @@ class PollScheduler(
      * cursor of the tick's own read when the cycle committed no page.
      * Either way, it is the last value that this cycle knows to be
      * true in the app row, right before this write.
+     *
+     * Issue #57, step 5: one INFO line for a status change, and no
+     * line for a good poll with the same status. [row].status is the
+     * value before this cycle. [statusOfOutcome] derives the new value
+     * from [outcome] with the same rule as
+     * [octometer.monitor.mongo.MongoAppReader.recordCycleSuccess]. This
+     * call writes no status column of its own; the comparison only
+     * feeds the log line.
      */
-    private suspend fun recordSuccess(appId: Long, outcome: PollOutcome) {
+    private suspend fun recordSuccess(row: AppRow, outcome: PollOutcome) {
+        val newStatus = statusOfOutcome(outcome)
+        if (newStatus != row.status) {
+            log.info("The poll status changed. {} to {}", row.status ?: "none", newStatus)
+        }
         val nextPollAt = clock.millis() + pollIntervalSeconds * 1000
-        writeSafely { pollStore.writeResult(appId, nextPollAt, outcome.cursor, expectedCursor = outcome.cursor) }
+        writeSafely { pollStore.writeResult(row.appId, nextPollAt, outcome.cursor, expectedCursor = outcome.cursor) }
     }
+
+    /** The status of a good cycle, the same rule as [octometer.monitor.mongo.MongoAppReader.recordCycleSuccess]. */
+    private fun statusOfOutcome(outcome: PollOutcome): String =
+        if (outcome.eventsSkipped > 0) STATUS_INVALID_DATA else STATUS_OK
 
     /**
      * Writes a failed outcome (issue #28, design decision D6, D8). It

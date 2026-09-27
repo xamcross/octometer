@@ -48,6 +48,7 @@ function buildRow(overrides: Partial<AppRow> = {}): AppRow {
     lastSuccessAt: '2026-09-21T14:23:07.512Z',
     lastError: null,
     nextPollAt: '2026-09-21T14:24:07.512Z',
+    gaps: [],
     ...overrides,
   };
 }
@@ -348,6 +349,39 @@ describe('Apps', () => {
 
       expect(root().textContent).toContain(`Data from ${expectedTime}`);
       expect(root().textContent).toContain('The server did not answer.');
+    });
+
+    // D16, issue #62: one line for each gap, under the app in the status cell.
+    // The expected text below builds from the same local-date logic as
+    // formatLocalDate, so the test stays correct in every time zone.
+    it('shows one line for each gap of a row, with the date part only', () => {
+      const gaps = [
+        { from: '2026-08-01T14:00:00.000Z', to: '2026-08-30T14:00:00.000Z' },
+        { from: '2026-09-01T14:00:00.000Z', to: '2026-09-02T14:00:00.000Z' },
+      ];
+      const pad = (n: number): string => n.toString().padStart(2, '0');
+      const localDate = (iso: string): string => {
+        const date = new Date(iso);
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+      };
+      startStore();
+      flushApps([buildRow({ gaps })]);
+
+      const gapLines = Array.from(root().querySelectorAll('td.status .gap-text')).map((line) =>
+        line.textContent?.trim(),
+      );
+      expect(gapLines).toEqual(
+        gaps.map(
+          (gap) => `Events from ${localDate(gap.from)} to ${localDate(gap.to)} can be absent.`,
+        ),
+      );
+    });
+
+    it('shows no gap line for a row with no gap', () => {
+      startStore();
+      flushApps([buildRow({ gaps: [] })]);
+
+      expect(root().querySelector('.gap-text')).toBeNull();
     });
 
     it('shows the data time of an OK app with the local date and time, and a <time> element', () => {

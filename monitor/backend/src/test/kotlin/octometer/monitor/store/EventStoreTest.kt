@@ -181,6 +181,74 @@ class EventStoreTest {
         assertEquals(0, row.kind)
     }
 
+    // --- app_path (issue #205, decisions 3 and 4 of the correction round) ---
+
+    @Test
+    fun `pathValuesOf gives an empty set for an app with no app_path row`() = runBlocking {
+        assertEquals(emptySet(), store.pathValuesOf(appId))
+    }
+
+    @Test
+    fun `commitPage inserts each new path value in the same transaction as the event rows`() = runBlocking {
+        store.commitPage(
+            appId,
+            listOf(sampleEvent("e1", path = "/checkout")),
+            cursor = "cursor-1",
+            expectedCursor = null,
+            newPathValues = listOf("/checkout"),
+            newPathValuesFirstSeenAt = 1_700_000_000_000L,
+        )
+
+        assertEquals(setOf("/checkout"), store.pathValuesOf(appId))
+        assertEquals(1_700_000_000_000L, readAppPathFirstSeenAt(database, appId, "/checkout"))
+    }
+
+    @Test
+    fun `a replay of the same new path value adds no second row and keeps the first-seen time`() = runBlocking {
+        store.commitPage(
+            appId,
+            listOf(sampleEvent("e1", path = "/checkout")),
+            cursor = "cursor-1",
+            expectedCursor = null,
+            newPathValues = listOf("/checkout"),
+            newPathValuesFirstSeenAt = 1_700_000_000_000L,
+        )
+
+        store.commitPage(
+            appId,
+            listOf(sampleEvent("e2", path = "/checkout")),
+            cursor = "cursor-2",
+            expectedCursor = "cursor-1",
+            newPathValues = listOf("/checkout"),
+            newPathValuesFirstSeenAt = 1_700_000_500_000L,
+        )
+
+        assertEquals(setOf("/checkout"), store.pathValuesOf(appId))
+        assertEquals(1_700_000_000_000L, readAppPathFirstSeenAt(database, appId, "/checkout"))
+    }
+
+    // A failed insert must roll back the app_path insert too, the same
+    // as the event row and the skipped_event row (BLOCKER 1 of the
+    // correction round of issue #16).
+    @Test
+    fun `a failed insert rolls back a new app_path value too`() = runBlocking {
+        store.commitPage(appId, listOf(sampleEvent("e1")), cursor = "cursor-1", expectedCursor = null)
+
+        val badPage = listOf(sampleEvent("e2"), sampleEvent("e3", userId = ""))
+        assertFailsWith<SQLException> {
+            store.commitPage(
+                appId,
+                badPage,
+                cursor = "cursor-2",
+                expectedCursor = "cursor-1",
+                newPathValues = listOf("/checkout"),
+                newPathValuesFirstSeenAt = 1_700_000_000_000L,
+            )
+        }
+
+        assertEquals(emptySet(), store.pathValuesOf(appId))
+    }
+
     // --- recordCycleSuccess (design decisions D5, D8, issue #27) ---
 
     @Test
@@ -350,6 +418,18 @@ private suspend fun readEventColumns(database: SqliteDatabase, appId: Long, even
                     referrerHost = result.getString(2),
                     kind = result.getInt(3),
                 )
+            }
+        }
+    }
+
+/** Reads the `first_seen_at` column of one `app_path` row (issue #205). */
+private suspend fun readAppPathFirstSeenAt(database: SqliteDatabase, appId: Long, path: String): Long? =
+    database.read { reader ->
+        reader.prepareStatement("SELECT first_seen_at FROM app_path WHERE app_id = ? AND path = ?").use { select ->
+            select.setLong(1, appId)
+            select.setString(2, path)
+            select.executeQuery().use { result ->
+                if (result.next()) result.getLong(1) else null
             }
         }
     }
