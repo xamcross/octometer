@@ -66,11 +66,11 @@ import kotlin.test.assertTrue
  *
  * **The counted click.** `MongoAppReader.parseEvent` sets `kind = 1`
  * for the element `octo:session-start`, and `kind = 0` for each other
- * element (design decision D5, section 6). The level 1 clicks
- * statement (`CLICKS_SQL` of `AppTotalsRoute.kt`) filters on
- * `kind = 0`, so the one `octo:session-start` entry of each session
- * does not count toward the clicks total. `EXPECTED_FIRST_CLICKS` and
- * `EXPECTED_FINAL_CLICKS` hold the real click count of each source.
+ * element (design decision D5, section 6). The level 1 clicks statement
+ * (`CLICKS_AND_USERS_SQL` of `AppTotalsRoute.kt`, since issue #237)
+ * filters on `kind = 0`, so the one `octo:session-start` entry of each
+ * session does not count toward the clicks total. `EXPECTED_FIRST_CLICKS`
+ * and `EXPECTED_FINAL_CLICKS` hold the real click count of each source.
  *
  * One visit-only session sends no click at all. It proves the visit
  * rule of D44: a session start alone still counts as a session

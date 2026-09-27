@@ -91,8 +91,14 @@ A click on a level 1 row opens level 2. A click on a level 2 row opens level 3.
   10 million events, the level 1 app totals need 7.4 s, and the anonymous sessions need 27.3
   to 27.8 s. One event costs 303 bytes on SQLite, with the four indexes of migration 002 (not
   the 185-byte figure of `mongo:8.0` above). The level 1 app totals and the anonymous sessions
-  statements need 0.5 s or more at 1 million events; issue #237 covers a result cache or a
-  rollup table for that reason.
+  statements need 0.5 s or more at 1 million events; issue #237 covers two narrower statements
+  for that reason, not a result cache and not a rollup table (the correction of 2026-09-27,
+  D14).
+- Measured on 2026-09-27 on the owner machine, quiet (CPU load 8 percent, two idle Gradle
+  daemons, no test worker), with `LevelQueryPerfTest` of issue #63, two runs at 1 million
+  events, after issue #237: the level 1 app totals need 0.341 to 0.363 s (median), the sessions
+  count needs 0.124 to 0.130 s, and the sessions page needs 0.168 to 0.171 s. Each of the two
+  statements now stays under 0.5 s, the limit of issue #237.
 
 ## 3. Components and repository layout
 
@@ -383,6 +389,13 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
     no CORS header.
 - **D14. Totals.** SQL at query time, with the indexes and statements of section 6. No rollup
   table and no result cache in version 1.
+  - 2026-09-27 (issue #237): the level 1 app totals and the anonymous sessions statements
+    stayed at 0.5 s or more at 1 million events. The fix is two narrower statements, not a
+    rollup table or a cache: one merged statement gives the clicks and the unique-users
+    counts of level 1 in one pass on `event_agg` (585 ms fell to about 390 ms); the anonymous
+    sessions statement moved from a per-row correlated search to one grouped pass on
+    `event_session` with a `HAVING NOT EXISTS` check (413 ms of the 560 ms fell away). D14
+    stays: no rollup table and no result cache in version 1.
 - **D15. Personal data.** A log line never holds a user id or a connection string. A sentinel
   test searches the captured log. `PRAGMA secure_delete=ON`. After an erasure and after a
   purge: `PRAGMA wal_checkpoint(TRUNCATE)`. The purge runs at the start and each 24 hours, in
@@ -667,16 +680,20 @@ Migration `003` adds `app_path`, the set of distinct `path` values of each app, 
 of `pathValueCap` (design decision D5, issue #205). `PRAGMA foreign_keys=ON` runs on each
 connection, so `ON DELETE CASCADE` removes each row of an app that a delete route removes.
 
-Level 1 uses three statements, each on one covering index: `COUNT(*)` and
-`COUNT(DISTINCT user_id)` with the filter `kind = 0`, and `COUNT(DISTINCT session_id)` with
-no `kind` filter, because a first visitor who clicks nothing is a session too. Each statement
-groups by `app_id`. Level 2 and level 3 keep the filter `kind = 0`, else SQLite ignores the
-index `event_agg`. Level 2 groups by `user_id`. Level 3 filters with `user_id IS ?` and
-groups by `element`. The first-pages query filters with `kind = 1`, and it uses the index
+Level 1 uses two statements, each on one covering index (the correction of 2026-09-27, issue
+#237). One statement gives the clicks total and the unique-users total together: it counts the
+clicks of each `app_id`/`user_id` pair on `event_agg` with the filter `kind = 0`, then sums
+those counts to the clicks total and counts each pair with a real user id to the users total.
+The other statement gives `COUNT(DISTINCT session_id)` on `event_session`, with no `kind`
+filter, because a first visitor who clicks nothing is a session too. Each statement groups by
+`app_id`. Level 2 and level 3 keep the filter `kind = 0`, else SQLite ignores the index
+`event_agg`. Level 2 groups by `user_id`. Level 3 filters with `user_id IS ?` and groups by
+`element`. The first-pages query filters with `kind = 1`, and it uses the index
 `event_first_page`. The anonymous-sessions query reads the start row of each session with
-`kind = 1` on the index `event_start`. It counts the clicks of that session with `kind = 0` on
-the index `event_session`. A session without a start row holds no row with `kind = 1`, thus
-the query finds that session on `event_session` too. Each `ORDER BY` ends
+`kind = 1` on the index `event_start`. For a session with no start row, it groups the
+anonymous clicks of that session on `event_session` (`kind = 0`, `user_id IS NULL`), and it
+keeps the earliest click time with `MIN(ts)`; a `HAVING NOT EXISTS` check drops a session that
+also holds a start row (the correction of 2026-09-27, issue #237). Each `ORDER BY` ends
 with a unique column. `COUNT(DISTINCT user_id)` ignores `NULL`, thus level 2 can show one row
 more than the level 1 user count. The sums across the levels do not agree, because one
 session can belong to two users.
