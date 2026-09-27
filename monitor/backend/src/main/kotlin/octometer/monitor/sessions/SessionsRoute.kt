@@ -117,33 +117,27 @@ internal const val SESSION_STARTS_SQL =
 // for a click filter, thus "user_id IS NULL" here is meant as an index
 // term, not a residual filter.
 //
-// MINOR 1 of the round 2 review (2026-09-26): the shipped database
-// holds no sqlite_stat1 table (no migration runs ANALYZE), and with no
-// statistics, SQLite drives this statement on event_session (app_id=?
-// only) instead, the same statement that a click count and a sign-in
-// lookup already run on. Round 2 fixes only the start-row branch of
-// BLOCKER 3, part 1 above; this branch keeps its round-1 form. The
-// NOT EXISTS clause keeps the earliest row of each session, by ts,
-// then by rowid, the same tie rule as part 1.
-//
 // A session with an anonymous click always has its earliest click as
 // an anonymous row, because a click turns from anonymous to signed-in
 // once, never back. The row that this statement keeps thus gives the
 // time of the first click of that session, the fallback value of D44.
 //
-// `INDEXED BY event_session` on `earlier`, the same fix and the same
-// reason as SESSION_STARTS_SQL above: session_id sits after ts in
-// event_agg, thus a correlated NOT EXISTS on session_id alone could
-// drive `earlier` on an unbounded scan of event_agg with no
-// statistics. event_session leads with app_id then session_id, thus
-// this search stays bounded to the rows of one session.
+// Issue #237 (the correction of 2026-09-27): this part costed 413 ms
+// of the measured 560 ms of the sessions count, because the round-2
+// form ran one correlated NOT EXISTS search for each anonymous click
+// row. This form runs one ordered pass instead: it drives on
+// event_session with `INDEXED BY` (a plan lock against a later
+// `ANALYZE`), groups each anonymous click by session_id, and keeps the
+// minimum ts as the start time (the same earliest-row rule as before,
+// now an aggregate, not a per-row correlated search). The `HAVING NOT
+// EXISTS` clause drops a session that also holds a start row, so
+// SESSION_CANDIDATES_SQL below needs no NOT IN clause any more.
 internal const val SESSION_ANONYMOUS_CLICKS_SQL =
-    "SELECT session_id, ts AS start_time FROM event AS s " +
-        "WHERE app_id = ? AND user_id IS NULL AND kind = 0 AND NOT EXISTS (" +
-        "SELECT 1 FROM event AS earlier INDEXED BY event_session WHERE earlier.app_id = s.app_id " +
-        "AND earlier.session_id = s.session_id AND earlier.user_id IS NULL AND earlier.kind = 0 " +
-        "AND (earlier.ts < s.ts OR (earlier.ts = s.ts AND earlier.rowid < s.rowid))" +
-        ")"
+    "SELECT session_id, MIN(ts) AS start_time FROM event INDEXED BY event_session " +
+        "WHERE app_id = ? AND user_id IS NULL AND kind = 0 GROUP BY session_id " +
+        "HAVING NOT EXISTS (SELECT 1 FROM event AS st INDEXED BY event_session " +
+        "WHERE st.app_id = ? AND st.session_id = event.session_id AND st.kind = 1 " +
+        "AND st.user_id IS NULL)"
 
 // The candidate sessions: part 1 (a start row) union part 2 (a session
 // with no start row). Each branch runs on its own index; this
@@ -156,12 +150,11 @@ internal const val SESSION_ANONYMOUS_CLICKS_SQL =
 // BLOCKER 3 of correction round 2 (2026-09-26): UNION ALL, not UNION.
 // Part 1 already gives one row for each of its sessions (the NOT
 // EXISTS clause of SESSION_STARTS_SQL keeps the earliest start row
-// only), part 2 gives one row for each of its own sessions the same
-// way, and the NOT IN clause of part 2 keeps the two branches
-// disjoint. A plain UNION thus removed no row here; it only forced
-// SQLite to plan each branch for a sorted merge, which pushed the
-// plan of part 1 onto event_session (see the KDoc of
-// SESSION_STARTS_SQL). UNION ALL asks for no such sort.
+// only), and part 2 (since issue #237) gives one row for each of its
+// own sessions too, through its own GROUP BY and its own HAVING NOT
+// EXISTS clause against a start row. The two branches thus stay
+// disjoint with no extra NOT IN clause. UNION ALL asks for no sort of
+// either branch.
 //
 // internal, not private: the four statements below embed this text,
 // and the plan test of issue #113 runs `EXPLAIN QUERY PLAN` over each
@@ -170,8 +163,7 @@ internal const val SESSION_CANDIDATES_SQL =
     "SELECT session_id, path, referrer_host, start_time FROM ($SESSION_STARTS_SQL) " +
         "UNION ALL " +
         "SELECT session_id, NULL AS path, NULL AS referrer_host, start_time " +
-        "FROM ($SESSION_ANONYMOUS_CLICKS_SQL) AS anon " +
-        "WHERE anon.session_id NOT IN (SELECT session_id FROM ($SESSION_STARTS_SQL))"
+        "FROM ($SESSION_ANONYMOUS_CLICKS_SQL) AS anon"
 
 // The page statement: the candidate sessions, in the fixed order of
 // D13. sessionId is the unique column that ends the order, so a tie of
@@ -304,8 +296,9 @@ internal suspend fun loadAnonymousSessions(
     }
 
 // The number of appId placeholders of SESSION_CANDIDATES_SQL: the
-// start rows once, the anonymous clicks once, and the start rows a
-// second time, inside the NOT IN subquery.
+// start rows once (part 1), and the anonymous clicks twice (part 2,
+// since issue #237: the outer filter, then the correlated HAVING NOT
+// EXISTS subquery).
 internal const val CANDIDATES_APP_ID_COUNT = 3
 
 // internal, not private: a test of a bound parameter reuses this

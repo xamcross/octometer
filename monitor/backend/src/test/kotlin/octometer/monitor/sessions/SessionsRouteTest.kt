@@ -11,6 +11,9 @@ import io.ktor.http.encodeURLQueryComponent
 import io.ktor.server.testing.testApplication
 import java.sql.Connection
 import java.sql.ResultSet
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -19,7 +22,11 @@ import kotlinx.serialization.json.jsonPrimitive
 import octometer.monitor.allowedHost
 import octometer.monitor.captureLogEvents
 import octometer.monitor.devConfig
+import octometer.monitor.erasure.eraseUserEvents
 import octometer.monitor.module
+import octometer.monitor.retention.RetentionPurge
+import octometer.monitor.store.EventStore
+import octometer.monitor.store.NewEvent
 import octometer.monitor.store.SqliteDatabase
 import octometer.monitor.testDataDir
 import org.slf4j.LoggerFactory
@@ -399,6 +406,103 @@ class SessionsRouteTest {
         )
     }
 
+    // Issue #237 (2026-09-27): the direct evidence for the new part-2
+    // statement, run in isolation. The outer scan drives on
+    // event_session with an equality search on app_id, one ordered
+    // pass, and the correlated HAVING NOT EXISTS check drives on the
+    // same index with a search bounded to one session.
+    @Test
+    fun `EXPLAIN QUERY PLAN of the anonymous-clicks statement searches event_session, both parts`() =
+        runBlocking {
+            val appId = insertApp(database, "shop")
+            insertEvent(database, appId, "e1", "s1", userId = null, element = "checkout.save", kind = 0)
+
+            val plan = database.read { reader ->
+                reader.prepareStatement("EXPLAIN QUERY PLAN $SESSION_ANONYMOUS_CLICKS_SQL").use { statement ->
+                    statement.setLong(1, appId)
+                    statement.setLong(2, appId)
+                    statement.executeQuery().use { result -> collectPlanLines(result) }
+                }
+            }
+
+            assertTrue(
+                plan.any { it.contains("SEARCH event USING") && it.contains("INDEX event_session") },
+                plan.toString(),
+            )
+            assertTrue(
+                plan.any { it.contains("SEARCH st USING") && it.contains("INDEX event_session") },
+                plan.toString(),
+            )
+            assertTrue(plan.none { it.startsWith("SCAN event") || it.startsWith("SCAN st") }, plan.toString())
+        }
+
+    // Issue #237 (2026-09-27), decision 4: this test proves that the
+    // new candidate query gives the same sessions as the plain
+    // (round-2) query, after a page commit, a retention purge, and an
+    // erasure. The fixture holds:
+    // - "with-start": a start row that the purge below removes, and an
+    //   anonymous click that stays; it moves from part 1 to part 2.
+    // - "no-start": an anonymous click, and no start row ever.
+    // - "signed-in-only": one click of a real user, no anonymous row;
+    //   it must never appear.
+    // - "anon-then-signed-in": a start row, an anonymous click, then a
+    //   later click of a real user; part 2's raw group would keep it
+    //   before its HAVING NOT EXISTS clause runs, so this session
+    //   proves that the clause drops it (part 1 keeps it instead).
+    // - "erased": an anonymous click and a click of "user-erase" in
+    //   the same session; the erasure below removes both rows, so the
+    //   session must leave both forms.
+    @Test
+    fun `the grouped anonymous-clicks form agrees with the plain form after a commit, a purge, and an erasure`() =
+        runBlocking {
+            val appId = insertApp(database, "shop")
+            val eventStore = EventStore(database)
+            val oldTs = FIXTURE_NOW - (RETENTION_DAYS_FOR_FIXTURE + 10) * DAY_MILLIS_FOR_FIXTURE
+            val recentTs = FIXTURE_NOW
+
+            val committed = eventStore.commitPage(
+                appId,
+                events = listOf(
+                    NewEvent("start-1", oldTs, "octo:session-start", "with-start", userId = null, kind = 1),
+                    NewEvent("click-1", recentTs, "checkout.save", "with-start", userId = null, kind = 0),
+                    NewEvent("click-2", recentTs, "checkout.save", "no-start", userId = null, kind = 0),
+                    NewEvent(
+                        "click-3", recentTs, "checkout.save", "signed-in-only",
+                        userId = "user-x", kind = 0,
+                    ),
+                    NewEvent(
+                        "start-4", recentTs, "octo:session-start", "anon-then-signed-in",
+                        userId = null, kind = 1,
+                    ),
+                    NewEvent(
+                        "click-4a", recentTs, "checkout.save", "anon-then-signed-in",
+                        userId = null, kind = 0,
+                    ),
+                    NewEvent(
+                        "click-4b", recentTs + 1_000, "checkout.save", "anon-then-signed-in",
+                        userId = "user-y", kind = 0,
+                    ),
+                    NewEvent("click-5a", recentTs, "checkout.save", "erased", userId = null, kind = 0),
+                    NewEvent(
+                        "click-5b", recentTs, "checkout.save", "erased",
+                        userId = "user-erase", kind = 0,
+                    ),
+                ),
+                cursor = "cursor-1",
+                expectedCursor = null,
+            )
+            assertTrue(committed, "the page commit moved the cursor")
+
+            RetentionPurge(database, fixedClock(recentTs)).purgeOnce(RETENTION_DAYS_FOR_FIXTURE)
+            eraseUserEvents(database, appId, "user-erase")
+
+            val plain = database.read { reader -> candidateMap(reader, PLAIN_CANDIDATES_SQL, appId) }
+            val new = database.read { reader -> candidateMap(reader, SESSION_CANDIDATES_SQL, appId) }
+
+            assertEquals(plain, new)
+            assertEquals(setOf("with-start", "no-start", "anon-then-signed-in"), new.keys)
+        }
+
     // -- The HTTP layer (steps 1, 5) ------------------------------------------
 
     // Issue #213, decision 5: the HTTP body must hold the JSON value
@@ -649,15 +753,69 @@ private fun collectPlanLines(result: ResultSet): List<String> {
     return lines
 }
 
-// MAJOR 2 of correction round 2 (2026-09-26): "SCAN event" cannot
-// match, because SESSION_STARTS_SQL and SESSION_ANONYMOUS_CLICKS_SQL
-// each carry `event` under one of these two aliases; SQLite prints
-// the alias of a full scan, never the table name of an aliased
-// reference. This regex matches "SCAN s" or "SCAN earlier" at the
-// start of a plan line, the true guard against a full scan of event.
-// A plan line for a subquery of the outer UNION ALL, for example
-// "SCAN (subquery-9)", never matches this pattern.
-private val EVENT_ALIASES = listOf("s", "earlier")
+// Issue #237, decision 4: the plain (round-2) form of part 2, and the
+// candidates query built on it, for the equality test only. Neither
+// constant runs in production; each one is the pre-issue-237 SQL text,
+// kept here as the oracle that the new form must match.
+private const val PLAIN_ANONYMOUS_CLICKS_SQL =
+    "SELECT session_id, ts AS start_time FROM event AS s " +
+        "WHERE app_id = ? AND user_id IS NULL AND kind = 0 AND NOT EXISTS (" +
+        "SELECT 1 FROM event AS earlier INDEXED BY event_session WHERE earlier.app_id = s.app_id " +
+        "AND earlier.session_id = s.session_id AND earlier.user_id IS NULL AND earlier.kind = 0 " +
+        "AND (earlier.ts < s.ts OR (earlier.ts = s.ts AND earlier.rowid < s.rowid))" +
+        ")"
+
+private const val PLAIN_CANDIDATES_SQL =
+    "SELECT session_id, path, referrer_host, start_time FROM ($SESSION_STARTS_SQL) " +
+        "UNION ALL " +
+        "SELECT session_id, NULL AS path, NULL AS referrer_host, start_time " +
+        "FROM ($PLAIN_ANONYMOUS_CLICKS_SQL) AS anon " +
+        "WHERE anon.session_id NOT IN (SELECT session_id FROM ($SESSION_STARTS_SQL))"
+
+private const val FIXTURE_NOW = 1_700_000_000_000L
+private const val RETENTION_DAYS_FOR_FIXTURE = 30
+private const val DAY_MILLIS_FOR_FIXTURE = 86_400_000L
+
+private fun fixedClock(millis: Long): Clock = Clock.fixed(Instant.ofEpochMilli(millis), ZoneOffset.UTC)
+
+// Reads a candidates statement (PLAIN_CANDIDATES_SQL or
+// SESSION_CANDIDATES_SQL) with CANDIDATES_APP_ID_COUNT copies of
+// appId, and gives one row for each session id, for the equality test.
+private fun candidateMap(
+    reader: Connection,
+    sql: String,
+    appId: Long,
+): Map<String, List<Any?>> {
+    val rows = mutableMapOf<String, List<Any?>>()
+    reader.prepareStatement(sql).use { statement ->
+        repeat(CANDIDATES_APP_ID_COUNT) { index -> statement.setLong(index + 1, appId) }
+        statement.executeQuery().use { result ->
+            while (result.next()) {
+                rows[result.getString("session_id")] = listOf(
+                    result.getString("path"),
+                    result.getString("referrer_host"),
+                    result.getLong("start_time"),
+                )
+            }
+        }
+    }
+    return rows
+}
+
+// MAJOR 2 of correction round 2 (2026-09-26): "SCAN event" alone
+// cannot match, because SESSION_STARTS_SQL carries `event` under an
+// alias, never the bare table name. SQLite prints the alias of a full
+// scan, or the bare table name when a reference holds no alias. This
+// regex matches "SCAN s", "SCAN earlier", "SCAN event", or "SCAN st"
+// at the start of a plan line, the true guard against a full scan of
+// event. A plan line for a subquery of the outer UNION ALL, for
+// example "SCAN (subquery-9)" or "SCAN anon", never matches this
+// pattern.
+//
+// Issue #237 (2026-09-27): SESSION_ANONYMOUS_CLICKS_SQL now reads
+// `event` with no alias (the outer, grouped scan) and `st` (the
+// correlated HAVING NOT EXISTS check), so both names join the list.
+private val EVENT_ALIASES = listOf("s", "earlier", "event", "st")
 private val FULL_SCAN_OF_EVENT = Regex("^SCAN (${EVENT_ALIASES.joinToString("|")})\\b")
 
 private fun assertFullScanOfEventAlias(plan: List<String>) {
