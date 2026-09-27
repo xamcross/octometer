@@ -215,6 +215,44 @@ class SqliteDatabaseCorruptTest {
 
         assertTrue(answer != "ok", "a corrupted page gives a row other than ok: $answer")
     }
+
+    // Correction round 1, MAJOR B (Kotlin and SQLite review): the review
+    // found that no test called SqliteDatabase.open itself on a file
+    // where PRAGMA journal_mode=WAL succeeds and PRAGMA quick_check then
+    // reports a bad page (the "answer != ok" throw of refuseIfCorrupt).
+    // This test uses the same page-3 fixture as the direct runQuickCheck
+    // test above, through the full open() call.
+    @Test
+    fun `SqliteDatabase open throws with the quick_check text for a page corrupted after the header`() {
+        dataDir.mkdirs()
+        val dbFile = File(dataDir, "octometer.db")
+        DriverManager.getConnection("jdbc:sqlite:${dbFile.absolutePath}").use { connection ->
+            connection.createStatement().use { it.execute("CREATE TABLE probe (id INTEGER, filler TEXT)") }
+            connection.prepareStatement("INSERT INTO probe (id, filler) VALUES (?, ?)").use { insert ->
+                val filler = "z".repeat(500)
+                for (i in 1..200) {
+                    insert.setInt(1, i)
+                    insert.setString(2, filler)
+                    insert.executeUpdate()
+                }
+            }
+        }
+        val corrupted = dbFile.readBytes().copyOf()
+        val corruptFrom = 8192 + 500
+        for (i in corruptFrom until corruptFrom + 64) {
+            corrupted[i] = (corrupted[i] + 1).toByte()
+        }
+        dbFile.writeBytes(corrupted)
+
+        val failure = assertFailsWith<CorruptDatabaseException> {
+            SqliteDatabase.open(dataDir.absolutePath)
+        }
+
+        assertTrue(
+            failure.message!!.contains("quick_check"),
+            "the answer != ok throw of refuseIfCorrupt names the quick_check row: ${failure.message}",
+        )
+    }
 }
 
 // Decision 6 of issue #58: no ERROR line of the corrupt-database path or

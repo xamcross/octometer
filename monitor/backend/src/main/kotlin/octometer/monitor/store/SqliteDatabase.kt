@@ -48,6 +48,11 @@ class RestoredDatabaseNeedsCleanupException(message: String) : Exception(message
  * opens the writer connection, or `PRAGMA quick_check` gives a row other
  * than `ok`. Either way the file stays as it is: the check runs before
  * any write, and a failed check opens no connection with a migration.
+ *
+ * Correction round 1 (MAJOR B, MINOR of both reviews): [message] names
+ * its own route (the driver check or the `quick_check` route), so the
+ * ERROR line of `Application.kt` never names `PRAGMA quick_check` for a
+ * failure that the driver itself caught first.
  */
 class CorruptDatabaseException(message: String) : Exception(message)
 
@@ -80,7 +85,8 @@ private fun asCorruptDatabaseExceptionOrSelf(failure: SQLiteException): Throwabl
     val isCorruptOrNotADatabase =
         primaryCode == SQLiteErrorCode.SQLITE_NOTADB.code || primaryCode == SQLiteErrorCode.SQLITE_CORRUPT.code
     return if (isCorruptOrNotADatabase) {
-        CorruptDatabaseException(failure.message ?: failure.javaClass.simpleName)
+        val driverText = failure.message ?: failure.javaClass.simpleName
+        CorruptDatabaseException("The database file octometer.db is corrupt. The file stays as it is. $driverText")
     } else {
         failure
     }
@@ -90,10 +96,18 @@ private fun asCorruptDatabaseExceptionOrSelf(failure: SQLiteException): Throwabl
 // opens, and before MigrationRunner.run. A bad row throws with the
 // first result line, never the driver text of that path (the random-bytes
 // test asserts the driver text of a bad open instead, never this text).
+//
+// Correction round 1 (MAJOR B, the ERROR-sentence MINOR of both
+// reviews): the sentence names PRAGMA quick_check by name, because this
+// route, and only this route, ran that pragma and read its row. The
+// driver route above names no pragma; it names the file as corrupt
+// instead.
 private fun refuseIfCorrupt(connection: Connection) {
     val answer = runQuickCheck(connection)
     if (answer != "ok") {
-        throw CorruptDatabaseException("PRAGMA quick_check gave '$answer'.")
+        throw CorruptDatabaseException(
+            "The database file failed PRAGMA quick_check. The file stays as it is. PRAGMA quick_check gave '$answer'.",
+        )
     }
 }
 
