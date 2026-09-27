@@ -347,6 +347,10 @@ const tracker = createTracker({
 });
 ```
 
+Paste the same list into the "Route patterns" field of the app, in the manage
+view of the monitor (issue #226). The monitor then admits a `path` value only
+when it is a result of that list.
+
 **The anonymous setting.** The pilot app sets `OCTOMETER_RECORD_ANONYMOUS=true`. The
 default of design decision D19 stays off; only the pilot app turns the setting on.
 

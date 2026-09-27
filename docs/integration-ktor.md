@@ -262,6 +262,10 @@ result.
 Without `OCTOMETER_PATH_PATTERNS`, the kit stores no `path` field, and it
 writes one warning at the start.
 
+**Give the same list to the monitor (issue #226).** Paste the same list into
+the "Route patterns" field of the app, in the manage view of the monitor. The
+monitor then admits a `path` value only when it is a result of that list.
+
 ## 7. The account deletion
 
 Call `deleteByUserId(userId)` on your store to erase one user (contract rule C43). Never

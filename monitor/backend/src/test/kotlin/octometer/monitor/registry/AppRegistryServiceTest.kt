@@ -193,6 +193,146 @@ class AppRegistryServiceTest {
         assertEquals(before, readPollState(created.summary.appId), "a name-only PATCH must keep the cursor")
     }
 
+    // Issue #226: the route pattern list of one app.
+
+    @Test
+    fun `createApp with a route pattern list stores the normalized text`() = runBlocking {
+        val result = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events", pathPatterns = "/a  /b"),
+        )
+
+        val created = assertIs<CreateAppResult.Created>(result)
+        val detail = service.getApp(created.summary.appId)
+        assertEquals("/a\n/b", detail?.pathPatterns)
+    }
+
+    @Test
+    fun `createApp rejects an invalid route pattern list, and writes no app row`() = runBlocking {
+        val result = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events", pathPatterns = "/a //b"),
+        )
+
+        val invalid = assertIs<CreateAppResult.InvalidRequest>(result)
+        assertTrue(invalid.message.contains("index 1"), "the reason names the index of the bad pattern")
+        assertEquals(0, countAppRows())
+    }
+
+    @Test
+    fun `createApp with no route pattern list stores a NULL value`() = runBlocking {
+        val result = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+        )
+
+        val created = assertIs<CreateAppResult.Created>(result)
+        val detail = service.getApp(created.summary.appId)
+        assertNull(detail?.pathPatterns)
+    }
+
+    @Test
+    fun `updateApp with pathPatterns alone sets the list, and gives no InvalidRequest`() = runBlocking {
+        val created = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+        ) as CreateAppResult.Created
+
+        val result = service.updateApp(created.summary.appId, UpdateAppRequest(pathPatterns = "/checkout /cart"))
+
+        assertEquals(UpdateAppResult.Updated, result)
+        assertEquals("/checkout\n/cart", service.getApp(created.summary.appId)?.pathPatterns)
+    }
+
+    @Test
+    fun `updateApp with a whitespace-only pathPatterns clears the stored list`() = runBlocking {
+        val created = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events", pathPatterns = "/checkout"),
+        ) as CreateAppResult.Created
+
+        val result = service.updateApp(created.summary.appId, UpdateAppRequest(pathPatterns = "   "))
+
+        assertEquals(UpdateAppResult.Updated, result)
+        assertNull(service.getApp(created.summary.appId)?.pathPatterns)
+    }
+
+    @Test
+    fun `updateApp with an absent pathPatterns field keeps the stored list`() = runBlocking {
+        val created = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events", pathPatterns = "/checkout"),
+        ) as CreateAppResult.Created
+
+        val result = service.updateApp(created.summary.appId, UpdateAppRequest(name = "demo2"))
+
+        assertEquals(UpdateAppResult.Updated, result)
+        assertEquals("/checkout", service.getApp(created.summary.appId)?.pathPatterns)
+    }
+
+    @Test
+    fun `updateApp rejects an invalid pathPatterns list, and keeps the old list`() = runBlocking {
+        val created = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events", pathPatterns = "/checkout"),
+        ) as CreateAppResult.Created
+
+        val result = service.updateApp(created.summary.appId, UpdateAppRequest(pathPatterns = "/a?b"))
+
+        val invalid = assertIs<UpdateAppResult.InvalidRequest>(result)
+        assertTrue(invalid.message.contains("index 0"), "the reason names the index of the bad pattern")
+        assertEquals("/checkout", service.getApp(created.summary.appId)?.pathPatterns)
+    }
+
+    @Test
+    fun `updateApp with pathPatterns alone resets no poll state`() = runBlocking {
+        val created = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+        ) as CreateAppResult.Created
+        seedPollState(created.summary.appId)
+        val before = readPollState(created.summary.appId)
+
+        val result = service.updateApp(created.summary.appId, UpdateAppRequest(pathPatterns = "/checkout"))
+
+        assertEquals(UpdateAppResult.Updated, result)
+        assertEquals(before, readPollState(created.summary.appId), "a pathPatterns-only PATCH must keep the cursor")
+    }
+
+    @Test
+    fun `updateApp with pathPatterns alone keeps app_path`() = runBlocking {
+        val created = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+        ) as CreateAppResult.Created
+        seedAppPath(created.summary.appId, "/checkout")
+
+        val result = service.updateApp(created.summary.appId, UpdateAppRequest(pathPatterns = "/checkout"))
+
+        assertEquals(UpdateAppResult.Updated, result)
+        assertEquals(1, countAppPathRows(created.summary.appId))
+    }
+
+    @Test
+    fun `getApp gives the id, the name, and the route pattern list, never a connection string`() = runBlocking {
+        val created = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events", pathPatterns = "/checkout"),
+        ) as CreateAppResult.Created
+
+        val detail = service.getApp(created.summary.appId)
+
+        assertEquals(created.summary.appId, detail?.appId)
+        assertEquals("demo", detail?.name)
+        assertEquals("/checkout", detail?.pathPatterns)
+    }
+
+    @Test
+    fun `getApp on an unknown id gives null`() = runBlocking {
+        assertNull(service.getApp(999L))
+    }
+
+    @Test
+    fun `updateApp with no name, no connectionString, and no pathPatterns gives InvalidRequest`() = runBlocking {
+        val created = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+        ) as CreateAppResult.Created
+
+        val result = service.updateApp(created.summary.appId, UpdateAppRequest())
+
+        assertIs<UpdateAppResult.InvalidRequest>(result)
+    }
+
     @Test
     fun `updateApp on an unknown id gives NotFound`() = runBlocking {
         val result = service.updateApp(999L, UpdateAppRequest(name = "demo2"))

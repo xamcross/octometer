@@ -26,12 +26,22 @@
       />
     </div>
 
+    <div class="field">
+      <label [for]="pathPatternsId">Route patterns (one per line)</label>
+      <textarea
+        [id]="pathPatternsId"
+        [value]="pathPatterns()"
+        (input)="onPathPatternsInput($event)"
+        [attr.aria-describedby]="errorMessage() ? errorId : null"
+      ></textarea>
+    </div>
+
     @if (errorMessage(); as message) {
       <p [id]="errorId" class="form-error">{{ message }}</p>
     }
 
     <div class="actions">
-      <button type="submit" [disabled]="pending()">Save</button>
+      <button type="submit" [disabled]="pending() || pathPatternsReadFailed()">Save</button>
       <button type="button" class="cancel" (click)="cancel()">Cancel</button>
     </div>
   </form>

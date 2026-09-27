@@ -23,6 +23,13 @@ data class AppRow(
     val consecutiveFailures: Int,
     /** `app.privileges_checked_at` (design decision D9, issue #30), or `null` before the first check. */
     val privilegesCheckedAt: Long? = null,
+    /**
+     * `app.path_patterns` (issue #226, the D5 rule of 2026-09-27): the
+     * route pattern list of the app, one pattern per line, or `null`
+     * when the app gives no list. [PollScheduler] splits this text into
+     * [octometer.monitor.mongo.PollTarget.pathPatterns].
+     */
+    val pathPatterns: String? = null,
 )
 
 /**
@@ -85,7 +92,7 @@ private fun readAppRows(reader: Connection): List<AppRow> =
     reader.createStatement().use { statement ->
         statement.executeQuery(
             "SELECT id, database_name, collection_name, cursor, next_poll_at, status, consecutive_failures, " +
-                "privileges_checked_at FROM app",
+                "privileges_checked_at, path_patterns FROM app",
         ).use { result ->
             val rows = mutableListOf<AppRow>()
             while (result.next()) {
@@ -100,6 +107,7 @@ private fun readAppRows(reader: Connection): List<AppRow> =
                     status = result.getString("status"),
                     consecutiveFailures = result.getInt("consecutive_failures"),
                     privilegesCheckedAt = privilegesCheckedAt,
+                    pathPatterns = result.getString("path_patterns"),
                 )
             }
             rows

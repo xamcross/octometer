@@ -11,9 +11,16 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   padding: 0.4rem 0.5rem;
   min-height: 24px;
+}
+
+textarea {
+  min-height: 4.5rem;
+  font-family: inherit;
+  resize: vertical;
 }
 
 .form-error {

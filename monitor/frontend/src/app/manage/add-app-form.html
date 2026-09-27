@@ -37,6 +37,16 @@
     </select>
   </div>
 
+  <div class="field">
+    <label for="add-app-path-patterns">Route patterns (one per line)</label>
+    <textarea
+      id="add-app-path-patterns"
+      [value]="pathPatterns()"
+      (input)="onPathPatternsInput($event)"
+      [attr.aria-describedby]="errorMessage() ? 'add-app-error' : null"
+    ></textarea>
+  </div>
+
   @if (errorMessage(); as message) {
     <p id="add-app-error" class="form-error">{{ message }}</p>
   }

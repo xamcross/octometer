@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import octometer.kit.core.path.PathPatternMatcher
 import octometer.monitor.registry.ConnectionStringCheck
 import octometer.monitor.registry.ConnectionStringValidator
 import octometer.monitor.store.EventStore
@@ -148,6 +149,14 @@ data class PollTarget(
     val collection: String,
     val cursor: String?,
     val checkPrivileges: Boolean = false,
+    /**
+     * The route pattern list of the app (issue #226, the D5 rule of
+     * 2026-09-27), or `null` when the app gives no list.
+     * [PollScheduler] parses it from `AppRow.pathPatterns`, one pattern
+     * per line. [MongoAppReader.runCycle] then admits a `path` value
+     * only when it is a result of this list.
+     */
+    val pathPatterns: List<String>? = null,
 )
 
 /**
@@ -283,9 +292,10 @@ class MongoAppReader(
             }
             val bound = readBound(database)
             checkGap(target.appId, target.cursor, bound.serverTime)
-            val outcome = runCycle(target.appId, target.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT) { cursor ->
-                readPage(database, target.collection, cursor, bound.bound, PAGE_LIMIT)
-            }
+            val outcome =
+                runCycle(target.appId, target.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, target.pathPatterns) { cursor ->
+                    readPage(database, target.collection, cursor, bound.bound, PAGE_LIMIT)
+                }
             recordCycleSuccess(target.appId, outcome.eventsSkipped)
             outcome
         }
@@ -492,10 +502,11 @@ class MongoAppReader(
         initialCursor: String?,
         maxPages: Int,
         pageLimit: Int,
+        pathPatterns: List<String>? = null,
         fetchPage: suspend (cursor: String?) -> List<Document>,
     ): PollOutcome =
         withTimeout(cycleTimeoutMillis) {
-            runCycle(appId, initialCursor, maxPages, pageLimit, fetchPage)
+            runCycle(appId, initialCursor, maxPages, pageLimit, pathPatterns, fetchPage)
         }
 
     /**
@@ -536,17 +547,23 @@ class MongoAppReader(
         initialCursor: String?,
         maxPages: Int,
         pageLimit: Int,
+        pathPatterns: List<String>? = null,
         fetchPage: suspend (cursor: String?) -> List<Document>,
     ): PollOutcome {
         var cursor = initialCursor
         var pagesRead = 0
         var eventsStored = 0
         var eventsSkipped = 0
-        // Issue #205, decision 4 of the correction round: the reader
-        // loads the set one time, at the start of this cycle. The cap
-        // then counts this loaded set plus each value that this cycle
-        // itself admits, across its pages.
-        val admission = PathAdmission(eventStore.pathValuesOf(appId), pathValueCap)
+        // Issue #226, the correction of the brief review of 2026-09-27:
+        // an app with a route pattern list gets a matcher of the kit
+        // grammar (contract rule C42) in place of the shape check of
+        // PathShape. The cap and the set of issue #205 stay in force
+        // only when the list holds a "*" pattern (its results are
+        // unbounded), or when the app has no list at all.
+        val patternMatcher = pathPatterns?.let { PathPatternMatcher.of(it) }
+        val hasStarPattern = pathPatterns?.any { pattern -> pattern.split('/').any { it == "*" } } ?: false
+        val needsAdmission = patternMatcher == null || hasStarPattern
+        val admission = if (needsAdmission) PathAdmission(eventStore.pathValuesOf(appId), pathValueCap) else null
         while (pagesRead < maxPages) {
             val page = fetchPage(cursor)
             if (page.isEmpty()) break
@@ -558,7 +575,7 @@ class MongoAppReader(
                 val reason = invalidReason(document)
                 if (reason == null) {
                     val parsed = parseEvent(document)
-                    val decidedPath = decidePath(parsed.path, admission)
+                    val decidedPath = decidePath(parsed.path, patternMatcher, admission)
                     if (parsed.path != null && decidedPath != parsed.path) replacedPath += 1
                     events += parsed.copy(path = decidedPath)
                     if (referrerHostDropped(document)) droppedReferrerHost += 1
@@ -576,7 +593,7 @@ class MongoAppReader(
                 log.warn("The reader replaced {} path value(s) outside the shape or the app cap.", replacedPath)
             }
             val newCursor = page.last().getObjectId("_id").toHexString()
-            val newPathValues = admission.drainNewValues()
+            val newPathValues = admission?.drainNewValues() ?: emptySet()
             val committed = eventStore.commitPage(
                 appId,
                 events,
@@ -698,15 +715,43 @@ internal fun normalizedReferrerHost(referrerHost: String?): String? =
 
 /**
  * Decides the stored value of one `path` (issue #205, the D5 rule of
+ * 2026-09-27; issue #226, the correction of the brief review of
  * 2026-09-27). A `null` value stays `null` (an absent field, issue
- * #213). A value that fails the shape check of [PathShape] gives
- * [OTHER_PATH]. Each other value goes to [PathAdmission.admit], which
- * applies the per-app cap on the count of distinct values.
+ * #213).
+ *
+ * An app with a route pattern list ([patternMatcher] not `null`) gets
+ * the one rule of `PathPatternMatcher.match`: the stored value is the
+ * matcher's own result, the kit grammar of contract rule C42, never a
+ * copy of that grammar in the monitor. A literal pattern gives back
+ * the pattern's own text; a `*` pattern keeps the real segment; a
+ * `:name` pattern gives the literal `:name` text; each other value
+ * gives [PathPatternMatcher.OTHER]. [admission] is `null` for this app unless
+ * its list holds a `*` pattern, because only a `*` pattern gives an
+ * unbounded count of distinct results; the app then keeps the cap of
+ * issue #205 for that count, and the app writes no `app_path` row when
+ * its list holds no `*` pattern.
+ *
+ * **The ratified rule (the maintainer's decision on pull request #243,
+ * decision 4 of the correction round).** The reader stores
+ * `matcher.match(path)`, the same mapping as the kit (contract rule
+ * C42: both sides agree). A raw `/history/42` thus lands as
+ * `/history/:id` for the pattern `/history/:id`, and a value that
+ * matches no pattern lands as `/other`. A `*` segment keeps the client
+ * segment, so the `app_path` set and the cap stay in force for a list
+ * with a `*` pattern.
+ *
+ * An app with no list ([patternMatcher] `null`) keeps the shape check
+ * of [PathShape] and the per-app cap of [PathAdmission] (issue #205).
  */
-private fun decidePath(path: String?, admission: PathAdmission): String? {
+private fun decidePath(path: String?, patternMatcher: PathPatternMatcher?, admission: PathAdmission?): String? {
     if (path == null) return null
+    if (patternMatcher != null) {
+        val matched = patternMatcher.match(path)
+        if (admission == null || matched == PathPatternMatcher.OTHER) return matched
+        return admission.admit(matched)
+    }
     if (!PathShape.isPatternResult(path)) return OTHER_PATH
-    return admission.admit(path)
+    return admission!!.admit(path)
 }
 
 /**

@@ -279,6 +279,25 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   `app_path` value that holds the erased user id as a whole segment (see D15). This risk
   (RISK 1 of the security review of pull request #193) is now under this control, in place of
   the earlier open state of D5.
+- **D5, the per-app route pattern list, the path allow-list of the reader (2026-09-27, issue
+  #226, the correction of the brief review of 2026-09-27).** An app can give the monitor its
+  own route pattern list, the column `app.path_patterns`, in the form of
+  `OCTOMETER_PATH_PATTERNS` (one pattern per line, stored normalized). `POST /api/apps` and
+  `PATCH /api/apps/{id}` accept the field `pathPatterns`; the monitor takes the kit dependency
+  `kit/jvm-core` and validates each pattern with `PathPatternMatcher.findInvalidIndices`, the
+  kit's own check of contract rule C42, with no copy of that grammar in the monitor. When the
+  app has a list, the reader (`MongoAppReader.runCycle`) admits a `path` value through
+  `PathPatternMatcher.match`. **The ratified rule (the maintainer's decision on pull request
+  #243).** The reader stores `matcher.match(path)`, the same mapping as the kit (contract rule
+  C42: both sides agree), so a raw `/history/42` lands as `/history/:id` and a value that
+  matches no pattern lands as `/other`; a `*` segment keeps the client segment, so the
+  `app_path` set and the cap stay for a list with a `*` pattern. The cap and the set of the D5
+  rule of 2026-09-27 (issue #205) stay in force for this app only when its list holds a `*`
+  pattern, because only a `*` pattern gives an unbounded count of distinct results; an app whose
+  list holds no `*` pattern writes no `app_path` row. An app with no list keeps the cap of issue
+  #205 unchanged. `GET /api/apps/{id}` gives the
+  id, the name, and the stored list, never the connection string, for the edit form of the
+  manage view.
 - **D6. Scheduler.** One loop with a tick of 1 second. It starts a poll for each app with
   `next_poll_at <= now` or `next_poll_at IS NULL`, and no active poll. One cycle reads a maximum of 10 pages inside
   `withTimeout(45 s)`. Success sets `next_poll_at = now + interval` (5 s dev, 60 s prod).

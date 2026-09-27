@@ -40,12 +40,14 @@ describe('AddAppForm', () => {
       connectionString?: string;
       database?: string;
       collection?: string;
+      pathPatterns?: string;
     } = {},
   ): void {
     const name = root().querySelector<HTMLInputElement>('#add-app-name')!;
     const connectionString = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
     const database = root().querySelector<HTMLInputElement>('#add-app-database')!;
     const collection = root().querySelector<HTMLSelectElement>('#add-app-collection')!;
+    const pathPatterns = root().querySelector<HTMLTextAreaElement>('#add-app-path-patterns')!;
 
     name.value = overrides.name ?? 'traficio';
     name.dispatchEvent(new Event('input'));
@@ -58,6 +60,10 @@ describe('AddAppForm', () => {
     if (overrides.collection) {
       collection.value = overrides.collection;
       collection.dispatchEvent(new Event('change'));
+    }
+    if (overrides.pathPatterns) {
+      pathPatterns.value = overrides.pathPatterns;
+      pathPatterns.dispatchEvent(new Event('input'));
     }
 
     root()
@@ -76,6 +82,7 @@ describe('AddAppForm', () => {
       'add-app-connection-string',
       'add-app-database',
       'add-app-collection',
+      'add-app-path-patterns',
     ]) {
       const label = root().querySelector(`label[for="${id}"]`);
       expect(label, `label for #${id}`).toBeTruthy();
@@ -110,6 +117,40 @@ describe('AddAppForm', () => {
       { appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
       { status: 201, statusText: 'Created' },
     );
+  });
+
+  it('sends POST /api/apps with pathPatterns when the route pattern field is filled', () => {
+    fillAndSubmit({ name: 'traficio', database: 'exampledb', pathPatterns: '/checkout\n/cart' });
+
+    const req = httpMock.expectOne({ url: '/api/apps', method: 'POST' });
+    expect(req.request.body).toEqual({
+      name: 'traficio',
+      connectionString: 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net',
+      database: 'exampledb',
+      collection: 'octometer_events',
+      pathPatterns: '/checkout\n/cart',
+    });
+    req.flush(
+      { appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
+      { status: 201, statusText: 'Created' },
+    );
+  });
+
+  it('shows the fixed 400 message for an invalid route pattern list, linked with aria-describedby', () => {
+    fillAndSubmit({ pathPatterns: '/a?b' });
+    httpMock
+      .expectOne({ url: '/api/apps', method: 'POST' })
+      .flush(
+        { error: 'The route pattern at index 0 breaks the route pattern grammar.' },
+        { status: 400, statusText: 'Bad Request' },
+      );
+    fixture.detectChanges();
+
+    expect(root().textContent).toContain(
+      'The route pattern at index 0 breaks the route pattern grammar.',
+    );
+    const pathPatterns = root().querySelector('#add-app-path-patterns');
+    expect(pathPatterns?.getAttribute('aria-describedby')).toBe('add-app-error');
   });
 
   it('disables the submit button while the request is pending', () => {

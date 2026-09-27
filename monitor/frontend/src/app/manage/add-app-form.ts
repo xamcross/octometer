@@ -38,6 +38,7 @@ export class AddAppForm {
   protected readonly connectionString = signal('');
   protected readonly database = signal('');
   protected readonly collection = signal<string>(ALLOWED_COLLECTIONS[0]);
+  protected readonly pathPatterns = signal('');
 
   protected readonly pending = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
@@ -58,6 +59,10 @@ export class AddAppForm {
     this.collection.set((event.target as HTMLSelectElement).value);
   }
 
+  protected onPathPatternsInput(event: Event): void {
+    this.pathPatterns.set((event.target as HTMLTextAreaElement).value);
+  }
+
   protected onSubmit(event: Event): void {
     event.preventDefault();
     if (this.pending()) {
@@ -68,6 +73,7 @@ export class AddAppForm {
       connectionString: this.connectionString(),
       database: this.database(),
       collection: this.collection(),
+      ...(this.pathPatterns().trim() ? { pathPatterns: this.pathPatterns() } : {}),
     };
     this.pending.set(true);
     this.errorMessage.set(null);
@@ -83,6 +89,7 @@ export class AddAppForm {
     this.connectionString.set('');
     this.database.set('');
     this.collection.set(ALLOWED_COLLECTIONS[0]);
+    this.pathPatterns.set('');
     this.announcer.announce('App added');
     this.added.emit(summary);
   }

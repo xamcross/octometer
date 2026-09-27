@@ -386,6 +386,117 @@ class MongoAppReaderUnitTest {
         assertEquals(0, outcome.eventsSkipped)
     }
 
+    // --- runCycle with a route pattern list (issue #226, decision 4) ---
+
+    @Test
+    fun `runCycle with a route pattern list stores a listed literal pattern as it is`() = runBlocking {
+        val click = goodDocument("checkout.save").append("path", "/checkout")
+
+        val outcome = reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, listOf("/checkout")) { _ ->
+            listOf(click)
+        }
+
+        assertEquals(0, outcome.eventsSkipped)
+        assertEquals("/checkout", readEventColumns(database, appId, click.getObjectId("_id").toHexString()).path)
+    }
+
+    @Test
+    fun `runCycle with a route pattern list stores the literal fallback for a raw path`() = runBlocking {
+        val click = goodDocument("checkout.save").append("path", "/some-raw-client-path")
+
+        reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, listOf("/checkout")) { _ -> listOf(click) }
+
+        assertEquals(OTHER_PATH, readEventColumns(database, appId, click.getObjectId("_id").toHexString()).path)
+    }
+
+    // Marker probe of decision 6 of the brief review of 2026-09-27: a
+    // marker route pattern of the app's own list, and a marker raw path
+    // that this list does not admit, must stay out of every captured log
+    // level. The WARN line names the replaced count only, never a
+    // pattern text or a path value (the same rule as the shape-check
+    // marker probe above).
+    @Test
+    fun `a marker raw path outside a marker route pattern list lands as OTHER_PATH, counts, and stays out of every log level`() =
+        runBlocking {
+            val markerPattern = "/octomarkerroutepattern5e91"
+            val markerPath = "/octomarkerrawpath6f2a"
+            val click = goodDocument("checkout.save").append("path", markerPath)
+
+            val (outcome, logEvents) = captureLogEvents {
+                reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, listOf(markerPattern)) { _ ->
+                    listOf(click)
+                }
+            }
+
+            assertEquals(0, outcome.eventsSkipped, "a pattern mismatch is not a skip; the row stays")
+            assertEquals(OTHER_PATH, readEventColumns(database, appId, click.getObjectId("_id").toHexString()).path)
+            val warnLines = logEvents.filter { it.level == Level.WARN && it.loggerName.contains("MongoAppReader") }
+            assertEquals(1, warnLines.size, "one WARN line must count the replaced path value")
+            assertTrue(warnLines.single().formattedMessage.contains("1"), "the line must hold the replaced count")
+            logEvents.forEach { event ->
+                assertFalse(event.formattedMessage.contains(markerPattern), "a log line of level ${event.level} held the route pattern text")
+                assertFalse(event.formattedMessage.contains(markerPath), "a log line of level ${event.level} held the raw path")
+            }
+        }
+
+    @Test
+    fun `runCycle with a route pattern list stores the literal other as it is`() = runBlocking {
+        val click = goodDocument("checkout.save").append("path", OTHER_PATH)
+
+        reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, listOf("/checkout")) { _ -> listOf(click) }
+
+        assertEquals(OTHER_PATH, readEventColumns(database, appId, click.getObjectId("_id").toHexString()).path)
+    }
+
+    @Test
+    fun `runCycle with a route pattern list keeps the real segment of a star pattern`() = runBlocking {
+        val click = goodDocument("checkout.save").append("path", "/articles/intro")
+
+        reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, listOf("/articles/*")) { _ -> listOf(click) }
+
+        assertEquals("/articles/intro", readEventColumns(database, appId, click.getObjectId("_id").toHexString()).path)
+    }
+
+    @Test
+    fun `runCycle with a route pattern list of no star pattern writes no app_path row`() = runBlocking {
+        val click = goodDocument("checkout.save").append("path", "/checkout")
+
+        reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, listOf("/checkout")) { _ -> listOf(click) }
+
+        assertEquals(emptySet(), eventStore.pathValuesOf(appId), "a list with no star pattern needs no app_path write")
+    }
+
+    @Test
+    fun `runCycle with a route pattern list of a star pattern joins the app_path set, and keeps the cap`() = runBlocking {
+        val firstPage = (0 until 200).map { index ->
+            goodDocument("click-$index").append("path", "/articles/item-$index")
+        }
+        val overCap = goodDocument("click-over").append("path", "/articles/item-200")
+
+        val firstOutcome =
+            reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, listOf("/articles/*")) { _ -> firstPage }
+        val outcome = reader.runCycle(
+            appId,
+            firstOutcome.cursor,
+            MAX_PAGES_PER_CYCLE,
+            PAGE_LIMIT,
+            listOf("/articles/*"),
+        ) { _ -> listOf(overCap) }
+
+        assertEquals(200, eventStore.pathValuesOf(appId).size)
+        assertEquals(OTHER_PATH, readEventColumns(database, appId, overCap.getObjectId("_id").toHexString()).path)
+        assertEquals(0, outcome.eventsSkipped)
+    }
+
+    @Test
+    fun `runCycle with a route pattern list stores the literal name-pattern text`() = runBlocking {
+        val click = goodDocument("checkout.save").append("path", "/history/42")
+
+        reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, listOf("/history/:id")) { _ -> listOf(click) }
+
+        assertEquals("/history/:id", readEventColumns(database, appId, click.getObjectId("_id").toHexString()).path)
+    }
+
     // Decision 4 of the correction round: the set persists across a
     // reader restart. A second reader instance, over the same
     // EventStore, must load the set at the start of its own cycle and
@@ -921,7 +1032,7 @@ class MongoAppReaderUnitTest {
         }
 
         val failure = kotlin.runCatching {
-            shortTimeoutReader.runCycleWithTimeout(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, slowFetch)
+            shortTimeoutReader.runCycleWithTimeout(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, fetchPage = slowFetch)
         }.exceptionOrNull()
 
         assertTrue(failure is TimeoutCancellationException, "A page source slower than the cycle timeout must throw. Got $failure.")

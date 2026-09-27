@@ -12,6 +12,7 @@ import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
+import io.ktor.server.routing.get
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import kotlinx.serialization.Serializable
@@ -42,6 +43,25 @@ fun Route.appRegistryRoutes(registry: AppRegistryService) {
                 call.respond(HttpStatusCode.Conflict, ErrorBody("The name is already registered."))
             CreateAppResult.SecretStoreUnavailable ->
                 call.respond(HttpStatusCode.ServiceUnavailable, ErrorBody(SECRET_STORE_UNAVAILABLE_MESSAGE))
+        }
+    }
+
+    // Issue #226, the correction of the brief review of 2026-09-27: the
+    // edit form of the manage view reads the stored route pattern list
+    // through this route when it opens. The answer never holds a
+    // connection string. The Host guard and the no-store header of
+    // RequestGuard already cover every "/api/" path, this one too.
+    get("/api/apps/{id}") {
+        val appId = call.parameters["id"]?.toLongOrNull()
+        if (appId == null) {
+            call.respond(HttpStatusCode.BadRequest, ErrorBody("The app id must be a whole number."))
+            return@get
+        }
+        val detail = registry.getApp(appId)
+        if (detail == null) {
+            call.respond(HttpStatusCode.NotFound, ErrorBody("The app is not registered."))
+        } else {
+            call.respond(HttpStatusCode.OK, detail)
         }
     }
 

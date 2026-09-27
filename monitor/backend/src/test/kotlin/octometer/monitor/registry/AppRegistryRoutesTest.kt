@@ -1,6 +1,7 @@
 package octometer.monitor.registry
 
 import io.ktor.client.request.delete
+import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
@@ -379,13 +380,54 @@ class AppRegistryRoutesTest {
         connectionString: String,
         database: String = "db",
         collection: String = "octometer_events",
+        pathPatterns: String? = null,
     ) = client.post("/api/apps") {
         allowedHost()
         header(HttpHeaders.Origin, "http://localhost:7431")
         contentType(ContentType.Application.Json)
+        val pathPatternsField = if (pathPatterns == null) "" else ",\"pathPatterns\":\"$pathPatterns\""
         setBody(
-            """{"name":"$name","connectionString":"$connectionString","database":"$database","collection":"$collection"}""",
+            """{"name":"$name","connectionString":"$connectionString","database":"$database",""" +
+                """"collection":"$collection"$pathPatternsField}""",
         )
+    }
+
+    // Issue #226, the correction of the brief review of 2026-09-27: the
+    // edit form reads this route when it opens.
+
+    @Test
+    fun `GET apps id gives the id, the name, and the route pattern list, never a connection string`() = testApplication {
+        application { module(prodConfig()) }
+
+        val created = createApp(name = "demo", connectionString = allowlistedSrvUri(), pathPatterns = "/checkout")
+        val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
+
+        val response = client.get("/api/apps/$appId") { allowedHost() }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals(appId, body["appId"]!!.jsonPrimitive.long)
+        assertEquals("demo", body["name"]!!.jsonPrimitive.content)
+        assertEquals("/checkout", body["pathPatterns"]!!.jsonPrimitive.content)
+        assertFalse(response.bodyAsText().contains(allowlistedSrvUri()))
+    }
+
+    @Test
+    fun `GET apps id on an unknown id gets 404`() = testApplication {
+        application { module(prodConfig()) }
+
+        val response = client.get("/api/apps/999") { allowedHost() }
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    @Test
+    fun `GET apps id with a non-numeric id gets 400`() = testApplication {
+        application { module(prodConfig()) }
+
+        val response = client.get("/api/apps/not-a-number") { allowedHost() }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 }
 

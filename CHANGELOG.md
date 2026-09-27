@@ -17,6 +17,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Monitor
 
+- Add the per-app route pattern list, the path allow-list of the reader, with the API field, the manage form, and the guides. (#226)
 - Lower the query time of the level 1 app totals and the anonymous sessions statement, at 1 million events. (#237)
 - Write the run guide, five sections complete; the upgrade step waits for issue #56. (#64)
 - Add the per-app cap on the distinct path values, with a shape check and an erasure rewrite. (#205)
