@@ -597,8 +597,11 @@ describe('Apps', () => {
       startStore();
       flushApps([buildRow()]);
 
+      // jsdom drops a var() value from the camelCase style.backgroundColor
+      // getter, so this assertion reads the property through
+      // getPropertyValue instead.
       const hoverRule = findCssRule('tbody tr:hover');
-      expect(hoverRule?.style.backgroundColor).toBeTruthy();
+      expect(hoverRule?.style.getPropertyValue('background-color')).toBeTruthy();
     });
 
     it('gives .table-scroll position relative, so a hidden span cannot escape its clip', () => {

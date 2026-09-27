@@ -57,7 +57,7 @@ tbody td {
 
 tbody tr:hover,
 tbody tr:focus-within {
-  background-color: #eef2f7;
+  background-color: var(--shallows-deep);
 }
 
 @media (forced-colors: active) {
@@ -88,14 +88,14 @@ tbody tr:focus-within {
  * A disabled pager button keeps aria-disabled, not the native disabled
  * attribute, so it stays in the tab order (the form of `users.css`).
  * This rule gives it a visible state too: a lower-contrast text, no
- * pointer cursor, and a lighter border. #595959 on #f8f8f8 keeps a
- * contrast of 6.6:1, above the 4.5:1 floor of WCAG 1.4.3 for normal
- * text.
+ * pointer cursor, and a lighter border. `--ink-soft` on `--shallows`
+ * keeps a contrast of 7.8:1, above the 4.5:1 floor of WCAG 1.4.3 for
+ * normal text.
  */
 .pager button[aria-disabled='true'] {
-  color: #595959;
-  background-color: #f8f8f8;
-  border-color: #767676;
+  color: var(--ink-soft);
+  background-color: var(--shallows);
+  border-color: var(--ink-soft);
   cursor: default;
 }
 

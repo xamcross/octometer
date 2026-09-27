@@ -654,6 +654,11 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   "Anonymous sessions" takes one row for each session. A second `octo:session-start` row of one
   session, from a retry that still reached the store, thus changes no count of either view.
 
+- **D45. The cartoon look.** The owner's brief of 2026-09-27 asks for a cartoonish style with
+  rounded corners and bright colors. `docs/design.md` holds the tokens, the type scale, the
+  principles, and the contrast table. Each asset of the look ships in the bundle under the CSP
+  of D12.
+
 ## 6. Monitor data model (SQLite)
 
 ```sql
