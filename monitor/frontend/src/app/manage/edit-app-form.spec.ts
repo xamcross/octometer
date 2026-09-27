@@ -53,7 +53,9 @@ describe('EditAppForm', () => {
   // Issue #226: opening the form now also fires GET /api/apps/{id}, to
   // read the stored route pattern list. This flushes that request with
   // a fixed answer of no list, unless the caller gives its own detail.
-  function openEditor(detail: AppDetail = { appId: 3, name: 'traficio', pathPatterns: null }): void {
+  function openEditor(
+    detail: AppDetail = { appId: 3, name: 'traficio', pathPatterns: null },
+  ): void {
     root().querySelector<HTMLButtonElement>('button.edit-toggle')!.click();
     fixture.detectChanges();
     httpMock.expectOne({ url: '/api/apps/3', method: 'GET' }).flush(detail);
@@ -119,8 +121,12 @@ describe('EditAppForm', () => {
   it('labels the route pattern field, and loads the stored list on open', () => {
     openEditor({ appId: 3, name: 'traficio', pathPatterns: '/checkout\n/cart' });
 
-    const field = root().querySelector<HTMLTextAreaElement>('textarea[id^="edit-app-path-patterns-"]')!;
-    expect(root().querySelector(`label[for="${field.id}"]`)?.textContent?.trim().length).toBeGreaterThan(0);
+    const field = root().querySelector<HTMLTextAreaElement>(
+      'textarea[id^="edit-app-path-patterns-"]',
+    )!;
+    expect(
+      root().querySelector(`label[for="${field.id}"]`)?.textContent?.trim().length,
+    ).toBeGreaterThan(0);
     expect(field.value).toBe('/checkout\n/cart');
   });
 
@@ -137,7 +143,9 @@ describe('EditAppForm', () => {
 
   it('sends an empty pathPatterns text when the user clears the field, to clear the stored list', () => {
     openEditor({ appId: 3, name: 'traficio', pathPatterns: '/checkout' });
-    const field = root().querySelector<HTMLTextAreaElement>('textarea[id^="edit-app-path-patterns-"]')!;
+    const field = root().querySelector<HTMLTextAreaElement>(
+      'textarea[id^="edit-app-path-patterns-"]',
+    )!;
     field.value = '';
     field.dispatchEvent(new Event('input'));
     root()
@@ -151,7 +159,9 @@ describe('EditAppForm', () => {
 
   it('shows the fixed 400 message for an invalid route pattern list, linked with aria-describedby', () => {
     openEditor();
-    const field = root().querySelector<HTMLTextAreaElement>('textarea[id^="edit-app-path-patterns-"]')!;
+    const field = root().querySelector<HTMLTextAreaElement>(
+      'textarea[id^="edit-app-path-patterns-"]',
+    )!;
     field.value = '/a?b';
     field.dispatchEvent(new Event('input'));
     root()
@@ -165,7 +175,9 @@ describe('EditAppForm', () => {
       );
     fixture.detectChanges();
 
-    expect(root().textContent).toContain('The route pattern at index 0 breaks the route pattern grammar.');
+    expect(root().textContent).toContain(
+      'The route pattern at index 0 breaks the route pattern grammar.',
+    );
     expect(field.getAttribute('aria-describedby')).toContain('edit-app-error-');
   });
 

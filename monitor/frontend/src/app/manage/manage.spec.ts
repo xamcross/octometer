@@ -288,6 +288,10 @@ describe('Manage', () => {
 
       root().querySelector<HTMLButtonElement>('button.edit-toggle')!.click();
       fixture.detectChanges();
+      httpMock
+        .expectOne({ url: '/api/apps/4', method: 'GET' })
+        .flush({ appId: 4, name: 'traficio', pathPatterns: null });
+      fixture.detectChanges();
       root()
         .querySelector('app-edit-app-form form')!
         .dispatchEvent(new Event('submit', { cancelable: true }));
@@ -304,6 +308,10 @@ describe('Manage', () => {
       flushList([buildRow({ appId: 4, name: 'traficio' })]);
 
       root().querySelector<HTMLButtonElement>('button.edit-toggle')!.click();
+      fixture.detectChanges();
+      httpMock
+        .expectOne({ url: '/api/apps/4', method: 'GET' })
+        .flush({ appId: 4, name: 'traficio', pathPatterns: null });
       fixture.detectChanges();
       root()
         .querySelector('app-edit-app-form form')!

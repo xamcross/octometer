@@ -409,6 +409,36 @@ class MongoAppReaderUnitTest {
         assertEquals(OTHER_PATH, readEventColumns(database, appId, click.getObjectId("_id").toHexString()).path)
     }
 
+    // Marker probe of decision 6 of the brief review of 2026-09-27: a
+    // marker route pattern of the app's own list, and a marker raw path
+    // that this list does not admit, must stay out of every captured log
+    // level. The WARN line names the replaced count only, never a
+    // pattern text or a path value (the same rule as the shape-check
+    // marker probe above).
+    @Test
+    fun `a marker raw path outside a marker route pattern list lands as OTHER_PATH, counts, and stays out of every log level`() =
+        runBlocking {
+            val markerPattern = "/octomarkerroutepattern5e91"
+            val markerPath = "/octomarkerrawpath6f2a"
+            val click = goodDocument("checkout.save").append("path", markerPath)
+
+            val (outcome, logEvents) = captureLogEvents {
+                reader.runCycle(appId, null, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, listOf(markerPattern)) { _ ->
+                    listOf(click)
+                }
+            }
+
+            assertEquals(0, outcome.eventsSkipped, "a pattern mismatch is not a skip; the row stays")
+            assertEquals(OTHER_PATH, readEventColumns(database, appId, click.getObjectId("_id").toHexString()).path)
+            val warnLines = logEvents.filter { it.level == Level.WARN && it.loggerName.contains("MongoAppReader") }
+            assertEquals(1, warnLines.size, "one WARN line must count the replaced path value")
+            assertTrue(warnLines.single().formattedMessage.contains("1"), "the line must hold the replaced count")
+            logEvents.forEach { event ->
+                assertFalse(event.formattedMessage.contains(markerPattern), "a log line of level ${event.level} held the route pattern text")
+                assertFalse(event.formattedMessage.contains(markerPath), "a log line of level ${event.level} held the raw path")
+            }
+        }
+
     @Test
     fun `runCycle with a route pattern list stores the literal other as it is`() = runBlocking {
         val click = goodDocument("checkout.save").append("path", OTHER_PATH)

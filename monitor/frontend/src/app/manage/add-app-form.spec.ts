@@ -146,7 +146,9 @@ describe('AddAppForm', () => {
       );
     fixture.detectChanges();
 
-    expect(root().textContent).toContain('The route pattern at index 0 breaks the route pattern grammar.');
+    expect(root().textContent).toContain(
+      'The route pattern at index 0 breaks the route pattern grammar.',
+    );
     const pathPatterns = root().querySelector('#add-app-path-patterns');
     expect(pathPatterns?.getAttribute('aria-describedby')).toBe('add-app-error');
   });

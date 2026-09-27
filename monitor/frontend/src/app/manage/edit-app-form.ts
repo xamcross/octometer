@@ -100,6 +100,9 @@ export class EditAppForm {
         this.pathPatterns.set(detail.pathPatterns ?? '');
         this.pathPatternsLoaded.set(true);
       },
+      // A failed read leaves pathPatternsLoaded false, so the save omits
+      // the field and keeps the stored list (see the class KDoc).
+      error: () => undefined,
     });
   }
 
