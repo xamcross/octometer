@@ -144,8 +144,8 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
   test('the not-found page shows its sentence and the link to the apps', async ({ page }) => {
     await page.goto('/no-such-page');
     await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
-    await expect(page.getByText('The address does not match a page of Octometer.')).toBeVisible();
-    await page.getByRole('link', { name: 'Go to the app list.' }).click();
+    await expect(page.getByText('This page does not exist.')).toBeVisible();
+    await page.getByRole('link', { name: 'Go to the apps' }).click();
     await expect(page).toHaveURL(/\/apps$/);
   });
 });
