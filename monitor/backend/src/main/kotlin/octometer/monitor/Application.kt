@@ -107,12 +107,30 @@ fun main(args: Array<String>) {
     }
     Runtime.getRuntime().addShutdownHook(Thread { instanceLock.close() })
     logStart(resolved)
-    embeddedServer(
-        factory = Netty,
-        host = host,
-        port = resolved.config.port,
-        module = { module(resolved.config) },
-    ).start(wait = true)
+    // Decision 1 of issue #58: a corrupt database fails the quick_check
+    // of SqliteDatabase.open, inside MonitorServices.open, inside
+    // module(). The catch sits here, around start(wait = true), never
+    // inside module() itself: a caught exitProcess call from inside
+    // Ktor's own startup call stack deadlocks against
+    // io.ktor.server.engine.EmbeddedServer's own JVM shutdown hook,
+    // which waits for the same startup call to unwind before it can
+    // take the write lock of its own stop() call. Letting
+    // CorruptDatabaseException propagate out of module(), and catching
+    // it here, lets start() unwind first and release that lock.
+    try {
+        embeddedServer(
+            factory = Netty,
+            host = host,
+            port = resolved.config.port,
+            module = { module(resolved.config) },
+        ).start(wait = true)
+    } catch (corrupt: CorruptDatabaseException) {
+        log.error(
+            "The database file failed PRAGMA quick_check. The file stays as it is. {}",
+            corrupt.message,
+        )
+        exitProcess(2)
+    }
 }
 
 fun Application.module(config: MonitorConfig, staticDir: File? = defaultStaticDir()) {
@@ -121,20 +139,11 @@ fun Application.module(config: MonitorConfig, staticDir: File? = defaultStaticDi
     // opens the store, the secret store, and runs the orphan-secret sweep
     // one time, at the start; it closes when the application stops.
     //
-    // Decision 1 of issue #58: a corrupt database fails the quick_check
-    // of SqliteDatabase.open. This call runs inside
-    // embeddedServer(...).start(wait = true), so the catch sits here,
-    // not in main. The file stays as it is; the process exits with the
-    // code 2, the form of the two exitProcess(2) calls of main.
-    val services = try {
-        MonitorServices.open(config)
-    } catch (corrupt: CorruptDatabaseException) {
-        log.error(
-            "The database file failed PRAGMA quick_check. The file stays as it is. {}",
-            corrupt.message,
-        )
-        exitProcess(2)
-    }
+    // Decision 1 of issue #58: a corrupt database throws
+    // CorruptDatabaseException here. This function catches nothing; the
+    // throw propagates out of start(wait = true), to the catch in main
+    // (see the comment there for the reason).
+    val services = MonitorServices.open(config)
     monitor.subscribe(ApplicationStopped) {
         services.close()
     }
