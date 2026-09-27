@@ -39,14 +39,12 @@ describe('AddAppForm', () => {
       name?: string;
       connectionString?: string;
       database?: string;
-      collection?: string;
       pathPatterns?: string;
     } = {},
   ): void {
     const name = root().querySelector<HTMLInputElement>('#add-app-name')!;
     const connectionString = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
     const database = root().querySelector<HTMLInputElement>('#add-app-database')!;
-    const collection = root().querySelector<HTMLSelectElement>('#add-app-collection')!;
     const pathPatterns = root().querySelector<HTMLTextAreaElement>('#add-app-path-patterns')!;
 
     name.value = overrides.name ?? 'traficio';
@@ -57,10 +55,6 @@ describe('AddAppForm', () => {
     connectionString.dispatchEvent(new Event('input'));
     database.value = overrides.database ?? 'exampledb';
     database.dispatchEvent(new Event('input'));
-    if (overrides.collection) {
-      collection.value = overrides.collection;
-      collection.dispatchEvent(new Event('change'));
-    }
     if (overrides.pathPatterns) {
       pathPatterns.value = overrides.pathPatterns;
       pathPatterns.dispatchEvent(new Event('input'));
@@ -81,7 +75,6 @@ describe('AddAppForm', () => {
       'add-app-name',
       'add-app-connection-string',
       'add-app-database',
-      'add-app-collection',
       'add-app-path-patterns',
     ]) {
       const label = root().querySelector(`label[for="${id}"]`);
@@ -96,14 +89,7 @@ describe('AddAppForm', () => {
     expect(field.getAttribute('autocomplete')).toBe('new-password');
   });
 
-  it('offers the two allowed collection names, with octometer_events as the default', () => {
-    const select = root().querySelector<HTMLSelectElement>('#add-app-collection')!;
-    const options = Array.from(select.options).map((option) => option.value);
-    expect(options).toEqual(['octometer_events', 'octometer_events_v2']);
-    expect(select.value).toBe('octometer_events');
-  });
-
-  it('sends POST /api/apps with the entered fields', () => {
+  it('sends POST /api/apps with the entered fields, and no collection key', () => {
     fillAndSubmit({ name: 'traficio', database: 'exampledb' });
 
     const req = httpMock.expectOne({ url: '/api/apps', method: 'POST' });
@@ -111,8 +97,8 @@ describe('AddAppForm', () => {
       name: 'traficio',
       connectionString: 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net',
       database: 'exampledb',
-      collection: 'octometer_events',
     });
+    expect(req.request.body).not.toHaveProperty('collection');
     req.flush(
       { appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
       { status: 201, statusText: 'Created' },
@@ -127,13 +113,31 @@ describe('AddAppForm', () => {
       name: 'traficio',
       connectionString: 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net',
       database: 'exampledb',
-      collection: 'octometer_events',
       pathPatterns: '/checkout\n/cart',
     });
     req.flush(
       { appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
       { status: 201, statusText: 'Created' },
     );
+  });
+
+  it('shows no #add-app-collection element', () => {
+    expect(root().querySelector('#add-app-collection')).toBeNull();
+  });
+
+  it('names the hint id of each input in aria-describedby, and the hint holds the example', () => {
+    const connectionString = root().querySelector('#add-app-connection-string')!;
+    const database = root().querySelector('#add-app-database')!;
+    const pathPatterns = root().querySelector('#add-app-path-patterns')!;
+
+    expect(connectionString.getAttribute('aria-describedby')).toBe(
+      'add-app-connection-string-hint',
+    );
+    expect(database.getAttribute('aria-describedby')).toBe('add-app-database-hint');
+    expect(pathPatterns.getAttribute('aria-describedby')).toBe('add-app-path-patterns-hint');
+
+    const connectionStringHint = root().querySelector('#add-app-connection-string-hint');
+    expect(connectionStringHint?.textContent).toContain('mongodb://127.0.0.1:27017');
   });
 
   it('shows the fixed 400 message for an invalid route pattern list, linked with aria-describedby', () => {
@@ -150,7 +154,9 @@ describe('AddAppForm', () => {
       'The route pattern at index 0 breaks the route pattern grammar.',
     );
     const pathPatterns = root().querySelector('#add-app-path-patterns');
-    expect(pathPatterns?.getAttribute('aria-describedby')).toBe('add-app-error');
+    expect(pathPatterns?.getAttribute('aria-describedby')).toBe(
+      'add-app-path-patterns-hint add-app-error',
+    );
   });
 
   it('disables the submit button while the request is pending', () => {
@@ -245,7 +251,9 @@ describe('AddAppForm', () => {
     const errorEl = root().querySelector('#add-app-error');
     expect(errorEl).toBeTruthy();
     const connectionString = root().querySelector('#add-app-connection-string');
-    expect(connectionString?.getAttribute('aria-describedby')).toBe('add-app-error');
+    expect(connectionString?.getAttribute('aria-describedby')).toBe(
+      'add-app-connection-string-hint add-app-error',
+    );
   });
 
   it('shows the fixed 503 message from the API', () => {
@@ -271,7 +279,9 @@ describe('AddAppForm', () => {
 
     expect(root().textContent).toContain('The monitor did not answer. Try again.');
     const connectionString = root().querySelector('#add-app-connection-string');
-    expect(connectionString?.getAttribute('aria-describedby')).toBe('add-app-error');
+    expect(connectionString?.getAttribute('aria-describedby')).toBe(
+      'add-app-connection-string-hint add-app-error',
+    );
   });
 
   it('never writes the connection string to the console, to storage, or to the URL, after a save', () => {

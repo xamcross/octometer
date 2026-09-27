@@ -10,7 +10,6 @@ export interface CreateAppRequest {
   readonly name: string;
   readonly connectionString: string;
   readonly database: string;
-  readonly collection: string;
   readonly pathPatterns?: string;
 }
 
@@ -48,9 +47,6 @@ export interface AppDetail {
   readonly name: string;
   readonly pathPatterns: string | null;
 }
-
-/** The two collection names the registry accepts (`ALLOWED_COLLECTION_NAMES` of the backend). */
-export const ALLOWED_COLLECTIONS = ['octometer_events', 'octometer_events_v2'] as const;
 
 /**
  * The text for a network failure (an HTTP status of 0). The monitor sent no

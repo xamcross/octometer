@@ -30,7 +30,12 @@ data class CreateAppRequest(
     val name: String,
     val connectionString: String,
     val database: String,
-    val collection: String,
+    /**
+     * Issue #244: an absent field takes this default. Contract rule C1
+     * fixes this name; the second name of [ALLOWED_COLLECTION_NAMES] is
+     * for a major change of the contract.
+     */
+    val collection: String = "octometer_events",
     /**
      * The route pattern list of the app (issue #226), in the form of
      * `OCTOMETER_PATH_PATTERNS`: patterns with whitespace between

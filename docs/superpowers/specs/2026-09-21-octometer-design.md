@@ -389,7 +389,7 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
     event with `user_id IS NULL`. The parameter `firstPath` is optional, and it keeps the
     sessions of one first path. Each other parameter set gives 400 (design decision D44).
   - Registry: `POST /api/apps` (JSON fields `name`, `connectionString`, `database`,
-    `collection`),
+    `collection`, optional, the default `octometer_events`),
     `PATCH /api/apps/{id}` (name, connection string), `DELETE /api/apps/{id}` (deletes the
     events in chunks of 10 000).
   - `DELETE /api/apps/{appId}/events?userId=<id>`: the erasure of one user. Contract rule C43

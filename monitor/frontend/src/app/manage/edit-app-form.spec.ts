@@ -130,6 +130,27 @@ describe('EditAppForm', () => {
     expect(field.value).toBe('/checkout\n/cart');
   });
 
+  it('names the hint id of each input in aria-describedby, and the hint holds the example', () => {
+    openEditor();
+    const connectionString = root().querySelector<HTMLInputElement>(
+      'input[id^="edit-app-connection-string-"]',
+    )!;
+    const pathPatterns = root().querySelector<HTMLTextAreaElement>(
+      'textarea[id^="edit-app-path-patterns-"]',
+    )!;
+
+    expect(connectionString.getAttribute('aria-describedby')).toBe(
+      'edit-app-connection-string-hint-3',
+    );
+    expect(pathPatterns.getAttribute('aria-describedby')).toBe('edit-app-path-patterns-hint-3');
+
+    const connectionStringHint = root().querySelector('#edit-app-connection-string-hint-3');
+    expect(connectionStringHint?.textContent).toContain('mongodb://127.0.0.1:27017');
+    expect(connectionStringHint?.textContent).toContain(
+      'Leave the field empty to keep the stored string.',
+    );
+  });
+
   it('sends the loaded route pattern list as it is, when the user makes no change', () => {
     openEditor({ appId: 3, name: 'traficio', pathPatterns: '/checkout' });
     root()
@@ -178,7 +199,9 @@ describe('EditAppForm', () => {
     expect(root().textContent).toContain(
       'The route pattern at index 0 breaks the route pattern grammar.',
     );
-    expect(field.getAttribute('aria-describedby')).toContain('edit-app-error-');
+    expect(field.getAttribute('aria-describedby')).toBe(
+      'edit-app-path-patterns-hint-3 edit-app-error-3',
+    );
   });
 
   // MAJOR 1 of the Angular review of pull request #243: a failed read
@@ -286,7 +309,9 @@ describe('EditAppForm', () => {
     const connectionString = root().querySelector<HTMLInputElement>(
       'input[id^="edit-app-connection-string-"]',
     )!;
-    expect(connectionString.getAttribute('aria-describedby')).toContain('edit-app-error-');
+    expect(connectionString.getAttribute('aria-describedby')).toBe(
+      'edit-app-connection-string-hint-3 edit-app-error-3',
+    );
     expect(staleListSpy).toHaveBeenCalled();
   });
 
@@ -304,7 +329,9 @@ describe('EditAppForm', () => {
     const connectionString = root().querySelector<HTMLInputElement>(
       'input[id^="edit-app-connection-string-"]',
     )!;
-    expect(connectionString.getAttribute('aria-describedby')).toContain('edit-app-error-');
+    expect(connectionString.getAttribute('aria-describedby')).toBe(
+      'edit-app-connection-string-hint-3 edit-app-error-3',
+    );
   });
 
   it('closes the form and discards changes on Cancel', () => {

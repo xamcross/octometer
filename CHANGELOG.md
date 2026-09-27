@@ -17,6 +17,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Monitor
 
+- Give the collection field of the add-app request the default `octometer_events`, and remove the field from the add form. (#244)
+- Show a hint with an example under each field of the add form and the edit form. (#245)
 - Add the per-app route pattern list, the path allow-list of the reader, with the API field, the manage form, and the guides. (#226)
 - Lower the query time of the level 1 app totals and the anonymous sessions statement, at 1 million events. (#237)
 - Write the run guide, five sections complete; the upgrade step waits for issue #56. (#64)
