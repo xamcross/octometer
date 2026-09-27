@@ -150,6 +150,13 @@ describe('AddAppForm', () => {
     expect(rule?.style.getPropertyValue('box-shadow')).toContain('--coral');
   });
 
+  it('keeps the ink focus ring beside the coral ring on an invalid field with focus', () => {
+    const rule = findCssRule('[aria-invalid=true]:focus-visible');
+    const shadow = rule?.style.getPropertyValue('box-shadow');
+    expect(shadow).toContain('--coral');
+    expect(shadow).toContain('--ink');
+  });
+
   it('sends POST /api/apps with the entered fields, and no collection key', () => {
     fillAndSubmit({ name: 'traficio', database: 'exampledb' });
 

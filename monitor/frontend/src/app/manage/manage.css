@@ -34,6 +34,7 @@ th[scope='row'] {
   position: relative;
   overflow-x: auto;
   margin-bottom: 2rem;
+  border-radius: inherit;
 }
 
 .action-row {
@@ -53,13 +54,17 @@ th[scope='row'] {
  * The panel of #248 (decision 6). #249 adds the same rule to the global
  * stylesheet; a merge keeps one copy and drops the other, so the values
  * stay equal.
+ *
+ * This rule holds no `overflow: hidden` (the correction of #258): that
+ * value clips the focus ring of a focusable child, such as
+ * `.table-scroll`. `.table-scroll` gets `border-radius: inherit` in its
+ * own place, so its corner still matches the panel corner.
  */
 .panel {
   background: var(--paper);
   border: var(--line-panel);
   border-radius: var(--radius-panel);
   box-shadow: var(--shadow-panel);
-  overflow: hidden;
 }
 
 /*
@@ -70,10 +75,10 @@ th[scope='row'] {
  */
 
 /*
- * `.panel` gives `overflow: hidden` (decision 6), so a child's own
- * margin-bottom (`.table-scroll`) stops at the panel border, and gives
- * no gap after the panel. This margin-top on the second panel gives the
- * 32px gap between the list panel and the add-app panel instead.
+ * The 3px border of `.panel` stops the bottom margin of a child
+ * (`.table-scroll`) from collapsing past the panel edge, so that margin
+ * gives no gap after the panel. This margin-top on the second panel gives
+ * the 32px gap between the list panel and the add-app panel instead.
  */
 .add-app {
   max-width: 32rem;

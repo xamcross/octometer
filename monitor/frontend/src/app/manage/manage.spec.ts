@@ -226,7 +226,7 @@ describe('Manage', () => {
       }
     });
 
-    it('gives the Edit control and the Delete trigger the danger class only on Delete', () => {
+    it('gives the Edit control and the Delete trigger the same plain button classes', () => {
       flushList([buildRow()]);
 
       const editToggle = root().querySelector('button.edit-toggle') as HTMLElement;
@@ -235,7 +235,7 @@ describe('Manage', () => {
       expect(editToggle.classList.contains('btn-small')).toBe(true);
       expect(deleteTrigger.classList.contains('btn')).toBe(true);
       expect(deleteTrigger.classList.contains('btn-small')).toBe(true);
-      expect(deleteTrigger.classList.contains('btn-danger')).toBe(true);
+      expect(deleteTrigger.classList.contains('btn-danger')).toBe(false);
     });
 
     it('tracks each row with the stable key appId, so a later answer keeps the tr node of a surviving row', () => {

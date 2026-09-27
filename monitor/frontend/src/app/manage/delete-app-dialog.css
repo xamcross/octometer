@@ -28,6 +28,7 @@ label {
   border-left: 3px solid var(--coral);
   font-weight: 700;
   overflow-wrap: anywhere;
+  margin: 8px 0 0;
 }
 
 .actions {

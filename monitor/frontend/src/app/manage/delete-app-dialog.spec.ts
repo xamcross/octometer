@@ -120,7 +120,7 @@ describe('DeleteAppDialog', () => {
     const trigger = root().querySelector<HTMLButtonElement>('button.delete-trigger')!;
     expect(trigger.classList.contains('btn')).toBe(true);
     expect(trigger.classList.contains('btn-small')).toBe(true);
-    expect(trigger.classList.contains('btn-danger')).toBe(true);
+    expect(trigger.classList.contains('btn-danger')).toBe(false);
 
     openDialog();
     const cancel = root().querySelector<HTMLButtonElement>('button.cancel')!;
