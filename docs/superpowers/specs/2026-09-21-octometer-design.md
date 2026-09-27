@@ -85,6 +85,14 @@ A click on a level 1 row opens level 2. A click on a level 2 row opens level 3.
   M0 cluster.
 - Measured on SQLite 3.50 with the indexes of section 6: each level needs less than 0.4 s with
   1 million events, and 2 to 9 s with 10 million events.
+- Measured on 2026-09-27 on the owner machine, with `LevelQueryPerfTest` of issue #63 (the
+  median of three runs): at 1 million events, the level 1 app totals need 0.585 s, the
+  anonymous sessions need 0.516 to 1.145 s, and each other level needs under 0.25 s. At
+  10 million events, the level 1 app totals need 7.4 s, and the anonymous sessions need 27.3
+  to 27.8 s. One event costs 303 bytes on SQLite, with the four indexes of migration 002 (not
+  the 185-byte figure of `mongo:8.0` above). The level 1 app totals and the anonymous sessions
+  statements need 0.5 s or more at 1 million events; issue #237 covers a result cache or a
+  rollup table for that reason.
 
 ## 3. Components and repository layout
 

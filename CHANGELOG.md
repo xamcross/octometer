@@ -25,6 +25,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   history, and a 200 MB total cap. (#57)
 - Record a gap after a long off-time, and show it in the level 1 view. (#62)
 - Purge a gap row whose `to_ts` is older than the retention time. (#227)
+- Add the perf test of the three levels, at 1 million and 10 million events. (#63)
 
 ## 0.2.0 - 2026-09-27
 
