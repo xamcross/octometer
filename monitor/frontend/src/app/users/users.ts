@@ -5,6 +5,7 @@ import { Router, RouterLink } from '@angular/router';
 import { debounceTime, distinctUntilChanged } from 'rxjs';
 
 import { Announcer } from '../announcer';
+import { EmptyState } from '../empty-state/empty-state';
 import { createPollStore } from '../poll/poll-store';
 import { RefreshBar } from '../refresh-bar/refresh-bar';
 import type { UserRow, UserTotalsResponse } from './user-row';
@@ -53,7 +54,7 @@ const NETWORK_FAILURE_TEXT = 'Octometer cannot reach the API. Check the network 
  */
 @Component({
   selector: 'app-users',
-  imports: [RefreshBar, RouterLink],
+  imports: [EmptyState, RefreshBar, RouterLink],
   styleUrl: './users.css',
   templateUrl: './users.html',
 })
@@ -79,6 +80,15 @@ export class Users {
 
   /** The filter text of the query parameter. An empty string means no filter. */
   protected readonly qValue = computed(() => this.q() ?? '');
+
+  /**
+   * The text of the empty state: the filter case, or the general case.
+   * `{{ }}` escapes the value, so this plain string carries it safely.
+   */
+  protected readonly emptyText = computed(() => {
+    const q = this.qValue();
+    return q ? `No user id matches "${q}".` : 'No app user has clicked yet.';
+  });
 
   /** The text of the filter field. It mirrors `qValue`, and the user can edit it. */
   protected readonly filterDraft = signal('');
