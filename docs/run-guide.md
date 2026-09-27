@@ -24,8 +24,9 @@ The target layout of design decision D34 holds these folders and files:
 - `octometer.conf`: the user config file.
 - `octometer.cmd`: the launcher of the installed version.
 
-The monitor creates `data\`, `secrets\`, `logs\`, and `backups\` at the first
-start. The owner creates `app\<version>\` by hand today.
+The monitor creates `data\`, `logs\`, and `backups\` at the first start. The
+monitor creates `secrets\` at the first registration of an app. The owner
+creates `app\<version>\` by hand today.
 
 `octometer.cmd` and the scheduled task come with issue #54. Until #54 lands,
 follow these steps.
@@ -34,9 +35,9 @@ follow these steps.
    `https://github.com/xamcross/octometer/releases`.
 2. Download `octometer-monitor-<version>.zip` (the example version below is
    `0.2.0`, so the file is `octometer-monitor-0.2.0.zip`).
-3. Extract the zip. It holds one folder, `backend-<version>`.
+3. Extract the zip. It holds one folder, `octometer-monitor-<version>`.
 4. Create the folder `app\<version>\` under `%LOCALAPPDATA%\Octometer\`. Move
-   each file of `backend-<version>` into it.
+   each file of `octometer-monitor-<version>` into it.
 5. Open a console in `app\<version>\`. Run `bin\backend.bat`.
 
 The monitor starts in the prod mode by default. Stop the monitor with
@@ -108,16 +109,17 @@ Follow each step in order, on a clean machine or on the same machine.
 1. Stop the monitor.
 2. Move `data\octometer.db`, `data\octometer.db-wal`, and
    `data\octometer.db-shm` out of `data\`.
-3. Copy the backup file `backups\octometer-<yyyyMMdd>.db` to
+3. Create the folder `data\` when it does not exist.
+4. Copy the backup file `backups\octometer-<yyyyMMdd>.db` to
    `data\octometer.db`.
-4. Start the monitor.
+5. Start the monitor.
 
 The start stops with one log line when a `-wal` file of the old database
 still sits beside the restored file. Move each old `-wal` and `-shm` file
 out of `data\` before the start; do not leave one behind.
 
 After the start, read `GET /api/health`. Then compare the event count of
-the level 1 view with the date of the restored backup file.
+the level 1 view with the event count of the backup file.
 
 `secrets\apps.json` sits outside `dataDir`, so a restore does not touch it.
 Each app id of the restored file keeps its connection string. The start
