@@ -21,6 +21,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Monitor
 
+- Show the app name in the breadcrumb as the link to its users list, and drop the "Users" item. (#270)
 - Mark the invalid field of the add form and the edit form with a dashed outline under forced colors. (#266)
 - State the one-reviewer rule in the README, with the role match and the 2026-09-27 change date. (#268)
 - Remove the button press motion under prefers-reduced-motion, and raise the invalid field ring to 4.5:1 on white. (#263, #264)
