@@ -217,6 +217,20 @@ class UserErasureRoutesTest {
     // MINOR 5 of the privacy review: the checkpoint assertion checks the
     // WAL file size and the byte search, not the call alone. A call with
     // no effect could still leave `checkpointed = true` unchecked.
+    //
+    // Issue #253. `runErase` closes `testApplication`, which stops each
+    // background job of the module (the poll scheduler, the retention
+    // purge job, the daily backup job) and then closes the writer
+    // connection. A job can still run one more write between the
+    // route's own checkpoint and that stop, for example a poll cycle
+    // that reads `SELECT DISTINCT app_id FROM app_path`. That write puts
+    // a new frame into the WAL file, so the file is not empty although
+    // the route's checkpoint moved every one of its own frames. Such a
+    // frame holds no byte of the erased user id, so it does not weaken
+    // the byte search below. This test opens one plain connection after
+    // the stop and runs one more `PRAGMA wal_checkpoint(TRUNCATE)`, so
+    // the WAL length check does not depend on the timing of a
+    // background job.
     @Test
     fun `a byte search of the store files finds no user id after the erasure`() {
         val dataDir = prepareStore()
@@ -228,6 +242,7 @@ class UserErasureRoutesTest {
         assertEquals(HttpStatusCode.OK, response.status)
         assertTrue(response.checkpointedField(), "expected checkpointed = true with no other reader")
 
+        checkpointWalFile(dataDir)
         val walFile = File(dataDir, "octometer.db-wal")
         assertTrue(!walFile.exists() || walFile.length() == 0L, "expected an empty or an absent WAL file")
 
@@ -270,6 +285,20 @@ private fun prepareStore(): String {
 }
 
 private fun urlEncode(value: String): String = URLEncoder.encode(value, "UTF-8")
+
+// Issue #253. testApplication has already stopped the module and closed
+// its writer connection at this point, so this connection is the only
+// open connection on the file. One PASSIVE checkpoint moves every frame
+// that a background job wrote after the route's own checkpoint; the
+// TRUNCATE mode then resets the WAL file length to zero.
+private fun checkpointWalFile(dataDir: String) {
+    val url = "jdbc:sqlite:" + File(dataDir, "octometer.db").absolutePath
+    DriverManager.getConnection(url).use { connection ->
+        connection.createStatement().use { statement ->
+            statement.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        }
+    }
+}
 
 private fun insertApp(dataDir: String, name: String): Long {
     val url = "jdbc:sqlite:" + File(dataDir, "octometer.db").absolutePath
