@@ -57,11 +57,11 @@ describe('MainNav', () => {
     expect(manageLink.getAttribute('href')).toBe('/manage');
   });
 
-  it('gives each link a minimum target size of 24 by 24 CSS px', () => {
+  it('gives each link a minimum target size of 24 CSS px wide and 44 CSS px tall', () => {
     for (const link of links()) {
       const style = getComputedStyle(link);
       expect(style.minWidth).toBe('24px');
-      expect(style.minHeight).toBe('24px');
+      expect(style.minHeight).toBe('44px');
     }
   });
 
@@ -113,6 +113,15 @@ describe('MainNav', () => {
 
     const [appsLink] = links();
     expect(appsLink.classList.contains('current-section')).toBe(true);
+  });
+
+  it('gives the current-section link a 3px underline, a second cue next to the colour', async () => {
+    await router.navigateByUrl('/apps/7/users');
+    fixture.detectChanges();
+
+    const [appsLink] = links();
+    const style = getComputedStyle(appsLink);
+    expect(style.textDecorationThickness).toBe('3px');
   });
 
   it('removes the current-section state from the Apps link on the Manage route', async () => {
