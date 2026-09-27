@@ -46,10 +46,7 @@
           @for (row of page.rows; track row.userId) {
             <tr>
               <th scope="row">
-                <a
-                  [routerLink]="['/apps', appId(), 'elements']"
-                  [queryParams]="rowQueryParams(row)"
-                >
+                <a [routerLink]="rowLink(row)" [queryParams]="rowQueryParams(row)">
                   {{ row.userId === null ? '(anonymous)' : row.userId }}
                 </a>
               </th>

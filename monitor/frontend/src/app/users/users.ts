@@ -32,8 +32,8 @@ const NETWORK_FAILURE_TEXT = 'Octometer cannot reach the API. Check the network 
  *
  * The table is one flat `<table>`. `@for` tracks each row by `userId`
  * (D29). The row with `userId: null` shows the text "(anonymous)" and
- * opens the elements view with `anonymous=true` (D44). Issue #115 later
- * gives that row its own "Anonymous sessions" view.
+ * opens the "Anonymous sessions" view with `anonymous=true` (D44,
+ * issue #115).
  *
  * A click on a data cell of a row opens the link of the user cell
  * (D28), the same way as the level 1 view.
@@ -210,6 +210,16 @@ export class Users {
     return numberFormat.format(value);
   }
 
+  /**
+   * The link target of a row: the sessions view for the anonymous row
+   * (issue #115, D44), else the elements view.
+   */
+  protected rowLink(row: UserRow): string[] {
+    return row.userId === null
+      ? ['/apps', this.appId(), 'sessions']
+      : ['/apps', this.appId(), 'elements'];
+  }
+
   /** The query parameters of the row link: `anonymous=true`, or the user id. */
   protected rowQueryParams(row: UserRow): Record<string, string> {
     return row.userId === null ? { anonymous: 'true' } : { userId: row.userId };
@@ -228,7 +238,7 @@ export class Users {
     if (this.selectionTouchesCell(event.currentTarget)) {
       return;
     }
-    void this.router.navigate(['/apps', this.appId(), 'elements'], {
+    void this.router.navigate(this.rowLink(row), {
       queryParams: this.rowQueryParams(row),
     });
   }
