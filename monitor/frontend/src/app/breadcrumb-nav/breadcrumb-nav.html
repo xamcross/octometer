@@ -5,7 +5,7 @@
         @if (last) {
           <span aria-current="page">{{ item.label }}</span>
         } @else if (item.path !== null) {
-          <a [routerLink]="item.path">{{ item.label }}</a>
+          <a [routerLink]="item.path" [queryParams]="item.queryParams ?? null">{{ item.label }}</a>
         } @else {
           <span>{{ item.label }}</span>
         }

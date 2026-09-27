@@ -51,8 +51,7 @@ describe('routes', () => {
     expect(TestBed.inject(Title).getTitle()).toBe('Users of App 7 - Octometer');
     expect(buildBreadcrumb(router.routerState.snapshot.root)).toEqual([
       { label: 'Apps', path: '/apps' },
-      { label: 'App 7', path: null },
-      { label: 'Users', path: null },
+      { label: 'App 7', path: null, appId: 7 },
     ]);
   });
 
@@ -72,7 +71,7 @@ describe('routes', () => {
     // not change that mark.
     expect(breadcrumb).toEqual([
       { label: 'Apps', path: '/apps' },
-      { label: 'App 7', path: null },
+      { label: 'App 7', path: '/apps/7/users', appId: 7 },
       { label: 'First pages', path: null },
     ]);
     expect(heading()).toContain(breadcrumb[breadcrumb.length - 1].label);
@@ -85,7 +84,7 @@ describe('routes', () => {
     const breadcrumb = buildBreadcrumb(router.routerState.snapshot.root);
     expect(breadcrumb).toEqual([
       { label: 'Apps', path: '/apps' },
-      { label: 'App 7', path: null },
+      { label: 'App 7', path: '/apps/7/users', appId: 7 },
       { label: 'Sessions', path: null },
     ]);
   });
@@ -110,8 +109,7 @@ describe('routes', () => {
     const breadcrumb = buildBreadcrumb(router.routerState.snapshot.root);
     expect(breadcrumb).toEqual([
       { label: 'Apps', path: '/apps' },
-      { label: 'App 7', path: null },
-      { label: 'Users', path: '/apps/7/users' },
+      { label: 'App 7', path: '/apps/7/users', appId: 7 },
       { label: 'User 42', path: null },
     ]);
     // The heading and the last breadcrumb entry name the same view.
@@ -125,8 +123,7 @@ describe('routes', () => {
     const breadcrumb = buildBreadcrumb(router.routerState.snapshot.root);
     expect(breadcrumb).toEqual([
       { label: 'Apps', path: '/apps' },
-      { label: 'App 7', path: null },
-      { label: 'Users', path: '/apps/7/users' },
+      { label: 'App 7', path: '/apps/7/users', appId: 7 },
       { label: 'Anonymous', path: null },
     ]);
     expect(heading()).toContain(breadcrumb[breadcrumb.length - 1].label);
@@ -139,8 +136,8 @@ describe('routes', () => {
     const breadcrumb = buildBreadcrumb(router.routerState.snapshot.root);
     expect(breadcrumb).toEqual([
       { label: 'Apps', path: '/apps' },
-      { label: 'App 7', path: null },
-      { label: 'Sessions', path: null },
+      { label: 'App 7', path: '/apps/7/users', appId: 7 },
+      { label: 'Sessions', path: '/apps/7/sessions', queryParams: { anonymous: 'true' } },
       { label: 'Session 0b0e4e0e', path: null },
     ]);
   });
