@@ -12,7 +12,7 @@
     [value]="filterDraft()"
     (input)="onFilterInput($event)"
   />
-  <button type="submit">Filter</button>
+  <button class="btn btn-small" type="submit">Filter</button>
 </form>
 
 @if (errorText(); as text) {
@@ -29,44 +29,47 @@
       }
     </p>
   } @else {
-    <div class="table-scroll" tabindex="0" role="region" aria-labelledby="users-caption">
-      <table>
-        <caption id="users-caption">
-          The users of this app, with the click totals of each user.
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">User</th>
-            <th scope="col" class="num">Clicks</th>
-            <th scope="col" class="num">Sessions</th>
-            <th scope="col" class="num">Unique elements</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of page.rows; track row.userId) {
+    <section class="panel">
+      <div class="table-scroll" tabindex="0" role="region" aria-labelledby="users-caption">
+        <table>
+          <caption id="users-caption">
+            The users of this app, with the click totals of each user.
+          </caption>
+          <thead>
             <tr>
-              <th scope="row">
-                <a [routerLink]="rowLink(row)" [queryParams]="rowQueryParams(row)">
-                  {{ row.userId === null ? '(anonymous)' : row.userId }}
-                </a>
-              </th>
-              <td class="num" (click)="onRowCellClick(row, $event)">
-                {{ formatCount(row.clicks) }}
-              </td>
-              <td class="num" (click)="onRowCellClick(row, $event)">
-                {{ formatCount(row.sessions) }}
-              </td>
-              <td class="num" (click)="onRowCellClick(row, $event)">
-                {{ formatCount(row.uniqueElements) }}
-              </td>
+              <th scope="col">User</th>
+              <th scope="col" class="num">Clicks</th>
+              <th scope="col" class="num">Sessions</th>
+              <th scope="col" class="num">Unique elements</th>
             </tr>
-          }
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            @for (row of page.rows; track row.userId) {
+              <tr>
+                <th scope="row">
+                  <a [routerLink]="rowLink(row)" [queryParams]="rowQueryParams(row)">
+                    {{ row.userId === null ? '(anonymous)' : row.userId }}
+                  </a>
+                </th>
+                <td class="num" (click)="onRowCellClick(row, $event)">
+                  {{ formatCount(row.clicks) }}
+                </td>
+                <td class="num" (click)="onRowCellClick(row, $event)">
+                  {{ formatCount(row.sessions) }}
+                </td>
+                <td class="num" (click)="onRowCellClick(row, $event)">
+                  {{ formatCount(row.uniqueElements) }}
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     <nav class="pager" aria-label="Pages of the user list">
       <button
+        class="btn btn-small"
         type="button"
         (click)="onPreviousPage()"
         [attr.aria-disabled]="currentPage() <= 1 ? 'true' : null"
@@ -75,6 +78,7 @@
       </button>
       <span aria-current="true">Page {{ currentPage() }} of {{ page.pageCount }}</span>
       <button
+        class="btn btn-small"
         type="button"
         (click)="onNextPage()"
         [attr.aria-disabled]="currentPage() >= page.pageCount ? 'true' : null"
