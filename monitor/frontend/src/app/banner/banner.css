@@ -6,10 +6,27 @@
 .banner-text {
   width: 100%;
   margin: 0;
-  padding: 0.5rem 1rem;
   background: var(--coral);
   color: var(--on-bright);
   border-bottom: var(--line-control);
+}
+
+/*
+ * The coral fill stays full width, but the mark and the text follow the
+ * page column, the same as the band row and the breadcrumb nav (D45,
+ * the #254 confirmation).
+ */
+.banner-row {
+  display: block;
+  max-width: 76rem;
+  margin-inline: auto;
+  padding: 0.5rem 16px;
+}
+
+@media (min-width: 48rem) {
+  .banner-row {
+    padding-inline: 32px;
+  }
 }
 
 .banner-icon {

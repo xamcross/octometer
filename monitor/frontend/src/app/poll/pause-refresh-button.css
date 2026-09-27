@@ -1,7 +1,10 @@
 /*
  * The button is a pill, in the same form as a nav pill (D45). The target
  * size keeps a 24px minimum width beside a 44px minimum height (WCAG
- * 2.5.8), also given by a nav pill.
+ * 2.5.8), also given by a nav pill. This rule names its own font size,
+ * because Angular scopes it to this component: a shared `button` rule
+ * that #248 adds later cannot reach in and correct it. This scoped rule
+ * is the pill form of #247, not the shared `.btn` rule of #248.
  */
 button {
   display: inline-flex;
@@ -13,8 +16,7 @@ button {
   color: var(--ink);
   border: var(--line-control);
   border-radius: var(--radius-pill);
-  font-family: var(--display);
-  font-weight: 600;
+  font: 600 var(--text-m) / 1.2 var(--display);
 }
 
 /* The check mark holds its space in both states, so the button keeps one size. */
