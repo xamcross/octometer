@@ -14,6 +14,13 @@ that each row stays in the store, also after the production release. A
 later fix sets the status of the row to `fixed in #N`. No pull request
 fixes a MINOR finding of its own review.
 
+Each pull request gets one review by one reviewer. The reviewer has the
+role or the roles that the change needs, for example an Angular and
+accessibility engineer, or a Kotlin and SQLite engineer. The owner
+decided this on 2026-09-27; before that date a code change had two
+reviewers. A brief review before the implementer starts and a
+confirmation of a fix by the same reviewer stay.
+
 `./gradlew build` needs Node 24 and npm on the PATH for the demo app
 (Ktor review MAJOR 3, pull request #168). Read
 `tools/demo-app/README.md` for the setup steps.
