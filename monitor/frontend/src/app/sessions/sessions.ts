@@ -171,6 +171,11 @@ export class Sessions {
     return userId === null ? '(anonymous)' : userId;
   }
 
+  /** The text of the first-page cell: "(unknown)" for a null path, else the path (issue #213). */
+  protected formatFirstPath(firstPath: string | null): string {
+    return firstPath === null ? '(unknown)' : firstPath;
+  }
+
   /**
    * Opens the link of the session cell, from a click on a different
    * cell of the same row (D28). It does nothing while the user selects

@@ -13,9 +13,6 @@ import octometer.monitor.store.SqliteDatabase
 /** The row count of one page (issue #112, step 1). */
 internal const val FIRST_PAGES_PAGE_SIZE = 50
 
-/** The text of an event row with a `NULL` path (issue #112, step 3, D44). */
-internal const val UNKNOWN_PATH = "(unknown)"
-
 private const val APP_ID_MESSAGE = "The app id must be a whole number."
 private const val PAGE_MESSAGE = "The page must be a positive whole number."
 private const val APP_NOT_FOUND_MESSAGE = "The app is not registered."
@@ -25,8 +22,9 @@ private const val APP_NOT_FOUND_MESSAGE = "The app is not registered."
 // event_first_page. Issue #112, step 2, gives this exact statement text,
 // with the literal LIMIT 50 and one bound parameter for the app id and
 // one for the offset. The statement holds no COALESCE (issue #112, step
-// 3); the API layer writes the text "(unknown)" for a NULL path once the
-// row leaves the database.
+// 3); the row leaves the database with a `null` path when it holds no
+// path. The API layer (issue #213) sends that `null` value on to the
+// client; it writes no text for the missing path.
 //
 // Visibility: internal, not private. The query-plan test of
 // FirstPagesRouteTest runs this exact text through EXPLAIN QUERY PLAN.
@@ -42,9 +40,13 @@ internal const val FIRST_PAGES_COUNT_SQL =
 
 private const val APP_EXISTS_SQL = "SELECT 1 FROM app WHERE id = ?"
 
-/** One row of `GET /api/apps/{appId}/first-pages` (D13, D44). */
+/**
+ * One row of `GET /api/apps/{appId}/first-pages` (D13, D44). `path` is
+ * `null` for a session-start event with a missing path (issue #213);
+ * the frontend renders the text `(unknown)` for that `null` value.
+ */
 @Serializable
-data class FirstPageRow(val path: String, val sessions: Long)
+data class FirstPageRow(val path: String?, val sessions: Long)
 
 /** The page shape of D13: the current page, the last page, and the rows. */
 @Serializable
@@ -145,7 +147,7 @@ internal fun readFirstPagesPage(reader: Connection, appId: Long, page: Int): Lis
             val rows = mutableListOf<FirstPageRow>()
             while (result.next()) {
                 rows += FirstPageRow(
-                    path = result.getString(1) ?: UNKNOWN_PATH,
+                    path = result.getString(1),
                     sessions = result.getLong(2),
                 )
             }
