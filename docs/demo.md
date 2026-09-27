@@ -103,8 +103,7 @@ Build the JSON in a variable first:
 $json = @'
 {
   "name": "demo",
-  "connectionString": "mongodb://127.0.0.1:27017",
-  "database": "exampledb"
+  "connectionString": "mongodb://127.0.0.1:27017/exampledb"
 }
 '@
 ```

@@ -391,10 +391,15 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
     `anonymous=true` is mandatory, and it selects each session that holds a minimum of one
     event with `user_id IS NULL`. The parameter `firstPath` is optional, and it keeps the
     sessions of one first path. Each other parameter set gives 400 (design decision D44).
-  - Registry: `POST /api/apps` (JSON fields `name`, `connectionString`, `database`,
-    `collection`, optional, the default `octometer_events`),
-    `PATCH /api/apps/{id}` (name, connection string), `DELETE /api/apps/{id}` (deletes the
-    events in chunks of 10 000).
+  - Registry: `POST /api/apps` (JSON fields `name`, `connectionString`, `database`
+    (optional; the registry derives it from the path of the connection string when the
+    field is absent, 2026-09-28, issue #272), `collection` (optional, the default
+    `octometer_events`)), `PATCH /api/apps/{id}` (name, connection string),
+    `DELETE /api/apps/{id}` (deletes the events in chunks of 10 000).
+    The database name comes from the path of the connection string (2026-09-28, #272).
+    A PATCH with a new string derives the database name again. A different name
+    writes `database_name` and resets the poll state, as a different host does
+    (D10, #187). An equal name resets the poll state only when the string changed.
   - `DELETE /api/apps/{appId}/events?userId=<id>`: the erasure of one user. Contract rule C43
     sets its width: it also removes the anonymous events of each session of that user id.
   - JSON field names. Health: `version`, `schemaVersion`, `mode`, `refreshSeconds`,

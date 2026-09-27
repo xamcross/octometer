@@ -24,19 +24,6 @@
   </div>
 
   <div class="field">
-    <label for="add-app-database">Database</label>
-    <input
-      id="add-app-database"
-      type="text"
-      required
-      [value]="database()"
-      (input)="onDatabaseInput($event)"
-      aria-describedby="add-app-database-hint"
-    />
-    <p id="add-app-database-hint" class="form-hint">{{ databaseHint }}</p>
-  </div>
-
-  <div class="field">
     <label for="add-app-path-patterns">Route patterns (one per line)</label>
     <textarea
       id="add-app-path-patterns"
@@ -47,7 +34,7 @@
       "
     ></textarea>
     <p id="add-app-path-patterns-hint" class="form-hint">
-      {{ pathPatternsHint }} Example: <code>/</code> <code>/articles/*</code>
+      {{ pathPatternsHint }} Example: <code>/</code>, <code>/articles/*</code>,
       <code>/history/:id</code>, each on its own line.
     </p>
   </div>

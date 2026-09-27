@@ -234,7 +234,7 @@ class AppRegistryRoutesTest {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
             contentType(ContentType.Application.Json)
-            setBody("""{"connectionString":"${allowlistedSrvUriWithoutCredential()}"}""")
+            setBody("""{"connectionString":"${withDatabasePath(allowlistedSrvUriWithoutCredential())}"}""")
         }
 
         assertEquals(HttpStatusCode.NoContent, response.status)
@@ -367,7 +367,7 @@ class AppRegistryRoutesTest {
                 allowedHost()
                 header(HttpHeaders.Origin, "http://localhost:7431")
                 contentType(ContentType.Application.Json)
-                setBody("""{"connectionString":"${allowlistedSrvUriWithoutCredential()}"}""")
+                setBody("""{"connectionString":"${withDatabasePath(allowlistedSrvUriWithoutCredential())}"}""")
             }.status
         }
 
@@ -396,10 +396,14 @@ class AppRegistryRoutesTest {
         assertEquals(1, countAppRows(dataDir), "a 503 must not remove the app row")
     }
 
+    // Issue #272: the create body no longer carries a "database" field;
+    // the registry derives the name from the path of the connection
+    // string (D13). This helper adds a path when the caller's fixture
+    // connection string has none yet, so each existing test still
+    // names one database, the same as before.
     private suspend fun ApplicationTestBuilder.createApp(
         name: String,
         connectionString: String,
-        database: String = "db",
         collection: String = "octometer_events",
         pathPatterns: String? = null,
     ) = client.post("/api/apps") {
@@ -408,7 +412,7 @@ class AppRegistryRoutesTest {
         contentType(ContentType.Application.Json)
         val pathPatternsField = if (pathPatterns == null) "" else ",\"pathPatterns\":\"$pathPatterns\""
         setBody(
-            """{"name":"$name","connectionString":"$connectionString","database":"$database",""" +
+            """{"name":"$name","connectionString":"${withDatabasePath(connectionString)}",""" +
                 """"collection":"$collection"$pathPatternsField}""",
         )
     }

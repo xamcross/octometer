@@ -209,8 +209,11 @@ class ConnectionStringSentinelContainerTest {
                     observedLastErrors += afterHostFailure.lastError
 
                     // Poll 3: the good source, with the marker-user
-                    // events already stored there.
-                    patchConnectionString(httpClient, monitorPort, appId, MONGO.connectionString)
+                    // events already stored there. Issue #272:
+                    // UpdateAppRequest carries no database field, so the
+                    // path must name it; MONGO.connectionString has none
+                    // on its own.
+                    patchConnectionString(httpClient, monitorPort, appId, "${MONGO.connectionString}/$EXAMPLE_DATABASE")
                     val afterSuccess = waitForStatus(httpClient, monitorPort, appId, "OK", SUCCESS_WAIT_BOUND_MILLIS)
                     observedLastErrors += afterSuccess.lastError
 

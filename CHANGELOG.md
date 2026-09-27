@@ -24,6 +24,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Monitor
 
+- Derive the database name from the path of the connection string, and remove the Database field from the add form. (#272)
 - Show the app name in the breadcrumb as the link to its users list, and drop the "Users" item. (#270)
 - Keep a margin of 16 px between the refresh line and the table panel of each data view. (#271)
 - Mark the invalid field of the add form and the edit form with a dashed outline under forced colors. (#266)
