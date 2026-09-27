@@ -4,7 +4,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
 import { Announcer } from '../announcer';
-import type { AppRow } from './app-row';
+import type { AppRow, AppStatus } from './app-row';
 import { Apps } from './apps';
 
 /**
@@ -575,6 +575,62 @@ describe('Apps', () => {
       expect(wrapper.querySelector('table')).toBeTruthy();
     });
 
+    it('puts the scroll container inside a panel (#249)', () => {
+      startStore();
+      flushApps([buildRow()]);
+
+      const panel = root().querySelector('section.panel') as HTMLElement;
+      expect(panel).toBeTruthy();
+      expect(panel.querySelector('.table-scroll table')).toBeTruthy();
+    });
+
+    it('gives each status a badge with the fill class of D45, over the seven statuses (docs/design.md)', () => {
+      const cases: { status: AppStatus; badgeClass: string }[] = [
+        { status: 'OK', badgeClass: 'badge-ok' },
+        { status: 'NEVER_POLLED', badgeClass: 'badge-none' },
+        { status: 'UNREACHABLE', badgeClass: 'badge-bad' },
+        { status: 'UNAUTHORIZED', badgeClass: 'badge-bad' },
+        { status: 'OVERPRIVILEGED', badgeClass: 'badge-warn' },
+        { status: 'INVALID_DATA', badgeClass: 'badge-bad' },
+        { status: 'ERROR', badgeClass: 'badge-bad' },
+      ];
+      startStore();
+      flushApps(
+        cases.map((testCase, index) => buildRow({ appId: index, status: testCase.status })),
+      );
+
+      const badges = Array.from(root().querySelectorAll('td.status .badge'));
+      expect(badges.length).toBe(cases.length);
+      cases.forEach((testCase, index) => {
+        const badge = badges[index] as HTMLElement;
+        expect(badge.classList.contains('badge')).toBe(true);
+        expect(badge.classList.contains(testCase.badgeClass)).toBe(true);
+      });
+    });
+
+    it('keeps the mark and the word inside the badge span, and each note after it, outside the span', () => {
+      startStore();
+      flushApps([
+        buildRow({
+          status: 'ERROR',
+          lastSuccessAt: '2026-09-21T09:05:03.000Z',
+          lastError: 'The server did not answer.',
+          gaps: [{ from: '2026-08-01T14:00:00.000Z', to: '2026-08-02T14:00:00.000Z' }],
+        }),
+      ]);
+
+      const statusCell = root().querySelector('td.status') as HTMLElement;
+      const badge = statusCell.querySelector('.badge') as HTMLElement;
+      expect(badge.querySelector('[aria-hidden="true"]')).toBeTruthy();
+      expect(badge.textContent).toContain('Error');
+      expect(badge.querySelector('.data-from')).toBeNull();
+      expect(badge.querySelector('.error-text')).toBeNull();
+      expect(badge.querySelector('.gap-text')).toBeNull();
+      expect(statusCell.querySelector('.data-from')).toBeTruthy();
+      expect(statusCell.querySelector('.error-text')).toBeTruthy();
+      expect(statusCell.querySelector('.gap-text')).toBeTruthy();
+    });
+
     it('keeps a number cell and the data-time cell on one line, not broken word by word', () => {
       startStore();
       flushApps([buildRow()]);
@@ -599,9 +655,11 @@ describe('Apps', () => {
 
       // jsdom drops a var() value from the camelCase style.backgroundColor
       // getter, so this assertion reads the property through
-      // getPropertyValue instead.
-      const hoverRule = findCssRule('tbody tr:hover');
-      expect(hoverRule?.style.getPropertyValue('background-color')).toBeTruthy();
+      // getPropertyValue instead. The selector targets each cell (`> *`),
+      // because the shared zebra rule of styles.css paints a background on
+      // the cell too, above the row (#249).
+      const hoverRule = findCssRule('tbody tr:hover > *');
+      expect(hoverRule?.style.getPropertyValue('background')).toBeTruthy();
     });
 
     it('gives .table-scroll position relative, so a hidden span cannot escape its clip', () => {

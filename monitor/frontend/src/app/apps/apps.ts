@@ -7,6 +7,7 @@ import { createPollStore } from '../poll/poll-store';
 import { RefreshIntervalState } from '../poll/refresh-interval-state';
 import { RefreshBar } from '../refresh-bar/refresh-bar';
 import {
+  STATUS_BADGE_CLASS,
   STATUS_ICON,
   STATUS_LABEL,
   formatLocalDate,
@@ -113,6 +114,11 @@ export class Apps {
 
   protected statusIcon(status: AppStatus): string {
     return STATUS_ICON[status];
+  }
+
+  /** The badge class of the status value (D45, docs/design.md). */
+  protected statusBadgeClass(status: AppStatus): string {
+    return STATUS_BADGE_CLASS[status];
   }
 
   /** The text of a count cell. `NEVER_POLLED` shows "–", never 0 (D30). */
