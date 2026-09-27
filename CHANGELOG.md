@@ -15,6 +15,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Kit JVM
 
+- Add the design decisions D46 to D49 for the route list from the app. (#275)
+
 ### Tracker
 
 - Name the tarball asset of the release `0.2.0` in the Ktor guide and the tracker README. (#229)
