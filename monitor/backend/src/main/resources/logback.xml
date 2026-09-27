@@ -1,18 +1,13 @@
-<!-- A console log and a rolling file log (issue #57). ERROR goes to the -->
-<!-- standard error, so a scheduled task that captures only that stream -->
-<!-- still records a fatal start-up error (D2). The distribution also -->
-<!-- runs in a console window, and the CI reads the console; the two -->
-<!-- console appenders stay for that reader. -->
+<!-- The console log. ERROR goes to the standard error, so a scheduled -->
+<!-- task that captures only that stream still records a fatal start-up -->
+<!-- error (D2). This file runs at the class load of ApplicationKt, -->
+<!-- before main starts, and it holds no file appender (issue #57, -->
+<!-- MAJOR 1 of the JVM operations review of pull request #231). A file -->
+<!-- appender here would open a file in the working folder of the -->
+<!-- process, before dataDir is known, on every start. logback-file.xml -->
+<!-- holds the rolling file log instead; configureLogDir loads it after -->
+<!-- the config load, once the real logs folder is known. -->
 <configuration>
-    <!-- The logs folder of D3 and D34, a sibling of dataDir. Application.kt
-         sets this property after loadConfig returns, then it runs
-         JoranConfigurator on this same file (see the class comment of
-         Application.kt for the reason and the two lines that keep the
-         default below). The default lets this file appender work at
-         the very first log call too, before the config load, and in a
-         test that never sets the property. -->
-    <property name="OCTOMETER_LOG_DIR" value="${OCTOMETER_LOG_DIR:-build/logs}" />
-
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <filter class="ch.qos.logback.classic.filter.LevelFilter">
             <level>ERROR</level>
@@ -30,31 +25,6 @@
             <level>ERROR</level>
         </filter>
         <target>System.err</target>
-        <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{20} - %msg%n</pattern>
-        </encoder>
-    </appender>
-
-    <!-- The rolling file log of issue #57, design decision D37. The
-         pattern text is the exact text of the two console appenders
-         above: [%thread] holds a fixed name of the app, never a value
-         (the maintainer's correction of the brief review). The policy
-         properties follow the Logback manual, page
-         "appenders-rolling.html", section SizeAndTimeBasedRollingPolicy,
-         read on 2026-09-27: fileNamePattern needs both %d and %i;
-         maxFileSize rolls a file over within one day; maxHistory and
-         totalSizeCap bound the age and the total size of the archive
-         together; cleanHistoryOnStart applies the two bounds at the
-         start too, for a short-lived run. -->
-    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${OCTOMETER_LOG_DIR}/octometer.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${OCTOMETER_LOG_DIR}/octometer.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <maxFileSize>10MB</maxFileSize>
-            <maxHistory>14</maxHistory>
-            <totalSizeCap>200MB</totalSizeCap>
-            <cleanHistoryOnStart>true</cleanHistoryOnStart>
-        </rollingPolicy>
         <encoder>
             <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{20} - %msg%n</pattern>
         </encoder>
@@ -100,6 +70,5 @@
     <root level="INFO">
         <appender-ref ref="STDOUT" />
         <appender-ref ref="STDERR" />
-        <appender-ref ref="FILE" />
     </root>
 </configuration>

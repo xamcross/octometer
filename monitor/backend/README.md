@@ -102,8 +102,9 @@ The monitor writes each log line to the console, and to a rolling file. Each fil
 uses one text pattern, with no query string, no header, and no connection string.
 
 - The file: `<logs>/octometer.log`. The folder `logs` is a sibling of `dataDir` (design
-  decisions D3 and D34); `Application.kt` reads `dataDir` from the resolved config, and sets
-  it before the file appender opens its first real file.
+  decisions D3 and D34). `configureLogDir` in `Application.kt` sets the folder after the
+  config load. It then loads `logback-file.xml`, a second Logback file that adds the
+  rolling file appender. `logback.xml` itself never loads a file appender.
 - Each file rolls over at 10 MB, or at midnight, whichever comes first.
 - The monitor keeps 14 days of files, up to 200 MB in total. A file beyond either bound is
   gone.

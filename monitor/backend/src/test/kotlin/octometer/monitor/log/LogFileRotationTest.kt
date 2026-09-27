@@ -17,11 +17,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Issue #57, decision 5 of the maintainer's correction: this class
- * builds its own [LoggerContext] from the real `logback.xml`, never
- * from the shared context of
- * [octometer.monitor.captureLogEvents]. That shared context runs
- * `logback-test.xml` instead, with the two console appenders only.
+ * Issue #57, decision 5 of the maintainer's correction, and MAJOR 1 of
+ * the JVM operations review of pull request #231: this class builds
+ * its own [LoggerContext] from `logback-file.xml`, never from the
+ * shared context of [octometer.monitor.captureLogEvents]. `logback.xml`
+ * alone holds the two console appenders only, with no file appender.
+ * `logback-file.xml` includes `logback.xml`, then adds the file
+ * appender; [octometer.monitor.Application]'s own `configureLogDir`
+ * loads the same file, once `dataDir` is known.
  *
  * Each policy property comes from the live appender object, not from
  * the XML text (the acceptance criterion of issue #57). Logback 1.6.3
@@ -77,7 +80,7 @@ class LogFileRotationTest {
 }
 
 /**
- * Builds a fresh [LoggerContext] from the real `logback.xml`, with
+ * Builds a fresh [LoggerContext] from `logback-file.xml`, with
  * `OCTOMETER_LOG_DIR` set as a context property to [logDir]. A
  * context property, not a system property, so this test never leaks
  * a value into a different test of the same JVM.
@@ -93,8 +96,8 @@ private fun configuredContext(logDir: File): LoggerContext {
     context.putProperty("OCTOMETER_LOG_DIR", logDir.absolutePath)
     val configurator = JoranConfigurator()
     configurator.context = context
-    val resource = Thread.currentThread().contextClassLoader.getResource("logback.xml")
-        ?: error("The file logback.xml is missing from the classpath.")
+    val resource = Thread.currentThread().contextClassLoader.getResource("logback-file.xml")
+        ?: error("The file logback-file.xml is missing from the classpath.")
     configurator.doConfigure(resource)
     return context
 }

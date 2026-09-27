@@ -1,0 +1,44 @@
+<!-- The rolling file log of issue #57, design decision D37. Application.kt's
+     configureLogDir loads this file, after the config load, once the
+     real logs folder is known (D3, D34). It sets OCTOMETER_LOG_DIR as
+     a context property first, so this file needs no default value for
+     that property (MAJOR 1 of the JVM operations review of pull
+     request #231: the class load of ApplicationKt must load no file
+     appender, before dataDir is known). -->
+<configuration>
+    <!-- The two console appenders and the three logger levels of
+         logback.xml, spliced in at this point. -->
+    <include resource="logback.xml" />
+
+    <!-- The pattern text is the exact text of the two console appenders
+         of logback.xml: [%thread] holds a fixed name of the app, never
+         a value. The policy properties follow the Logback manual, page
+         "appenders-rolling.html", section SizeAndTimeBasedRollingPolicy,
+         read on 2026-09-27. fileNamePattern needs both %d and %i.
+         maxFileSize rolls a file over within one day. maxHistory and
+         totalSizeCap bound the age and the total size of the archive
+         together. cleanHistoryOnStart applies the two bounds at the
+         start too, for a short-lived run. -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${OCTOMETER_LOG_DIR}/octometer.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${OCTOMETER_LOG_DIR}/octometer.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>200MB</totalSizeCap>
+            <cleanHistoryOnStart>true</cleanHistoryOnStart>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{20} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- The included root of logback.xml already holds the two console
+         appenders. This second root tag adds FILE to the same root
+         logger; Logback attaches each appender-ref of a root tag, and
+         two root tags in one configuration are additive, never a
+         replace. -->
+    <root level="INFO">
+        <appender-ref ref="FILE" />
+    </root>
+</configuration>
