@@ -244,6 +244,14 @@ jobs:
         # the kill line ran. The java process then stayed alive until
         # the job timeout. The trap now runs on every exit path of this
         # step, a normal end and a failure alike.
+        #
+        # Issue #57: OCTOMETER_DATA_DIR moves dataDir under the
+        # workspace, so the logs folder of D3 and D34 lands at
+        # build/smoke/logs, not the real per-user folder of prod mode.
+        # The last line lists that folder, and fails when octometer.log
+        # is absent (the acceptance criterion of issue #57).
+        env:
+          OCTOMETER_DATA_DIR: ${{ github.workspace }}/build/smoke/data
         run: |
           ./monitor/backend/build/install/backend/bin/backend &
           server_pid=$!
@@ -262,6 +270,11 @@ jobs:
             exit 1
           fi
           curl --fail --silent --show-error "$base_url/" > /dev/null
+          ls -la build/smoke/logs
+          if [ ! -f build/smoke/logs/octometer.log ]; then
+            echo "The file octometer.log is absent from build/smoke/logs."
+            exit 1
+          fi
 
   frontend:
     name: Frontend

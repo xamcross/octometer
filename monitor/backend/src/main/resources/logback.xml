@@ -1,6 +1,12 @@
-<!-- A minimal console log. Issue #57 adds the file log with rotation. -->
-<!-- ERROR goes to the standard error, so a scheduled task that captures -->
-<!-- only that stream still records a fatal start-up error (D2). -->
+<!-- The console log. ERROR goes to the standard error, so a scheduled -->
+<!-- task that captures only that stream still records a fatal start-up -->
+<!-- error (D2). This file runs at the class load of ApplicationKt, -->
+<!-- before main starts, and it holds no file appender (issue #57, -->
+<!-- MAJOR 1 of the JVM operations review of pull request #231). A file -->
+<!-- appender here would open a file in the working folder of the -->
+<!-- process, before dataDir is known, on every start. logback-file.xml -->
+<!-- holds the rolling file log instead; configureLogDir loads it after -->
+<!-- the config load, once the real logs folder is known. -->
 <configuration>
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <filter class="ch.qos.logback.classic.filter.LevelFilter">
