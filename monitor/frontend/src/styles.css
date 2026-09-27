@@ -174,3 +174,74 @@ a {
   white-space: nowrap;
   border: 0;
 }
+
+/* The controls (#248) */
+
+.btn {
+  font: 600 1rem/1.2 var(--display);
+  min-height: 44px;
+  padding: 8px 16px;
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line-control);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-control);
+  cursor: pointer;
+  transition:
+    transform 80ms,
+    box-shadow 80ms;
+}
+
+.btn:active {
+  transform: translate(3px, 3px);
+  box-shadow: none;
+}
+
+.btn-primary {
+  background: var(--sunny);
+}
+
+.btn-danger {
+  background: var(--coral);
+}
+
+.btn-primary,
+.btn-danger {
+  color: var(--on-bright);
+  border-color: var(--on-bright);
+}
+
+.btn-small {
+  font-size: var(--text-s);
+  padding: 4px 12px;
+}
+
+.btn[disabled] {
+  opacity: 0.55;
+  box-shadow: none;
+  cursor: default;
+}
+
+.btn:focus-visible {
+  box-shadow:
+    var(--shadow-control),
+    0 0 0 7px var(--ink);
+}
+
+input:not([type='checkbox']):not([type='radio']),
+textarea,
+select {
+  font: 400 1rem/1.5 var(--body);
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line-control);
+  border-radius: var(--radius-control);
+}
+
+textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+}
