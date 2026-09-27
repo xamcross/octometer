@@ -96,6 +96,16 @@ person skipped step 3. The start stops with one log line, and the code
 never deletes the two side files by itself; only a person, following the
 steps above, does that.
 
+## A corrupt, a locked, or a full store (issue #58, design decisions D3, D4, D8)
+
+A corrupt `octometer.db` fails `PRAGMA quick_check` at the start (or gives `SQLITE_NOTADB` or
+`SQLITE_CORRUPT` while the store opens). The start writes one ERROR line, the file stays as it
+is, and the process exits with the code 2. A second monitor instance, on the same data folder,
+fails the file lock `octometer.lock` and exits with the same code. A write that waits longer
+than `busy_timeout` (`SQLITE_BUSY`), and a full disk (`SQLITE_FULL`), each give the app status
+`ERROR` with a fixed `last_error` text, and the store keeps the row of the poll cycle that came
+before the failed one.
+
 ## The user erasure route (issue #61)
 
 `DELETE /api/apps/{appId}/events?userId=<id>` deletes each event of one user id of one app in

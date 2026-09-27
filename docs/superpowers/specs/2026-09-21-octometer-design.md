@@ -220,6 +220,10 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   refuse to start. The folders `secrets`, `logs`, and `backups` are siblings of `dataDir`.
   `PRAGMA quick_check` runs at the start; a failed check gives exit code 2 and leaves the file
   as it is. `SQLITE_FULL` rolls back the page transaction, thus the cursor stays.
+
+  Note of 2026-09-27 (issue #58): a write that waits longer than `busy_timeout` gives
+  `last_error` the text "the database was locked for more than 5 s". `SQLITE_FULL` gives
+  `last_error` the text "the database is full". Each text names no path and no value.
 - **D4. Page transaction.** `BEGIN IMMEDIATE`, the insert of one page with
   `ON CONFLICT(app_id, event_id) DO NOTHING`, the cursor update, `COMMIT`. The poller requests
   the next page only after the commit. The poller updates only its own columns of `app`.
