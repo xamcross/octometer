@@ -15,18 +15,18 @@ label {
  * coral ring rule sits here too, next to the global copy of styles.css.
  */
 [aria-invalid='true'] {
-  box-shadow: inset 0 0 0 3px var(--coral);
+  box-shadow: inset 0 0 0 3px var(--coral-deep);
 }
 
 /*
  * The invalid ring alone beats the global `:focus-visible` rule of
  * styles.css, because this selector carries the higher specificity
  * (#258 correction). This rule adds the ink ring back for the invalid
- * field, next to the coral ring.
+ * field, next to the coral-deep ring.
  */
 [aria-invalid='true']:focus-visible {
   box-shadow:
-    inset 0 0 0 3px var(--coral),
+    inset 0 0 0 3px var(--coral-deep),
     0 0 0 7px var(--ink);
 }
 

@@ -181,15 +181,15 @@ describe('EditAppForm', () => {
     expect(connectionString.getAttribute('aria-invalid')).toBe('true');
   });
 
-  it('gives [aria-invalid="true"] a coral ring inside the ink border', () => {
+  it('gives [aria-invalid="true"] a coral-deep ring inside the ink border (#264, 3:1 or more on white)', () => {
     const rule = findCssRule('[aria-invalid=true]');
-    expect(rule?.style.getPropertyValue('box-shadow')).toContain('--coral');
+    expect(rule?.style.getPropertyValue('box-shadow')).toContain('--coral-deep');
   });
 
-  it('keeps the ink focus ring beside the coral ring on an invalid field with focus', () => {
+  it('keeps the ink focus ring beside the coral-deep ring on an invalid field with focus', () => {
     const rule = findCssRule('[aria-invalid=true]:focus-visible');
     const shadow = rule?.style.getPropertyValue('box-shadow');
-    expect(shadow).toContain('--coral');
+    expect(shadow).toContain('--coral-deep');
     expect(shadow).toContain('--ink');
   });
 
