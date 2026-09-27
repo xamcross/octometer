@@ -3,6 +3,7 @@ import { Component, computed, effect, inject, input, signal } from '@angular/cor
 import { Router, RouterLink } from '@angular/router';
 
 import { Announcer } from '../announcer';
+import { EmptyState } from '../empty-state/empty-state';
 import { createPollStore } from '../poll/poll-store';
 import { RefreshBar } from '../refresh-bar/refresh-bar';
 import { numberFormat } from '../status-format';
@@ -35,7 +36,7 @@ import type { FirstPageRow, FirstPagesResponse } from './first-page-row';
  */
 @Component({
   selector: 'app-first-pages',
-  imports: [RefreshBar, RouterLink],
+  imports: [EmptyState, RefreshBar, RouterLink],
   styleUrl: './first-pages.css',
   templateUrl: './first-pages.html',
 })

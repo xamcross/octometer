@@ -3,6 +3,7 @@ import { Component, computed, effect, inject, input, signal } from '@angular/cor
 import { Router, RouterLink } from '@angular/router';
 
 import { Announcer } from '../announcer';
+import { EmptyState } from '../empty-state/empty-state';
 import { createPollStore } from '../poll/poll-store';
 import { RefreshBar } from '../refresh-bar/refresh-bar';
 import { formatLocalDateTime, numberFormat, readZoneName } from '../status-format';
@@ -41,7 +42,7 @@ import type { SessionRow, SessionsResponse } from './session-row';
  */
 @Component({
   selector: 'app-sessions',
-  imports: [RefreshBar, RouterLink],
+  imports: [EmptyState, RefreshBar, RouterLink],
   styleUrl: './sessions.css',
   templateUrl: './sessions.html',
 })
