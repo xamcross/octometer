@@ -3,11 +3,17 @@
  * line, and it wraps them onto two lines at a narrow width, for example
  * 320 CSS px (WCAG 1.4.10).
  */
+/*
+ * The bottom margin keeps a gap of 16 px above the next element in each
+ * view (#271). A view that puts a form between the two keeps its own
+ * margin on that form; the two margins do not merge into a smaller gap.
+ */
 :host {
   display: flex;
   align-items: baseline;
   gap: 12px;
   flex-wrap: wrap;
+  margin-bottom: var(--space-4);
 }
 
 p {
