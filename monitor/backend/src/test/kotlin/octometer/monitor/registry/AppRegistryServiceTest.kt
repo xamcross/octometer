@@ -127,6 +127,41 @@ class AppRegistryServiceTest {
         assertNull(state.privilegesCheckedAt, "a new database user needs a fresh privilege check (issue #30)")
     }
 
+    // Issue #205, decision 5 of the correction round: a PATCH to a
+    // different connection string clears app_path, the set of
+    // distinct path values of the old source.
+    @Test
+    fun `updateApp with a different connection string clears app_path`() = runBlocking {
+        val created = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+        ) as CreateAppResult.Created
+        seedAppPath(created.summary.appId, "/checkout")
+
+        val result = service.updateApp(
+            created.summary.appId,
+            UpdateAppRequest(connectionString = allowlistedSrvUriWithoutCredential()),
+        )
+
+        assertEquals(UpdateAppResult.Updated, result)
+        assertEquals(0, countAppPathRows(created.summary.appId))
+    }
+
+    @Test
+    fun `updateApp with the same connection string keeps app_path`() = runBlocking {
+        val created = service.createApp(
+            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+        ) as CreateAppResult.Created
+        seedAppPath(created.summary.appId, "/checkout")
+
+        val result = service.updateApp(
+            created.summary.appId,
+            UpdateAppRequest(connectionString = allowlistedSrvUri()),
+        )
+
+        assertEquals(UpdateAppResult.Updated, result)
+        assertEquals(1, countAppPathRows(created.summary.appId))
+    }
+
     @Test
     fun `updateApp with the same connection string keeps the poll state`() = runBlocking {
         val created = service.createApp(
@@ -432,6 +467,21 @@ class AppRegistryServiceTest {
             }
         }
     }
+
+    private suspend fun seedAppPath(appId: Long, path: String) {
+        database.write { writer ->
+            writer.prepareStatement(
+                "INSERT INTO app_path (app_id, path, first_seen_at) VALUES (?, ?, ?)",
+            ).use { insert ->
+                insert.setLong(1, appId)
+                insert.setString(2, path)
+                insert.setLong(3, 1_700_000_000_000L)
+                insert.executeUpdate()
+            }
+        }
+    }
+
+    private suspend fun countAppPathRows(appId: Long): Int = countRowsForApp("app_path", appId)
 
     private suspend fun countAppRows(): Int = countRows("SELECT COUNT(*) FROM app")
 

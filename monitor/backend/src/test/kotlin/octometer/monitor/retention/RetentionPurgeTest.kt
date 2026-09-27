@@ -165,7 +165,68 @@ class RetentionPurgeTest {
         )
     }
 
+    // --- app_path aging (issue #205, the correction round of 2026-09-27) ---
+
+    @Test
+    fun `purgeOnce deletes an app_path row whose event rows are all purged`() = runBlocking {
+        val cutoff = NOW - RETENTION_DAYS * DAY_MILLIS
+        insertEvent("old-click", cutoff - DAY_MILLIS, kind = 0, path = "/checkout")
+        insertAppPath("/checkout")
+
+        RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
+
+        assertEquals(emptySet(), remainingAppPathValues())
+    }
+
+    @Test
+    fun `purgeOnce keeps an app_path row whose event row is not purged`() = runBlocking {
+        insertEvent("new-click", NOW, kind = 0, path = "/checkout")
+        insertAppPath("/checkout")
+
+        RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
+
+        assertEquals(setOf("/checkout"), remainingAppPathValues())
+    }
+
+    // The aging rule of the correction round matches on the event
+    // table as it stands after the purge, not on a separate "was this
+    // value ever seen" flag. A value with no matching event row at all
+    // ages out too, the same as a value whose last event row just
+    // purged.
+    @Test
+    fun `purgeOnce deletes an app_path row of a value with no matching event row at all`() = runBlocking {
+        insertAppPath("/never-matched")
+
+        RetentionPurge(database, fixedClock(NOW)).purgeOnce(RETENTION_DAYS)
+
+        assertEquals(emptySet(), remainingAppPathValues())
+    }
+
     private fun fixedClock(millis: Long): Clock = Clock.fixed(Instant.ofEpochMilli(millis), ZoneOffset.UTC)
+
+    private suspend fun insertAppPath(path: String) {
+        database.write { writer ->
+            writer.prepareStatement(
+                "INSERT INTO app_path (app_id, path, first_seen_at) VALUES (?, ?, ?)",
+            ).use { insert ->
+                insert.setLong(1, appId)
+                insert.setString(2, path)
+                insert.setLong(3, NOW)
+                insert.executeUpdate()
+            }
+        }
+    }
+
+    private suspend fun remainingAppPathValues(): Set<String> =
+        database.read { reader ->
+            reader.createStatement().use { statement ->
+                statement.executeQuery("SELECT path FROM app_path").use { result ->
+                    val values = mutableSetOf<String>()
+                    while (result.next()) values += result.getString(1)
+                    values
+                }
+            }
+        }
 
     private suspend fun remainingEventIds(): Set<String> =
         database.read { reader ->
@@ -178,11 +239,11 @@ class RetentionPurgeTest {
             }
         }
 
-    private suspend fun insertEvent(eventId: String, ts: Long, kind: Int) {
+    private suspend fun insertEvent(eventId: String, ts: Long, kind: Int, path: String? = null) {
         database.write { writer ->
             writer.prepareStatement(
-                "INSERT INTO event (app_id, event_id, ts, element, session_id, user_id, kind) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO event (app_id, event_id, ts, element, session_id, user_id, kind, path) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             ).use { insert ->
                 insert.setLong(1, appId)
                 insert.setString(2, eventId)
@@ -191,6 +252,7 @@ class RetentionPurgeTest {
                 insert.setString(5, "session-1")
                 insert.setString(6, "user-1")
                 insert.setInt(7, kind)
+                insert.setString(8, path)
                 insert.executeUpdate()
             }
         }
