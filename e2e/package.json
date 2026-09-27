@@ -1,0 +1,17 @@
+{
+  "name": "octometer-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Playwright end-to-end suite of Octometer. It drives a real Chromium against the built distribution and the demo app.",
+  "scripts": {
+    "pretest": "node setup/pretest.mjs",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}
