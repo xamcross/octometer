@@ -41,19 +41,23 @@ export class ManagePage {
   /**
    * Fills the add-app form and submits it, for a create that the
    * registry rejects (issue #272, design decision D13). It waits for
-   * the error area of `add-app-form.html`, never for a row, and gives
-   * the error text back to the caller. The name lookup is exact: once
-   * one row exists, its delete dialog gives a second control whose
-   * label text ("Type the app name to confirm") also holds the word
-   * "Name".
+   * the error area of `add-app-form.html` to hold `expectedMessage`,
+   * never for a row. The name lookup is exact: once one row exists,
+   * its delete dialog gives a second control whose label text ("Type
+   * the app name to confirm") also holds the word "Name".
+   *
+   * A wait on `toBeVisible()` alone is not enough: the error area of a
+   * former rejected submit can still sit in the DOM the instant after
+   * the new click, before Angular clears and re-fills it, and
+   * `toBeVisible()` then resolves on that stale text at once. The
+   * assertion below names the expected text, so Playwright retries
+   * until that exact text shows, not the first visible text.
    */
-  async addAppExpectingError(fields: AddAppFields): Promise<string> {
+  async addAppExpectingError(fields: AddAppFields, expectedMessage: string): Promise<void> {
     await this.page.getByLabel('Name', { exact: true }).fill(fields.name);
     await this.page.getByLabel('Connection string').fill(fields.connectionString);
     await this.page.getByRole('button', { name: 'Add app' }).click();
-    const error = this.page.locator('#add-app-error');
-    await expect(error).toBeVisible();
-    return (await error.textContent()) ?? '';
+    await expect(this.page.locator('#add-app-error')).toContainText(expectedMessage);
   }
 
   /** Waits for the status cell of one row to hold one of the given words (decision 5a). */

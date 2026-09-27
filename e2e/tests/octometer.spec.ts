@@ -56,17 +56,15 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     // Issue #272: the registry derives the database name from the path
     // of the connection string. Two rejected submits, each read through
     // the error area, with no wait for a row.
-    const noPathMessage = await manage.addAppExpectingError({
-      name: 'demo-no-db',
-      connectionString: `mongodb://127.0.0.1:${mongoPort}`,
-    });
-    expect(noPathMessage).toContain('Give the database name in the path of the connection string.');
+    await manage.addAppExpectingError(
+      { name: 'demo-no-db', connectionString: `mongodb://127.0.0.1:${mongoPort}` },
+      'Give the database name in the path of the connection string.',
+    );
 
-    const badPortMessage = await manage.addAppExpectingError({
-      name: 'demo-bad-port',
-      connectionString: 'mongodb://127.0.0.1:99999999/exampledb',
-    });
-    expect(badPortMessage).toContain('The driver cannot read the connection string.');
+    await manage.addAppExpectingError(
+      { name: 'demo-bad-port', connectionString: 'mongodb://127.0.0.1:99999999/exampledb' },
+      'The driver cannot read the connection string.',
+    );
   });
 
   test('the level 1 view shows the status badge OK after the first poll', async ({ page }) => {
