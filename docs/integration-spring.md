@@ -308,7 +308,8 @@ This section states the settings of the pilot app. Read section 6 of
 `docs/integration-ktor.md` for the general form of `OCTOMETER_PATH_PATTERNS`.
 
 **The route pattern list.** The pilot app gives this list to `OCTOMETER_PATH_PATTERNS`
-and to the tracker option `routes`:
+only. The tracker takes no list of its own (design decision D49); it sends the raw page
+path, and the kit alone matches it:
 
 ```
 /
@@ -331,20 +332,6 @@ and to the tracker option `routes`:
 /privacy
 /editorial-policy
 /contact
-```
-
-The tracker takes the same list, in the same order, as a `routes` array:
-
-```ts
-const tracker = createTracker({
-  endpoint: '/api/octometer/v1/clicks',
-  routes: [
-    '/', '/register', '/login', '/verify', '/search', '/history',
-    '/history/:id', '/tokens', '/payments/result', '/account', '/providers',
-    '/articles', '/articles/*', '/ovdp/rates', '/ovdp/calculator',
-    '/ovdp/vs-deposit', '/terms', '/privacy', '/editorial-policy', '/contact',
-  ],
-});
 ```
 
 Paste the same list into the "Route patterns" field of the app, in the manage
@@ -392,4 +379,7 @@ The Maven repository order proof of section 1: one run of "mvn -X dependency:res
   temporary folder was deleted after the proof.
 Section 5, the change from the earlier tracker step of issue #70: pull request #215 and
   the edit of issue #69 of 2026-09-26.
+Section 7, the route pattern list: updated for issue #278 and design decision D49. The
+  tracker option `routes` goes; the tracker sends the raw page path, and the kit alone
+  matches it.
 -->
