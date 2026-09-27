@@ -23,6 +23,8 @@ import octometer.monitor.mongo.STATUS_ERROR
 import octometer.monitor.mongo.STATUS_OVERPRIVILEGED
 import octometer.monitor.registry.SecretStore
 import org.slf4j.LoggerFactory
+import org.sqlite.SQLiteErrorCode
+import org.sqlite.SQLiteException
 
 private val log = LoggerFactory.getLogger("octometer.monitor.poll.PollScheduler")
 
@@ -346,6 +348,15 @@ class PollScheduler(
             if (!currentCoroutineContext().isActive) throw cancellation
             log.warn("The poll cycle failed. {}", cancellation.javaClass.simpleName)
             recordFailure(row, STATUS_ERROR, cancellation.javaClass.simpleName)
+        } catch (sqliteFailure: SQLiteException) {
+            // Decisions 3 and 4 of issue #58: EventStore.commitPage sits
+            // outside withMongoFailure, so a busy or a full writer
+            // reaches this catch-all as a SQLiteException. The mapped
+            // text names no path and no value; each other SQLiteException
+            // keeps the class-name text of the catch-all below.
+            log.warn("The poll cycle failed. {}", sqliteFailure.javaClass.simpleName)
+            val lastError = sqliteFailureLastErrorText(sqliteFailure) ?: sqliteFailure.javaClass.simpleName
+            recordFailure(row, STATUS_ERROR, lastError)
         } catch (failure: Exception) {
             log.warn("The poll cycle failed. {}", failure.javaClass.simpleName)
             recordFailure(row, STATUS_ERROR, failure.javaClass.simpleName)
@@ -413,3 +424,20 @@ class PollScheduler(
  * collection writes to stay correct under a concurrent change.
  */
 internal fun <V> snapshot(source: Collection<V>): List<V> = ArrayList(source)
+
+/**
+ * Decisions 3 and 4 of issue #58. Maps `SQLITE_BUSY` and `SQLITE_FULL`
+ * to a fixed `last_error` text, with no path and no value. Each other
+ * result code gives `null`, so the caller keeps the class-name text of
+ * the catch-all instead. sqlite-jdbc's result code can carry an extended
+ * part (for example `SQLITE_BUSY_RECOVERY`); `code and 0xFF` reads the
+ * primary part only.
+ */
+internal fun sqliteFailureLastErrorText(failure: SQLiteException): String? {
+    val primaryCode = failure.resultCode.code and 0xFF
+    return when (primaryCode) {
+        SQLiteErrorCode.SQLITE_BUSY.code -> "the database was locked for more than 5 s"
+        SQLiteErrorCode.SQLITE_FULL.code -> "the database is full"
+        else -> null
+    }
+}
