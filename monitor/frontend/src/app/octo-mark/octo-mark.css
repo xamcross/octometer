@@ -1,0 +1,25 @@
+/*
+ * The octopus mascot mark (D45): a round head, two eyes, a smile, and
+ * eight short arms. The octo fill of the head vanishes on the octo band,
+ * so `styles.css` gives the head the paper fill in that one context.
+ */
+:host {
+  display: inline-flex;
+  flex: none;
+}
+
+svg {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.head {
+  fill: var(--octo);
+}
+
+.eye {
+  fill: var(--ink);
+  stroke: none;
+}
