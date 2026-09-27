@@ -16,6 +16,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 ### Monitor
 
 - Add the "Anonymous sessions" view, with a link from a first-page row and from the anonymous row of the user list. (#115)
+- Show the retention time above the app table of the level 1 view. (#66)
+- Return `null` for a missing path in the first-pages and the sessions answers; the views show `(unknown)`. (#213)
 - Refuse a corrupt database, and a second monitor instance, with a clear log line and exit code 2; map a locked or a full database to a fixed `last_error` text; add `databaseBytes` and `freeDiskBytes` to `GET /api/health`. (#58)
 
 ## 0.2.0 - 2026-09-27

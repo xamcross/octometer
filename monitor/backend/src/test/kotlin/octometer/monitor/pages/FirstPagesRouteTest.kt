@@ -123,17 +123,33 @@ class FirstPagesRouteTest {
         assertEquals(1L, rows.single { it.path == "/pricing" }.sessions, "the click row must not count")
     }
 
-    // D44: the API layer writes "(unknown)" for a NULL path. The SQL
-    // holds no COALESCE (step 3); readFirstPagesPage writes the text
-    // once the row leaves the database.
+    // Issue #213: the API layer sends a null path on to the client for
+    // a NULL path. The SQL holds no COALESCE (step 3); readFirstPagesPage
+    // maps no value for the missing path.
     @Test
-    fun `a NULL path shows as (unknown)`() = runBlocking {
+    fun `a NULL path gives a null row`() = runBlocking {
         val appId = insertApp(database, "app-one")
         insertEvent(database, appId, "e1", "s1", path = null, kind = 1)
 
         val rows = (loadFirstPages(database, appId, 1) as FirstPagesResult.Success).rows
 
-        assertEquals(listOf(UNKNOWN_PATH), rows.map { it.path })
+        assertEquals(listOf<String?>(null), rows.map { it.path })
+    }
+
+    // Issue #213, decision 5: the HTTP body must hold the JSON value
+    // null, not an absent field or a text, for a missing path.
+    @Test
+    fun `GET answers with the JSON value null for a NULL path`() = testApplication {
+        val (dataDir, appId) = seedApp("app-one") { db, id ->
+            insertEvent(db, id, "e1", "s1", path = null, kind = 1)
+        }
+        application { module(devConfig(dataDir = dataDir)) }
+
+        val response = client.get("/api/apps/$appId/first-pages") { allowedHost() }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val body = response.bodyAsText()
+        assertTrue(body.contains("\"path\":null"), body)
     }
 
     @Test

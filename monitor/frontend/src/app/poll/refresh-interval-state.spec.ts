@@ -21,11 +21,41 @@ describe('RefreshIntervalState', () => {
     httpMock.verify();
   });
 
-  it('starts with refreshSeconds undefined', () => {
+  it('starts with refreshSeconds undefined and retentionDays null', () => {
     const state = TestBed.inject(RefreshIntervalState);
     expect(state.refreshSeconds()).toBeUndefined();
+    expect(state.retentionDays()).toBeNull();
     vi.advanceTimersByTime(0);
     httpMock.expectOne('/api/health').flush({ refreshSeconds: 10 });
+  });
+
+  it('reads retentionDays from the health answer, with the one health request of the session', () => {
+    const state = TestBed.inject(RefreshIntervalState);
+
+    vi.advanceTimersByTime(0);
+    httpMock.expectOne('/api/health').flush({ refreshSeconds: 10, retentionDays: 395 });
+
+    expect(state.retentionDays()).toBe(395);
+    vi.advanceTimersByTime(30_000);
+    httpMock.expectNone('/api/health');
+  });
+
+  it('gives retentionDays null when the field is not a positive integer', () => {
+    const state = TestBed.inject(RefreshIntervalState);
+
+    vi.advanceTimersByTime(0);
+    httpMock.expectOne('/api/health').flush({ refreshSeconds: 10, retentionDays: 0 });
+
+    expect(state.retentionDays()).toBeNull();
+  });
+
+  it('gives retentionDays null when the health answer lacks the field', () => {
+    const state = TestBed.inject(RefreshIntervalState);
+
+    vi.advanceTimersByTime(0);
+    httpMock.expectOne('/api/health').flush({ refreshSeconds: 10 });
+
+    expect(state.retentionDays()).toBeNull();
   });
 
   it('retries the health route each 5 seconds until it gets a valid answer, then it stops', () => {
