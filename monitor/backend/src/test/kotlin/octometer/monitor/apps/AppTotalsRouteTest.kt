@@ -188,6 +188,14 @@ class AppTotalsRouteTest {
     // text must still leave the body as valid JSON, with the value
     // unchanged, because kotlinx.serialization writes the JSON and this
     // route builds no text by hand.
+    //
+    // Issue #235: module() starts a real PollScheduler. A row with
+    // nextPollAt == null is due at once (PollScheduler.isDue), so a real
+    // tick can poll this app before the assertion runs, and it has no
+    // stored secret. That poll then overwrites lastError with "no
+    // stored secret", a race that this test alone always loses. A far
+    // future nextPollAt keeps the row not due for the life of this test,
+    // so no cycle runs, and the assertion still checks the same value.
     @Test
     fun `a hostile name and a hostile lastError stay valid JSON with the value unchanged`() =
         testApplication {
@@ -199,6 +207,7 @@ class AppTotalsRouteTest {
                 status = "ERROR",
                 lastPollAt = 1_700_000_000_000L,
                 lastError = hostileError,
+                nextPollAt = FAR_FUTURE_NEXT_POLL_AT,
             )
             database.close()
 
@@ -256,6 +265,10 @@ class AppTotalsRouteTest {
         assertEquals("2023-11-16T02:00:00.000Z", gap.getValue("to").jsonPrimitive.content)
     }
 }
+
+// Issue #235: a nextPollAt far past any real date, so PollScheduler.isDue
+// never treats the row as due during a test that starts a real scheduler.
+private const val FAR_FUTURE_NEXT_POLL_AT = 9_999_999_999_999L
 
 private suspend fun insertApp(
     database: SqliteDatabase,
