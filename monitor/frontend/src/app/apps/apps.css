@@ -22,7 +22,8 @@ td {
  */
 th[scope='row'],
 .data-from,
-.error-text {
+.error-text,
+.gap-text {
   overflow-wrap: anywhere;
 }
 
@@ -50,7 +51,8 @@ th[scope='row'] a,
 }
 
 .data-from,
-.error-text {
+.error-text,
+.gap-text {
   margin: 0.25rem 0 0;
 }
 
