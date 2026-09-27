@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Issue #176, decision 3 (correction of the brief review, 2026-09-27).
+ * Issue #176, decision 3 (correction round of pull request #273, MAJOR 1
+ * and MAJOR 2 of the review comment, 2026-09-28).
  *
  * Reads each `e2e/.run/coverage/js-*.json` file (the raw V8 script
  * coverage of one page, written by `fixtures.ts`), maps it to the
@@ -15,34 +16,26 @@
  * `monitor/backend/build.gradle.kts`, task `buildFrontend`, on
  * 2026-09-27).
  *
- * When `v8-to-istanbul` cannot map a served file, this script states
- * the reason and gives a raw V8 summary of that file instead: the
- * total byte count of each top-level function range, and the byte
- * count of the ranges with a call count above zero. This is a coarser
- * number than a line count, stated as such in the summary text.
+ * The map of the frontend. Each `.map` file of this build lists its own
+ * `sources` entries as `../src/app/...` or `../src/main.ts`, one
+ * directory level above the served file. `v8-to-istanbul` resolves that
+ * relative path against the served file's own folder, so the resolved
+ * path never lands inside `monitor/frontend/src`. This script reads the
+ * `.map` file beside each served file, replaces each `../src/` prefix
+ * of `sources` with the absolute path of `monitor/frontend/src`, and
+ * passes the rewritten map to `v8-to-istanbul` as an explicit source
+ * (`v8toIstanbul(path, 0, { source, sourceMap })`), so the resolved path
+ * matches the real file on disk.
  *
- * The reason, confirmed on 2026-09-27 (the one-hour bound of issue
- * #176, decision 3): the Angular application builder writes each
- * `sources` entry of a `.map` file relative to the built file's own
- * folder, short by exactly one directory level (confirmed with the
- * project's own default, project-relative output path too: the same
- * one-level shortfall shows there, so this is a builder behaviour, not
- * an effect of this project's custom `--output-path`). The default
- * layout hides the defect, because Angular nests the build one level
- * under the given path either way, and the two shortfalls often cancel
- * out by coincidence of the default folder depth. This project's
- * custom `--output-path` (`monitor/backend/build/frontend-dist`, for
- * the distribution) sits outside `monitor/frontend` by four directory
- * levels, not one, so the stored relative path resolves to a folder
- * that does not exist, and `v8-to-istanbul` maps no file. A one-line
- * patch of the `sources` array cannot fix this in general, because the
- * true distance depends on the chosen `--output-path`, not on a fixed
- * offset. Each frontend file therefore falls back to the raw V8
- * summary below.
+ * When `v8-to-istanbul` still maps no path under `monitor/frontend/src`
+ * for a served file, this script writes the reason as an error with the
+ * file name. It gives no coverage number for that file: a byte count of
+ * a whole bundle is not a line count, and it can overstate the real
+ * coverage (MAJOR 2 of the review of pull request #273).
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import v8toIstanbul from 'v8-to-istanbul';
@@ -105,22 +98,17 @@ function mergeLineHits(target, source) {
   }
 }
 
-/** A coarse, function-level byte count: the root range of each function of the entry. */
-function rawByteCoverage(entries) {
-  let totalBytes = 0;
-  let coveredBytes = 0;
-  for (const entry of entries) {
-    for (const fn of entry.functions ?? []) {
-      const rootRange = fn.ranges?.[0];
-      if (!rootRange) continue;
-      const size = rootRange.endOffset - rootRange.startOffset;
-      totalBytes += size;
-      if (rootRange.count > 0) {
-        coveredBytes += size;
-      }
-    }
-  }
-  return { totalBytes, coveredBytes };
+/** The prefix of a map "sources" entry that this build writes for a real frontend file. */
+const mapSourcePrefix = '../src/';
+
+/** Rewrites each "../src/..." entry of a source map to the real absolute path of the file. */
+function rewriteMapSources(rawMap) {
+  const rewrittenSources = rawMap.sources.map((sourcePath) =>
+    sourcePath.startsWith(mapSourcePrefix)
+      ? join(frontendSrcDir, sourcePath.slice(mapSourcePrefix.length))
+      : sourcePath,
+  );
+  return { ...rawMap, sources: rewrittenSources };
 }
 
 function writeLcov(mappedFiles) {
@@ -176,8 +164,15 @@ async function main() {
       outOfScope.push({ url, entries: urlEntries });
       continue;
     }
+    const mapPath = `${diskPath}.map`;
     try {
-      const converter = v8toIstanbul(diskPath);
+      if (!existsSync(mapPath)) {
+        throw new Error(`the map file "${basename(mapPath)}" is absent`);
+      }
+      const source = readFileSync(diskPath, 'utf8');
+      const rawMap = JSON.parse(readFileSync(mapPath, 'utf8'));
+      const rewrittenMap = rewriteMapSources(rawMap);
+      const converter = v8toIstanbul(diskPath, 0, { source, sourceMap: { sourcemap: rewrittenMap } });
       await converter.load();
       for (const entry of urlEntries) {
         converter.applyCoverage(entry.functions ?? []);
@@ -201,16 +196,10 @@ async function main() {
         }
       }
       if (!mappedAnyFile) {
-        unmapped.push({
-          url,
-          reason:
-            'The source map of this file resolves each source outside monitor/frontend/src ' +
-            '(the Angular builder short-folder-level defect stated at the top of this script).',
-          entries: urlEntries,
-        });
+        throw new Error(`the rewritten map of "${basename(diskPath)}" holds no path under monitor/frontend/src`);
       }
     } catch (error) {
-      unmapped.push({ url, reason: String(error && error.message ? error.message : error), entries: urlEntries });
+      unmapped.push({ url, diskPath, reason: String(error && error.message ? error.message : error) });
     }
   }
 
@@ -238,23 +227,11 @@ async function main() {
 
   if (unmapped.length > 0) {
     summaryLines.push('');
-    summaryLines.push('monitor/frontend files with no line map (the raw V8 byte coverage of the whole served file):');
-    let grandCoveredBytes = 0;
-    let grandTotalBytes = 0;
+    summaryLines.push('monitor/frontend files with no line map (an error, not a coverage number):');
     for (const item of unmapped) {
-      const { totalBytes, coveredBytes } = rawByteCoverage(item.entries);
-      grandCoveredBytes += coveredBytes;
-      grandTotalBytes += totalBytes;
-      const bytePercent = totalBytes === 0 ? '0.0' : ((coveredBytes / totalBytes) * 100).toFixed(1);
       summaryLines.push(`  ${item.url}`);
-      summaryLines.push(`    Reason: ${item.reason}`);
-      summaryLines.push(`    Raw V8 bytes: ${coveredBytes}/${totalBytes} (${bytePercent}%, function-level, not a line count)`);
+      summaryLines.push(`    Error: ${item.reason}`);
     }
-    const grandBytePercent = grandTotalBytes === 0 ? '0.0' : ((grandCoveredBytes / grandTotalBytes) * 100).toFixed(1);
-    summaryLines.push('');
-    summaryLines.push(
-      `Total raw V8 bytes of these files: ${grandCoveredBytes}/${grandTotalBytes} (${grandBytePercent}%, function-level, not a line count)`,
-    );
   }
 
   if (outOfScope.length > 0) {

@@ -6,9 +6,11 @@ command of each number. It also gives the design-decision table: which
 decision the browser suite reaches, and why a decision with "no" needs a
 different kind of test.
 
-Date of this run: 2026-09-27. Tool versions: JaCoCo 0.8.15 (confirmed on
-Maven Central, `org.jacoco.agent`, on 2026-09-27); `v8-to-istanbul` 9.3.0
-(confirmed on the npm registry on 2026-09-27).
+Date of the JVM-alone run (the table below): 2026-09-27. Date of the
+browser-suite run (the correction round of pull request #273): 2026-09-28.
+Tool versions: JaCoCo 0.8.15 (confirmed on Maven Central,
+`org.jacoco.agent`, on 2026-09-27); `v8-to-istanbul` 9.3.0 (confirmed on
+the npm registry on 2026-09-27).
 
 ## The JVM tests alone
 
@@ -48,31 +50,36 @@ cd .. && ./gradlew :monitor:backend:jacocoE2eReport
 
 | | Line coverage |
 | --- | --- |
-| The monitor process and the demo app process (JaCoCo, `jacocoE2eReport`) | 55.0% (2307/4194 lines); branch 31.4% (674/2148) |
-| The frontend (`monitor/frontend/src`, mapped through `v8-to-istanbul`) | no line map (see below) |
-| The frontend, the raw V8 byte fallback | 88.4% (4236081/4792730 bytes, function-level, not a line count) |
+| The monitor process and the demo app process (JaCoCo, `jacocoE2eReport`) | 55.0% (2307/4194 lines); branch 31.4% (675/2148) |
+| The frontend (`monitor/frontend/src`, mapped through `v8-to-istanbul`, 45 files) | 81.9% (2794/3412 lines) |
 
 Source: `monitor/backend/build/reports/jacoco/e2e/jacocoE2eReport.xml`, the
-report-level `<counter type="LINE">` element; and
-`e2e/.run/coverage/frontend-coverage-summary.txt`.
+report-level `<counter type="LINE">` and `<counter type="BRANCH">`
+elements; and `e2e/.run/coverage/frontend-coverage-summary.txt`.
 
-**The frontend mapping.** `v8-to-istanbul` mapped no file of
-`monitor/frontend/src` on this run. The reason (confirmed on 2026-09-27,
-inside the one-hour bound of decision 3): the Angular application
-builder writes each source map's `sources` entries relative to the
-built file's own folder, one directory level short (confirmed also with
-the project's own default, project-relative output path, so this is a
-builder behaviour, not an effect of this project's custom
-`--output-path`). The default layout hides the defect by coincidence of
-its folder depth; this project's `--output-path`
-(`monitor/backend/build/frontend-dist`, for the distribution) sits
-outside `monitor/frontend` by four directory levels, not one, so each
-resolved source path lands on a folder that does not exist, and
-`v8-to-istanbul` maps no file. `e2e/scripts/coverage-report.mjs` states
-this at its own top, and it falls back to the raw V8 byte count of each
-served file. The demo app page and the `kit/tracker` script are a
-different codebase; the script reports them as "out of scope", not as
-a mapping failure of `monitor/frontend`.
+**The map of the frontend.** BLOCKER of the review of pull request #273:
+`jacocoE2eReport` now depends on the `classes` task of each of the six
+JVM modules, so the class set, and the line-coverage denominator, stay
+stable at each run.
+
+MAJOR 1 of the same review: `e2e/scripts/coverage-report.mjs` reads the
+`.map` file beside each served file. Each `sources` entry of that file
+reads `../src/app/...`, one directory level above the served file. The
+script replaces that prefix with the absolute path of
+`monitor/frontend/src`. It gives the rewritten map to `v8-to-istanbul` as
+an explicit source. This run mapped every served file: 45 files of
+`monitor/frontend/src`, with no `.spec.ts` file, 2794 of 3412 lines.
+
+MAJOR 2 of the same review: the script and this document no longer state
+a byte count of an unmapped file. A byte count of a whole served bundle
+overstates the real line coverage. A served file with no map, or a map
+with no path under `monitor/frontend/src`, now prints as an error in the
+summary file, with the file name, and gets no number. This run mapped
+every served file, so the summary file holds no such error.
+
+The demo app page and the `kit/tracker` script are a different codebase;
+the script reports them as "out of scope", not as a mapping failure of
+`monitor/frontend`.
 
 ## The design decisions that the browser suite reaches
 

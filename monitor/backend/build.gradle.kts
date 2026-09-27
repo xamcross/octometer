@@ -368,6 +368,14 @@ val jacocoE2eModules = listOf(
 tasks.register<JacocoReport>("jacocoE2eReport") {
     group = "verification"
     description = "Merges the two e2e JaCoCo destfiles (the monitor and the demo app) into one report."
+    // BLOCKER of the review of pull request #273: this task read the
+    // compiled classes of each module with no dependency on the task
+    // that compiles them. distZip and installDist compile no class of
+    // kit/jvm-spring, because no other module depends on it, so the
+    // class set (and the denominator of the line-coverage percentage)
+    // changed with the last module that another task happened to build.
+    // This line makes the class set, and the denominator, stable.
+    dependsOn(jacocoE2eModules.map { "${it.path}:classes" })
     val e2eCoverageDir = rootProject.layout.projectDirectory.dir("e2e/.run/coverage")
     val monitorExec = e2eCoverageDir.file("monitor.exec")
     val demoExec = e2eCoverageDir.file("demo.exec")
