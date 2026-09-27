@@ -1,9 +1,9 @@
 # The design of the Octometer monitor UI
 
 This page holds the cartoon look of the monitor UI (design decision D45). It lists the
-tokens, the type scale, the six principles, the status badges, and the contrast table.
-`docs/design/mockup.html` is the static reference; it copies the tokens and the base rules
-unchanged.
+tokens, the type scale, the page column, the six principles, the status badges, the focus
+ring, and the contrast table. `docs/design/mockup.html` is the reference for the tokens and
+the base rules.
 
 ## The tokens
 
@@ -28,8 +28,22 @@ unchanged.
 | `--line-control` | `2px solid var(--ink)` | The outline of a control. |
 | `--shadow-panel` | `6px 6px 0 var(--ink)` | The hard shadow of a panel. |
 | `--shadow-control` | `3px 3px 0 var(--ink)` | The hard shadow of a control. |
+| `--space-1` | `4px` | The space scale, a 4px base. |
+| `--space-2` | `8px` | The space scale. |
+| `--space-3` | `12px` | The space scale. |
+| `--space-4` | `16px` | The space scale; the page gutter on a phone. |
+| `--space-5` | `24px` | The space scale. |
+| `--space-6` | `32px` | The space scale; the page gutter from 48rem up. |
+| `--space-7` | `48px` | The space scale. |
 
 A table cell keeps a radius of 0.
+
+## The page column
+
+`main` (`app.html`) keeps `max-width: 76rem`, `margin-inline: auto`, and a side gutter of
+`--space-4` (16px) on a phone; a media query at `48rem` widens the gutter to `--space-6`
+(32px). Each view sits inside that one element, so no component sets its own gutter or its
+own column width.
 
 ## The type scale and the two families
 
@@ -73,6 +87,15 @@ an outside font host.
 | NEVER_POLLED | `--shallows-deep` | `– Not polled yet` |
 | UNREACHABLE, UNAUTHORIZED, INVALID_DATA, ERROR | `--coral` | `⚠ <the word>` |
 | OVERPRIVILEGED | `--sunny` | `⚠ Overprivileged` |
+
+## The focus ring
+
+The shared `:focus-visible` rule of `src/styles.css` gives a 3px sunny outline, a 2px
+offset, and a 7px hard ink ring (`box-shadow: 0 0 0 7px var(--ink)`), because the sunny
+outline alone gives 1.2:1 on the shallows background. A control with its own box-shadow,
+such as a future `.btn`, must repeat the 7px ink ring in its own `:focus-visible` rule
+(`box-shadow: <its shadow>, 0 0 0 7px var(--ink)`), or its own shadow replaces the ring
+instead of adding to it.
 
 ## The contrast table
 

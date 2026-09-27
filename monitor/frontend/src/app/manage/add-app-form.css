@@ -26,6 +26,8 @@ textarea {
 .form-error {
   color: var(--ink);
   margin: 0.5rem 0;
+  padding-left: 8px;
+  border-left: 4px solid var(--coral);
   overflow-wrap: anywhere;
 }
 

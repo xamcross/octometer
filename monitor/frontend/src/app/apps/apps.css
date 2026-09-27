@@ -70,7 +70,7 @@ tbody td {
 
 tbody tr:hover,
 tbody tr:focus-within {
-  background-color: var(--shallows);
+  background-color: var(--shallows-deep);
 }
 
 @media (forced-colors: active) {

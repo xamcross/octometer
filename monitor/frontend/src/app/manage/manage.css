@@ -45,6 +45,8 @@ th[scope='row'] {
 
 .list-error {
   color: var(--ink);
+  padding-left: 8px;
+  border-left: 4px solid var(--coral);
 }
 
 button[type='button'] {
