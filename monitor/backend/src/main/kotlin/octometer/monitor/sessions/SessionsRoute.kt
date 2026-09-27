@@ -17,7 +17,6 @@ import octometer.monitor.store.SqliteDatabase
 internal const val SESSION_PAGE_SIZE = 50
 
 private const val DIRECT_SOURCE = "(direct)"
-private const val UNKNOWN_PATH = "(unknown)"
 private const val APP_ID_MESSAGE = "The app id must be a whole number."
 private const val APP_NOT_FOUND_MESSAGE = "The app is not registered."
 private const val ANONYMOUS_MESSAGE = "Send anonymous=true. This version allows no other value."
@@ -33,11 +32,17 @@ private const val PAGE_MESSAGE = "The page must be a positive whole number."
  * `user_id IS NOT NULL`. The field is `null` when no event of the
  * session ever carries a user id. One session can hold two users
  * (design section 6); this rule always picks the first one.
+ *
+ * `firstPath` is `null` for a session without a start row (issue
+ * #213); the frontend renders the text `(unknown)` for that `null`
+ * value. `source` stays the fixed text `(direct)` for that same
+ * session, because `source` holds no missing field, only one of the
+ * two values of the contract set.
  */
 @Serializable
 data class SessionRow(
     val sessionId: String,
-    val firstPath: String,
+    val firstPath: String?,
     val source: String,
     val startTime: String,
     val clicks: Long,
@@ -144,8 +149,9 @@ internal const val SESSION_ANONYMOUS_CLICKS_SQL =
 // with no start row). Each branch runs on its own index; this
 // statement reads no row of a signed-in click, thus it never scans
 // the whole table. A session of part 2 carries NULL for its path and
-// its source; the route resolves that to "(unknown)" and "(direct)"
-// (D44: "The API writes (unknown) for a NULL path").
+// its source; the route (issue #213) sends the `null` path on to the
+// client and resolves the missing source to the fixed text
+// "(direct)".
 //
 // BLOCKER 3 of correction round 2 (2026-09-26): UNION ALL, not UNION.
 // Part 1 already gives one row for each of its sessions (the NOT
@@ -328,7 +334,7 @@ internal data class SessionCandidateRow(
     fun toSessionRow(clicks: Long, userId: String?): SessionRow =
         SessionRow(
             sessionId = sessionId,
-            firstPath = path ?: UNKNOWN_PATH,
+            firstPath = path,
             source = referrerHost ?: DIRECT_SOURCE,
             startTime = TIMESTAMP_FORMATTER.format(Instant.ofEpochMilli(startTimeMillis)),
             clicks = clicks,

@@ -73,15 +73,18 @@ class SessionsRouteTest {
             assertNull(row.userId)
         }
 
+    // Issue #213: a session without a start row gives a null firstPath.
+    // source stays the fixed text "(direct)", because source holds no
+    // missing field, only one of the two values of the contract set.
     @Test
-    fun `a session with clicks only gives the path (unknown) and the time of the first click`() = runBlocking {
+    fun `a session with clicks only gives a null firstPath and the time of the first click`() = runBlocking {
         val appId = insertApp(database, "shop")
         insertEvent(database, appId, "e1", "s1", userId = null, element = "checkout.save", kind = 0, ts = 1_700_000_005_000L)
         insertEvent(database, appId, "e2", "s1", userId = null, element = "checkout.save", kind = 0, ts = 1_700_000_003_000L)
 
         val row = successRows(database, appId).single()
 
-        assertEquals("(unknown)", row.firstPath)
+        assertNull(row.firstPath)
         assertEquals("(direct)", row.source)
         assertEquals("2023-11-14T22:13:23.000Z", row.startTime, "the earlier of the two clicks")
         assertEquals(2L, row.clicks)
@@ -397,6 +400,27 @@ class SessionsRouteTest {
     }
 
     // -- The HTTP layer (steps 1, 5) ------------------------------------------
+
+    // Issue #213, decision 5: the HTTP body must hold the JSON value
+    // null, not an absent field or a text, for a session without a
+    // start row.
+    @Test
+    fun `GET answers with the JSON value null for firstPath of a session without a start row`() = runBlocking {
+        val appId = insertApp(database, "shop")
+        insertEvent(database, appId, "e1", "s1", userId = null, element = "checkout.save", kind = 0)
+        database.close()
+
+        testApplication {
+            application { module(devConfig(dataDir)) }
+
+            val response = client.get("/api/apps/$appId/sessions?anonymous=true") { allowedHost() }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("\"firstPath\":null"), body)
+        }
+        database = SqliteDatabase.open(dataDir)
+    }
 
     @Test
     fun `GET with anonymous=true answers 200 with page, pageCount, and the six row fields`() = runBlocking {

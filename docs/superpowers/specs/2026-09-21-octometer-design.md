@@ -345,9 +345,9 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
     `clicks`, `uniqueUsers`, `uniqueSessions`, `status`, `lastSuccessAt`, `lastError`,
     `nextPollAt`, `gaps`. Level 2: `page`, `pageCount`, `rows` with `userId`, `clicks`,
     `sessions`, `uniqueElements`. Level 3: `rows` with `element`, `clicks`, `sessions`,
-    `lastInteractionAt`. First pages: `page`, `pageCount`, `rows` with `path`, `sessions`.
-    Anonymous sessions: `page`, `pageCount`, `rows` with `sessionId`, `firstPath`, `source`,
-    `startTime`, `clicks`, `userId`. A gap
+    `lastInteractionAt`. First pages: `page`, `pageCount`, `rows` with `path` (nullable),
+    `sessions`. Anonymous sessions: `page`, `pageCount`, `rows` with `sessionId`,
+    `firstPath` (nullable), `source`, `startTime`, `clicks`, `userId`. A gap
     holds `from` and `to`. The erasure returns `deleted` and `checkpointed`. Each time field is UTC ISO 8601
     with milliseconds.
   - Each route of D44 keeps the Host check of D12, sends `Cache-Control: no-store`, and adds
@@ -568,8 +568,9 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   holds the user id of a later sign-in in the same session: the `user_id` of the event with the
   smallest `ts` among the events of that session with `user_id IS NOT NULL` (one session can
   hold two users; the earliest sign-in wins, never the last). The first-pages statement holds no
-  `COALESCE`. The API writes `(unknown)` for a `NULL` path. A session without a start row
-  shows the path `(unknown)` and the time of its first click. A row of "First pages" opens
+  `COALESCE`. The API writes `null` for a missing path (issue #213); the view shows the text
+  `(unknown)` for that `null` value. A session without a start row gives a `null` `firstPath`
+  and the time of its first click. A row of "First pages" opens
   "Anonymous sessions" with `firstPath`. The row `(anonymous)` of level 2 opens "Anonymous
   sessions" too. A session row opens the element view with `sessionId`. Each level 1 app row
   gets a link cell "First pages". "First pages" counts `COUNT(DISTINCT session_id)`, and
