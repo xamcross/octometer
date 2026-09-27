@@ -29,10 +29,12 @@ class Migration002Test {
     }
 
     @Test
-    fun `a new database gets user_version 2 and the three columns`() = runBlocking {
+    fun `a new database gets user_version 3 and the three columns`() = runBlocking {
         val database = SqliteDatabase.open(dataDir.absolutePath)
         try {
-            assertEquals(2, database.write { userVersion(it) })
+            // Issue #205 added migration 003; a fresh open now runs
+            // every migration, up to the current latest version.
+            assertEquals(3, database.write { userVersion(it) })
             val columns = database.write { tableColumns(it) }
             assertTrue(columns.contains("path"), "the column path exists")
             assertTrue(columns.contains("referrer_host"), "the column referrer_host exists")
@@ -54,7 +56,7 @@ class Migration002Test {
 
         val database = SqliteDatabase.open(dataDir.absolutePath)
         try {
-            assertEquals(2, database.write { userVersion(it) })
+            assertEquals(3, database.write { userVersion(it) })
             assertEquals(1, database.read { countEvents(it) })
         } finally {
             database.close()
@@ -89,7 +91,7 @@ class Migration002Test {
 
         val secondStart = SqliteDatabase.open(dataDir.absolutePath)
         try {
-            assertEquals(2, secondStart.write { userVersion(it) })
+            assertEquals(3, secondStart.write { userVersion(it) })
             assertTrue(secondStart.write { MigrationRunner.run(it, backupsDir(dataDir.absolutePath)) }.isEmpty())
         } finally {
             secondStart.close()
@@ -126,7 +128,7 @@ class Migration002Test {
     }
 
     @Test
-    fun `the guard against a newer database now names version 2`() {
+    fun `the guard against a newer database now names version 3`() {
         val dbFile = File(dataDir.apply { mkdirs() }, "octometer.db")
         DriverManager.getConnection("jdbc:sqlite:${dbFile.absolutePath}").use { connection ->
             connection.createStatement().use { it.execute("PRAGMA user_version = 99") }
@@ -135,7 +137,7 @@ class Migration002Test {
         val error = assertFailsWith<IllegalStateException> {
             SqliteDatabase.open(dataDir.absolutePath)
         }
-        assertTrue(error.message!!.contains("this build knows 2"), "the message names the latest version 2")
+        assertTrue(error.message!!.contains("this build knows 3"), "the message names the latest version 3")
     }
 
     private fun userVersion(connection: Connection): Int =
