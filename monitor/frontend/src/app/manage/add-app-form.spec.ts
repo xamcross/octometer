@@ -100,13 +100,11 @@ describe('AddAppForm', () => {
     overrides: {
       name?: string;
       connectionString?: string;
-      database?: string;
       pathPatterns?: string;
     } = {},
   ): void {
     const name = root().querySelector<HTMLInputElement>('#add-app-name')!;
     const connectionString = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
-    const database = root().querySelector<HTMLInputElement>('#add-app-database')!;
     const pathPatterns = root().querySelector<HTMLTextAreaElement>('#add-app-path-patterns')!;
 
     name.value = overrides.name ?? 'traficio';
@@ -115,8 +113,6 @@ describe('AddAppForm', () => {
       overrides.connectionString ??
       'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
     connectionString.dispatchEvent(new Event('input'));
-    database.value = overrides.database ?? 'exampledb';
-    database.dispatchEvent(new Event('input'));
     if (overrides.pathPatterns) {
       pathPatterns.value = overrides.pathPatterns;
       pathPatterns.dispatchEvent(new Event('input'));
@@ -133,12 +129,7 @@ describe('AddAppForm', () => {
   });
 
   it('labels each field', () => {
-    for (const id of [
-      'add-app-name',
-      'add-app-connection-string',
-      'add-app-database',
-      'add-app-path-patterns',
-    ]) {
+    for (const id of ['add-app-name', 'add-app-connection-string', 'add-app-path-patterns']) {
       const label = root().querySelector(`label[for="${id}"]`);
       expect(label, `label for #${id}`).toBeTruthy();
       expect(label?.textContent?.trim().length).toBeGreaterThan(0);
@@ -199,15 +190,15 @@ describe('AddAppForm', () => {
     expect(rule?.style.getPropertyValue('outline')).toContain('solid');
   });
 
-  it('sends POST /api/apps with the entered fields, and no collection key', () => {
-    fillAndSubmit({ name: 'traficio', database: 'exampledb' });
+  it('sends POST /api/apps with the entered fields, and no database key and no collection key', () => {
+    fillAndSubmit({ name: 'traficio' });
 
     const req = httpMock.expectOne({ url: '/api/apps', method: 'POST' });
     expect(req.request.body).toEqual({
       name: 'traficio',
       connectionString: 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net',
-      database: 'exampledb',
     });
+    expect(req.request.body).not.toHaveProperty('database');
     expect(req.request.body).not.toHaveProperty('collection');
     req.flush(
       { appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
@@ -216,13 +207,12 @@ describe('AddAppForm', () => {
   });
 
   it('sends POST /api/apps with pathPatterns when the route pattern field is filled', () => {
-    fillAndSubmit({ name: 'traficio', database: 'exampledb', pathPatterns: '/checkout\n/cart' });
+    fillAndSubmit({ name: 'traficio', pathPatterns: '/checkout\n/cart' });
 
     const req = httpMock.expectOne({ url: '/api/apps', method: 'POST' });
     expect(req.request.body).toEqual({
       name: 'traficio',
       connectionString: 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net',
-      database: 'exampledb',
       pathPatterns: '/checkout\n/cart',
     });
     req.flush(
@@ -237,17 +227,15 @@ describe('AddAppForm', () => {
 
   it('names the hint id of each input in aria-describedby, and the hint holds the example', () => {
     const connectionString = root().querySelector('#add-app-connection-string')!;
-    const database = root().querySelector('#add-app-database')!;
     const pathPatterns = root().querySelector('#add-app-path-patterns')!;
 
     expect(connectionString.getAttribute('aria-describedby')).toBe(
       'add-app-connection-string-hint',
     );
-    expect(database.getAttribute('aria-describedby')).toBe('add-app-database-hint');
     expect(pathPatterns.getAttribute('aria-describedby')).toBe('add-app-path-patterns-hint');
 
     const connectionStringHint = root().querySelector('#add-app-connection-string-hint');
-    expect(connectionStringHint?.textContent).toContain('mongodb://127.0.0.1:27017');
+    expect(connectionStringHint?.textContent).toContain('mongodb://127.0.0.1:27017/<database>');
   });
 
   it('shows the fixed 400 message for an invalid route pattern list, linked with aria-describedby', () => {
@@ -300,7 +288,7 @@ describe('AddAppForm', () => {
 
   describe('on a 201 answer', () => {
     function submitAndFlushCreated(summary: AppSummary): void {
-      fillAndSubmit({ name: summary.name, database: summary.database });
+      fillAndSubmit({ name: summary.name });
       httpMock
         .expectOne({ url: '/api/apps', method: 'POST' })
         .flush(summary, { status: 201, statusText: 'Created' });
@@ -317,7 +305,6 @@ describe('AddAppForm', () => {
 
       expect(root().querySelector<HTMLInputElement>('#add-app-name')!.value).toBe('');
       expect(root().querySelector<HTMLInputElement>('#add-app-connection-string')!.value).toBe('');
-      expect(root().querySelector<HTMLInputElement>('#add-app-database')!.value).toBe('');
     });
 
     it('announces "App added" through the shared status region', () => {

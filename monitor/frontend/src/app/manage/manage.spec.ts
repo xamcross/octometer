@@ -267,14 +267,11 @@ describe('Manage', () => {
       const connectionStringField = root().querySelector<HTMLInputElement>(
         '#add-app-connection-string',
       )!;
-      const databaseField = root().querySelector<HTMLInputElement>('#add-app-database')!;
       nameField.value = 'traficio';
       nameField.dispatchEvent(new Event('input'));
       connectionStringField.value =
         'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
       connectionStringField.dispatchEvent(new Event('input'));
-      databaseField.value = 'exampledb';
-      databaseField.dispatchEvent(new Event('input'));
       root()
         .querySelector('app-add-app-form form')!
         .dispatchEvent(new Event('submit', { cancelable: true }));
@@ -425,13 +422,10 @@ describe('Manage', () => {
     const connectionStringField = root().querySelector<HTMLInputElement>(
       '#add-app-connection-string',
     )!;
-    const databaseField = root().querySelector<HTMLInputElement>('#add-app-database')!;
     nameField.value = 'traficio';
     nameField.dispatchEvent(new Event('input'));
     connectionStringField.value = secret;
     connectionStringField.dispatchEvent(new Event('input'));
-    databaseField.value = 'exampledb';
-    databaseField.dispatchEvent(new Event('input'));
     root()
       .querySelector('app-add-app-form form')!
       .dispatchEvent(new Event('submit', { cancelable: true }));
