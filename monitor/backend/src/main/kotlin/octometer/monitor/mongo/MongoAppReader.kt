@@ -226,6 +226,10 @@ class MongoAppReader(
     private val serverTimeSource: suspend (MongoDatabase) -> Date = ::helloLocalTime,
     internal val cycleTimeoutMillis: Long = CYCLE_TIMEOUT_MILLIS,
     private val clock: Clock = Clock.systemUTC(),
+    // Issue #205, the D5 rule of 2026-09-27: the cap on the count of
+    // distinct path values of one app. MonitorServices.open passes
+    // config.pathValueCap here.
+    private val pathValueCap: Int = 200,
 ) : AutoCloseable {
 
     private val clients = ConcurrentHashMap<Long, CachedClient>()
@@ -476,16 +480,25 @@ class MongoAppReader(
         var pagesRead = 0
         var eventsStored = 0
         var eventsSkipped = 0
+        // Issue #205, decision 4 of the correction round: the reader
+        // loads the set one time, at the start of this cycle. The cap
+        // then counts this loaded set plus each value that this cycle
+        // itself admits, across its pages.
+        val admission = PathAdmission(eventStore.pathValuesOf(appId), pathValueCap)
         while (pagesRead < maxPages) {
             val page = fetchPage(cursor)
             if (page.isEmpty()) break
             val events = mutableListOf<NewEvent>()
             val skipped = mutableListOf<SkippedEvent>()
             var droppedReferrerHost = 0
+            var replacedPath = 0
             for (document in page) {
                 val reason = invalidReason(document)
                 if (reason == null) {
-                    events += parseEvent(document)
+                    val parsed = parseEvent(document)
+                    val decidedPath = decidePath(parsed.path, admission)
+                    if (parsed.path != null && decidedPath != parsed.path) replacedPath += 1
+                    events += parsed.copy(path = decidedPath)
                     if (referrerHostDropped(document)) droppedReferrerHost += 1
                 } else {
                     skipped += SkippedEvent(document.getObjectId("_id").toHexString(), reason)
@@ -497,8 +510,20 @@ class MongoAppReader(
             if (droppedReferrerHost > 0) {
                 log.warn("The reader dropped {} referrerHost value(s) outside the set.", droppedReferrerHost)
             }
+            if (replacedPath > 0) {
+                log.warn("The reader replaced {} path value(s) outside the shape or the app cap.", replacedPath)
+            }
             val newCursor = page.last().getObjectId("_id").toHexString()
-            val committed = eventStore.commitPage(appId, events, newCursor, expectedCursor = cursor, skippedEvents = skipped)
+            val newPathValues = admission.drainNewValues()
+            val committed = eventStore.commitPage(
+                appId,
+                events,
+                newCursor,
+                expectedCursor = cursor,
+                skippedEvents = skipped,
+                newPathValues = newPathValues,
+                newPathValuesFirstSeenAt = clock.millis(),
+            )
             if (!committed) break
             cursor = newCursor
             eventsStored += events.size
@@ -550,10 +575,12 @@ class MongoAppReader(
  * C39, C40). An unknown field of the document stays out of the result
  * (contract rule C9).
  *
- * [path] copies the value of the document as it is, for each element
- * (design decision D5: "the reader copies a `path` value ... as they
- * are"; RISK 1 of the security review of pull request #193 stays open
- * by the owner's choice, issue #205). [referrerHost] copies the value
+ * [path] copies the value of the document as it is, for each element.
+ * [MongoAppReader.runCycle] then calls [decidePath] on this value, so
+ * the stored row keeps a value only when it passes the shape check of
+ * [PathShape] and the per-app cap of [PathAdmission] (issue #205, the
+ * D5 rule of 2026-09-27, in place of RISK 1 of the security review of
+ * pull request #193). [referrerHost] copies the value
  * only for the element [SESSION_START_ELEMENT], and only when the
  * value is one of the three literals of contract rule C40
  * ([normalizedReferrerHost]); each other element, and each other
@@ -606,6 +633,19 @@ internal fun parseEvent(document: Document): NewEvent {
  */
 internal fun normalizedReferrerHost(referrerHost: String?): String? =
     referrerHost?.takeIf { it in REFERRER_HOST_VALUES }
+
+/**
+ * Decides the stored value of one `path` (issue #205, the D5 rule of
+ * 2026-09-27). A `null` value stays `null` (an absent field, issue
+ * #213). A value that fails the shape check of [PathShape] gives
+ * [OTHER_PATH]. Each other value goes to [PathAdmission.admit], which
+ * applies the per-app cap on the count of distinct values.
+ */
+private fun decidePath(path: String?, admission: PathAdmission): String? {
+    if (path == null) return null
+    if (!PathShape.isPatternResult(path)) return OTHER_PATH
+    return admission.admit(path)
+}
 
 /**
  * Tells whether [document] holds a `referrerHost` value that
