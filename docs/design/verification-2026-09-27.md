@@ -169,8 +169,8 @@ value equals the value of #246, so that table stands with no change.
 
 | Defect | Where it goes |
 | --- | --- |
-| The press of a button keeps its 80 ms transition and its 3 px offset under `prefers-reduced-motion: reduce`. | issue #263 |
-| The invalid field ring measures 2.8:1 on the field fill. | issue #264 |
+| The press of a button keeps its 80 ms transition and its 3 px offset under `prefers-reduced-motion: reduce`. | issue #263 (fixed in #267) |
+| The invalid field ring measures 2.8:1 on the field fill. | issue #264 (fixed in #267) |
 | The coral ring of the invalid field goes to `none` under `forced-colors: active`. The field then looks like a valid field. | issue #266 |
 | The panel caption runs past the panel edge at 360 px, on the users view by 7 px and on the elements view by 117 px. | the open MINOR row of `minor_issues/257.md` (the design lead, the five templates) |
 | The disabled confirm button measures 3.1:1. WCAG 1.4.3 exempts an inactive component, and the rule of #251 does not. | the open MINOR row of `minor_issues/258.md` (`src/styles.css:219-223`). The measurement corrects the estimate of the row from about 2.1:1 to 3.1:1. |
