@@ -6,6 +6,36 @@ import { Announcer } from '../announcer';
 import { AddAppForm } from './add-app-form';
 import type { AppSummary } from './app-registry-api';
 
+/**
+ * Finds the first loaded CSS rule with the given selector text. jsdom
+ * gives no computed style for a rule that a live element does not use
+ * yet, so a test of the rule text reads the stylesheet, not a live
+ * style. Angular appends its own content attribute to a selector of an
+ * emulated component, so this function strips that attribute first
+ * (the pattern of apps.spec.ts).
+ */
+function findCssRule(selectorText: string): CSSStyleRule | undefined {
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules: CSSRuleList | undefined;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      continue;
+    }
+    for (const rule of Array.from(rules ?? [])) {
+      const styleRule = rule as CSSStyleRule;
+      const plainSelector = styleRule.selectorText
+        ?.replace(/\[_ngcontent-[\w-]+\]/g, '')
+        .replace(/\s+/g, ' ');
+      const selectorParts = plainSelector?.split(',').map((part) => part.trim()) ?? [];
+      if (selectorParts.includes(selectorText)) {
+        return styleRule;
+      }
+    }
+  }
+  return undefined;
+}
+
 describe('AddAppForm', () => {
   let fixture: ComponentFixture<AddAppForm>;
   let httpMock: HttpTestingController;
@@ -87,6 +117,44 @@ describe('AddAppForm', () => {
     const field = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
     expect(field.type).toBe('password');
     expect(field.getAttribute('autocomplete')).toBe('new-password');
+  });
+
+  it('gives the submit button the classes btn and btn-primary', () => {
+    const submit = root().querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(submit.textContent?.trim()).toBe('Add app');
+    expect(submit.classList.contains('btn')).toBe(true);
+    expect(submit.classList.contains('btn-primary')).toBe(true);
+  });
+
+  it('gives the connection string field no aria-invalid before a submit', () => {
+    const field = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
+    expect(field.hasAttribute('aria-invalid')).toBe(false);
+  });
+
+  it('gives the connection string field aria-invalid true once an error message shows', () => {
+    fillAndSubmit();
+    httpMock
+      .expectOne({ url: '/api/apps', method: 'POST' })
+      .flush(
+        { error: 'Give a shorter connection string.' },
+        { status: 400, statusText: 'Bad Request' },
+      );
+    fixture.detectChanges();
+
+    const field = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('gives [aria-invalid="true"] a coral ring inside the ink border', () => {
+    const rule = findCssRule('[aria-invalid=true]');
+    expect(rule?.style.getPropertyValue('box-shadow')).toContain('--coral');
+  });
+
+  it('keeps the ink focus ring beside the coral ring on an invalid field with focus', () => {
+    const rule = findCssRule('[aria-invalid=true]:focus-visible');
+    const shadow = rule?.style.getPropertyValue('box-shadow');
+    expect(shadow).toContain('--coral');
+    expect(shadow).toContain('--ink');
   });
 
   it('sends POST /api/apps with the entered fields, and no collection key', () => {

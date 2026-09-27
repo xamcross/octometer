@@ -1,5 +1,5 @@
 @if (!editing()) {
-  <button type="button" class="edit-toggle" #editToggle (click)="open()">Edit</button>
+  <button type="button" class="btn btn-small edit-toggle" #editToggle (click)="open()">Edit</button>
 } @else {
   <form (submit)="onSubmit($event)">
     <div class="field">
@@ -25,6 +25,7 @@
         [attr.aria-describedby]="
           errorMessage() ? connectionStringHintId + ' ' + errorId : connectionStringHintId
         "
+        [attr.aria-invalid]="errorMessage() ? 'true' : null"
       />
       <p [id]="connectionStringHintId" class="form-hint">{{ connectionStringHint }}</p>
     </div>
@@ -50,8 +51,14 @@
     }
 
     <div class="actions">
-      <button type="submit" [disabled]="pending() || pathPatternsReadFailed()">Save</button>
-      <button type="button" class="cancel" (click)="cancel()">Cancel</button>
+      <button
+        type="submit"
+        class="btn btn-primary"
+        [disabled]="pending() || pathPatternsReadFailed()"
+      >
+        Save
+      </button>
+      <button type="button" class="btn cancel" (click)="cancel()">Cancel</button>
     </div>
   </form>
 }

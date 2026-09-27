@@ -18,6 +18,7 @@
           ? 'add-app-connection-string-hint add-app-error'
           : 'add-app-connection-string-hint'
       "
+      [attr.aria-invalid]="errorMessage() ? 'true' : null"
     />
     <p id="add-app-connection-string-hint" class="form-hint">{{ connectionStringHint }}</p>
   </div>
@@ -55,5 +56,5 @@
     <p id="add-app-error" class="form-error">{{ message }}</p>
   }
 
-  <button type="submit" [disabled]="pending()">Add app</button>
+  <button type="submit" class="btn btn-primary" [disabled]="pending()">Add app</button>
 </form>

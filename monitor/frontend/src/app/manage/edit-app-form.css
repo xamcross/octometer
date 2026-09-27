@@ -13,29 +13,37 @@ label {
   font-weight: bold;
 }
 
-input,
-textarea {
-  padding: 0.3rem 0.4rem;
-  min-height: 24px;
+/*
+ * jsdom links no global sheet in a unit test (#248 correction), so the
+ * coral ring rule sits here too, next to the global copy of styles.css.
+ */
+[aria-invalid='true'] {
+  box-shadow: inset 0 0 0 3px var(--coral);
 }
 
-textarea {
-  min-height: 4.5rem;
-  font-family: inherit;
-  resize: vertical;
+/*
+ * The invalid ring alone beats the global `:focus-visible` rule of
+ * styles.css, because this selector carries the higher specificity
+ * (#258 correction). This rule adds the ink ring back for the invalid
+ * field, next to the coral ring.
+ */
+[aria-invalid='true']:focus-visible {
+  box-shadow:
+    inset 0 0 0 3px var(--coral),
+    0 0 0 7px var(--ink);
 }
 
 .form-error {
-  color: var(--ink);
-  margin: 0.5rem 0;
-  padding-left: 8px;
-  border-left: 4px solid var(--coral);
+  padding-left: 12px;
+  border-left: 3px solid var(--coral);
+  font-weight: 700;
   overflow-wrap: anywhere;
+  margin: 8px 0 0;
 }
 
 .form-hint {
   color: var(--ink-soft);
-  margin: 0;
+  margin: 4px 0 0;
   font-size: var(--text-s);
   overflow-wrap: anywhere;
 }
@@ -45,10 +53,11 @@ textarea {
   gap: 0.5rem;
 }
 
-button {
-  display: inline-flex;
-  align-items: center;
-  min-width: 24px;
-  min-height: 24px;
-  padding: 0.3rem 0.75rem;
+/*
+ * jsdom links no global sheet in a unit test (manage.spec.ts, #248
+ * correction): the .btn min-height of styles.css needs a scoped copy
+ * here, so the test reads the true rendered value.
+ */
+.edit-toggle {
+  min-height: 44px;
 }

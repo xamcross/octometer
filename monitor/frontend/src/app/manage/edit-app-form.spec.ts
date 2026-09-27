@@ -7,6 +7,34 @@ import type { AppRow } from '../apps/app-row';
 import type { AppDetail } from './app-registry-api';
 import { EditAppForm } from './edit-app-form';
 
+/**
+ * Finds the first loaded CSS rule with the given selector text (the
+ * pattern of apps.spec.ts). Angular appends its own content attribute
+ * to a selector of an emulated component, so this function strips that
+ * attribute first.
+ */
+function findCssRule(selectorText: string): CSSStyleRule | undefined {
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules: CSSRuleList | undefined;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      continue;
+    }
+    for (const rule of Array.from(rules ?? [])) {
+      const styleRule = rule as CSSStyleRule;
+      const plainSelector = styleRule.selectorText
+        ?.replace(/\[_ngcontent-[\w-]+\]/g, '')
+        .replace(/\s+/g, ' ');
+      const selectorParts = plainSelector?.split(',').map((part) => part.trim()) ?? [];
+      if (selectorParts.includes(selectorText)) {
+        return styleRule;
+      }
+    }
+  }
+  return undefined;
+}
+
 function buildRow(overrides: Partial<AppRow> = {}): AppRow {
   return {
     appId: 3,
@@ -81,6 +109,56 @@ describe('EditAppForm', () => {
     expect(root().querySelector('form')).toBeNull();
     const toggle = root().querySelector('button.edit-toggle');
     expect(toggle?.textContent?.trim()).toBe('Edit');
+  });
+
+  it('gives the Edit, Save, and Cancel buttons their classes', () => {
+    const toggle = root().querySelector<HTMLButtonElement>('button.edit-toggle')!;
+    expect(toggle.classList.contains('btn')).toBe(true);
+    expect(toggle.classList.contains('btn-small')).toBe(true);
+
+    openEditor();
+    const save = root().querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    const cancel = root().querySelector<HTMLButtonElement>('button.cancel')!;
+    expect(save.classList.contains('btn')).toBe(true);
+    expect(save.classList.contains('btn-primary')).toBe(true);
+    expect(cancel.classList.contains('btn')).toBe(true);
+    expect(cancel.classList.contains('btn-primary')).toBe(false);
+  });
+
+  it('gives the connection string field no aria-invalid before a save fails', () => {
+    openEditor();
+    const connectionString = root().querySelector<HTMLInputElement>(
+      'input[id^="edit-app-connection-string-"]',
+    )!;
+    expect(connectionString.hasAttribute('aria-invalid')).toBe(false);
+  });
+
+  it('gives the connection string field aria-invalid true once a save fails', () => {
+    openEditor();
+    root()
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { cancelable: true }));
+    httpMock
+      .expectOne({ url: '/api/apps/3', method: 'PATCH' })
+      .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+
+    const connectionString = root().querySelector<HTMLInputElement>(
+      'input[id^="edit-app-connection-string-"]',
+    )!;
+    expect(connectionString.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('gives [aria-invalid="true"] a coral ring inside the ink border', () => {
+    const rule = findCssRule('[aria-invalid=true]');
+    expect(rule?.style.getPropertyValue('box-shadow')).toContain('--coral');
+  });
+
+  it('keeps the ink focus ring beside the coral ring on an invalid field with focus', () => {
+    const rule = findCssRule('[aria-invalid=true]:focus-visible');
+    const shadow = rule?.style.getPropertyValue('box-shadow');
+    expect(shadow).toContain('--coral');
+    expect(shadow).toContain('--ink');
   });
 
   it('opens the form with the name field prefilled, and an empty connection string field', () => {
