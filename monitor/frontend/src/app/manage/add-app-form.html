@@ -13,8 +13,13 @@
       required
       [value]="connectionString()"
       (input)="onConnectionStringInput($event)"
-      [attr.aria-describedby]="errorMessage() ? 'add-app-error' : null"
+      [attr.aria-describedby]="
+        errorMessage()
+          ? 'add-app-connection-string-hint add-app-error'
+          : 'add-app-connection-string-hint'
+      "
     />
+    <p id="add-app-connection-string-hint" class="form-hint">{{ connectionStringHint }}</p>
   </div>
 
   <div class="field">
@@ -25,16 +30,9 @@
       required
       [value]="database()"
       (input)="onDatabaseInput($event)"
+      aria-describedby="add-app-database-hint"
     />
-  </div>
-
-  <div class="field">
-    <label for="add-app-collection">Collection</label>
-    <select id="add-app-collection" [value]="collection()" (change)="onCollectionChange($event)">
-      @for (name of allowedCollections; track name) {
-        <option [value]="name">{{ name }}</option>
-      }
-    </select>
+    <p id="add-app-database-hint" class="form-hint">{{ databaseHint }}</p>
   </div>
 
   <div class="field">
@@ -43,8 +41,14 @@
       id="add-app-path-patterns"
       [value]="pathPatterns()"
       (input)="onPathPatternsInput($event)"
-      [attr.aria-describedby]="errorMessage() ? 'add-app-error' : null"
+      [attr.aria-describedby]="
+        errorMessage() ? 'add-app-path-patterns-hint add-app-error' : 'add-app-path-patterns-hint'
+      "
     ></textarea>
+    <p id="add-app-path-patterns-hint" class="form-hint">
+      {{ pathPatternsHint }} Example: <code>/</code> <code>/articles/*</code>
+      <code>/history/:id</code>, each on its own line.
+    </p>
   </div>
 
   @if (errorMessage(); as message) {

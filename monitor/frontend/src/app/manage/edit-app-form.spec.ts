@@ -130,6 +130,27 @@ describe('EditAppForm', () => {
     expect(field.value).toBe('/checkout\n/cart');
   });
 
+  it('names the hint id of each input in aria-describedby, and the hint holds the example', () => {
+    openEditor();
+    const connectionString = root().querySelector<HTMLInputElement>(
+      'input[id^="edit-app-connection-string-"]',
+    )!;
+    const pathPatterns = root().querySelector<HTMLTextAreaElement>(
+      'textarea[id^="edit-app-path-patterns-"]',
+    )!;
+
+    expect(connectionString.getAttribute('aria-describedby')).toBe(
+      'edit-app-connection-string-hint-3',
+    );
+    expect(pathPatterns.getAttribute('aria-describedby')).toBe('edit-app-path-patterns-hint-3');
+
+    const connectionStringHint = root().querySelector('#edit-app-connection-string-hint-3');
+    expect(connectionStringHint?.textContent).toContain('mongodb://127.0.0.1:27017');
+    expect(connectionStringHint?.textContent).toContain(
+      'Leave the field empty to keep the stored string.',
+    );
+  });
+
   it('sends the loaded route pattern list as it is, when the user makes no change', () => {
     openEditor({ appId: 3, name: 'traficio', pathPatterns: '/checkout' });
     root()

@@ -2,12 +2,8 @@ import { HttpClient } from '@angular/common/http';
 import { Component, inject, output, signal } from '@angular/core';
 
 import { Announcer } from '../announcer';
-import {
-  ALLOWED_COLLECTIONS,
-  AppSummary,
-  CreateAppRequest,
-  readApiErrorMessage,
-} from './app-registry-api';
+import { AppSummary, CreateAppRequest, readApiErrorMessage } from './app-registry-api';
+import { CONNECTION_STRING_HINT, DATABASE_HINT, PATH_PATTERNS_HINT } from './field-hints';
 
 /**
  * The form of step 2: `POST /api/apps` with the fields of D13. The
@@ -32,12 +28,13 @@ export class AddAppForm {
   /** Emits the created app summary after a successful save. */
   readonly added = output<AppSummary>();
 
-  protected readonly allowedCollections = ALLOWED_COLLECTIONS;
+  protected readonly connectionStringHint = CONNECTION_STRING_HINT;
+  protected readonly databaseHint = DATABASE_HINT;
+  protected readonly pathPatternsHint = PATH_PATTERNS_HINT;
 
   protected readonly name = signal('');
   protected readonly connectionString = signal('');
   protected readonly database = signal('');
-  protected readonly collection = signal<string>(ALLOWED_COLLECTIONS[0]);
   protected readonly pathPatterns = signal('');
 
   protected readonly pending = signal(false);
@@ -55,10 +52,6 @@ export class AddAppForm {
     this.database.set((event.target as HTMLInputElement).value);
   }
 
-  protected onCollectionChange(event: Event): void {
-    this.collection.set((event.target as HTMLSelectElement).value);
-  }
-
   protected onPathPatternsInput(event: Event): void {
     this.pathPatterns.set((event.target as HTMLTextAreaElement).value);
   }
@@ -72,7 +65,6 @@ export class AddAppForm {
       name: this.name(),
       connectionString: this.connectionString(),
       database: this.database(),
-      collection: this.collection(),
       ...(this.pathPatterns().trim() ? { pathPatterns: this.pathPatterns() } : {}),
     };
     this.pending.set(true);
@@ -88,7 +80,6 @@ export class AddAppForm {
     this.name.set('');
     this.connectionString.set('');
     this.database.set('');
-    this.collection.set(ALLOWED_COLLECTIONS[0]);
     this.pathPatterns.set('');
     this.announcer.announce('App added');
     this.added.emit(summary);

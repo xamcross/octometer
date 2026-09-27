@@ -22,8 +22,11 @@
         autocomplete="new-password"
         [value]="connectionString()"
         (input)="onConnectionStringInput($event)"
-        [attr.aria-describedby]="errorMessage() ? errorId : null"
+        [attr.aria-describedby]="
+          errorMessage() ? connectionStringHintId + ' ' + errorId : connectionStringHintId
+        "
       />
+      <p [id]="connectionStringHintId" class="form-hint">{{ connectionStringHint }}</p>
     </div>
 
     <div class="field">
@@ -32,8 +35,14 @@
         [id]="pathPatternsId"
         [value]="pathPatterns()"
         (input)="onPathPatternsInput($event)"
-        [attr.aria-describedby]="errorMessage() ? errorId : null"
+        [attr.aria-describedby]="
+          errorMessage() ? pathPatternsHintId + ' ' + errorId : pathPatternsHintId
+        "
       ></textarea>
+      <p [id]="pathPatternsHintId" class="form-hint">
+        {{ pathPatternsHint }} Example: <code>/</code> <code>/articles/*</code>
+        <code>/history/:id</code>, each on its own line.
+      </p>
     </div>
 
     @if (errorMessage(); as message) {

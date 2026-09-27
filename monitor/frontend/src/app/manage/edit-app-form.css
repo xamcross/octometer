@@ -31,6 +31,13 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.form-hint {
+  color: #595959;
+  margin: 0;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
 .actions {
   display: flex;
   gap: 0.5rem;

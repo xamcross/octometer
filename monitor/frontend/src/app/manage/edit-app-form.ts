@@ -14,6 +14,7 @@ import {
 import { Announcer } from '../announcer';
 import type { AppRow } from '../apps/app-row';
 import { AppDetail, UpdateAppRequest, readApiErrorMessage } from './app-registry-api';
+import { EDIT_CONNECTION_STRING_HINT, PATH_PATTERNS_HINT } from './field-hints';
 
 /**
  * The control of step 3: `PATCH /api/apps/{id}` with the name and the
@@ -61,6 +62,9 @@ export class EditAppForm {
   private readonly nameField = viewChild<ElementRef<HTMLInputElement>>('nameField');
   private readonly editToggle = viewChild<ElementRef<HTMLButtonElement>>('editToggle');
 
+  protected readonly connectionStringHint = EDIT_CONNECTION_STRING_HINT;
+  protected readonly pathPatternsHint = PATH_PATTERNS_HINT;
+
   protected readonly editing = signal(false);
   protected readonly name = signal('');
   protected readonly connectionString = signal('');
@@ -87,8 +91,16 @@ export class EditAppForm {
     return `edit-app-connection-string-${this.app().appId}`;
   }
 
+  protected get connectionStringHintId(): string {
+    return `edit-app-connection-string-hint-${this.app().appId}`;
+  }
+
   protected get pathPatternsId(): string {
     return `edit-app-path-patterns-${this.app().appId}`;
+  }
+
+  protected get pathPatternsHintId(): string {
+    return `edit-app-path-patterns-hint-${this.app().appId}`;
   }
 
   protected get errorId(): string {
