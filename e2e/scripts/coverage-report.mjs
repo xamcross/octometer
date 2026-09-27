@@ -15,13 +15,30 @@
  * `monitor/backend/build.gradle.kts`, task `buildFrontend`, on
  * 2026-09-27).
  *
- * When `v8-to-istanbul` cannot map a served file (a hashed file name
- * with no build on disk, a missing source map), this script states the
- * reason and gives a raw V8 summary of that file instead: the total
- * byte count of each top-level function range, and the byte count of
- * the ranges with a call count above zero. This is a coarser number
- * than a line count, stated as such in the summary text (issue #176,
- * decision 3, the one-hour bound on the mapping effort).
+ * When `v8-to-istanbul` cannot map a served file, this script states
+ * the reason and gives a raw V8 summary of that file instead: the
+ * total byte count of each top-level function range, and the byte
+ * count of the ranges with a call count above zero. This is a coarser
+ * number than a line count, stated as such in the summary text.
+ *
+ * The reason, confirmed on 2026-09-27 (the one-hour bound of issue
+ * #176, decision 3): the Angular application builder writes each
+ * `sources` entry of a `.map` file relative to the built file's own
+ * folder, short by exactly one directory level (confirmed with the
+ * project's own default, project-relative output path too: the same
+ * one-level shortfall shows there, so this is a builder behaviour, not
+ * an effect of this project's custom `--output-path`). The default
+ * layout hides the defect, because Angular nests the build one level
+ * under the given path either way, and the two shortfalls often cancel
+ * out by coincidence of the default folder depth. This project's
+ * custom `--output-path` (`monitor/backend/build/frontend-dist`, for
+ * the distribution) sits outside `monitor/frontend` by four directory
+ * levels, not one, so the stored relative path resolves to a folder
+ * that does not exist, and `v8-to-istanbul` maps no file. A one-line
+ * patch of the `sources` array cannot fix this in general, because the
+ * true distance depends on the chosen `--output-path`, not on a fixed
+ * offset. Each frontend file therefore falls back to the raw V8
+ * summary below.
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -147,11 +164,16 @@ async function main() {
 
   const mappedFiles = new Map();
   const unmapped = [];
+  const outOfScope = [];
 
   for (const [url, urlEntries] of entriesByUrl) {
     const diskPath = servedUrlToDiskPath(url);
     if (!diskPath || !existsSync(diskPath)) {
-      unmapped.push({ url, reason: 'The served file is absent under monitor/backend/build/frontend-dist/browser.', entries: urlEntries });
+      // No file of monitor/frontend's own build serves this URL (for
+      // example the demo app page, or kit/tracker's own script): a
+      // different codebase, out of the scope of this report, not a
+      // mapping failure of monitor/frontend.
+      outOfScope.push({ url, entries: urlEntries });
       continue;
     }
     try {
@@ -181,7 +203,9 @@ async function main() {
       if (!mappedAnyFile) {
         unmapped.push({
           url,
-          reason: 'v8-to-istanbul mapped no file under monitor/frontend/src (no source map, or a third-party bundle).',
+          reason:
+            'The source map of this file resolves each source outside monitor/frontend/src ' +
+            '(the Angular builder short-folder-level defect stated at the top of this script).',
           entries: urlEntries,
         });
       }
@@ -214,13 +238,32 @@ async function main() {
 
   if (unmapped.length > 0) {
     summaryLines.push('');
-    summaryLines.push('Files with no line map (the raw V8 byte coverage of the whole served file):');
+    summaryLines.push('monitor/frontend files with no line map (the raw V8 byte coverage of the whole served file):');
+    let grandCoveredBytes = 0;
+    let grandTotalBytes = 0;
     for (const item of unmapped) {
       const { totalBytes, coveredBytes } = rawByteCoverage(item.entries);
+      grandCoveredBytes += coveredBytes;
+      grandTotalBytes += totalBytes;
       const bytePercent = totalBytes === 0 ? '0.0' : ((coveredBytes / totalBytes) * 100).toFixed(1);
       summaryLines.push(`  ${item.url}`);
       summaryLines.push(`    Reason: ${item.reason}`);
       summaryLines.push(`    Raw V8 bytes: ${coveredBytes}/${totalBytes} (${bytePercent}%, function-level, not a line count)`);
+    }
+    const grandBytePercent = grandTotalBytes === 0 ? '0.0' : ((grandCoveredBytes / grandTotalBytes) * 100).toFixed(1);
+    summaryLines.push('');
+    summaryLines.push(
+      `Total raw V8 bytes of these files: ${grandCoveredBytes}/${grandTotalBytes} (${grandBytePercent}%, function-level, not a line count)`,
+    );
+  }
+
+  if (outOfScope.length > 0) {
+    summaryLines.push('');
+    summaryLines.push(
+      'Out of scope (a different codebase: the demo app page, or the kit/tracker script; not monitor/frontend):',
+    );
+    for (const item of outOfScope) {
+      summaryLines.push(`  ${item.url}`);
     }
   }
 

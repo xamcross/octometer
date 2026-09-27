@@ -15,18 +15,18 @@ Maven Central, `org.jacoco.agent`, on 2026-09-27); `v8-to-istanbul` 9.3.0
 Command:
 
 ```
-./gradlew test jacocoAggregate -Pcoverage=true
+./gradlew test jacocoTestReport jacocoAggregate -Pcoverage=true
 ```
 
 | Module | Line coverage | Branch coverage |
 | --- | --- | --- |
-| `monitor/backend` | PENDING | PENDING |
-| `kit/jvm-core` | PENDING | PENDING |
-| `kit/jvm-ktor` | PENDING | PENDING |
-| `kit/jvm-mongo` | PENDING | PENDING |
-| `kit/jvm-spring` | PENDING | PENDING |
-| `tools/demo-app` | PENDING | PENDING |
-| **Total (`jacocoAggregate`)** | **PENDING** | **PENDING** |
+| `monitor/backend` | 94.6% (2496/2639) | 83.0% (983/1184) |
+| `kit/jvm-core` | 91.2% (1046/1147) | 81.8% (676/826) |
+| `kit/jvm-ktor` | 97.6% (81/83) | 83.3% (20/24) |
+| `kit/jvm-mongo` | 95.2% (158/166) | 91.1% (51/56) |
+| `kit/jvm-spring` | 90.2% (55/61) | 85.0% (17/20) |
+| `tools/demo-app` | 66.3% (65/98) | 73.7% (28/38) |
+| **Total (`jacocoAggregate`)** | **93.0% (3901/4194)** | **82.6% (1775/2148)** |
 
 Source of each per-module number: `<module>/build/reports/jacoco/test/jacocoTestReport.xml`,
 the report-level `<counter type="LINE">` and `<counter type="BRANCH">`
@@ -48,12 +48,31 @@ cd .. && ./gradlew :monitor:backend:jacocoE2eReport
 
 | | Line coverage |
 | --- | --- |
-| The monitor process and the demo app process (JaCoCo, `jacocoE2eReport`) | PENDING |
-| The frontend (V8, mapped through `v8-to-istanbul`) | PENDING |
+| The monitor process and the demo app process (JaCoCo, `jacocoE2eReport`) | 55.0% (2307/4194 lines); branch 31.4% (674/2148) |
+| The frontend (`monitor/frontend/src`, mapped through `v8-to-istanbul`) | no line map (see below) |
+| The frontend, the raw V8 byte fallback | 88.4% (4236081/4792730 bytes, function-level, not a line count) |
 
 Source: `monitor/backend/build/reports/jacoco/e2e/jacocoE2eReport.xml`, the
 report-level `<counter type="LINE">` element; and
-`e2e/.run/coverage/frontend-coverage-summary.txt`, the "Total" line.
+`e2e/.run/coverage/frontend-coverage-summary.txt`.
+
+**The frontend mapping.** `v8-to-istanbul` mapped no file of
+`monitor/frontend/src` on this run. The reason (confirmed on 2026-09-27,
+inside the one-hour bound of decision 3): the Angular application
+builder writes each source map's `sources` entries relative to the
+built file's own folder, one directory level short (confirmed also with
+the project's own default, project-relative output path, so this is a
+builder behaviour, not an effect of this project's custom
+`--output-path`). The default layout hides the defect by coincidence of
+its folder depth; this project's `--output-path`
+(`monitor/backend/build/frontend-dist`, for the distribution) sits
+outside `monitor/frontend` by four directory levels, not one, so each
+resolved source path lands on a folder that does not exist, and
+`v8-to-istanbul` maps no file. `e2e/scripts/coverage-report.mjs` states
+this at its own top, and it falls back to the raw V8 byte count of each
+served file. The demo app page and the `kit/tracker` script are a
+different codebase; the script reports them as "out of scope", not as
+a mapping failure of `monitor/frontend`.
 
 ## The design decisions that the browser suite reaches
 
