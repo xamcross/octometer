@@ -199,7 +199,9 @@ describe('EditAppForm', () => {
     expect(root().textContent).toContain(
       'The route pattern at index 0 breaks the route pattern grammar.',
     );
-    expect(field.getAttribute('aria-describedby')).toContain('edit-app-error-');
+    expect(field.getAttribute('aria-describedby')).toBe(
+      'edit-app-path-patterns-hint-3 edit-app-error-3',
+    );
   });
 
   // MAJOR 1 of the Angular review of pull request #243: a failed read
@@ -307,7 +309,9 @@ describe('EditAppForm', () => {
     const connectionString = root().querySelector<HTMLInputElement>(
       'input[id^="edit-app-connection-string-"]',
     )!;
-    expect(connectionString.getAttribute('aria-describedby')).toContain('edit-app-error-');
+    expect(connectionString.getAttribute('aria-describedby')).toBe(
+      'edit-app-connection-string-hint-3 edit-app-error-3',
+    );
     expect(staleListSpy).toHaveBeenCalled();
   });
 
@@ -325,7 +329,9 @@ describe('EditAppForm', () => {
     const connectionString = root().querySelector<HTMLInputElement>(
       'input[id^="edit-app-connection-string-"]',
     )!;
-    expect(connectionString.getAttribute('aria-describedby')).toContain('edit-app-error-');
+    expect(connectionString.getAttribute('aria-describedby')).toBe(
+      'edit-app-connection-string-hint-3 edit-app-error-3',
+    );
   });
 
   it('closes the form and discards changes on Cancel', () => {
