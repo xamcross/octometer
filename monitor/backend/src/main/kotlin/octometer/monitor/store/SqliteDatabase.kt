@@ -18,6 +18,8 @@ import kotlinx.coroutines.withContext
 import octometer.monitor.backup.backupsDir
 import org.slf4j.LoggerFactory
 import org.sqlite.SQLiteConfig
+import org.sqlite.SQLiteErrorCode
+import org.sqlite.SQLiteException
 
 private const val DATABASE_FILE_NAME = "octometer.db"
 private const val WRITER_SHUTDOWN_TIMEOUT_SECONDS = 5L
@@ -39,6 +41,100 @@ private val log = LoggerFactory.getLogger("octometer.monitor.store.SqliteDatabas
  * restored file. [SqliteDatabase.open] throws this instead of opening.
  */
 class RestoredDatabaseNeedsCleanupException(message: String) : Exception(message)
+
+/**
+ * Decision 1 of issue #58. `SqliteDatabase.open` throws this in two
+ * cases: the driver reports `SQLITE_NOTADB` or `SQLITE_CORRUPT` while it
+ * opens the writer connection, or `PRAGMA quick_check` gives a row other
+ * than `ok`. Either way the file stays as it is: the check runs before
+ * any write, and a failed check opens no connection with a migration.
+ *
+ * Correction round 1 (MAJOR B, MINOR of both reviews): [message] names
+ * its own route (the driver check or the `quick_check` route), so the
+ * ERROR line of `Application.kt` never names `PRAGMA quick_check` for a
+ * failure that the driver itself caught first.
+ */
+class CorruptDatabaseException(message: String) : Exception(message)
+
+/**
+ * Runs `PRAGMA quick_check` on [connection] and gives its first row, or
+ * `null` when the pragma gives no row. [octometer.monitor.backup.DatabaseBackup]
+ * shares this helper for its own backup-file check (decision 1 of issue
+ * #58).
+ */
+internal fun runQuickCheck(connection: Connection): String? =
+    connection.createStatement().use { statement ->
+        statement.executeQuery("PRAGMA quick_check").use { result ->
+            if (result.next()) result.getString(1) else null
+        }
+    }
+
+// The primary result code of a driver failure, with the extended part
+// dropped (issue #58, the correction of 2026-09-27): sqlite-jdbc can
+// report an extended code, for example SQLITE_BUSY_RECOVERY, and this
+// still counts as SQLITE_BUSY.
+private fun primaryResultCode(failure: SQLiteException): Int = failure.resultCode.code and 0xFF
+
+// Decision 1's correction of 2026-09-27: SqlitePragmas.applyTo reads the
+// file header before quick_check ever runs (PRAGMA journal_mode=WAL,
+// about line 34 of SqlitePragmas.kt). Random bytes give SQLITE_NOTADB
+// there; a corrupt page can give SQLITE_CORRUPT there or at quick_check.
+// Each other SQLiteException passes through as it is.
+private fun asCorruptDatabaseExceptionOrSelf(failure: SQLiteException): Throwable {
+    val primaryCode = primaryResultCode(failure)
+    val isCorruptOrNotADatabase =
+        primaryCode == SQLiteErrorCode.SQLITE_NOTADB.code || primaryCode == SQLiteErrorCode.SQLITE_CORRUPT.code
+    return if (isCorruptOrNotADatabase) {
+        val driverText = failure.message ?: failure.javaClass.simpleName
+        CorruptDatabaseException("The database file octometer.db is corrupt. The file stays as it is. $driverText")
+    } else {
+        failure
+    }
+}
+
+// Decision 1: the quick_check runs right after the writer connection
+// opens, and before MigrationRunner.run. A bad row throws with the
+// first result line, never the driver text of that path (the random-bytes
+// test asserts the driver text of a bad open instead, never this text).
+//
+// Correction round 1 (MAJOR B, the ERROR-sentence MINOR of both
+// reviews): the sentence names PRAGMA quick_check by name, because this
+// route, and only this route, ran that pragma and read its row. The
+// driver route above names no pragma; it names the file as corrupt
+// instead.
+private fun refuseIfCorrupt(connection: Connection) {
+    val answer = runQuickCheck(connection)
+    if (answer != "ok") {
+        throw CorruptDatabaseException(
+            "The database file failed PRAGMA quick_check. The file stays as it is. PRAGMA quick_check gave '$answer'.",
+        )
+    }
+}
+
+// Opens the writer connection with [openWriter], then runs quick_check
+// on it (decision 1). A driver failure of either step that names
+// SQLITE_NOTADB or SQLITE_CORRUPT becomes CorruptDatabaseException;
+// each other failure passes through as it is. A quick_check failure
+// closes the connection it already opened, so no handle stays open on
+// the failed path. [openWriter] stays a parameter, because the real
+// connection factory is a private member of the companion object below.
+private fun openCheckedWriterConnection(url: String, openWriter: (String, Boolean) -> Connection): Connection {
+    val connection = try {
+        openWriter(url, false)
+    } catch (driverFailure: SQLiteException) {
+        throw asCorruptDatabaseExceptionOrSelf(driverFailure)
+    }
+    try {
+        refuseIfCorrupt(connection)
+    } catch (sqliteFailure: SQLiteException) {
+        runCatching { connection.close() }
+        throw asCorruptDatabaseExceptionOrSelf(sqliteFailure)
+    } catch (otherFailure: Throwable) {
+        runCatching { connection.close() }
+        throw otherFailure
+    }
+    return connection
+}
 
 // Issue #55: a plain ExecutorCoroutineDispatcher.close() only asks the
 // executor to shut down; it does not wait for the thread to end. This
@@ -182,6 +278,12 @@ class SqliteDatabase private constructor(
          * BLOCKER 1 of correction round 1: this refuses the start when
          * `octometer.db` is a restored rollback-journal file and a
          * write-ahead log file with content still lies beside it.
+         *
+         * Decision 1 of issue #58: this also refuses the start when
+         * `octometer.db` is corrupt. It throws [CorruptDatabaseException]
+         * when the driver reports `SQLITE_NOTADB` or `SQLITE_CORRUPT`, or
+         * when `PRAGMA quick_check` gives a row other than `ok`. The file
+         * stays as it is on that path: the check runs before any write.
          */
         fun open(
             dataDir: String,
@@ -195,7 +297,7 @@ class SqliteDatabase private constructor(
             refuseIfRestoredWithStaleWal(folder)
             val url = "jdbc:sqlite:" + File(folder, DATABASE_FILE_NAME).absolutePath
 
-            val writer = openConnection(url, readOnly = false)
+            val writer = openCheckedWriterConnection(url, ::openConnection)
             try {
                 val reader = openConnection(url, readOnly = true)
                 try {

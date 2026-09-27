@@ -18,6 +18,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 ### Monitor
 
 - Add the per-app route pattern list, the path allow-list of the reader, with the API field, the manage form, and the guides. (#226)
+- Lower the query time of the level 1 app totals and the anonymous sessions statement, at 1 million events. (#237)
+- Write the run guide, five sections complete; the upgrade step waits for issue #56. (#64)
 - Add the per-app cap on the distinct path values, with a shape check and an erasure rewrite. (#205)
 - Add the "Anonymous sessions" view, with a link from a first-page row and from the anonymous row of the user list. (#115)
 - Show the retention time above the app table of the level 1 view. (#66)
@@ -27,6 +29,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Record a gap after a long off-time, and show it in the level 1 view. (#62)
 - Purge a gap row whose `to_ts` is older than the retention time. (#227)
 - Add the perf test of the three levels, at 1 million and 10 million events. (#63)
+- Refuse a corrupt database, and a second monitor instance, with a clear log line and exit code 2; map a locked or a full database to a fixed `last_error` text; add `databaseBytes` and `freeDiskBytes` to `GET /api/health`. (#58)
 
 ## 0.2.0 - 2026-09-27
 

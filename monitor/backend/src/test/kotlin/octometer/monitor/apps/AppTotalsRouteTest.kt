@@ -8,6 +8,9 @@ import io.ktor.server.testing.testApplication
 import java.io.File
 import java.nio.file.Files
 import java.sql.Connection
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -15,8 +18,12 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import octometer.monitor.allowedHost
 import octometer.monitor.devConfig
+import octometer.monitor.erasure.eraseUserEvents
 import octometer.monitor.module
 import octometer.monitor.registerTempRoot
+import octometer.monitor.retention.RetentionPurge
+import octometer.monitor.store.EventStore
+import octometer.monitor.store.NewEvent
 import octometer.monitor.store.SqliteDatabase
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -188,6 +195,14 @@ class AppTotalsRouteTest {
     // text must still leave the body as valid JSON, with the value
     // unchanged, because kotlinx.serialization writes the JSON and this
     // route builds no text by hand.
+    //
+    // Issue #235: module() starts a real PollScheduler. A row with
+    // nextPollAt == null is due at once (PollScheduler.isDue), so a real
+    // tick can poll this app before the assertion runs, and it has no
+    // stored secret. That poll then overwrites lastError with "no
+    // stored secret", a race that this test alone always loses. A far
+    // future nextPollAt keeps the row not due for the life of this test,
+    // so no cycle runs, and the assertion still checks the same value.
     @Test
     fun `a hostile name and a hostile lastError stay valid JSON with the value unchanged`() =
         testApplication {
@@ -199,6 +214,7 @@ class AppTotalsRouteTest {
                 status = "ERROR",
                 lastPollAt = 1_700_000_000_000L,
                 lastError = hostileError,
+                nextPollAt = FAR_FUTURE_NEXT_POLL_AT,
             )
             database.close()
 
@@ -216,22 +232,72 @@ class AppTotalsRouteTest {
             assertEquals(hostileError, row.getValue("lastError").jsonPrimitive.content)
         }
 
+    // Issue #237 (2026-09-27): CLICKS_AND_USERS_SQL replaces the two
+    // former statements CLICKS_SQL and UNIQUE_USERS_SQL. The plan must
+    // show the covering index for the inner scan, and no full scan of
+    // the event table anywhere in the plan.
     @Test
-    fun `EXPLAIN QUERY PLAN shows a covering index for each of the three statements`() = runBlocking {
+    fun `EXPLAIN QUERY PLAN shows a covering index scan and no full scan of event`() = runBlocking {
         val appOne = insertApp(database, name = "app-one")
         val appTwo = insertApp(database, name = "app-two")
         insertEvent(database, appOne, eventId = "e1", sessionId = "s1", userId = "user-1", kind = 0)
         insertEvent(database, appOne, eventId = "e2", sessionId = "s1", userId = null, kind = 1)
         insertEvent(database, appTwo, eventId = "e3", sessionId = "s2", userId = "user-2", kind = 0)
 
-        val clicksPlan = explainPlan(database, CLICKS_SQL)
-        val uniqueUsersPlan = explainPlan(database, UNIQUE_USERS_SQL)
-        val uniqueSessionsPlan = explainPlan(database, UNIQUE_SESSIONS_SQL)
+        val clicksAndUsersPlan = explainPlanLines(database, CLICKS_AND_USERS_SQL)
+        val uniqueSessionsPlan = explainPlanLines(database, UNIQUE_SESSIONS_SQL)
 
-        assertEquals("SCAN event USING COVERING INDEX event_agg", clicksPlan)
-        assertEquals("SCAN event USING COVERING INDEX event_agg", uniqueUsersPlan)
-        assertEquals("SCAN event USING COVERING INDEX event_session", uniqueSessionsPlan)
+        assertTrue(
+            clicksAndUsersPlan.any { it.contains("USING COVERING INDEX event_agg") },
+            clicksAndUsersPlan.toString(),
+        )
+        assertTrue(
+            clicksAndUsersPlan.none { it == "SCAN event" },
+            "a plan line held a full scan of event: $clicksAndUsersPlan",
+        )
+        assertEquals(listOf("SCAN event USING COVERING INDEX event_session"), uniqueSessionsPlan)
     }
+
+    // Issue #237, decision 4: this test proves that CLICKS_AND_USERS_SQL
+    // gives the same clicks total and the same unique-users total as
+    // the plain (pre-issue-237) two-statement form, after a page
+    // commit, a retention purge, and an erasure. "old-click" is older
+    // than the retention limit, so the purge removes it. "click-d" of
+    // "user-erase" leaves through the erasure. The remaining clicks are
+    // click-a, click-b (both of user-a), and click-c (anonymous):
+    // 3 clicks, 1 unique user.
+    @Test
+    fun `the merged clicks-and-users statement agrees with the plain form after a commit, a purge, and an erasure`() =
+        runBlocking {
+            val appId = insertApp(database, name = "shop")
+            val eventStore = EventStore(database)
+            val oldTs = FIXTURE_NOW - (RETENTION_DAYS_FOR_FIXTURE + 10) * DAY_MILLIS_FOR_FIXTURE
+            val recentTs = FIXTURE_NOW
+
+            val committed = eventStore.commitPage(
+                appId,
+                events = listOf(
+                    NewEvent("old-click", oldTs, "checkout.save", "s-old", userId = "user-old", kind = 0),
+                    NewEvent("click-a", recentTs, "checkout.save", "s1", userId = "user-a", kind = 0),
+                    NewEvent("click-b", recentTs, "checkout.save", "s1", userId = "user-a", kind = 0),
+                    NewEvent("click-c", recentTs, "checkout.save", "s2", userId = null, kind = 0),
+                    NewEvent("click-d", recentTs, "checkout.save", "s3", userId = "user-erase", kind = 0),
+                    NewEvent("start-1", recentTs, "octo:session-start", "s1", userId = null, kind = 1),
+                ),
+                cursor = "cursor-1",
+                expectedCursor = null,
+            )
+            assertTrue(committed, "the page commit moved the cursor")
+
+            RetentionPurge(database, fixedClock(recentTs)).purgeOnce(RETENTION_DAYS_FOR_FIXTURE)
+            eraseUserEvents(database, appId, "user-erase")
+
+            val plain = database.read { reader -> readPlainClicksAndUsers(reader) }
+            val merged = database.read { reader -> readMergedClicksAndUsers(reader) }
+
+            assertEquals(plain, merged)
+            assertEquals(mapOf(appId to (3L to 1L)), merged)
+        }
 
     @Test
     fun `GET api-apps answers with the rows and Cache-Control no-store`() = testApplication {
@@ -255,6 +321,54 @@ class AppTotalsRouteTest {
         assertEquals("2023-11-14T22:13:20.000Z", gap.getValue("from").jsonPrimitive.content)
         assertEquals("2023-11-16T02:00:00.000Z", gap.getValue("to").jsonPrimitive.content)
     }
+}
+
+// Issue #235: a nextPollAt far past any real date, so PollScheduler.isDue
+// never treats the row as due during a test that starts a real scheduler.
+private const val FAR_FUTURE_NEXT_POLL_AT = 9_999_999_999_999L
+
+// Issue #237, decision 4: the plain (pre-issue-237) two-statement form,
+// for the equality test only. Neither constant runs in production.
+private const val PLAIN_CLICKS_SQL =
+    "SELECT app_id, COUNT(*) AS total FROM event WHERE kind = 0 GROUP BY app_id"
+private const val PLAIN_UNIQUE_USERS_SQL =
+    "SELECT app_id, COUNT(DISTINCT user_id) AS total FROM event WHERE kind = 0 GROUP BY app_id"
+
+private const val FIXTURE_NOW = 1_700_000_000_000L
+private const val RETENTION_DAYS_FOR_FIXTURE = 30
+private const val DAY_MILLIS_FOR_FIXTURE = 86_400_000L
+
+private fun fixedClock(millis: Long): Clock = Clock.fixed(Instant.ofEpochMilli(millis), ZoneOffset.UTC)
+
+private fun readPlainClicksAndUsers(connection: Connection): Map<Long, Pair<Long, Long>> {
+    val clicks = readOneColumnTotals(connection, PLAIN_CLICKS_SQL)
+    val users = readOneColumnTotals(connection, PLAIN_UNIQUE_USERS_SQL)
+    val appIds = clicks.keys + users.keys
+    return appIds.associateWith { appId -> (clicks[appId] ?: 0L) to (users[appId] ?: 0L) }
+}
+
+private fun readOneColumnTotals(connection: Connection, sql: String): Map<Long, Long> {
+    val totals = mutableMapOf<Long, Long>()
+    connection.createStatement().use { statement ->
+        statement.executeQuery(sql).use { result ->
+            while (result.next()) {
+                totals[result.getLong(1)] = result.getLong(2)
+            }
+        }
+    }
+    return totals
+}
+
+private fun readMergedClicksAndUsers(connection: Connection): Map<Long, Pair<Long, Long>> {
+    val totals = mutableMapOf<Long, Pair<Long, Long>>()
+    connection.createStatement().use { statement ->
+        statement.executeQuery(CLICKS_AND_USERS_SQL).use { result ->
+            while (result.next()) {
+                totals[result.getLong("app_id")] = result.getLong("clicks") to result.getLong("users")
+            }
+        }
+    }
+    return totals
 }
 
 private suspend fun insertApp(
@@ -329,13 +443,13 @@ private suspend fun insertGap(database: SqliteDatabase, appId: Long, fromTs: Lon
         }
     }
 
-private suspend fun explainPlan(database: SqliteDatabase, sql: String): String =
+// Issue #237: CLICKS_AND_USERS_SQL nests a subquery, so its plan can
+// hold more than one line. This helper returns each line, and the test
+// checks the lines it needs, not the count of lines.
+private suspend fun explainPlanLines(database: SqliteDatabase, sql: String): List<String> =
     database.read { reader -> explainPlanText(reader, sql) }
 
-// Each of the three statements gives one plan line for a covering index
-// scan. A plan of two or more lines is itself a finding, thus this
-// helper asserts the single line instead of joining a list.
-private fun explainPlanText(connection: Connection, sql: String): String {
+private fun explainPlanText(connection: Connection, sql: String): List<String> {
     val lines = mutableListOf<String>()
     connection.createStatement().use { statement ->
         statement.executeQuery("EXPLAIN QUERY PLAN $sql").use { result ->
@@ -344,8 +458,7 @@ private fun explainPlanText(connection: Connection, sql: String): String {
             }
         }
     }
-    check(lines.size == 1) { "expected one plan line, got $lines" }
-    return lines.single()
+    return lines
 }
 
 private fun java.sql.PreparedStatement.setNullableLong(index: Int, value: Long?) {

@@ -11,8 +11,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class HealthRouteTest {
 
@@ -84,4 +86,21 @@ class HealthRouteTest {
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals("", response.bodyAsText())
     }
+
+    // Decision 5 of issue #58: the health route also gives databaseBytes
+    // (octometer.db plus octometer.db-wal) and freeDiskBytes. The store
+    // open call already ran each migration by the time this route
+    // answers (a real write on the writer thread), so databaseBytes is
+    // above 0 with no extra write from this test.
+    @Test
+    fun `the health route answers with databaseBytes above 0 after the migrations, and freeDiskBytes above 0`() =
+        testApplication {
+            application { module(devConfig()) }
+
+            val response = client.get("/api/health") { allowedHost() }
+
+            val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertTrue(body["databaseBytes"]!!.jsonPrimitive.long > 0, "the migrations already wrote octometer.db")
+            assertTrue(body["freeDiskBytes"]!!.jsonPrimitive.long > 0, "a real disk has free space above 0")
+        }
 }

@@ -43,10 +43,20 @@ data class AppTotalsRow(
 // same plan on each SQLite build, so the filter stays in the SQL text.
 // Visibility: internal, so the test of the query plan can reuse the
 // exact text that the route runs.
-internal const val CLICKS_SQL =
-    "SELECT app_id, COUNT(*) AS total FROM event WHERE kind = 0 GROUP BY app_id"
-internal const val UNIQUE_USERS_SQL =
-    "SELECT app_id, COUNT(DISTINCT user_id) AS total FROM event WHERE kind = 0 GROUP BY app_id"
+//
+// Issue #237 (the correction of 2026-09-27): one statement replaces
+// the two former statements CLICKS_SQL and UNIQUE_USERS_SQL. The inner
+// query counts the clicks of each user of each app, on the covering
+// index event_agg, one pass. The outer query sums those counts to the
+// click total, and it counts each app_id/user_id pair with a real user
+// id to the user total. The change lowers the level 1 route from
+// 585 ms to about 390 ms at 1 million events (the pull request text
+// holds the two measured tables).
+internal const val CLICKS_AND_USERS_SQL =
+    "SELECT app_id, SUM(c) AS clicks, " +
+        "SUM(CASE WHEN user_id IS NULL THEN 0 ELSE 1 END) AS users " +
+        "FROM (SELECT app_id, user_id, COUNT(*) AS c FROM event WHERE kind = 0 " +
+        "GROUP BY app_id, user_id) GROUP BY app_id"
 
 // No `kind` filter here: a level 1 session counts with or without a
 // click (maintainer decision of 2026-09-21, issue #18).
@@ -85,8 +95,7 @@ fun Route.appTotals(database: SqliteDatabase) {
 suspend fun loadAppTotals(database: SqliteDatabase): List<AppTotalsRow> =
     database.read { reader ->
         val apps = readApps(reader)
-        val clicks = readTotals(reader, CLICKS_SQL)
-        val uniqueUsers = readTotals(reader, UNIQUE_USERS_SQL)
+        val (clicks, uniqueUsers) = readClicksAndUsers(reader)
         val uniqueSessions = readTotals(reader, UNIQUE_SESSIONS_SQL)
         val gaps = readGaps(reader)
         // MINOR 1 of correction round 1: named arguments, in the order of
@@ -169,6 +178,26 @@ private fun readGaps(connection: Connection): Map<Long, List<GapPeriod>> {
         }
     }
     return gaps
+}
+
+/**
+ * Reads [CLICKS_AND_USERS_SQL] and gives the clicks map, then the
+ * unique-users map, one query in place of the two former queries
+ * (issue #237).
+ */
+private fun readClicksAndUsers(connection: Connection): Pair<Map<Long, Long>, Map<Long, Long>> {
+    val clicks = mutableMapOf<Long, Long>()
+    val users = mutableMapOf<Long, Long>()
+    connection.createStatement().use { statement ->
+        statement.executeQuery(CLICKS_AND_USERS_SQL).use { result ->
+            while (result.next()) {
+                val appId = result.getLong("app_id")
+                clicks[appId] = result.getLong("clicks")
+                users[appId] = result.getLong("users")
+            }
+        }
+    }
+    return clicks to users
 }
 
 private fun readTotals(connection: Connection, sql: String): Map<Long, Long> {
