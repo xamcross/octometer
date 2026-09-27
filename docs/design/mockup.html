@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Octometer cartoon look</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600&family=Nunito:wght@400;700&display=swap">
+<style>
+:root{
+  --ink:#241F3D; --ink-soft:#4B4763; --paper:#FFFFFF; --shallows:#E6F3FF; --shallows-deep:#BFDFFF;
+  --coral:#FF6B6B; --sunny:#FFD93D; --seaweed:#6EE7B7; --octo:#A78BFA;
+  --on-bright:#241F3D; --backdrop:rgb(36 31 61 / 0.6); --paper-raised:#FFFFFF;
+  --radius-panel:20px; --radius-control:12px; --radius-pill:999px;
+  --line-panel:3px solid var(--ink); --line-control:2px solid var(--ink);
+  --shadow-panel:6px 6px 0 var(--ink); --shadow-control:3px 3px 0 var(--ink);
+  --display:"Fredoka","Trebuchet MS",sans-serif; --body:"Nunito","Segoe UI",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ink:#F2EFFF; --ink-soft:#B3ADD4; --paper:#241F3D; --shallows:#141A2E; --shallows-deep:#232B45;
+    --backdrop:rgb(0 0 0 / 0.7); --paper-raised:#312B57;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ink:#F2EFFF; --ink-soft:#B3ADD4; --paper:#241F3D; --shallows:#141A2E; --shallows-deep:#232B45;
+  --backdrop:rgb(0 0 0 / 0.7); --paper-raised:#312B57;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--shallows);color:var(--ink);font:400 1rem/1.5 var(--body)}
+h1,h2,h3{font-family:var(--display);font-weight:600;line-height:1.15;margin:0;text-wrap:balance}
+p{margin:0}
+a{color:var(--ink);text-decoration:underline;text-decoration-color:var(--coral);text-decoration-thickness:2px;text-underline-offset:3px}
+a:hover{text-decoration-thickness:3px}
+ul{margin:0;padding:0;list-style:none}
+.wrap{max-width:76rem;margin-inline:auto;padding-inline:16px;padding-block:24px 48px;display:grid;gap:32px}
+.wrap>*,.screen>*,.view>*,.stage>*,.panel-body>*{min-width:0}
+.small{font-size:.8rem}
+.soft{color:var(--ink-soft)}
+
+/* the band: the one bold element. Its octo fill is equal in both themes,
+   so the band keeps the light ink and the light paper. */
+.band{--ink:#241F3D;--paper:#FFFFFF;background:var(--octo);color:var(--ink);border-bottom:var(--line-panel)}
+.band-in{max-width:76rem;margin-inline:auto;padding:12px 16px;display:flex;gap:12px 16px;align-items:center;flex-wrap:wrap}
+.brand{display:flex;gap:8px;align-items:center;margin-right:auto}
+.brand h1,.brand .word{font-family:var(--display);font-weight:600;font-size:1.5625rem;line-height:1.15}
+.mark{fill:none;stroke:var(--ink);stroke-width:2.5;stroke-linecap:round;flex:none}
+.mark .head{fill:var(--octo)}
+.band .mark .head{fill:var(--paper)}
+.mark .eye{fill:var(--ink);stroke:none}
+.pills{display:flex;gap:8px;flex-wrap:wrap}
+.pill{display:inline-block;padding:6px 16px;background:var(--paper);color:var(--ink);border:var(--line-control);border-radius:var(--radius-pill);font-family:var(--display);font-weight:600;text-decoration:none}
+.pill[aria-current]{background:var(--sunny);color:var(--on-bright)}
+
+/* controls */
+.btn{font:600 1rem/1.2 var(--display);padding:8px 16px;background:var(--paper);color:var(--ink);border:var(--line-control);border-radius:var(--radius-control);box-shadow:var(--shadow-control);cursor:pointer;transition:transform 80ms,box-shadow 80ms}
+.btn:active{transform:translate(3px,3px);box-shadow:none}
+.btn-primary{background:var(--sunny)}
+.btn-danger{background:var(--coral)}
+.btn-primary,.btn-danger{color:var(--on-bright);border-color:var(--on-bright)}
+.btn-small{font-size:.8rem;padding:4px 12px}
+.btn[disabled]{opacity:.55;box-shadow:none;cursor:default}
+
+/* the token strip */
+.tokens{display:grid;gap:16px;padding:16px;background:var(--paper);border:var(--line-control);border-radius:var(--radius-panel)}
+.tokens h2{font-size:1.25rem}
+.tokens .head{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+.swatches{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:12px}
+.swatch b{display:block;height:40px;border:var(--line-control);border-radius:var(--radius-control)}
+.swatch span{display:block;font-size:.8rem}
+.specimens{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.specimen .big{font:600 1.953rem/1.15 var(--display)}
+.specimen .num-row{font-variant-numeric:tabular-nums;font-weight:700}
+.radii{display:flex;gap:16px;flex-wrap:wrap}
+.radii div{text-align:center;font-size:.8rem}
+.radii b{display:block;width:72px;height:40px;margin-bottom:4px;background:var(--shallows-deep);border:var(--line-control)}
+.r-panel{border-radius:var(--radius-panel)}
+.r-control{border-radius:var(--radius-control)}
+.r-pill{border-radius:var(--radius-pill)}
+
+/* one screen of the product */
+.screen{display:grid;gap:12px}
+.screen>h2{font-size:1.25rem}
+.frame{background:var(--shallows);border:var(--line-panel);border-radius:var(--radius-panel);overflow:hidden}
+.view{padding:16px;display:grid;gap:16px}
+.panel{background:var(--paper);border:var(--line-panel);border-radius:var(--radius-panel);box-shadow:var(--shadow-panel)}
+.panel-head{padding:16px;display:flex;gap:8px 16px;align-items:baseline;flex-wrap:wrap;justify-content:space-between}
+.panel-head h3{font-size:1.25rem}
+.panel-body{padding:16px;display:grid;gap:16px}
+.crumb ol{display:flex;gap:8px;margin:0;padding:0;list-style:none;font-size:.8rem;color:var(--ink-soft)}
+.refresh{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+
+/* the table */
+.table-scroll{overflow-x:auto;padding:0 0 4px}
+table{border-collapse:collapse;width:100%;min-width:50rem;font-size:1rem}
+caption{text-align:left;padding:0 16px 8px;font-size:.8rem;color:var(--ink-soft)}
+th,td{padding:8px 16px;text-align:left;vertical-align:top;font-weight:400}
+thead th{background:var(--shallows-deep);border-bottom:var(--line-control);font-family:var(--display);font-weight:600}
+tbody th{font-weight:700}
+th a,td a{white-space:nowrap}
+tbody tr:nth-child(even) td,tbody tr:nth-child(even) th{background:var(--shallows)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.gap-text,.data-from{font-size:.8rem;color:var(--ink-soft);margin-top:4px;max-width:22rem}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.manage-table table{min-width:30rem}
+
+/* a status badge: a mark, a word, a colour */
+.badge{display:inline-flex;gap:6px;align-items:baseline;padding:2px 12px;border:var(--line-control);border-radius:var(--radius-pill);font-size:.8rem;font-weight:700;white-space:nowrap}
+.badge-ok{background:var(--seaweed)}
+.badge-warn{background:var(--sunny)}
+.badge-bad{background:var(--coral)}
+.badge-ok,.badge-warn,.badge-bad{color:var(--on-bright);border-color:var(--on-bright)}
+.badge-none{background:var(--shallows-deep);color:var(--ink)}
+
+/* the form */
+.field{display:grid;gap:4px;max-width:30rem}
+label{font-weight:700}
+input,textarea{font:400 1rem/1.5 var(--body);width:100%;padding:8px 12px;background:var(--paper);color:var(--ink);border:var(--line-control);border-radius:var(--radius-control)}
+textarea{min-height:5.5rem;resize:vertical}
+.hint{font-size:.8rem;color:var(--ink-soft)}
+.hint-list li{font-size:.8rem;color:var(--ink-soft)}
+.invalid{box-shadow:inset 0 0 0 3px var(--coral)}
+.form-error{padding-left:12px;border-left:3px solid var(--coral);font-weight:700}
+
+/* the dialog over a dim backdrop. The dialog fill is one step above the
+   paper (--paper-raised), so it never blends with the dimmed content behind it. */
+.stage{display:grid;padding:0}
+.stage>*{grid-area:1/1}
+.stage .panel{align-self:start}
+.stage>.manage-table{margin:16px}
+.scrim{background:var(--backdrop)}
+.stage .dialog{align-self:center;justify-self:center;width:min(100% - 32px,26rem);margin:24px 16px;border-radius:var(--radius-control);background:var(--paper-raised)}
+.dialog input{background:var(--paper)}
+.dialog .panel-body{gap:12px}
+
+/* the empty state */
+.empty{display:grid;gap:16px;justify-items:start;padding:24px 16px}
+.empty p{max-width:68ch}
+
+/* the quality floor */
+:focus-visible{outline:3px solid var(--sunny);outline-offset:2px;box-shadow:0 0 0 7px var(--ink)}
+.btn:focus-visible{box-shadow:var(--shadow-control),0 0 0 7px var(--ink)}
+@media (prefers-reduced-motion:reduce){.btn{transition:none}}
+@media (forced-colors:active){
+  .btn,.pill,.badge,input,textarea,.panel,.frame{outline:2px solid;outline-offset:0}
+  :focus-visible{outline:3px solid Highlight;outline-offset:2px}
+}
+@media (min-width:48rem){
+  .wrap{padding-inline:32px}
+  .band-in{padding-inline:32px}
+}
+</style>
+</head>
+<body>
+
+<header class="band">
+  <div class="band-in">
+    <div class="brand">
+      <svg class="mark" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M22.8 17.8 27.6 21.1M21.3 19.4 25 24M19.3 20.9 21.7 26M17.1 21.5 18 27.1M14.9 21.5 14 27.1M12.7 20.9 10.3 26M10.7 19.4 7 24M9.2 17.8 4.4 21.1"/>
+        <circle class="head" cx="16" cy="13" r="9"/>
+        <circle class="eye" cx="12.6" cy="11.5" r="1.6"/><circle class="eye" cx="19.4" cy="11.5" r="1.6"/>
+        <path d="M12.4 16.2Q16 19.4 19.6 16.2" stroke-width="2"/>
+      </svg>
+      <h1 class="word">Octometer</h1>
+    </div>
+    <nav class="pills" aria-label="Main">
+      <a class="pill" href="#apps-view" aria-current="page">Apps</a>
+      <a class="pill" href="#manage-view">Manage apps</a>
+    </nav>
+    <button class="btn btn-small" type="button" aria-pressed="false">Pause refresh</button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section class="tokens" aria-labelledby="tokens-title">
+    <div class="head">
+      <h2 id="tokens-title">The tokens of the cartoon look</h2>
+      <button class="btn btn-small" type="button" id="theme-toggle" aria-pressed="false">Dark mode</button>
+    </div>
+    <div class="swatches">
+      <div class="swatch"><b style="background:#241F3D"></b><span>Ink</span><span class="soft">#241F3D</span></div>
+      <div class="swatch"><b style="background:#E6F3FF"></b><span>Shallows</span><span class="soft">#E6F3FF</span></div>
+      <div class="swatch"><b style="background:#FFFFFF"></b><span>Paper</span><span class="soft">#FFFFFF</span></div>
+      <div class="swatch"><b style="background:#FF6B6B"></b><span>Coral</span><span class="soft">#FF6B6B</span></div>
+      <div class="swatch"><b style="background:#FFD93D"></b><span>Sunny</span><span class="soft">#FFD93D</span></div>
+      <div class="swatch"><b style="background:#6EE7B7"></b><span>Seaweed</span><span class="soft">#6EE7B7</span></div>
+      <div class="swatch"><b style="background:#A78BFA"></b><span>Octo</span><span class="soft">#A78BFA</span></div>
+    </div>
+    <p class="small soft">The dark theme keeps each bright fill. Ink and paper change roles. The shallows becomes #141A2E.</p>
+    <div class="specimens">
+      <div class="specimen">
+        <p class="big">Octometer counts clicks</p>
+        <p class="small soft">Fredoka 600: the wordmark, the titles, the pills, the buttons.</p>
+      </div>
+      <div class="specimen">
+        <p>The table refreshes each 10 seconds.</p>
+        <p class="num-row">12,480 clicks from 3,412 users</p>
+        <p class="small soft">Nunito 400 and 700: the body, the table, the forms, the hints. Tabular figures.</p>
+      </div>
+    </div>
+    <div class="radii">
+      <div><b class="r-panel"></b>Panel 20px</div>
+      <div><b class="r-control"></b>Control 12px</div>
+      <div><b class="r-pill"></b>Pill 999px</div>
+    </div>
+  </section>
+
+  <section class="screen" id="apps-view">
+    <h2>The apps view</h2>
+    <div class="frame">
+      <div class="band">
+        <div class="band-in">
+          <div class="brand">
+            <svg class="mark" width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
+              <path d="M22.8 17.8 27.6 21.1M21.3 19.4 25 24M19.3 20.9 21.7 26M17.1 21.5 18 27.1M14.9 21.5 14 27.1M12.7 20.9 10.3 26M10.7 19.4 7 24M9.2 17.8 4.4 21.1"/>
+              <circle class="head" cx="16" cy="13" r="9"/>
+              <circle class="eye" cx="12.6" cy="11.5" r="1.6"/><circle class="eye" cx="19.4" cy="11.5" r="1.6"/>
+              <path d="M12.4 16.2Q16 19.4 19.6 16.2" stroke-width="2"/>
+            </svg>
+            <p class="word">Octometer</p>
+          </div>
+          <div class="pills"><span class="pill" aria-current="page">Apps</span><span class="pill">Manage apps</span></div>
+          <button class="btn btn-small" type="button" aria-pressed="false">Pause refresh</button>
+        </div>
+      </div>
+      <div class="view">
+        <nav class="crumb" aria-label="Breadcrumb"><ol><li aria-current="page">Apps</li></ol></nav>
+        <div class="refresh">
+          <button class="btn btn-small" type="button" aria-pressed="false">Pause refresh</button>
+          <p>The table refreshes each 10 seconds.</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Apps</h3><p class="small soft">Data time in UTC</p></div>
+          <div class="table-scroll" tabindex="0" role="region" aria-labelledby="apps-caption">
+            <table>
+              <caption id="apps-caption">The registered apps, with the click totals of each app.</caption>
+              <thead><tr>
+                <th scope="col">App</th><th scope="col" class="num">Clicks</th>
+                <th scope="col" class="num">Unique users</th><th scope="col" class="num">Unique sessions</th>
+                <th scope="col">First pages</th><th scope="col">Status</th><th scope="col">Data time (UTC)</th>
+              </tr></thead>
+              <tbody>
+                <tr>
+                  <th scope="row"><a href="#apps-view">demo</a></th>
+                  <td class="num">125</td><td class="num">5</td><td class="num">25</td>
+                  <td><a href="#apps-view">First pages</a></td>
+                  <td><span class="badge badge-ok"><span aria-hidden="true">✓</span>OK</span>
+                    <p class="gap-text">Events from 2026-09-19 to 2026-09-21 can be absent.</p></td>
+                  <td>2026-09-27 12:01:05</td>
+                </tr>
+                <tr>
+                  <th scope="row"><a href="#apps-view">shop-pilot</a></th>
+                  <td class="num">12,480</td><td class="num">3,412</td><td class="num">4,902</td>
+                  <td><a href="#apps-view">First pages</a></td>
+                  <td><span class="badge badge-warn"><span aria-hidden="true">⚠</span>Overprivileged</span></td>
+                  <td>2026-09-27 12:01:05</td>
+                </tr>
+                <tr>
+                  <th scope="row"><a href="#apps-view">blog</a></th>
+                  <td class="num">1,204</td><td class="num">318</td><td class="num">402</td>
+                  <td><a href="#apps-view">First pages</a></td>
+                  <td><span class="badge badge-bad"><span aria-hidden="true">⚠</span>Error</span>
+                    <p class="data-from">Data from <time datetime="2026-09-27T09:58:12Z">09:58:12</time></p></td>
+                  <td>2026-09-27 09:58:12</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <p class="small soft">Totals of the last 395 days.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen" id="manage-view">
+    <h2>The manage view</h2>
+    <div class="frame"><div class="view">
+      <nav class="crumb" aria-label="Breadcrumb"><ol><li aria-current="page">Manage apps</li></ol></nav>
+      <div class="panel manage-table">
+        <div class="panel-head"><h3>Manage</h3></div>
+        <div class="table-scroll" tabindex="0" role="region" aria-labelledby="manage-caption">
+          <table>
+            <caption id="manage-caption">The registered apps, with the status of each app.</caption>
+            <thead><tr><th scope="col">App</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">demo</th>
+                <td><span class="badge badge-ok"><span aria-hidden="true">✓</span>OK</span></td>
+                <td><div class="actions"><button class="btn btn-small" type="button">Edit</button><button class="btn btn-small" type="button">Delete</button></div></td></tr>
+              <tr><th scope="row">shop-pilot</th>
+                <td><span class="badge badge-warn"><span aria-hidden="true">⚠</span>Overprivileged</span></td>
+                <td><div class="actions"><button class="btn btn-small" type="button">Edit</button><button class="btn btn-small" type="button">Delete</button></div></td></tr>
+              <tr><th scope="row">blog</th>
+                <td><span class="badge badge-bad"><span aria-hidden="true">⚠</span>Error</span></td>
+                <td><div class="actions"><button class="btn btn-small" type="button">Edit</button><button class="btn btn-small" type="button">Delete</button></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h3>Add an app</h3></div>
+        <div class="panel-body">
+          <div class="field">
+            <label for="add-app-name">Name</label>
+            <input id="add-app-name" type="text" value="reader-beta">
+          </div>
+          <div class="field">
+            <label for="add-app-connection-string">Connection string</label>
+            <input id="add-app-connection-string" class="invalid" type="password" value="" aria-invalid="true" aria-describedby="cs-error cs-hint">
+            <p class="form-error" id="cs-error">Give a connection string.</p>
+            <p class="hint" id="cs-hint">For example mongodb://127.0.0.1:27017</p>
+          </div>
+          <div class="field">
+            <label for="add-app-database">Database</label>
+            <input id="add-app-database" type="text" value="" aria-describedby="db-hint">
+            <p class="hint" id="db-hint">For example exampledb</p>
+          </div>
+          <div class="field">
+            <label for="add-app-path-patterns">Route patterns (one per line)</label>
+            <textarea id="add-app-path-patterns" aria-describedby="rp-hint"></textarea>
+            <div id="rp-hint">
+              <p class="hint">One pattern per line. For example:</p>
+              <ul class="hint-list"><li>/</li><li>/articles/*</li><li>/history/:id</li></ul>
+            </div>
+          </div>
+          <p><button class="btn btn-primary" type="submit">Add app</button></p>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <section class="screen" id="delete-view">
+    <h2>The delete dialog</h2>
+    <div class="frame"><div class="view stage">
+      <div class="panel manage-table" aria-hidden="true">
+        <div class="panel-head"><h3>Manage</h3></div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th scope="col">App</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">demo</th><td><span class="badge badge-ok"><span>✓</span>OK</span></td>
+                <td><div class="actions"><span class="btn btn-small">Edit</span><span class="btn btn-small">Delete</span></div></td></tr>
+              <tr><th scope="row">blog</th><td><span class="badge badge-bad"><span>⚠</span>Error</span></td>
+                <td><div class="actions"><span class="btn btn-small">Edit</span><span class="btn btn-small">Delete</span></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="scrim"></div>
+      <div class="panel dialog" role="dialog" aria-labelledby="del-title" aria-modal="true">
+        <div class="panel-head"><h3 id="del-title">Delete blog?</h3></div>
+        <div class="panel-body">
+          <p>This removes <strong>1,204</strong> events of blog. This cannot be undone.</p>
+          <div class="field">
+            <label for="del-confirm">Type the app name to confirm</label>
+            <input id="del-confirm" type="text" autocomplete="off" value="">
+          </div>
+          <div class="actions">
+            <button class="btn" type="button">Cancel</button>
+            <button class="btn btn-danger" type="button" disabled>Delete this app</button>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+  <section class="screen" id="empty-view">
+    <h2>The apps view without an app</h2>
+    <div class="frame"><div class="view">
+      <nav class="crumb" aria-label="Breadcrumb"><ol><li aria-current="page">Apps</li></ol></nav>
+      <div class="panel">
+        <div class="panel-head"><h3>Apps</h3></div>
+        <div class="empty">
+          <svg class="mark" width="96" height="96" viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M22.8 17.8 27.6 21.1M21.3 19.4 25 24M19.3 20.9 21.7 26M17.1 21.5 18 27.1M14.9 21.5 14 27.1M12.7 20.9 10.3 26M10.7 19.4 7 24M9.2 17.8 4.4 21.1"/>
+            <circle class="head" cx="16" cy="13" r="9"/>
+            <circle class="eye" cx="12.6" cy="11.5" r="1.6"/><circle class="eye" cx="19.4" cy="11.5" r="1.6"/>
+            <path d="M12.4 16.2Q16 19.4 19.6 16.2" stroke-width="2"/>
+          </svg>
+          <p>No app yet. Add one on <a href="#manage-view">Manage apps</a>.</p>
+        </div>
+      </div>
+    </div></div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement, button = document.getElementById('theme-toggle');
+  button.addEventListener('click', function () {
+    var system = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    var next = (root.dataset.theme || system) === 'dark' ? 'light' : 'dark';
+    root.dataset.theme = next;
+    button.setAttribute('aria-pressed', String(next === 'dark'));
+    button.textContent = next === 'dark' ? 'Light mode' : 'Dark mode';
+  });
+})();
+</script>
+</body>
+</html>
