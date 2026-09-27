@@ -397,6 +397,9 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   off-time then adds no second row, even when the cursor and the server time both move a
   small amount between two cycles.
 
+  Note (issue #227, 2026-09-27): the retention purge also deletes each gap row whose `to_ts`
+  is older than the purge bound. A gap row of exactly `retentionDays` age stays.
+
 ### App side (the kit)
 
 - **D17. Languages.** `kit/jvm-core`, `kit/jvm-mongo`, and `kit/jvm-spring` use Java 21 with

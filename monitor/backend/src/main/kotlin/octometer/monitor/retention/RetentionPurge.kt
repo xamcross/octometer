@@ -62,6 +62,16 @@ internal const val DELETE_STALE_APP_PATH_SQL = """
     )
 """
 
+// Issue #227: a gap row (issue #62, D16) names a range with no events in
+// the store. Once its to_ts is older than the purge bound, the range has
+// no protective value: the level 1 view need not still show it. The
+// table gap holds one row for each off-time of each app, so it stays
+// small; one DELETE per app needs no batch loop, unlike the event purge
+// above. The unit of to_ts is the same epoch millisecond unit as
+// event.ts and created_at.
+private const val SELECT_GAP_APP_IDS_SQL = "SELECT DISTINCT app_id FROM gap"
+internal const val DELETE_OLD_GAP_SQL = "DELETE FROM gap WHERE app_id = ? AND to_ts < ?"
+
 /**
  * The purge function of issue #59, steps 2 and 3 (D15). One call to
  * [purgeOnce] deletes each event older than `retentionDays`, counted
@@ -77,6 +87,11 @@ internal const val DELETE_STALE_APP_PATH_SQL = """
  * aging rule of the correction round of 2026-09-27). A stale value
  * then stops holding a slot of `pathValueCap`, once every event of
  * that value has aged out.
+ *
+ * [purgeOnce] also deletes each `gap` row (issue #62, D16) whose
+ * `to_ts` is older than the same purge bound (issue #227). A gap row
+ * of exactly `retentionDays` age stays, the same boundary rule as an
+ * event row.
  *
  * The delete runs in batches of [PURGE_BATCH_SIZE] rows. The write call
  * of each batch checks the cancel state on entry, so
@@ -110,6 +125,7 @@ class RetentionPurge(
             totalDeleted += deleted
             if (deleted < PURGE_BATCH_SIZE) break
         }
+        purgeOldGaps(cutoff)
         purgeStaleAppPathValues()
         runCheckpoint()
         logResult(totalDeleted)
@@ -132,6 +148,32 @@ class RetentionPurge(
         }
         onWrite()
         return deleted
+    }
+
+    // Issue #227: one delete for each app that still holds a gap row.
+    // The gap table stays small (one row for each off-time of each
+    // app), so one DELETE per app needs no batch loop, unlike the
+    // event purge above (state of the maintainer's decision).
+    private suspend fun purgeOldGaps(cutoff: Long) {
+        val appIds = database.read { reader ->
+            reader.createStatement().use { statement ->
+                statement.executeQuery(SELECT_GAP_APP_IDS_SQL).use { result ->
+                    val ids = mutableListOf<Long>()
+                    while (result.next()) ids += result.getLong(1)
+                    ids
+                }
+            }
+        }
+        for (appId in appIds) {
+            database.write { writer ->
+                writer.prepareStatement(DELETE_OLD_GAP_SQL).use { delete ->
+                    delete.setLong(1, appId)
+                    delete.setLong(2, cutoff)
+                    delete.executeUpdate()
+                }
+            }
+            onWrite()
+        }
     }
 
     // Issue #205, the aging rule of the correction round: one delete
