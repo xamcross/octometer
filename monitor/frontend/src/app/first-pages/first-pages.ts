@@ -18,15 +18,16 @@ import type { FirstPageRow, FirstPagesResponse } from './first-page-row';
  * query parameter lives in the route as a router-bound signal input, so a
  * reload and the Back button keep it.
  *
- * `@for` tracks each row by `path`. Two rows can share the text
- * `(unknown)` today, because the API maps each `NULL` path to that one
- * text (D44); issue #213 later changes the field to `path: string | null`.
- * One test of `first-pages.spec.ts` documents this present behaviour.
+ * `@for` tracks each row by `row.path ?? '\u0000'` (issue #213): a stored
+ * path always starts with `/` (contract C4), so a stored path never holds
+ * that key, and a `null` path always holds that same key.
  *
  * The path cell opens the anonymous-sessions view of #115 (D44), with the
- * query parameters `anonymous=true` and `firstPath=<path>`. That view does
- * not exist yet on `main`; issue #115 adds it. A click on the count cell of
- * a row opens that same link (D28), the same way as the level 1 view.
+ * query parameters `anonymous=true` and `firstPath=<path>`. A click on the
+ * count cell of a row opens that same link (D28), the same way as the
+ * level 1 view; a `null`-path row holds no link, and a click on its count
+ * cell does nothing (issue #213), because the API filter matches a
+ * missing path against no session (decision 2 of issue #213).
  *
  * A 404 answer means the app is not registered. The view then goes to the
  * parent view `/apps`, with the app id in the query parameter
@@ -151,13 +152,19 @@ export class FirstPages {
    * Opens the link of the path cell, from a click on a different cell of
    * the same row (D28). It does nothing while the user selects text
    * inside the clicked cell with the mouse, for a secondary button, or
-   * for a modifier key.
+   * for a modifier key. It does nothing for a `null`-path row (issue
+   * #213): the router drops a `null` query parameter, so that click
+   * would open the unfiltered session list, a wrong link for a row with
+   * no link of its own.
    */
   protected onRowCellClick(row: FirstPageRow, event: MouseEvent): void {
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
       return;
     }
     if (this.selectionTouchesCell(event.currentTarget)) {
+      return;
+    }
+    if (row.path === null) {
       return;
     }
     void this.router.navigate(['/apps', this.appId(), 'sessions'], {
