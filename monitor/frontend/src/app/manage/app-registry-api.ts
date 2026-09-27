@@ -5,11 +5,14 @@ import { HttpErrorResponse } from '@angular/common/http';
  * pattern list of issue #226, in the form of `OCTOMETER_PATH_PATTERNS`:
  * patterns with whitespace between them. An absent or a blank text
  * means the app gives no list.
+ *
+ * Issue #272: the registry derives the database name from the path of
+ * `connectionString`. This form gives the API no `database` field any
+ * more.
  */
 export interface CreateAppRequest {
   readonly name: string;
   readonly connectionString: string;
-  readonly database: string;
   readonly pathPatterns?: string;
 }
 

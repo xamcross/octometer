@@ -3,7 +3,7 @@ import { Component, inject, output, signal } from '@angular/core';
 
 import { Announcer } from '../announcer';
 import { AppSummary, CreateAppRequest, readApiErrorMessage } from './app-registry-api';
-import { CONNECTION_STRING_HINT, DATABASE_HINT, PATH_PATTERNS_HINT } from './field-hints';
+import { CONNECTION_STRING_HINT, PATH_PATTERNS_HINT } from './field-hints';
 
 /**
  * The form of step 2: `POST /api/apps` with the fields of D13. The
@@ -29,12 +29,10 @@ export class AddAppForm {
   readonly added = output<AppSummary>();
 
   protected readonly connectionStringHint = CONNECTION_STRING_HINT;
-  protected readonly databaseHint = DATABASE_HINT;
   protected readonly pathPatternsHint = PATH_PATTERNS_HINT;
 
   protected readonly name = signal('');
   protected readonly connectionString = signal('');
-  protected readonly database = signal('');
   protected readonly pathPatterns = signal('');
 
   protected readonly pending = signal(false);
@@ -46,10 +44,6 @@ export class AddAppForm {
 
   protected onConnectionStringInput(event: Event): void {
     this.connectionString.set((event.target as HTMLInputElement).value);
-  }
-
-  protected onDatabaseInput(event: Event): void {
-    this.database.set((event.target as HTMLInputElement).value);
   }
 
   protected onPathPatternsInput(event: Event): void {
@@ -64,7 +58,6 @@ export class AddAppForm {
     const request: CreateAppRequest = {
       name: this.name(),
       connectionString: this.connectionString(),
-      database: this.database(),
       ...(this.pathPatterns().trim() ? { pathPatterns: this.pathPatterns() } : {}),
     };
     this.pending.set(true);
@@ -79,7 +72,6 @@ export class AddAppForm {
     this.pending.set(false);
     this.name.set('');
     this.connectionString.set('');
-    this.database.set('');
     this.pathPatterns.set('');
     this.announcer.announce('App added');
     this.added.emit(summary);
