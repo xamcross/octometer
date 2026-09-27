@@ -968,6 +968,84 @@ class MongoAppReaderUnitTest {
         reflectingReader.close()
     }
 
+    // --- checkGap (design decision D16, issue #62) ---
+    //
+    // Each case calls checkGap directly, with a fixed cursor age and a
+    // fake server time (the correction of the brief review of
+    // 2026-09-27): MongoAppReaderUnitTest cannot run a good pollOnce,
+    // because each other case of this class injects a throwing
+    // serverTimeSource.
+
+    @Test
+    fun `checkGap writes one gap row for a cursor 40 days old, with the right from_ts and to_ts`() = runBlocking {
+        val serverTime = Date(1_700_000_000_000L)
+        val cursor = ObjectId(Date(serverTime.time - 40 * MILLIS_PER_DAY_TEST))
+
+        reader.checkGap(appId, cursor.toHexString(), serverTime)
+
+        val gap = readGaps(database, appId).single()
+        assertEquals(cursor.date.time, gap.fromTs)
+        assertEquals(serverTime.time - 30 * MILLIS_PER_DAY_TEST, gap.toTs)
+    }
+
+    @Test
+    fun `checkGap writes no row for a cursor 10 days old`() = runBlocking {
+        val serverTime = Date(1_700_000_000_000L)
+        val cursor = ObjectId(Date(serverTime.time - 10 * MILLIS_PER_DAY_TEST))
+
+        reader.checkGap(appId, cursor.toHexString(), serverTime)
+
+        assertTrue(readGaps(database, appId).isEmpty())
+    }
+
+    // The correction of the brief review of 2026-09-27: a cursor aged
+    // 29 to 30 days would else put from_ts after to_ts. This case
+    // proves the write stays off in that band.
+    @Test
+    fun `checkGap writes no row for a cursor 29point5 days old, because from_ts would land after to_ts`() = runBlocking {
+        val serverTime = Date(1_700_000_000_000L)
+        val cursor = ObjectId(Date(serverTime.time - (29.5 * MILLIS_PER_DAY_TEST).toLong()))
+
+        reader.checkGap(appId, cursor.toHexString(), serverTime)
+
+        assertTrue(readGaps(database, appId).isEmpty(), "from_ts must never land after to_ts.")
+    }
+
+    @Test
+    fun `checkGap writes no row when the app has no cursor`() = runBlocking {
+        reader.checkGap(appId, null, Date(1_700_000_000_000L))
+
+        assertTrue(readGaps(database, appId).isEmpty())
+    }
+
+    @Test
+    fun `two cycles with the same old cursor give one gap row`() = runBlocking {
+        val serverTime = Date(1_700_000_000_000L)
+        val cursor = ObjectId(Date(serverTime.time - 40 * MILLIS_PER_DAY_TEST)).toHexString()
+
+        reader.checkGap(appId, cursor, serverTime)
+        reader.checkGap(appId, cursor, serverTime)
+
+        assertEquals(1, readGaps(database, appId).size, "One off-time must give one gap row.")
+    }
+
+    // The maintainer's correction of the brief review of 2026-09-27: the
+    // cursor moves at each committed page of a catch-up cycle, and the
+    // server time moves with the real clock too. Three cycles, each
+    // with a cursor a little further on and a server time a little
+    // later, must still give one gap row of the same off-time.
+    @Test
+    fun `three catch-up cycles with a moving cursor give one gap row`() = runBlocking {
+        val baseServerTime = 1_700_000_000_000L
+        val baseCursorTime = baseServerTime - 40 * MILLIS_PER_DAY_TEST
+
+        reader.checkGap(appId, ObjectId(Date(baseCursorTime)).toHexString(), Date(baseServerTime))
+        reader.checkGap(appId, ObjectId(Date(baseCursorTime + 5_000)).toHexString(), Date(baseServerTime + 10_000))
+        reader.checkGap(appId, ObjectId(Date(baseCursorTime + 10_000)).toHexString(), Date(baseServerTime + 20_000))
+
+        assertEquals(1, readGaps(database, appId).size, "Three cycles of the same off-time must give one gap row.")
+    }
+
     private fun singleCachedClient(reader: MongoAppReader): Any {
         val field = reader.javaClass.getDeclaredField("clients")
         field.isAccessible = true
@@ -1150,6 +1228,27 @@ private suspend fun readCursor(database: SqliteDatabase, appId: Long): String? =
             select.executeQuery().use { result ->
                 result.next()
                 result.getString(1)
+            }
+        }
+    }
+
+/** The day length in milliseconds, for the checkGap tests of design decision D16 (issue #62). */
+private const val MILLIS_PER_DAY_TEST = 24 * 60 * 60 * 1000L
+
+/** One `gap` row of design decision D16 (issue #62). */
+private data class GapRow(val fromTs: Long, val toTs: Long)
+
+/** Reads each `gap` row of one app (design decision D16, issue #62). */
+private suspend fun readGaps(database: SqliteDatabase, appId: Long): List<GapRow> =
+    database.read { reader ->
+        reader.prepareStatement("SELECT from_ts, to_ts FROM gap WHERE app_id = ? ORDER BY from_ts").use { select ->
+            select.setLong(1, appId)
+            select.executeQuery().use { result ->
+                val rows = mutableListOf<GapRow>()
+                while (result.next()) {
+                    rows += GapRow(result.getLong(1), result.getLong(2))
+                }
+                rows
             }
         }
     }

@@ -53,6 +53,22 @@ private const val RECORD_FAILURE_SQL =
     "UPDATE app SET status = ?, last_error = ?, consecutive_failures = consecutive_failures + 1, " +
         "last_poll_at = ?, next_poll_at = ? WHERE id = ?"
 
+// The maintainer's correction of the brief review of 2026-09-27 (issue
+// #62): the guard is an overlap check, not a from_ts key alone. The
+// cursor moves at each committed page of a catch-up cycle, so to_ts
+// (the server time minus 30 days) can move a small amount between two
+// cycles of the same off-time. The overlap test finds any existing row
+// of the app whose own range touches the new range: an existing row
+// overlaps the new one when its from_ts sits at or before the new
+// to_ts, and its to_ts sits at or after the new from_ts.
+private const val RECORD_GAP_SQL = """
+    INSERT INTO gap (app_id, from_ts, to_ts)
+    SELECT ?, ?, ?
+    WHERE NOT EXISTS (
+        SELECT 1 FROM gap WHERE app_id = ? AND from_ts <= ? AND to_ts >= ?
+    )
+"""
+
 /**
  * The repository function of step 6 (D4). One call commits one page. It
  * inserts each event, with a duplicate event dropped. It also inserts
@@ -167,6 +183,32 @@ class EventStore(private val database: SqliteDatabase) {
                 update.setLong(1, nowMillis)
                 update.setLong(2, appId)
                 check(update.executeUpdate() == 1) { "No app row for id $appId." }
+            }
+        }
+    }
+
+    /**
+     * Records one gap row of design decision D16 (issue #62, the
+     * maintainer's decision 1, corrected in the brief review of
+     * 2026-09-27). The MongoDB reader's gap check calls this in its
+     * own `write {}`, before the page loop of the cycle: a gap is a
+     * fact of the off-time, not of the page, so a failed page later
+     * still keeps this row.
+     *
+     * The write skips when an existing row of [appId] already overlaps
+     * [fromTs] to [toTs] (one gap row for one off-time, even across
+     * several catch-up cycles).
+     */
+    suspend fun recordGap(appId: Long, fromTs: Long, toTs: Long) {
+        database.write { writer ->
+            writer.prepareStatement(RECORD_GAP_SQL).use { insert ->
+                insert.setLong(1, appId)
+                insert.setLong(2, fromTs)
+                insert.setLong(3, toTs)
+                insert.setLong(4, appId)
+                insert.setLong(5, toTs)
+                insert.setLong(6, fromTs)
+                insert.executeUpdate()
             }
         }
     }
