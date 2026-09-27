@@ -288,14 +288,13 @@ events again.
 
 ## 8. The tracker
 
-Install the tracker from the tarball of a GitHub release. The release `0.1.0` holds no
-tarball. A later tag brings the first one (issue #44).
+Install the tracker from the tarball of a GitHub release.
 
 ```
-npm install https://github.com/xamcross/octometer/releases/download/<version>/octometer-tracker-<version>.tgz
+npm install https://github.com/xamcross/octometer/releases/download/0.2.0/octometer-tracker-0.2.0.tgz
 ```
 
-Replace `<version>` with the tag of that later release.
+Use the tag of the monitor you run.
 
 Add the tracker to your page script, for example `main.ts`. Call `start()` only after
 the consent signal of your app. `docs/privacy.md` holds the approved privacy notice

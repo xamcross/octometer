@@ -13,6 +13,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Tracker
 
+- Name the tarball asset of the release `0.2.0` in the Ktor guide and the tracker README. (#229)
+
 ### Monitor
 
 - Add the per-app cap on the distinct path values, with a shape check and an erasure rewrite. (#205)
