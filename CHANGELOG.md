@@ -15,6 +15,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Kit JVM
 
+- Add the design decisions D46 to D49 for the route list from the app. (#275)
+
 ### Tracker
 
 - Name the tarball asset of the release `0.2.0` in the Ktor guide and the tracker README. (#229)
@@ -22,6 +24,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 ### Monitor
 
 - Derive the database name from the path of the connection string, and remove the Database field from the add form. (#272)
+- Keep a margin of 16 px between the refresh line and the table panel of each data view. (#271)
 - Mark the invalid field of the add form and the edit form with a dashed outline under forced colors. (#266)
 - State the one-reviewer rule in the README, with the role match and the 2026-09-27 change date. (#268)
 - Remove the button press motion under prefers-reduced-motion, and raise the invalid field ring to 4.5:1 on white. (#263, #264)

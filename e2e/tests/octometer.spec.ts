@@ -176,4 +176,15 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await page.getByRole('link', { name: 'Go to the apps' }).click();
     await expect(page).toHaveURL(/\/apps$/);
   });
+
+  test('the refresh line keeps a gap above the table', async ({ page }) => {
+    const elements = new ElementsPage(page);
+    await elements.gotoByUser(appId, 'amy');
+    // Waits for the real table render, not the loading text or the
+    // empty state, before the bounding boxes are read (issue #271).
+    await elements.expectRow('demo.button-one', { clicks: 1, sessions: 1 }, CHAIN_WAIT_MS);
+
+    const gap = await elements.gapAbovePanel();
+    expect(gap).toBeGreaterThanOrEqual(16);
+  });
 });

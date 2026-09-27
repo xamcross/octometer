@@ -42,7 +42,8 @@ A click on a level 1 row opens level 2. A click on a level 2 row opens level 3.
   totals there.
 - O4. The monitor reads the event collection of each app directly from MongoDB. Its database
   user is read-only and limited to that one collection. No metrics endpoint and no API key
-  exist. Reason: an HTTP poll each minute keeps a Fly machine awake and costs money.
+  exist. Reason: an HTTP poll each minute keeps a Fly machine awake and costs money. Since
+  2026-09-28 the privilege is limited to the two collections of the contract (D47).
 - O5. An event holds the internal user id of the app in place of a username. It holds no IP
   address.
 - O6. The three levels are separate views with a breadcrumb (drill-down), not nested tables.
@@ -283,7 +284,8 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   #226, the correction of the brief review of 2026-09-27).** An app can give the monitor its
   own route pattern list, the column `app.path_patterns`, in the form of
   `OCTOMETER_PATH_PATTERNS` (one pattern per line, stored normalized). `POST /api/apps` and
-  `PATCH /api/apps/{id}` accept the field `pathPatterns`; the monitor takes the kit dependency
+  `PATCH /api/apps/{id}` accept the field `pathPatterns`. Superseded by D48 on 2026-09-28: the
+  monitor takes no list through the API. The monitor takes the kit dependency
   `kit/jvm-core` and validates each pattern with `PathPatternMatcher.findInvalidIndices`, the
   kit's own check of contract rule C42, with no copy of that grammar in the monitor. When the
   app has a list, the reader (`MongoAppReader.runCycle`) admits a `path` value through
@@ -311,16 +313,17 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   error code 13, or code 8000 with the text "not allowed to do action" gives `UNAUTHORIZED`.
   A timeout, a socket error, or a DNS error gives `UNREACHABLE`, shown after 2 failed cycles
   in sequence; the first failed cycle keeps the old status. Each other error gives `ERROR`.
-- **D9. Privilege check.** At the first poll and each 24 hours. Check 1: `listCollections`
-  with `authorizedCollections: true, nameOnly: true`. An empty list passes, because the
-  collection does not exist before the first event of an app. A list that holds a name other
-  than the configured collection fails. Check 2, the main check: `connectionStatus` with
-  `showPrivileges: true`, compared with an allow-list (resource = the one collection, action =
-  `find`). Section 2.4 shows that M0 returns this list. A failed check gives `OVERPRIVILEGED`
-  and stops the poll of that app. When the privilege list is absent or empty, check 1 alone
-  decides; a write action on the one collection is then not visible, and section 8 lists this
-  risk. When the privilege list is absent or empty and check 1 returns an empty list, the
-  monitor has no evidence, thus it gives `OVERPRIVILEGED`. While the status is
+- **D9. Privilege check.** At the first poll and each 24 hours. Check 1: `listCollections` with
+  `authorizedCollections: true, nameOnly: true`. An empty list passes, because the collection
+  does not exist before the first event of an app. A list that holds a name other than the
+  configured collection fails. Since 2026-09-28 the list may hold the two names
+  `octometer_events` and `octometer_config` (D47); each other name fails. Check 2, the main
+  check: `connectionStatus` with `showPrivileges: true`, compared with an allow-list (resource =
+  the one collection, action = `find`). Section 2.4 shows that M0 returns this list. A failed
+  check gives `OVERPRIVILEGED` and stops the poll of that app. When the privilege list is absent
+  or empty, check 1 alone decides; a write action on the one collection is then not visible, and
+  section 8 lists this risk. When the privilege list is absent or empty and check 1 returns an
+  empty list, the monitor has no evidence, thus it gives `OVERPRIVILEGED`. While the status is
   `OVERPRIVILEGED`, each cycle runs the checks again before a read, thus a corrected role ends
   the stop.
 
@@ -592,7 +595,7 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   not a control. The monitor shows the stored path as plain text only, with no
   `[innerHTML]`, no `[href]`, no `[attr.*]`, and no `DomSanitizer.bypass*` call, because a
   kept `*` segment can hold an escaped markup text. Without the list, the tracker sends no
-  `path`, and the kit stores none.
+  `path`, and the kit stores none. Since 2026-09-28 the tracker option `routes` goes (D49).
 - **D41. Session start.** `start()` creates the session id and, for a new id, sends one entry
   `octo:session-start` at once, in its own request, with `ageMs: 0` (contract rule C38). While
   `document.prerendering` is true, `start()` waits for the event `prerenderingchange`. While
@@ -659,6 +662,69 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   rounded corners and bright colors. `docs/design.md` holds the tokens, the type scale, the
   principles, and the contrast table. Each asset of the look ships in the bundle under the CSP
   of D12.
+- **D46. Route derivation.** The kit derives the route pattern list from the framework at start.
+  Nobody types it. The Ktor adapter walks the routing tree after the routing is installed. The
+  Spring adapter reads the request mapping handlers. The derivation takes the GET routes only,
+  because a click carries a page path. It skips the ingest route of the kit. It skips each route
+  under a prefix of `OCTOMETER_PATH_EXCLUDE` (prefixes with whitespace between them, for example
+  `/api/ /actuator/`). It prefixes each pattern with the root path of the app (the Ktor
+  `rootPath`, the Spring servlet context path), so the pattern equals the path the browser
+  sends. Each route template becomes a C42 pattern: a literal segment stays; `{name}` and
+  `{name?}` become `:name`; a regex segment becomes `*`; a Ktor tail card `{...}` becomes one
+  `*` segment, which matches one segment only (a deeper path lands as `/other`; the guide states
+  it). The list is sorted at each depth: a literal segment first, then `:name`, then `*`, then
+  by text; duplicates go. `OCTOMETER_PATH_PATTERNS` stays as an optional addition. Its entries
+  stand after the derived ones, so a typed pattern never hides a derived one. An invalid entry
+  follows the C42 rule. The bound of 200 patterns stays: above it the kit keeps the first 200 of
+  the sorted list and writes one warning with the count. The kit writes one INFO line at start
+  with the count.
+  (The owner's choices of 2026-09-28: the database route, no manage field, the raw path in the
+  browser; milestone G, issues #275 to #279.)
+- **D47. Route publication.** After the derivation the kit writes one document into the
+  collection `octometer_config` of the app database: `{ _id: "route-patterns", patterns: [...],
+  kitVersion: "<version>", publishedAt: <date> }`. The write is an upsert with the app's own
+  database user. A failed write logs one warning and does not stop the app. Two app versions in
+  a rolling deploy write the document in turn; the last writer wins for one cycle of the
+  monitor; a single instance never sees it. `kitVersion` is shown in the manage view and drives
+  no rule. The read-only user of the monitor gets `find` on `octometer_config` beside
+  `octometer_events`; the role command of the guide gets a second privilege. Check 1 of D9
+  accepts these two collection names and fails on each other name; the other checks of D9 stay.
+  O4 reads "limited to the two collections of the contract". Contract version 1.3 adds rule C44
+  (the config document), amends C42 (the source of the list), C35 and C27 (the role covers two
+  collections), and C41 (a `path` value outside the grammar becomes `/other`, the field is not
+  dropped). It adds no field to the event document, so it is a minor change under C10.
+  (The owner's choices of 2026-09-28: the database route, no manage field, the raw path in the
+  browser; milestone G, issues #275 to #279.)
+- **D48. The admission list of the monitor.** The reader reads the config document at the start
+  of each poll cycle, before the events (one `findOne`). The reader validates the list with
+  `findInvalidIndices` and the bound of 200 (the gate of D5 stays). A valid list becomes the
+  admission list of the cycle. The reader stores it with its `publishedAt` in the app row
+  (`path_patterns` becomes the cached copy; migration 005 adds `path_patterns_published_at`). An
+  invalid list, an absent document, or a failed read keeps the last stored list; the reader
+  writes one WARN line for that app, at most one per hour; the poll status does not change,
+  because the events still read (an old role without the second privilege gives the same result
+  during an upgrade). An app with no stored list keeps the cap of #205. The set and the cap of
+  #205 for a list with a `*` pattern apply to the list of the cycle. The manage view shows the
+  published list read-only with the kit version and the time ("published by the app on <local
+  time>"); `POST /api/apps` and `PATCH /api/apps/{id}` take no `pathPatterns` any more (the D5
+  bullet of 2026-09-27 is superseded); `GET /api/apps/{id}` gives `pathPatterns`,
+  `pathPatternsPublishedAt`, and `kitVersion`. A list that an operator typed before this
+  decision stays as the cached copy until the app publishes.
+  (The owner's choices of 2026-09-28: the database route, no manage field, the raw path in the
+  browser; milestone G, issues #275 to #279.)
+- **D49. The path in the browser.** The tracker sends the page path as it is, in the `path`
+  field of a click entry and of the session start. It holds no route list: the `routes` option
+  of D40 goes. Before the send the tracker percent-encodes each byte of `location.pathname`
+  outside the C39 character set (`[`, `]`, `^`, `|`, and each non-ASCII byte), and a value above
+  150 bytes becomes `/other`. The kit matches the received value against its derived list (D46)
+  and stores the pattern or `/other`, as C42 states for the server; a value that still breaks
+  the C39 grammar becomes `/other` (C41 amended), never a dropped field or a dropped batch. The
+  raw path travels only to the app's own server, which sees it on each page request; the event
+  document never holds it. A tab that was open before a deploy needs no reload. (The owner chose
+  this form on 2026-09-28; the alternative, a list served to the page, kept a stale list in an
+  open tab.)
+  (The owner's choices of 2026-09-28: the database route, no manage field, the raw path in the
+  browser; milestone G, issues #275 to #279.)
 
 ## 6. Monitor data model (SQLite)
 
