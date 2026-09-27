@@ -174,3 +174,114 @@ a {
   white-space: nowrap;
   border: 0;
 }
+
+/* The panels, the tables, and the badges (#249). */
+
+/*
+ * Each of the five data views wraps its table in a panel of this class.
+ * The panel holds no padding of its own: the caption and each cell add
+ * the inset instead, so the head row and the zebra rows reach the panel
+ * border. `overflow: hidden` clips those rows to the round corner.
+ */
+.panel {
+  background: var(--paper);
+  border: var(--line-panel);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
+
+/*
+ * The scroll wrapper around a table (a view keeps `position: relative` in
+ * its own component style, so the rule stays present for a unit test:
+ * vitest links this file in browser mode only).
+ */
+.table-scroll {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.panel table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.panel caption {
+  text-align: left;
+  padding: 0 16px 8px;
+  font-size: var(--text-s);
+  color: var(--ink-soft);
+}
+
+.panel th,
+.panel td {
+  padding: 8px 16px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.panel thead th {
+  background: var(--shallows-deep);
+  border-bottom: var(--line-control);
+  font-family: var(--display);
+  font-weight: 600;
+}
+
+.panel tbody th {
+  font-weight: 700;
+}
+
+.panel tbody tr:nth-child(even) > * {
+  background: var(--shallows);
+}
+
+.panel .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A status badge: the mark and the word of `status-format.ts`, plus a fill colour. */
+.badge {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 12px;
+  border: var(--line-control);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-s);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badge-ok {
+  background: var(--seaweed);
+}
+
+.badge-warn {
+  background: var(--sunny);
+}
+
+.badge-bad {
+  background: var(--coral);
+}
+
+.badge-ok,
+.badge-warn,
+.badge-bad {
+  color: var(--on-bright);
+  border-color: var(--on-bright);
+}
+
+.badge-none {
+  background: var(--shallows-deep);
+  color: var(--ink);
+}
+
+/* The gap line and the "Data from" line of a status cell, under the badge (issue #62). */
+.gap-text,
+.data-from {
+  font-size: var(--text-s);
+  color: var(--ink-soft);
+  margin-top: 4px;
+  max-width: 22rem;
+}

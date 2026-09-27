@@ -22,6 +22,17 @@ export const STATUS_ICON: Record<AppStatus, string> = {
   ERROR: '⚠',
 };
 
+/** The badge class of each status value (D45, the status badge table of docs/design.md). */
+export const STATUS_BADGE_CLASS: Record<AppStatus, string> = {
+  OK: 'badge-ok',
+  NEVER_POLLED: 'badge-none',
+  UNREACHABLE: 'badge-bad',
+  UNAUTHORIZED: 'badge-bad',
+  OVERPRIVILEGED: 'badge-warn',
+  INVALID_DATA: 'badge-bad',
+  ERROR: 'badge-bad',
+};
+
 /** Formats a count in the locale of the browser (D30). */
 export const numberFormat = new Intl.NumberFormat();
 
