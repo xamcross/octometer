@@ -54,6 +54,29 @@ run one module or one changed file, not the whole suite.
 
 CI still runs the whole suite of each changed module.
 
+## Coverage
+
+Each of the six JVM modules (`monitor/backend`, `kit/jvm-core`,
+`kit/jvm-ktor`, `kit/jvm-mongo`, `kit/jvm-spring`, `tools/demo-app`) applies
+the `jacoco` plugin always. The agent stays off by default, so a plain
+`./gradlew build` keeps its present speed and its present cache key. The
+report task `jacocoTestReport` gives the jacoco plugin no dependency on
+`test` (the Gradle manual, "The JaCoCo Plugin"), so the real command is:
+
+```
+./gradlew test jacocoTestReport -Pcoverage=true
+```
+
+`./gradlew test jacocoAggregate -Pcoverage=true` merges the six module
+reports into one XML report and one HTML report, under
+`build/reports/jacoco/aggregate/`.
+
+The task `:monitor:backend:jacocoAgentArgs` prints the JaCoCo agent line
+of a run of the distribution and of the demo app, plus the JaCoCo CLI jar
+path, for the end-to-end suite (`e2e/`). Read `docs/test-coverage.md` for
+the measured numbers, the run commands, and the table of the design
+decisions that the browser suite reaches.
+
 ## End-to-end tests
 
 The folder `e2e/` holds one Playwright suite. It drives a real Chromium
@@ -87,3 +110,23 @@ The local cache folder has no integrity control. Every process of the
 owner account can write it. Run the last check before a push with
 `./gradlew build --no-build-cache`. This command ignores a crafted or
 a stale cache entry.
+
+A run with the JaCoCo agent exports two environment variables first
+(`E2E_JAVA_OPTS_MONITOR`, `E2E_JAVA_OPTS_DEMO`, from
+`:monitor:backend:jacocoAgentArgs`) and builds the distribution with a
+source map for the frontend coverage report:
+
+```
+./gradlew :monitor:backend:distZip :tools:demo-app:installDist -PfrontendSourceMap=true
+./gradlew -q :monitor:backend:jacocoAgentArgs
+# export each of the three printed lines, then:
+cd e2e && npm test
+node scripts/coverage-report.mjs
+cd .. && ./gradlew :monitor:backend:jacocoE2eReport
+```
+
+The JVM coverage of the run sits under
+`monitor/backend/build/reports/jacoco/e2e/`; the frontend coverage sits
+under `e2e/.run/coverage/frontend-lcov.info` and
+`e2e/.run/coverage/frontend-coverage-summary.txt`. Read
+`docs/test-coverage.md` for the measured numbers.

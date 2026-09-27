@@ -75,26 +75,80 @@ async function waitProcessGone(pid: number): Promise<void> {
 }
 
 /**
- * Removes each entry of `e2e/.run/` except a `*.log` file. Playwright gives
- * `globalTeardown` no failure signal of the run (confirmed against the
- * Playwright API, 2026-09-27), so the logs stay every time, not only
- * after a failed run. `E2E_KEEP_LOGS` is void for this same reason.
+ * Removes each entry of `e2e/.run/` except a `*.log` file and the
+ * `coverage` folder (issue #176, decision 2, correction of the brief
+ * review). Playwright gives `globalTeardown` no failure signal of the
+ * run (confirmed against the Playwright API, 2026-09-27), so the logs
+ * stay every time, not only after a failed run. `E2E_KEEP_LOGS` is void
+ * for this same reason.
  */
 function removeRunFolderExceptLogs(): void {
   if (!fs.existsSync(RUN_DIR)) {
     return;
   }
   for (const entry of fs.readdirSync(RUN_DIR)) {
-    if (entry.endsWith('.log')) {
+    if (entry.endsWith('.log') || entry === 'coverage') {
       continue;
     }
     fs.rmSync(path.join(RUN_DIR, entry), { recursive: true, force: true });
   }
 }
 
+/** Reads the TCP port of one "-javaagent:...=output=tcpserver,...,port=<n>,..." line. */
+function agentPort(javaOpts: string | undefined): number | null {
+  if (!javaOpts) {
+    return null;
+  }
+  const match = /port=(\d+)/.exec(javaOpts);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Dumps one running JaCoCo agent over its TCP server port into a
+ * destfile under `e2e/.run/coverage/` (issue #176, decision 2,
+ * correction of the brief review). The dump runs before the kill of
+ * the JVM process: the teardown force-kills each process below, so a
+ * shutdown hook never runs, and the default agent mode "dumponexit"
+ * would write nothing. A dump failure is not fatal to the suite; it is
+ * logged and the teardown continues.
+ */
+function dumpJacocoAgent(cliJar: string, port: number, destFile: string): void {
+  fs.mkdirSync(path.dirname(destFile), { recursive: true });
+  try {
+    execFileSync(
+      'java',
+      ['-jar', cliJar, 'dump', '--address', '127.0.0.1', '--port', String(port), '--destfile', destFile],
+      { stdio: 'ignore' },
+    );
+  } catch (error) {
+    console.error(`global-teardown: the JaCoCo dump of port ${port} failed:`, error);
+  }
+}
+
+/** Dumps the two JaCoCo agents of the run, when the run set them up (decision 2). */
+function dumpJacocoCoverage(): void {
+  const cliJar = process.env.JACOCO_CLI_JAR;
+  if (!cliJar) {
+    return;
+  }
+  const coverageDir = path.join(RUN_DIR, 'coverage');
+  const monitorPort = agentPort(process.env.E2E_JAVA_OPTS_MONITOR);
+  if (monitorPort !== null) {
+    dumpJacocoAgent(cliJar, monitorPort, path.join(coverageDir, 'monitor.exec'));
+  }
+  const demoPort = agentPort(process.env.E2E_JAVA_OPTS_DEMO);
+  if (demoPort !== null) {
+    dumpJacocoAgent(cliJar, demoPort, path.join(coverageDir, 'demo.exec'));
+  }
+}
+
 async function globalTeardown(): Promise<void> {
   const state = readState();
   const { ports, repoRoot, pids } = state;
+
+  // The dump reads each running agent over its TCP port, before the
+  // kill of the process ends the agent (decision 2).
+  dumpJacocoCoverage();
 
   if (pids.demo !== null) {
     killTree(pids.demo);

@@ -9,6 +9,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Tests
 
+- Measure the JVM line coverage and the browser-suite line coverage, with the JaCoCo plugin on the six JVM modules, the V8 coverage of the frontend, and `docs/test-coverage.md`. (#176)
 - Add the Playwright end-to-end suite, against the built distribution and the demo app. (#175)
 
 ### Contract
