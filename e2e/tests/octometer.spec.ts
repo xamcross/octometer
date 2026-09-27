@@ -24,21 +24,35 @@ const CHAIN_WAIT_MS = 30_000;
 test.describe.serial('Octometer, the distribution and the demo app (issue #175)', () => {
   let appId: number;
 
-  test('the manage form registers the demo app', async ({ page }) => {
+  test('the manage form registers the demo app', async ({ page, request }) => {
     const mongoPort = process.env.E2E_MONGO_PORT;
     if (!mongoPort) {
       throw new Error('E2E_MONGO_PORT is absent. The global setup did not run, or it failed.');
     }
     const manage = new ManagePage(page);
     await manage.goto();
-    appId = await manage.addApp({
+    await manage.addApp({
       name: 'demo',
       connectionString: `mongodb://127.0.0.1:${mongoPort}`,
       database: 'exampledb',
     });
-    expect(appId).toBeGreaterThan(0);
     // D8: the first poll cycle can run inside this same wait.
     await manage.expectStatusOneOf('demo', ['Not polled yet', 'OK'], CHAIN_WAIT_MS);
+
+    // The app id comes from `GET /api/apps`, through the request context
+    // of the test, never from the page response of the POST (correction
+    // of pull request #262: Chromium had already discarded that body by
+    // the time the earlier version read it). One read, stored below for
+    // every later scenario of this file.
+    const response = await request.get('/api/apps');
+    expect(response.status()).toBe(200);
+    const rows = (await response.json()) as ReadonlyArray<{ appId: number; name: string }>;
+    const demoRow = rows.find((row) => row.name === 'demo');
+    if (!demoRow) {
+      throw new Error('The app "demo" is absent from the answer of GET /api/apps.');
+    }
+    appId = demoRow.appId;
+    expect(appId).toBeGreaterThan(0);
   });
 
   test('the level 1 view shows the status badge OK after the first poll', async ({ page }) => {

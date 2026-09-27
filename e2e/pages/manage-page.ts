@@ -19,19 +19,21 @@ export class ManagePage {
     await this.page.goto('/manage');
   }
 
-  /** Fills the add-app form and submits it. Returns the created app id (D13, `AppSummary`). */
-  async addApp(fields: AddAppFields): Promise<number> {
+  /**
+   * Fills the add-app form and submits it. Waits for the new row in the
+   * manage list, with a Playwright `expect` and a bound (correction of
+   * pull request #262): the earlier version read the JSON body of the
+   * POST response after Chromium had moved the page on, and Chromium
+   * had by then discarded the body. This version reads no response
+   * body; a test that needs the app id reads `GET /api/apps` instead.
+   */
+  async addApp(fields: AddAppFields): Promise<void> {
     await this.page.getByLabel('Name').fill(fields.name);
     await this.page.getByLabel('Connection string').fill(fields.connectionString);
     await this.page.getByLabel('Database').fill(fields.database);
-    const [response] = await Promise.all([
-      this.page.waitForResponse(
-        (candidate) => candidate.url().endsWith('/api/apps') && candidate.request().method() === 'POST',
-      ),
-      this.page.getByRole('button', { name: 'Add app' }).click(),
-    ]);
-    const body = (await response.json()) as { appId: number };
-    return body.appId;
+    await this.page.getByRole('button', { name: 'Add app' }).click();
+    const row = this.page.getByRole('row', { name: new RegExp(`\\b${escapeRegExp(fields.name)}\\b`) });
+    await expect(row).toBeVisible();
   }
 
   /** Waits for the status cell of one row to hold one of the given words (decision 5a). */
