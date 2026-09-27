@@ -371,9 +371,10 @@ gh issue create --repo <your app repository> --title "Integrate Octometer into <
 3. Mount the route of section 5, with a `resolveUserId` lambda. The lambda reads the
    user id from your own session.
 4. Add the account deletion call of section 7: `deleteByUserId(userId)`.
-5. Install the tracker of section 8, and call `start()`. The `.tgz` asset needs a
-   release tag after `0.1.0`. The moment of the `start()` call follows the decision
-   of `xamcross/octometer#41` (open).
+5. Install the tracker of section 8, and call `start()`:
+   `npm install https://github.com/xamcross/octometer/releases/download/0.2.0/octometer-tracker-0.2.0.tgz`.
+   Use the tag of the monitor you run. The moment of the `start()` call follows
+   the decision of `xamcross/octometer#41` (open).
 6. Show the text of `xamcross/octometer#42`
    (https://github.com/xamcross/octometer/blob/main/docs/privacy.md) where `<app>`
    shows its notices. The legal-basis section stays a placeholder until
