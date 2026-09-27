@@ -525,7 +525,10 @@ describe('App', () => {
       expect(region.textContent).toBe('The monitor API stopped answering.');
 
       // A route change to a different table view, still during the outage.
+      // The new view's breadcrumb carries an appId that the app-name store
+      // does not hold yet (issue #270): the shell sends its own request.
       await router.navigateByUrl('/apps/7/users');
+      httpMock.expectOne('/api/apps/7').flush({ appId: 7, name: 'demo', pathPatterns: null });
       fixture.detectChanges();
       await vi.advanceTimersByTimeAsync(100);
       fixture.detectChanges();
