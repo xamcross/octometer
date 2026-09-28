@@ -160,12 +160,28 @@ class MongoAppReaderContainerTest {
     // read for a moment and see the test fail." A CommandListener on a
     // dedicated client proves that one poll cycle always sends a hello
     // command before the find command of the page.
+    // Design decision D48 (issue #277) adds the reader's own find of the
+    // config document route-patterns, before hello. This test now tells
+    // that find apart from the find of the events page, by its own
+    // target collection, and it keeps its original proof: hello runs
+    // before the events page find.
     @Test
-    fun `one poll cycle sends a hello command before the find command`() = runBlocking {
-        val commandNames = Collections.synchronizedList(mutableListOf<String>())
+    fun `one poll cycle sends a hello command before the find command of the events page`() = runBlocking {
+        // The command's own BsonDocument sits in a shared, reused buffer
+        // (a defect of this test, found while debugging issue #277): a
+        // read after the callback returns can decode a later command's
+        // bytes instead. Each entry below reads the one field this test
+        // needs, inside the callback itself, as a plain Kotlin value.
+        data class Seen(val commandName: String, val findCollection: String?)
+        val commandEvents = Collections.synchronizedList(mutableListOf<Seen>())
         val listener = object : CommandListener {
             override fun commandStarted(event: CommandStartedEvent) {
-                commandNames += event.commandName
+                val findCollection = if (event.commandName == "find") {
+                    event.command.getString("find")?.value
+                } else {
+                    null
+                }
+                commandEvents += Seen(event.commandName, findCollection)
             }
         }
         val settings = MongoClientSettings.builder()
@@ -180,11 +196,11 @@ class MongoAppReaderContainerTest {
 
         listenerReader.pollOnce(target(cursor = null), MONGO.connectionString)
 
-        val helloIndex = commandNames.indexOf("hello")
-        val findIndex = commandNames.indexOf("find")
+        val helloIndex = commandEvents.indexOfFirst { it.commandName == "hello" }
+        val eventsFindIndex = commandEvents.indexOfFirst { it.findCollection == "octometer_events" }
         assertTrue(helloIndex != -1, "One pollOnce must send a hello command.")
-        assertTrue(findIndex != -1, "One pollOnce must send a find command.")
-        assertTrue(helloIndex < findIndex, "The hello command must run before the find command.")
+        assertTrue(eventsFindIndex != -1, "One pollOnce must send a find command of the events page.")
+        assertTrue(helloIndex < eventsFindIndex, "The hello command must run before the find command of the events page.")
         listenerReader.close()
     }
 
@@ -550,7 +566,15 @@ class MongoAppReaderContainerTest {
         }
 
         assertEquals(0, outcome.eventsSkipped)
-        val warnLines = logEvents.filter { it.level == ch.qos.logback.classic.Level.WARN && it.loggerName.contains("MongoAppReader") }
+        // Design decision D48 (issue #277): a first pollOnce of a fresh
+        // app also writes one WARN line for the app's still-absent
+        // route-patterns document. This filter keeps this test to the
+        // referrerHost WARN line alone.
+        val warnLines = logEvents.filter {
+            it.level == ch.qos.logback.classic.Level.WARN &&
+                it.loggerName.contains("MongoAppReader") &&
+                it.formattedMessage.contains("referrerHost")
+        }
         assertEquals(1, warnLines.size, "One WARN line must count the dropped referrerHost fields.")
         assertTrue(warnLines.single().formattedMessage.contains("2"), "The line must hold the dropped count.")
         logEvents.forEach { event ->

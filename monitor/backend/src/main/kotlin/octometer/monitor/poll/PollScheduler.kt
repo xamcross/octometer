@@ -291,7 +291,16 @@ class PollScheduler(
         // text (one pattern per line, no blank line). This splits it
         // into the list that MongoAppReader.runCycle admits against.
         val pathPatterns = row.pathPatterns?.lines()?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
-        val target = PollTarget(row.appId, row.database, row.collection, row.cursor, checkPrivileges, pathPatterns)
+        val target = PollTarget(
+            row.appId,
+            row.database,
+            row.collection,
+            row.cursor,
+            checkPrivileges,
+            pathPatterns,
+            row.pathPatternsPublishedAt,
+            row.kitVersion,
+        )
         val job = scope.launch { runPollCycle(row, target) }
         activePolls[row.appId] = job
         job.invokeOnCompletion { activePolls.remove(row.appId, job) }
