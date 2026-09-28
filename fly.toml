@@ -1,0 +1,48 @@
+# The Fly.io app of the hosted monitor (issue #295, D56).
+#
+# Owner steps 1 and 4 of the issue: "flyctl apps create" fills app and
+# the region; "flyctl volumes create octometer_data" makes the volume
+# of [mounts] below.
+#
+# Three Fly secrets carry the values that this file never holds:
+#   OCTOMETER_CLUSTER_URI    the Atlas connection string
+#   OCTOMETER_MAIL_API_KEY   the Resend API key
+#   OCTOMETER_ADMIN_TOKEN    the temporary admin guard token (until #301)
+app = "<the owner fills the name>"
+primary_region = "<the owner fills the region>"
+
+[build]
+  dockerfile = "monitor/backend/Dockerfile"
+
+[env]
+  OCTOMETER_PUBLIC_URL = "https://app.0ct0meter.com"
+
+[mounts]
+  source = "octometer_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # The poll loop must run at all times (issue #295, step 2); the
+  # machine never stops on its own. m8: auto_start_machines stays
+  # true; it starts no machine that auto_stop_machines ever stops.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    path = "/healthz"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "60s"
+
+[deploy]
+  strategy = "immediate"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  # m7: the memory budget is tight on 512 MB; this swap gives a
+  # margin under a poll spike.
+  swap_size_mb = 512

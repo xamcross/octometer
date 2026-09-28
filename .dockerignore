@@ -1,0 +1,7 @@
+# The build context of monitor/backend/Dockerfile (issue #295, brief
+# review M3). The image needs the installDist output only.
+.git
+**/node_modules
+**/build
+e2e/.run
+!monitor/backend/build/install/backend

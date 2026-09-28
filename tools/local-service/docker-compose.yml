@@ -1,0 +1,41 @@
+# The local run of the hosted image (issue #295, step 7). It builds
+# the same Dockerfile as the Fly deploy, with a local MongoDB 7
+# container in place of Atlas, and no Fly volume.
+#
+# The ports 8080 (the monitor) and 27018 (MongoDB) stay off the
+# owner's own ports 7431, 8098, and 27117, so this compose project
+# runs beside the desktop app, the demo app, and the e2e suite.
+#
+# Brief review m11: "context" is the repository root, two levels above
+# this file, because the Dockerfile "COPY" steps read paths from
+# there.
+name: octometer-local
+
+services:
+  monitor:
+    build:
+      context: ../..
+      dockerfile: monitor/backend/Dockerfile
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      # A fake, loopback-only connection string. #297 wires this value
+      # into a real MongoDB read; this run proves the image and the
+      # health route only.
+      OCTOMETER_CLUSTER_URI: "mongodb://127.0.0.1:27018/exampledb"
+      OCTOMETER_ADMIN_TOKEN: "local-run-token"
+    volumes:
+      - octometer-local-data:/data
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:7.0
+    ports:
+      - "127.0.0.1:27018:27017"
+    volumes:
+      - octometer-local-mongo-data:/data/db
+
+volumes:
+  octometer-local-data:
+  octometer-local-mongo-data:
