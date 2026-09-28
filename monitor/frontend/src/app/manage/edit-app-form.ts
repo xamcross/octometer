@@ -80,12 +80,19 @@ export class EditAppForm {
   private readonly pathPatternsPublishedAt = signal<string | null>(null);
   private readonly kitVersion = signal<string | null>(null);
 
-  /** The "Published by the app on" line, for the read-only block. */
+  /**
+   * The line under the list, for the read-only block. A cached list
+   * with no `publishedAt` is the third state of the block (MAJOR 2 of
+   * the correction round of pull request #286): a list that an
+   * operator typed before this change, with no publish record yet
+   * (`docs/run-guide.md`, `docs/integration-ktor.md`). That state gets
+   * its own sentence, never an empty line.
+   */
   protected readonly publishedLine = computed(() => {
     const publishedAt = this.pathPatternsPublishedAt();
     const kitVersion = this.kitVersion();
     if (publishedAt === null) {
-      return '';
+      return 'Typed before the app published a list.';
     }
     const time = formatLocalDateTime(publishedAt);
     return kitVersion === null

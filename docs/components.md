@@ -446,6 +446,7 @@ the time of the last publish, so the operator reads what the app tracks with no 
 | State | Cue |
 | --- | --- |
 | A published list | A `<ul>` of `<code>` patterns, then the publish line |
+| A cached list with no publish record | A `<ul>` of `<code>` patterns, then "Typed before the app published a list." (a list typed before design decision D48, `docs/run-guide.md`, `docs/integration-ktor.md`; MAJOR 2 of the correction round of pull request #286) |
 | No list yet | "The app has published no list yet." |
 | A failed read | The list keeps its last value (or its empty state); a `.form-error`
   message shows next to the form, and Save stays enabled (the correction of the brief

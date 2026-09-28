@@ -400,6 +400,13 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
     A PATCH with a new string derives the database name again. A different name
     writes `database_name` and resets the poll state, as a different host does
     (D10, #187). An equal name resets the poll state only when the string changed.
+  - `GET /api/apps/{id}` gives the id, the name, `pathPatterns`, `pathPatternsPublishedAt`, and
+    `kitVersion`, never the connection string, for the edit form of the manage view
+    (2026-09-28, issue #277, design decision D48).
+  - `POST /api/apps` and `PATCH /api/apps/{id}` reject a body that holds `pathPatterns` with
+    the fixed 400 "The app publishes its route list; the monitor takes no list." (2026-09-28,
+    issue #277, design decision D48; the D5 bullet of 2026-09-27 that accepted the field is
+    superseded).
   - `DELETE /api/apps/{appId}/events?userId=<id>`: the erasure of one user. Contract rule C43
     sets its width: it also removes the anonymous events of each session of that user id.
   - JSON field names. Health: `version`, `schemaVersion`, `mode`, `refreshSeconds`,
@@ -411,7 +418,9 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
     `sessions`. Anonymous sessions: `page`, `pageCount`, `rows` with `sessionId`,
     `firstPath` (nullable), `source`, `startTime`, `clicks`, `userId`. A gap
     holds `from` and `to`. The erasure returns `deleted` and `checkpointed`. Each time field is UTC ISO 8601
-    with milliseconds.
+    with milliseconds. `GET /api/apps/{id}`: `pathPatterns` (nullable), `pathPatternsPublishedAt`
+    (nullable, UTC ISO 8601), `kitVersion` (nullable) (2026-09-28, issue #277, design decision
+    D48).
   - Each route of D44 keeps the Host check of D12, sends `Cache-Control: no-store`, and adds
     no CORS header.
 - **D14. Totals.** SQL at query time, with the indexes and statements of section 6. No rollup
