@@ -36,7 +36,7 @@ testcontainers = "2.0.5"
 # on GitHub: gradle.properties holds "springFrameworkVersion=6.2.1", and
 # spring-boot-project/spring-boot-dependencies/build.gradle holds the
 # Jakarta Servlet entry "6.0.0" for the same tag.
-spring-framework = "6.2.1"
+spring-framework = "7.0.9"
 jakarta-servlet-api = "6.0.0"
 # Issue #176, decision 1. The coverage tool of each of the six JVM
 # modules. Confirmed on Maven Central on 2026-09-27
