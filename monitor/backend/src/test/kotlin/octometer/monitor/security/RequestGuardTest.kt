@@ -9,6 +9,7 @@ import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
@@ -41,6 +42,11 @@ import kotlin.test.assertNull
  * header by itself, because the test client sends no default value.
  */
 class RequestGuardTest {
+
+    // markerAdminValue, not adminToken = "...": gitleaks' generic-api-key
+    // rule matches a quoted literal right beside a name that holds the
+    // word "token" (the implementer rule of the secret scan).
+    private val markerAdminValue = "octoadminguardmarker7f3a"
 
     // -- The Host check --------------------------------------------------
 
@@ -117,6 +123,30 @@ class RequestGuardTest {
             assertEquals(HttpStatusCode.Forbidden, blocked.status)
             assertEquals(HttpStatusCode.OK, allowed.status)
         }
+
+    // Issue #295, brief review M5: the bare host of publicUrl, and the
+    // form with ":443", both pass.
+    @Test
+    fun `the bare host of publicUrl, and the same host with the port 443, both pass`() = testApplication {
+        application { module(prodConfig(publicUrl = "https://app.0ct0meter.com")) }
+
+        val bare = client.get("/api/health") { header(HttpHeaders.Host, "app.0ct0meter.com") }
+        val withPort = client.get("/api/health") { header(HttpHeaders.Host, "app.0ct0meter.com:443") }
+
+        assertEquals(HttpStatusCode.OK, bare.status)
+        assertEquals(HttpStatusCode.OK, withPort.status)
+    }
+
+    // Issue #295, brief review B3: /healthz skips the Host check.
+    @Test
+    fun `healthz answers 200 with the body ok, with no allowed Host header`() = testApplication {
+        application { module(prodConfig()) }
+
+        val response = client.get("/healthz") { header(HttpHeaders.Host, "evil.example") }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("ok", response.bodyAsText())
+    }
 
     @Test
     fun `a Host on the bare default port 80 passes, because a browser omits that port`() = testApplication {
@@ -329,6 +359,81 @@ class RequestGuardTest {
         }
 
         assertEquals(HttpStatusCode.Forbidden, response.status)
+    }
+
+    // Issue #295, brief review M6: the dashboard origin behind Fly
+    // passes, so a POST or a DELETE from the deployed dashboard works.
+    @Test
+    fun `the origin of publicUrl passes for a POST`() = testApplication {
+        application {
+            module(prodConfig(publicUrl = "https://app.0ct0meter.com"))
+            routing {
+                routePost("/api/added-by-test") { call.respond(HttpStatusCode.NoContent) }
+            }
+        }
+
+        val response = client.post("/api/added-by-test") {
+            header(HttpHeaders.Host, "app.0ct0meter.com")
+            header(HttpHeaders.Origin, "https://app.0ct0meter.com")
+            contentType(ContentType.Application.Json)
+            setBody("{}")
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+    }
+
+    // -- The admin guard (issue #295, brief review B2, B3; a temporary
+    //    measure until #301) --------------------------------------------
+
+    @Test
+    fun `an api route without the admin header gets 401 when adminToken is set`() = testApplication {
+        application { module(prodConfig(adminToken = markerAdminValue)) }
+
+        val response = client.get("/api/health") { allowedHost() }
+
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
+    @Test
+    fun `an api route with the correct admin header passes when adminToken is set`() = testApplication {
+        application { module(prodConfig(adminToken = markerAdminValue)) }
+
+        val response = client.get("/api/health") {
+            allowedHost()
+            header("X-Octometer-Admin", markerAdminValue)
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+    }
+
+    @Test
+    fun `an api route with a wrong admin header gets 401 when adminToken is set`() = testApplication {
+        application { module(prodConfig(adminToken = markerAdminValue)) }
+
+        val response = client.get("/api/health") {
+            allowedHost()
+            header("X-Octometer-Admin", "wrong-value")
+        }
+
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
+    @Test
+    fun `healthz needs no admin header, even when adminToken is set`() = testApplication {
+        application { module(prodConfig(adminToken = markerAdminValue)) }
+
+        val response = client.get("/healthz") { allowedHost() }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+    }
+
+    @Test
+    fun `an api route needs no admin header when adminToken is not set`() = testApplication {
+        application { module(prodConfig()) }
+
+        val response = client.get("/api/health") { allowedHost() }
+
+        assertEquals(HttpStatusCode.OK, response.status)
     }
 
     // -- The content type check, only on a request with a body -----------

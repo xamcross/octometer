@@ -2,6 +2,7 @@ package octometer.monitor
 
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.joran.JoranConfigurator
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.URLDecodeException
 import io.ktor.http.decodeURLPart
@@ -19,6 +20,7 @@ import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.CancellationException
@@ -29,6 +31,7 @@ import octometer.monitor.config.MonitorConfig
 import octometer.monitor.config.ResolvedConfig
 import octometer.monitor.config.escapeForLog
 import octometer.monitor.config.loadConfig
+import octometer.monitor.config.requireHostedSecrets
 import octometer.monitor.frontend.defaultStaticDir
 import octometer.monitor.log.logsDir
 import octometer.monitor.frontend.staticFrontend
@@ -42,8 +45,6 @@ import java.io.File
 import java.nio.file.Files
 import java.util.Properties
 import kotlin.system.exitProcess
-
-private const val HOST = "127.0.0.1"
 
 // The fixed 400 sentence of issue #148. It names no part of the request.
 private const val REQUEST_NOT_VALID_MESSAGE = "The request is not valid."
@@ -62,6 +63,12 @@ private const val INVALID_PATH_LOG_TEXT = "<invalid path>"
 // databaseBytes and freeDiskBytes are decision 5 of issue #58: the
 // database file size (octometer.db plus octometer.db-wal, when that
 // file exists) and the free space of the disk that holds dataDir.
+// storeState, storageSizeBytes, writeStopped, clusterCheckState, and
+// lastPurgeAt are the D56 fields of issue #295 (brief review M4).
+// storageSizeBytes, writeStopped, and clusterCheckState stay null until
+// #297 fills them; lastPurgeAt stays null until the purge job reports
+// its own last run time. This route holds no data directory and no
+// file path (M4).
 @Serializable
 data class HealthResponse(
     val version: String,
@@ -70,6 +77,11 @@ data class HealthResponse(
     val retentionDays: Int,
     val databaseBytes: Long,
     val freeDiskBytes: Long,
+    val storeState: String,
+    val storageSizeBytes: Long? = null,
+    val writeStopped: Boolean? = null,
+    val clusterCheckState: String? = null,
+    val lastPurgeAt: String? = null,
 )
 
 // The version stays the same for the life of the process, so the route
@@ -93,14 +105,21 @@ fun main(args: Array<String>) {
         exitProcess(2)
     }
     configureLogDir(resolved.config.dataDir)
-    // Step 6 of issue #5: refuse a non-loopback bind address. D2 names no
-    // bind-address config key, thus HOST is a constant, and this call
-    // cannot throw today. The call stays, so a future bind-address key
-    // reaches the same check, on the value that embeddedServer then uses.
+    // Step 6 of issue #5, extended by D52 (issue #295): refuse a bind
+    // address other than 127.0.0.1 or 0.0.0.0, on the configured value
+    // that embeddedServer then uses.
     val host = try {
-        requireLoopbackBindAddress(HOST)
+        requireLoopbackBindAddress(resolved.config.bind)
     } catch (invalidBindAddress: InvalidConfigException) {
         log.error("The bind address is invalid. {}", invalidBindAddress.message)
+        exitProcess(2)
+    }
+    // Issue #295, step 4: a public bind in prod mode needs the cluster
+    // URI and the admin token, each as a clear start error.
+    try {
+        requireHostedSecrets(resolved.config)
+    } catch (invalidConfig: InvalidConfigException) {
+        log.error("The config is invalid. {}", invalidConfig.message)
         exitProcess(2)
     }
     // Decision 2 of issue #58: main creates dataDir and takes the lock
@@ -155,7 +174,11 @@ fun main(args: Array<String>) {
     }
 }
 
-fun Application.module(config: MonitorConfig, staticDir: File? = defaultStaticDir()) {
+fun Application.module(
+    config: MonitorConfig,
+    staticDir: File? = defaultStaticDir(),
+    env: Map<String, String> = System.getenv(),
+) {
     // Step 6 of issue #15: this is the first user of the store of #9, thus
     // this issue owns the open call and the close call. MonitorServices
     // opens the store, the secret store, and runs the orphan-secret sweep
@@ -236,8 +259,19 @@ fun Application.module(config: MonitorConfig, staticDir: File? = defaultStaticDi
             call.respond(HttpStatusCode.InternalServerError, ErrorBody("The server had an internal error."))
         }
     }
-    installRequestGuard(config)
+    installRequestGuard(config, env)
     routing {
+        // D56: the process-and-store check. It skips the Host check
+        // (RequestGuard.isHealthzPath) and the admin guard (it sits
+        // outside "/api/"), so a load balancer with no header of its
+        // own can still reach it. It runs no cluster call.
+        get("/healthz") {
+            if (storeIsHealthy(services)) {
+                call.respondText("ok", ContentType.Text.Plain, HttpStatusCode.OK)
+            } else {
+                call.respondText("", ContentType.Text.Plain, HttpStatusCode.ServiceUnavailable)
+            }
+        }
         get("/api/health") {
             call.respond(
                 HealthResponse(
@@ -247,6 +281,7 @@ fun Application.module(config: MonitorConfig, staticDir: File? = defaultStaticDi
                     retentionDays = config.retentionDays,
                     databaseBytes = databaseBytes(config.dataDir),
                     freeDiskBytes = freeDiskBytes(config.dataDir),
+                    storeState = if (storeIsHealthy(services)) "ok" else "unhealthy",
                 ),
             )
         }
@@ -290,7 +325,23 @@ private fun configureLogDir(dataDir: String) {
     configurator.doConfigure(resource)
 }
 
-private fun logStart(resolved: ResolvedConfig) {
+// D56: the process runs (this code runs at all) and the store answers
+// one statement. No cluster call. A failure of the read gives false,
+// with one WARN line that names the exception class only.
+private suspend fun storeIsHealthy(services: MonitorServices): Boolean =
+    try {
+        services.database.read { connection -> connection.createStatement().use { it.execute("SELECT 1") } }
+        true
+    } catch (failure: Exception) {
+        log.warn("The store health check failed. {}", failure.javaClass.simpleName)
+        false
+    }
+
+// Issue #295, brief review B1: internal, not private, so
+// ConfigLoaderTest (a different package of the same module) can prove
+// the sentinel rule for each secret key, through LogCapture.kt, with
+// no container.
+internal fun logStart(resolved: ResolvedConfig) {
     for (value in resolved.values) {
         log.info("{} = {} ({})", value.key, escapeForLog(value.value), value.source.label)
     }
