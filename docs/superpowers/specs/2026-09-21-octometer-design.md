@@ -105,16 +105,21 @@ A click on a level 1 row opens level 2. A click on a level 2 row opens level 3.
 
 ```
 contract/            Event log contract v1.2: README.md, examples/*.json, fixtures/
-monitor/backend/     Ktor server: registry, MongoDB reader, SQLite store, totals API
-monitor/frontend/    Angular app: five table views, the app management page
-kit/jvm-core/        Java 21, no run-time dependency: the ingest logic
-kit/jvm-mongo/       Java 21: the MongoDB event store
-kit/jvm-ktor/        Kotlin: the ingest route for a Ktor 3 app
-kit/jvm-spring/      Java 21: the ingest controller for a Spring MVC app
-kit/tracker/         TypeScript click tracker, no dependency
+monitor/backend/     Ktor server: the service (registry, MongoDB reader, SQLite store,
+                     totals API, the collector, the sign-in, the accounts)
+monitor/frontend/    Angular app: five table views, the app management page, the sign-in
+kit/jvm-core/        Java 21, no run-time dependency: the ingest logic (a library of the
+                     service)
+kit/jvm-mongo/       Java 21: the MongoDB event store (a library of the service)
+kit/jvm-ktor/        Kotlin: the ingest route for a Ktor 3 app (removed by the cleanup
+                     story #304)
+kit/jvm-spring/      Java 21: the ingest controller for a Spring MVC app (removed by the
+                     cleanup story #304)
+kit/tracker/         TypeScript click tracker, no dependency; also served at `/tracker.js`
 tools/demo-app/      Ktor demo app: kit + tracker + synthetic clicks
 tools/consumer-smoke/ Minimal Spring Boot apps that use the kit
 scripts/             install.ps1, upgrade.ps1, bootstrap script
+site/                Landing page: Cloudflare Pages, the domain `0ct0meter.com`
 docs/                Design, run guide, integration guides
 ```
 
@@ -124,6 +129,11 @@ The demo app has no login. A select box on its page sets the cookie `demo_user`,
 One Gradle build is at the root, with one toolchain (JDK 21), the foojay toolchain resolver,
 and the version catalog `gradle/libs.versions.toml`. Each npm project has its own
 `package.json`.
+
+Since 2026-09-28 (the hosted model, version 2.0): `monitor/backend` becomes the service and
+runs on Fly.io at `app.0ct0meter.com` (D56). `kit/jvm-core` and `kit/jvm-mongo` stay as
+libraries of the service. `kit/jvm-ktor` and `kit/jvm-spring` stay until the pilot app moves
+(#302), then the cleanup story removes them (#304).
 
 ## 4. Event log contract v1.2
 
@@ -178,6 +188,11 @@ A session start is its own request, with one entry only (design decision D41):
   body (a broken limit and a broken field rule included), 415 for a content type other than
   JSON, 429 for the rate limit.
 - A duplicate key makes the body invalid. `ageMs` is a JSON integer.
+
+Since 2026-09-28 (the hosted model, version 2.0): the request goes to the collector of the
+service, `POST /collect` (D50), with the app key in the header `X-Octometer-Key`. The body
+form and the answer codes above stay unchanged. The client address comes from the header
+`Fly-Client-IP`, which fly-proxy writes.
 
 ### 4.3 The reader rule (monitor)
 
@@ -333,7 +348,8 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   to that failure. The backoff delays the next check by a maximum of 300 seconds after a
   corrected role. `app.privileges_checked_at` stores the time of the last passed check. The
   risk of section 8 stays as it stands: a write action on the one collection stays invisible
-  when the cluster gives no privilege list.
+  when the cluster gives no privilege list. Closed on 2026-09-28 by the hosted model (version
+  2.0, D50 to D58).
 - **D10. MongoDB client.** One client for each app, created at the first poll cycle, not at
   the start of the monitor. The monitor keeps it for the next cycles and closes it after a
   PATCH of the connection string or a delete of the app. `maxPoolSize=2`, `serverSelectionTimeoutMS=10000`, `maxIdleTimeMS=120000`,
@@ -348,7 +364,8 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   value that the cycle last saw, so a write after a reset changes 0 rows (maintainer decision,
   2026-09-26, MAJOR 1 of the correction round of pull request #208). The same PATCH also
   clears the app's `app_path` set (issue #205, `AppRegistryService.resetPollState`), so the new
-  source starts its per-app path cap with an empty set.
+  source starts its per-app path cap with an empty set. Changed on 2026-09-28 by the hosted
+  model: one client serves the whole service, with `maxPoolSize=16` (D57).
 - **D11. Secrets.** The registry stores each connection string in
   `%LOCALAPPDATA%\Octometer\secrets\apps.json`, outside `dataDir`, thus a database backup
   holds no credential. No encryption in the application. The run guide names BitLocker
@@ -363,7 +380,9 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   and a name with no value are rejected. No allowed name can turn off TLS, change the read
   preference, or send a credential to a different host (source: the MongoDB manual,
   "Connection String Options", read on 2026-09-21; see the pull request text for the exact
-  finding of each option).
+  finding of each option). Changed on 2026-09-28 by the hosted model: the registry stores the
+  database name only, and the service builds the URI from the Fly secret
+  `OCTOMETER_CLUSTER_URI` (D57).
 - **D12. Exposure.** The server binds to `127.0.0.1` and refuses another address. No login.
   Each request passes a Host check (`localhost:<port>`, `127.0.0.1:<port>`, plus the
   `ng serve` port in dev mode). GET and HEAD are the safe methods; each other method needs an
@@ -373,7 +392,9 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   sends `Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline';
   object-src 'none'; base-uri 'self'; frame-ancestors 'none'` (Angular adds its component
   styles as inline `<style>` elements), `X-Content-Type-Options: nosniff`, and
-  `Cache-Control: no-store` on the API.
+  `Cache-Control: no-store` on the API. Changed on 2026-09-28 by the hosted model: D52
+  replaces this decision in full, with the public bind, the Host list, the Origin classes,
+  the CORS rule, and the session rule.
 - **D13. API.**
   - `GET /api/health`: `version`, `schemaVersion`, `mode`, `refreshSeconds`, the database
     size, the free disk space.
@@ -444,7 +465,9 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   erased id as a whole segment to `/other`, and it deletes each `app_path` value with that
   same shape, both inside the one transaction of the erasure (issue #205, decision 6 of the
   correction round of 2026-09-27): a row with no other tie to the erased user must not keep
-  the id in `path` for the retention time.
+  the id in `path` for the retention time. Changed on 2026-09-28 by the hosted model: this
+  decision extends to the secret key, the sign-in token, the session id, and the mail address
+  of an account (D58).
 - **D16. Gap.** At the cycle start, a cursor time older than the server time minus 29 days
   writes a gap row: `from_ts` is the time of the cursor `_id`, and `to_ts` is the server time
   minus 30 days. The UI shows it.
@@ -461,11 +484,15 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   Note (issue #227, 2026-09-27): the retention purge also deletes each gap row whose `to_ts`
   is older than the purge bound. A gap row of exactly `retentionDays` age stays.
 
+  Changed on 2026-09-28 by the hosted model: the gap bound becomes the retention minus one
+  day, and a cycle with no cursor at its start writes no gap row (D57).
+
 ### App side (the kit)
 
 - **D17. Languages.** `kit/jvm-core`, `kit/jvm-mongo`, and `kit/jvm-spring` use Java 21 with
   no Kotlin library, because the Spring Boot 3.3 BOM forces `kotlin-stdlib` 1.9.25. Only
-  `kit/jvm-ktor` uses Kotlin. Each framework dependency of an adapter is `compileOnly`.
+  `kit/jvm-ktor` uses Kotlin. Each framework dependency of an adapter is `compileOnly`. Closed
+  on 2026-09-28 by the hosted model (version 2.0, D50 to D58).
 - **D18. Core.** It takes the raw body as a `String` and parses it with its own strict
   parser for the one shape of section 4.2. The parser accepts `path` and `referrerHost`. The
   raw client `path`, after the shape check of rule C39, stays in the parsed click only. No
@@ -477,7 +504,8 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   `deleteByUserId` also removes the anonymous events of each session of that user id
   (contract rule C43).
 - **D19. Anonymous clicks.** Off by default. `OCTOMETER_RECORD_ANONYMOUS=true` turns them on.
-  The pilot app `investguideua` turns it on. Design decision D43 states its caps.
+  The pilot app turns it on. Design decision D43 states its caps. Changed on 2026-09-28 by
+  the hosted model: anonymous clicks are on by default (D54).
 - **D20. Rate limit.** In memory, a fixed window of 60 seconds, two maps with an LRU
   eviction: 5 000 user keys and 20 000 anonymous keys. The key is the user id, with 30
   requests each minute. Without a user id the key is the client address, with 120 requests
@@ -491,8 +519,9 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
 - **D21. Event cap.** `OCTOMETER_MAX_EVENTS`, default 200 000. The store reads
   `estimatedDocumentCount()` a maximum of one time each 60 seconds. Above the cap it drops the
   batch, returns 204, and writes one warning. Reason: a full M0 cluster refuses each write of
-  the app. The pilot app `investguideua` keeps this default. It has fewer than 500 visits
-  each day (owner decision, 2026-09-21).
+  the app. The pilot app keeps this default. It has fewer than 500 visits
+  each day (owner decision, 2026-09-21). Changed on 2026-09-28 by the hosted model: the event
+  cap becomes 50 000 per app (D57).
 - **D22. MongoDB store.** The constructor takes a `com.mongodb.client.MongoDatabase` from the
   app. The kit never creates a client. The driver is `compileOnly`
   `org.mongodb:mongodb-driver-sync:5.0.1`. The tests run against 5.0.1 and against the newest
@@ -504,7 +533,8 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   route stays in the security chain of the app, because it needs the session. It answers 415
   to a content type other than JSON. It writes no CORS header. The Ktor adapter calls the
   store inside `withContext(Dispatchers.IO)`. The default is a view of `Dispatchers.IO` that
-  `limitedParallelism(8)` gives, so the route never fills the whole shared pool.
+  `limitedParallelism(8)` gives, so the route never fills the whole shared pool. Closed on
+  2026-09-28 by the hosted model (version 2.0, D50 to D58).
 - **D24. Tracker.** Plain TypeScript, ESM, zero dependencies, `"sideEffects": false`, no code
   at import time, no action in SSR. Options: `endpoint` (mandatory), `credentials` (default
   `same-origin`), `headers: () => Record<string,string>`, `flushIntervalMs` (default 5000),
@@ -527,7 +557,7 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
 - **D25. Distribution.** JVM: JitPack with a `jitpack.yml` (`jdk: openjdk21`, an `install`
   command that publishes only the kit modules, `-x test`). Artifact IDs `octometer-kit-core`,
   `octometer-kit-mongo`, `octometer-kit-ktor`, `octometer-kit-spring`. An app depends only on
-  a release tag, and it limits the JitPack repository with `exclusiveContent`. Tracker: `npm pack`, the `.tgz` file on the GitHub Release. No npm account. (2026-09-27) Maven has no `exclusiveContent`; the Spring guide gives the repository order and the `settings.xml` mirror as the Maven form.
+  a release tag, and it limits the JitPack repository with `exclusiveContent`. Tracker: `npm pack`, the `.tgz` file on the GitHub Release. No npm account. (2026-09-27) Maven has no `exclusiveContent`; the Spring guide gives the repository order and the `settings.xml` mirror as the Maven form. Closed on 2026-09-28 by the hosted model (version 2.0, D50 to D58).
 - **D26. Release.** One SemVer tag `X.Y.Z` without a prefix. `release.yml` checks the top
   entry of `CHANGELOG.md` and the tracker version, builds `octometer-monitor-X.Y.Z.zip`
   (`distZip` with the Angular build), attaches the zip and the tracker `.tgz`, and requests
@@ -563,7 +593,8 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   header shows the zone name. No relative time.
 - **D32. Management page.** A list with the status of each app. A form to add an app. A
   control to replace the connection string. A delete with a native `<dialog>`, the typed app
-  name, and the event count. The connection string field is write-only.
+  name, and the event count. The connection string field is write-only. Closed on 2026-09-28
+  by the hosted model (version 2.0, D50 to D58).
 - **D33. Accessibility.** Each UI issue holds its criteria: no CSS `display` on table
   elements, targets of 24 by 24 CSS px, status as an icon plus text, one permanent
   `role="status"` region for a user action and for one transition of the monitor connection,
@@ -573,10 +604,12 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
 
 - **D34. Layout.** `%LOCALAPPDATA%\Octometer\` holds `app\<version>\`, `data\`, `secrets\`,
   `logs\`, `backups\`, `octometer.conf`, and `octometer.cmd`. The folder is outside OneDrive,
-  because SQLite WAL is not safe in a synced folder.
+  because SQLite WAL is not safe in a synced folder. Closed on 2026-09-28 by the hosted model
+  (version 2.0, D50 to D58).
 - **D35. Start.** `installDist` and `distZip`, with the wildcard class path `lib\*` in the
   Windows script. `scripts/install.ps1` registers the scheduled task `Octometer` at logon,
-  with no time limit, battery start, and 3 restarts.
+  with no time limit, battery start, and 3 restarts. Closed on 2026-09-28 by the hosted model
+  (version 2.0, D50 to D58).
 - **D36. Backup and upgrade.** `VACUUM INTO` one time each day, 7 files kept, plus one backup
   `pre-migrate-v<n>-<timestamp>.db` before a migration, where `<n>` is the schema version of
   the file before the migration. `scripts/upgrade.ps1 -Version X.Y.Z` downloads the zip with
@@ -620,7 +653,7 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   this check off for an end-to-end test. A `true` value of `navigator.webdriver` blocks the whole
   tracker, the click listener included, not only the session start. Without `sessionStorage`, the
   tracker keeps the id in a module variable, thus it sends one session start for each
-  document. The pilot app `investguideua` calls `start()` in the browser only, for example
+  document. The pilot app calls `start()` in the browser only, for example
   from `afterNextRender`, because it uses server-side rendering.
 - **D42. Visitor source.** The `octo:session-start` entry can hold `referrerHost`: the host
   of `document.referrer` in lower case, matched against the closed set of contract rule C40
@@ -654,7 +687,7 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   match ignores the letter case. The route returns 204, it writes one debug line, and it
   never stores the user agent. Each daily counter resets each 24 hours. The daily key map
   holds 20 000 keys with an LRU eviction. This daily map is a third map. It is separate from
-  the two windowed maps of D20. The pilot app `investguideua` has fewer than 500
+  the two windowed maps of D20. The pilot app has fewer than 500
   visits each day, thus the default caps fit (owner decision, 2026-09-21).
 - **D44. First pages and anonymous sessions.** Two views join the monitor: "First pages"
   (`path`, `sessions`) and "Anonymous sessions". Each row of "Anonymous sessions" holds the
@@ -692,7 +725,8 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   the sorted list and writes one warning with the count. The kit writes one INFO line at start
   with the count.
   (The owner's choices of 2026-09-28: the database route, no manage field, the raw path in the
-  browser; milestone G, issues #275 to #279.)
+  browser; milestone G, issues #275 to #279.) Closed on 2026-09-28 by the hosted model
+  (version 2.0, D50 to D58).
 - **D47. Route publication.** After the derivation the kit writes one document into the
   collection `octometer_config` of the app database: `{ _id: "route-patterns", patterns: [...],
   kitVersion: "<version>", publishedAt: <date> }`. The write is an upsert with the app's own
@@ -707,7 +741,8 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   collections), and C41 (a `path` value outside the grammar becomes `/other`, the field is not
   dropped). It adds no field to the event document, so it is a minor change under C10.
   (The owner's choices of 2026-09-28: the database route, no manage field, the raw path in the
-  browser; milestone G, issues #275 to #279.)
+  browser; milestone G, issues #275 to #279.) Closed on 2026-09-28 by the hosted model
+  (version 2.0, D50 to D58).
 - **D48. The admission list of the monitor.** The reader reads the config document at the start
   of each poll cycle, before the events (one `findOne`). The reader validates the list with
   `findInvalidIndices` and the bound of 200 (the gate of D5 stays). A valid list becomes the
@@ -724,7 +759,8 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   `pathPatternsPublishedAt`, and `kitVersion`. A list that an operator typed before this
   decision stays as the cached copy until the app publishes.
   (The owner's choices of 2026-09-28: the database route, no manage field, the raw path in the
-  browser; milestone G, issues #275 to #279.)
+  browser; milestone G, issues #275 to #279.) Closed on 2026-09-28 by the hosted model
+  (version 2.0, D50 to D58).
 - **D49. The path in the browser.** The tracker sends the page path as it is, in the `path`
   field of a click entry and of the session start. It holds no route list: the `routes` option
   of D40 goes. Before the send the tracker percent-encodes each byte of `location.pathname`
@@ -738,6 +774,94 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   open tab.)
   (The owner's choices of 2026-09-28: the database route, no manage field, the raw path in the
   browser; milestone G, issues #275 to #279.)
+
+### Version 2.0 (the hosted model)
+
+Source: the owner's decisions of 2026-09-28, and the brief review of 2026-09-28 (the
+architect and the security reviewer).
+
+The owner decided on 2026-09-28 that the browser sends each click to Octometer, not to the
+app or its database. Octometer becomes a hosted service: the monitor gains a collector on
+Fly.io, the events live in one MongoDB Atlas cluster, and the kit goes. The domain is
+`0ct0meter.com`; the service runs at `app.0ct0meter.com`. The stories follow this order:
+#294, #295, #301, #296, #297, #298, #299, #300, #302, #303, #304. The brief review of
+2026-09-28 shaped the decisions of this section.
+
+- **D50. The collector.** `POST /collect` runs in the monitor process. The app key travels
+  in the header `X-Octometer-Key`. The tracker sends it with `fetch` and `keepalive`, as
+  today. `sendBeacon` cannot set a header, so the tracker never uses it (M8). The body limit
+  is 16 KB at the route, before the parse (M9). The `Origin` header must match one origin of
+  the app. The body goes through the parser of D18. The contract of section 4.2 stays
+  unchanged. The answer codes: `204` for a success, an unknown key, or an unlisted origin;
+  `400` for an invalid body; `415` for a wrong content type; `429` for the rate limit (M9).
+  The rate limit of D20 and the caps of D43 key on the app id and the client address. The
+  client address comes from the header `Fly-Client-IP`, which fly-proxy writes. The service
+  never trusts `X-Forwarded-For` (B6). The route match of D40 plus the default rule runs at
+  write time. A segment that is a number, a UUID, or a hex string of 8 or more characters
+  becomes `:id`. The event document holds the pattern. The write goes through the store of
+  D22 into `app_<id>`. That database holds `octometer_events` only (m2). The store creates
+  the TTL index of 365 days at the first write. The abuse controls: a write stop at 450 MB of
+  cluster storage, and a daily cap of 20 000 events per app (B5). The collector drops each
+  write above the storage stop; the health route reports the alarm. The values of D20, D21,
+  and D43 stay service-wide defaults. Each counter takes the app id and the client key (m3).
+  The CORS plugin serves `/collect` and `/tracker.js` only. The preflight from a listed
+  origin gets that origin, the header name, `POST`, and a `max-age` of one day.
+- **D51. The keys.** The app key is 32 random bytes from `SecureRandom`, in base64url form.
+  It is public. The secret key has the same form. Each app gets one secret key. The service
+  shows it one time only. The service stores it as a SHA-256 hash. The compare runs in
+  constant time. The sign-in token and the session id use the same form and the same storage
+  (M6).
+- **D52. The accounts and the public bind.** An account holds an email address, its apps, its
+  sessions, and the invite list. `POST /api/signin` takes an address. A listed address gets a
+  mail with the link `/signin?token=`. `GET /signin?token=` shows a page with one button. It
+  changes no state, because a mail scanner fetches the link too (M5). `POST
+  /api/signin/confirm` consumes the token. The token lasts 15 minutes and works one time.
+  That route sets the cookie: `HttpOnly`, `Secure`, `SameSite=Lax`, 30 days. The sign-in
+  route sends `Referrer-Policy: no-referrer` (m6). Every API route needs a session, except
+  `/collect`, `/tracker.js`, `/healthz`, the sign-in routes, and the erasure route. Each route
+  filters by the account id in its SQL statement. D12 changes in full (B2). The server binds
+  to `0.0.0.0` behind Fly. The Host allow-list holds the public host and the Fly host of the
+  app. The Origin rule has three classes: the dashboard origin for the API, a registered app
+  origin for `/collect`, and no Origin for the erasure route. The CORS plugin exists for the
+  two public routes of D50 only. `/healthz` skips the Host check.
+- **D53. The served tracker.** `GET /tracker.js` returns the IIFE bundle. The response holds
+  a one-year cache header and a content hash in the query. One script tag starts it:
+  `<script src="https://app.0ct0meter.com/tracker.js" data-app-key="..."
+  data-user-id="..."></script>`. The npm package stays for a bundler.
+- **D54. The user id.** The tracker option `userId` takes a pseudonymous id from the app. It
+  must never be an email address; a value with `@` is dropped. Without `userId` the click is
+  anonymous (D19 on by default, D43).
+- **D55. The erasure.** `DELETE /api/apps/{appId}/events?userId=<id>` needs the header
+  `X-Octometer-Secret`. The query form stays, because a legal id can hold `/`, `%`, or `#`
+  (M7). This runs the same deletion as issue #61, in the cluster and in the cache. A wrong
+  secret gets a `404` answer.
+- **D56. The deployment.** One Docker image builds from `installDist` on
+  `eclipse-temurin:21-jre`. `fly.toml` names one `shared-cpu-1x` machine with 512 MB. It sets
+  `strategy = "immediate"` and `auto_stop_machines = false`. The volume mounts at `/data`.
+  `octometer.dataDir=/data/db` puts `/data/secrets`, `/data/logs`, and `/data/backups` on the
+  volume too (B3). `octometer.clientIpHeader=Fly-Client-IP` names the client address header.
+  The health check runs on `GET /healthz`. `/healthz` answers `200 ok` or `503`, and it tests
+  the process only. `/api/health`, behind a session, holds the version, the storage size, the
+  write stop state, and the job time (M12). The CI job `deploy` runs `flyctl deploy
+  --remote-only` on each merge to `main`, with the secret `FLY_API_TOKEN`. The cluster URI
+  and the Resend key are Fly secrets that the owner sets. Each deploy stops the service for
+  some tens of seconds. The run guide states the window and the loss.
+- **D57. The store.** One Atlas M0 cluster holds every app. Each registered app gets one
+  database `app_<id>`, with `octometer_events` and its indexes. The TTL index on the event
+  time is 365 days. The cache purge of D15 takes `retentionDays = 365`. The dashboard and the
+  policy then state one number (M4). One `MongoClient` serves the whole service, the D10
+  change, with `maxPoolSize = 16`. The M0 limit is 100 connections, and a redeploy overlap
+  needs a margin (M11). The event cap of D21 is 50 000 per app. The gap rule of D16 changes:
+  the gap bound is the retention minus one day. A cycle that finds no cursor at its start
+  writes no gap row (M3). The registry stores the database name only, the D11 change (B4).
+  The service builds the URI at use time from the Fly secret `OCTOMETER_CLUSTER_URI`.
+- **D58. The service user and its check.** The service user holds `readWriteAnyDatabase`
+  (Atlas: "Read and write to any database"). D9 closes for the hosted model, because the
+  service must write (B1). A new check runs at the start and each 24 hours. It runs one write
+  and one read in the database `service_meta`. It reads the role list of the user through
+  `connectionStatus`. A failed check sets the service status; the health route reports it.
+  D15 extends to the secret key, the sign-in token, the session id, and the mail address of
+  an account. The sentinel tests cover them (M14).
 
 ## 6. Monitor data model (SQLite)
 
@@ -820,7 +944,7 @@ new session id after 30 idle minutes, an hourly repair read, X.509 and AWS IAM a
 - Create three Atlas alerts for each app: connections, network, and storage at 80 percent. M0
   records no access history, thus an alert is the only signal of a leaked password.
 - Decide the retention time of the monitor store. The default is 13 months.
-- Done: the owner selected the pilot app `investguideua` on 2026-09-21 (the owner comment on
+- Done: the owner selected the pilot app on 2026-09-21 (the owner comment on
   issue #43). It uses Spring Boot 3.4.1 with Maven, and Angular 17.3.
 - Verify the start after a reboot, and do the screen reader pass.
 - Accept the residual risks: a forged click, a hostile browser extension on the monitor
@@ -832,6 +956,13 @@ new session id after 30 idle minutes, an hourly repair read, X.509 and AWS IAM a
   pattern-shaped raw path passes the shape check; the first `pathValueCap` raw values persist
   in `event.path` until the retention purge or an erasure of the id they hold. The allow-list
   of a per-app pattern list is the stronger control; issue #226 holds it.
+- Create the Fly.io app and its `shared-cpu-1x` 512 MB machine for the hosted service (#295,
+  D56).
+- Create one Atlas M0 cluster for the hosted service. Set the Fly secret
+  `OCTOMETER_CLUSTER_URI` with its connection string (#295, D57).
+- Create the Resend account for the sign-in mail and the waitlist mail. Set the Fly secret
+  for the Resend key (the maintainer confirms the secret name) (#295, D52).
+- Set the CI secret `FLY_API_TOKEN` for the `deploy` job (#295, D56).
 
 ## 9. Backlog
 
@@ -917,6 +1048,22 @@ issues #101 to #119, and issue #111 is closed, with its rule kept in issues #18,
 | E02, #69 | Build the Spring MVC ingest controller in kit/jvm-spring |
 | E03, #70 | Write the integration guide for a Spring Boot app |
 | E04, #71 | Publish kit/jvm-spring through JitPack |
+
+Milestone I is added on 2026-09-28 (the hosted model, version 2.0). Its issues follow the
+order of the brief review of 2026-09-28.
+
+| **I** | **Hosted Octometer** |
+| I01, #294 | Record the hosted model in the design document |
+| I02, #295 | Add the scaffold: the Dockerfile, `fly.toml`, and the CI deploy job |
+| I03, #301 | Add the sign-in and the accounts |
+| I04, #296 | Add the app registration with the keys |
+| I05, #297 | Build the collector route |
+| I06, #298 | Serve the tracker script |
+| I07, #299 | Add the route list API and form |
+| I08, #300 | Add the user id and the erasure |
+| I09, #302 | Move the pilot app to the hosted service |
+| I10, #303 | Approve the policy and the processing agreement |
+| I11, #304 | Remove the kit modules |
 
 ## 10. Review record
 
