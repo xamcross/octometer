@@ -259,4 +259,33 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
       await firstPages.expectSessions('/other', 1, CHAIN_WAIT_MS);
     },
   );
+
+  // Issue #275, design decision D46: the kit derives its own route
+  // pattern list from the routes of the demo app; the app types no
+  // list of its own (Application.kt, DEMO_INGEST_SETTINGS). The demo
+  // app now serves the parametrized page `/items/{id}`
+  // (`StaticPage.kt`, `DemoItemPage`); the kit derives the pattern
+  // `/items/:id` for it.
+  test(
+    'a click on a parametrized route stores its pattern (design decision D46)',
+    async ({ page, newTrackedContext }) => {
+      const demoUrl = process.env.E2E_DEMO_URL;
+      if (!demoUrl) {
+        throw new Error('E2E_DEMO_URL is absent. The global setup did not run, or it failed.');
+      }
+
+      const itemContext = await newTrackedContext();
+      await itemContext.addCookies([{ name: 'demo_user', value: 'amy', url: demoUrl }]);
+      const itemPage = new DemoPage(await itemContext.newPage());
+      await itemPage.gotoItem('42');
+      await itemPage.clickItemView();
+
+      // The session start of the page load of /items/42 carries the raw
+      // path; the kit matches it against its derived pattern list and
+      // stores /items/:id, never the raw path (contract rule C42).
+      const firstPages = new FirstPagesPage(page);
+      await firstPages.goto(appId);
+      await firstPages.expectSessions('/items/:id', 1, CHAIN_WAIT_MS);
+    },
+  );
 });

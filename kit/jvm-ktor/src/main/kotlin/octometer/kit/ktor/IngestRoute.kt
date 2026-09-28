@@ -9,6 +9,7 @@ import io.ktor.server.request.header
 import io.ktor.server.request.receiveChannel
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.application
 import io.ktor.server.routing.post
 import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.CancellationException
@@ -69,6 +70,25 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  * attributes of the app (for example `call.principal()` or
  * `call.sessions`), because a value that the app keeps in a `ThreadLocal`
  * is lost once the store call moves to a different thread.
+ *
+ * **The route pattern list (design decision D46, issue #275).** With
+ * [deriveRoutePatterns] at its default of `true`, this function always
+ * derives the `path` matcher of [settings] from the routes of the app,
+ * once, at the [io.ktor.server.application.ApplicationStarted] event.
+ * This function then reads every route of the whole app, not only a
+ * route below this [Route]; a route that a later call adds to the
+ * same `routing {}` block still counts, because the event fires only
+ * once the whole block already ran. An `OCTOMETER_PATH_PATTERNS` entry
+ * joins the list after each derived pattern, never before it (BLOCKER
+ * 1 of the correction round of issue #275). Every other field of
+ * [settings] survives unchanged.
+ *
+ * Set [deriveRoutePatterns] to `false` to skip this derivation, for a
+ * [settings] value with a `path` matcher that the app, or a test,
+ * builds by hand. This function then leaves that matcher in place. A
+ * derivation failure logs one warning and leaves [settings] as it is;
+ * read `kit/jvm-ktor/README.md` for the full rule and for
+ * `OCTOMETER_PATH_EXCLUDE`.
  *
  * **The order of the checks (design decision D43, issue #117; issue #116;
  * issue #69).** [IngestRequestProcessor] of `kit/jvm-core` now holds the
@@ -148,6 +168,11 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  *   the client choose its own key. A client can then take the key of
  *   another visitor. It can then exhaust the counters of design
  *   decision D43 of that key.
+ * @param deriveRoutePatterns true, the default, derives the `path`
+ *   matcher of [settings] from the routes of the app (design decision
+ *   D46, issue #275; read "The route pattern list" above). Set it to
+ *   `false` for a [settings] value with a `path` matcher that the app,
+ *   or a test, builds by hand.
  * @param resolveUserId reads the user id from the current call, or `null`
  *   when no user is signed in (contract rule C6). This function runs
  *   before the rate limit check, so a rejected request still pays its
@@ -173,6 +198,7 @@ public fun Route.octometerIngestRoute(
     ),
     clientIpHeaderName: String? = System.getenv("OCTOMETER_CLIENT_IP_HEADER"),
     trustedProxyCount: Int = trustedProxyCountFromEnvironment(),
+    deriveRoutePatterns: Boolean = true,
     resolveUserId: (ApplicationCall) -> String?,
 ) {
     require(ingestPath.startsWith("/")) {
@@ -188,6 +214,9 @@ public fun Route.octometerIngestRoute(
         clientIpHeaderName,
         trustedProxyCount,
     )
+    if (deriveRoutePatterns) {
+        installRoutePatternDerivation(application, ingestPath, settings, processor)
+    }
 
     post(ingestPath) {
         try {

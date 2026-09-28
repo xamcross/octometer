@@ -34,6 +34,9 @@ dependencies {
     api(project(":kit:jvm-core"))
 
     compileOnly(libs.spring.web)
+    // spring-webmvc: RequestMappingHandlerMapping, for the route
+    // derivation of design decision D46, issue #275.
+    compileOnly(libs.spring.webmvc)
     compileOnly(libs.jakarta.servlet.api)
 
     testImplementation(libs.spring.web)

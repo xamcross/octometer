@@ -7,9 +7,12 @@ const BUTTON_LABEL: Record<1 | 2 | 3, string> = {
 };
 
 /**
- * The one page of the demo app (`tools/demo-app`, `StaticPage.kt`). The
- * select box `#demo-user` sets the cookie `demo_user`; the three
- * `data-octo` elements are `demo.button-one` to `demo.button-three`.
+ * The pages of the demo app (`tools/demo-app`, `StaticPage.kt`). The
+ * start page's select box `#demo-user` sets the cookie `demo_user`; its
+ * three `data-octo` elements are `demo.button-one` to
+ * `demo.button-three`. The parametrized page `/items/{id}` (design
+ * decision D46, issue #275) holds one `data-octo` element,
+ * `demo.item-view`.
  */
 export class DemoPage {
   constructor(private readonly page: Page) {}
@@ -25,6 +28,16 @@ export class DemoPage {
 
   async goto(): Promise<void> {
     await this.page.goto(this.demoUrl() + '/');
+  }
+
+  /** Opens the parametrized item page `/items/{itemId}` (design decision D46, issue #275). */
+  async gotoItem(itemId: string): Promise<void> {
+    await this.page.goto(`${this.demoUrl()}/items/${itemId}`);
+  }
+
+  /** Clicks the one `data-octo` element of the item page, `demo.item-view`. */
+  async clickItemView(): Promise<void> {
+    await this.page.getByRole('button', { name: 'View item' }).click();
   }
 
   /** Selects a demo user in the select box, or `null` for "(no user)". */

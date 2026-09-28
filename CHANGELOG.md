@@ -18,6 +18,7 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### Kit JVM
 
+- Derive the route pattern list from the routes of the app, in the Ktor adapter and the Spring adapter; drop the typed list of the demo app. (#275)
 - Add the design decisions D46 to D49 for the route list from the app. (#275)
 
 ### Tracker

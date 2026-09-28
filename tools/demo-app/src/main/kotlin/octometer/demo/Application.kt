@@ -21,24 +21,18 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import java.util.concurrent.TimeUnit
 import octometer.kit.core.ingest.IngestSettings
-import octometer.kit.core.path.PathPatternMatcher
 import octometer.kit.core.store.EventLogStore
 import octometer.kit.ktor.octometerIngestRoute
 import octometer.kit.mongo.store.MongoEventLogStore
 
 /**
- * The route pattern list of the demo page (design decision D40). The page
- * has one path, `/`, so the demo app sets the list itself. It does not
- * read `OCTOMETER_PATH_PATTERNS`, because the one page of this app never
- * changes.
- */
-private val DEMO_PATH_PATTERNS: PathPatternMatcher = PathPatternMatcher.of(listOf("/"))
-
-/**
  * The ingest settings of the demo app (design decision D19). Anonymous
  * clicks stay off, so a click with no cookie `demo_user` is dropped.
+ * This app types no route pattern list of its own (design decision D46,
+ * issue #275): `octometerIngestRoute` derives it from `demoModule`'s own
+ * routes, once its `routing {}` block runs.
  */
-private val DEMO_INGEST_SETTINGS: IngestSettings = IngestSettings(false, DEMO_PATH_PATTERNS)
+private val DEMO_INGEST_SETTINGS: IngestSettings = IngestSettings(false)
 
 /**
  * The request read timeout of the Netty engine, in seconds (security
@@ -147,6 +141,10 @@ fun Application.demoModule(store: EventLogStore) {
             } else {
                 call.respondBytes(bytes, ContentType("text", "javascript"))
             }
+        }
+        get("/items/{id}") {
+            val itemId = call.parameters["id"].orEmpty()
+            call.respondText(DemoItemPage.html(itemId), ContentType.Text.Html)
         }
         octometerIngestRoute(store = store, settings = DEMO_INGEST_SETTINGS) { call -> demoUserId(call) }
     }

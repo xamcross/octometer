@@ -346,9 +346,14 @@ class EndToEndContainerTest {
         embeddedServer(Netty, host = "127.0.0.1", port = port) {
             val store = MongoEventLogStore(database)
             routing {
+                // deriveRoutePatterns = false: this server builds the
+                // matcher by hand and adds no GET route of its own, so
+                // the route must keep that matcher (BLOCKER 1 of the
+                // correction round of issue #275).
                 octometerIngestRoute(
                     store = store,
                     settings = IngestSettings(false, PathPatternMatcher.of(listOf("/"))),
+                    deriveRoutePatterns = false,
                 ) { call -> call.request.cookies[USER_COOKIE_NAME] }
             }
         }.also { it.start(wait = false) }

@@ -153,6 +153,27 @@ public final class IngestController {
     }
 
     /**
+     * Replaces the settings of this controller (design decision D46,
+     * issue #275). {@link RoutePatternDerivationInitializer} calls this
+     * method once, after Spring derives the route pattern list of the
+     * app; see its Javadoc for the full rule.
+     */
+    public void updateSettings(IngestSettings settings) {
+        processor.updateSettings(settings);
+    }
+
+    /**
+     * Gives the current settings of this controller (design decision
+     * D46, issue #275). {@link RoutePatternDerivationInitializer} reads
+     * this value once, so it can keep every hand-set field of the app's
+     * own settings and replace only the {@code path} matcher (MAJOR 2
+     * of the correction round of issue #275).
+     */
+    IngestSettings settings() {
+        return processor.settings();
+    }
+
+    /**
      * Runs the ingest route of design section 4.2 (issue #69). Read the
      * Javadoc of {@link IngestRequestProcessor} for the full order of the
      * checks.

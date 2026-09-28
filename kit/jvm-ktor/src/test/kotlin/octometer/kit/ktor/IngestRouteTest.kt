@@ -17,6 +17,9 @@ import io.ktor.server.application.createApplicationPlugin
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.TransparentRouteSelector
+import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
 import io.ktor.utils.io.ByteWriteChannel
@@ -166,7 +169,14 @@ class IngestRouteTest {
         val matcher = PathPatternMatcher.of(listOf("/", "/articles", "/articles/*", "/history/:id"))
         application {
             routing {
-                octometerIngestRoute(store = store, settings = IngestSettings(true, matcher)) { "user-1" }
+                // deriveRoutePatterns = false: this test builds the matcher
+                // by hand, so the route must keep it (BLOCKER 1 of the
+                // correction round of issue #275).
+                octometerIngestRoute(
+                    store = store,
+                    settings = IngestSettings(true, matcher),
+                    deriveRoutePatterns = false,
+                ) { "user-1" }
             }
         }
 
@@ -177,6 +187,68 @@ class IngestRouteTest {
 
         assertEquals(HttpStatusCode.NoContent, response.status)
         assertEquals("/history/:id", store.events()[0].path())
+    }
+
+    private val preExistingMatcherBody = """{"sessionId":"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d13",""" +
+        """"clicks":[{"element":"item.open","ageMs":900,"path":"/items/77"}]}"""
+
+    @Test
+    fun `a route always derives, also when settings already holds a matcher`() = testApplication {
+        // BLOCKER 1 of the correction round of issue #275: before the
+        // fix, this function returned at once whenever settings already
+        // held a matcher (for example one that OCTOMETER_PATH_PATTERNS
+        // built through IngestSettings.fromEnvironment()), so the app
+        // never read one derived route. deriveRoutePatterns keeps its
+        // default of true here, so the route must still derive.
+        val store = InMemoryEventLogStore()
+        val preExistingMatcher = PathPatternMatcher.of(listOf("/pre-existing"))
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true, preExistingMatcher)) { "user-1" }
+                get("/items/{id}") { call.respondText("ok") }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(preExistingMatcherBody)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertEquals(
+            "/items/:id",
+            store.events()[0].path(),
+            "The route must derive its own GET route, also when settings already held a matcher.",
+        )
+    }
+
+    // kit/jvm-ktor has no `io.ktor:ktor-server-auth` on its test
+    // classpath (`build.gradle.kts`). TestTransparentRouteSelector
+    // stands for the auth plugin's own `AuthenticationRouteSelector`,
+    // the selector that `authenticate {}` installs, for the test below
+    // (MAJOR 1 of the correction round of issue #275).
+    private val itemsBody = """{"sessionId":"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d12",""" +
+        """"clicks":[{"element":"item.open","ageMs":900,"path":"/items/42"}]}"""
+
+    @Test
+    fun `a route below a transparent selector still derives its pattern`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store) { "user-1" }
+                createChild(TestTransparentRouteSelector()).get("/items/{id}") {
+                    call.respondText("ok")
+                }
+            }
+        }
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(itemsBody)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertEquals("/items/:id", store.events()[0].path())
     }
 
     @Test
@@ -1217,6 +1289,16 @@ class IngestRouteTest {
         return """{"sessionId":"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11",""" +
             """"clicks":[{"element":"$oversizedElement","ageMs":1200}]}"""
     }
+
+    /**
+     * A bare `TransparentRouteSelector` subclass, for the route
+     * derivation test of MAJOR 1 (correction round of issue #275). It
+     * adds no path segment, the same as the Ktor auth plugin's own
+     * selector. `TransparentRouteSelector` needs the opt-in below: Ktor
+     * 3.6.0 marks its constructor `@InternalAPI`.
+     */
+    @OptIn(io.ktor.utils.io.InternalAPI::class)
+    private class TestTransparentRouteSelector : TransparentRouteSelector()
 
     /** Captures each log line of one logger, for a design decision D15 test. */
     private class CapturingAppender : AppenderBase<ILoggingEvent>() {
