@@ -843,9 +843,10 @@ Fly.io, the events live in one MongoDB Atlas cluster, and the kit goes. The doma
   The health check runs on `GET /healthz`. `/healthz` answers `200 ok` or `503`, and it tests
   the process only. `/api/health`, behind a session, holds the version, the storage size, the
   write stop state, and the job time (M12). The CI job `deploy` runs `flyctl deploy
-  --remote-only` on each merge to `main`, with the secret `FLY_API_TOKEN`. The cluster URI
-  and the Resend key are Fly secrets that the owner sets. Each deploy stops the service for
-  some tens of seconds. The run guide states the window and the loss.
+  --remote-only` on each merge to `main`, with the secret `FLY_API_TOKEN`. The owner sets two
+  Fly secrets: `OCTOMETER_CLUSTER_URI` (the cluster URI) and `OCTOMETER_MAIL_API_KEY` (the
+  Resend key). Each deploy stops the service for some tens of seconds. The run guide states
+  the window and the loss.
 - **D57. The store.** One Atlas M0 cluster holds every app. Each registered app gets one
   database `app_<id>`, with `octometer_events` and its indexes. The TTL index on the event
   time is 365 days. The cache purge of D15 takes `retentionDays = 365`. The dashboard and the
@@ -961,7 +962,7 @@ new session id after 30 idle minutes, an hourly repair read, X.509 and AWS IAM a
 - Create one Atlas M0 cluster for the hosted service. Set the Fly secret
   `OCTOMETER_CLUSTER_URI` with its connection string (#295, D57).
 - Create the Resend account for the sign-in mail and the waitlist mail. Set the Fly secret
-  for the Resend key (the maintainer confirms the secret name) (#295, D52).
+  `OCTOMETER_MAIL_API_KEY` with the Resend key (#295, D52).
 - Set the CI secret `FLY_API_TOKEN` for the `deploy` job (#295, D56).
 
 ## 9. Backlog
