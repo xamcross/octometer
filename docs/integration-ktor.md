@@ -234,15 +234,29 @@ section 8 states this.
 
 ## 6. The route pattern list
 
-The setting `OCTOMETER_PATH_PATTERNS` gives the kit an ordered list of route
-patterns (contract rule C42). A run of whitespace separates each pattern: a
-space, a tab, or a line break. Write one pattern for each line, or write the
-patterns with a space between them. Never use a comma as the separator. A
-comma is a valid character of a pattern under contract rule C39.
+`octometerIngestRoute` derives its own route pattern list from the routes of
+your app (design decision D46, issue #275). You type no list by hand, and a
+new route joins the list from its first deploy. Read
+`kit/jvm-ktor/README.md` ("The route pattern list") for the full derivation
+rule: which selector gives which contract rule C42 segment, the sort order,
+the 200-entry bound, and the point of the Ktor lifecycle where the
+derivation runs.
+
+`OCTOMETER_PATH_EXCLUDE` skips each route under one of its prefixes (a run
+of whitespace separates each prefix), for example a health route or a
+metrics route that never needs a stored path.
+
+The setting `OCTOMETER_PATH_PATTERNS` stays an optional addition: an
+ordered list of route patterns (contract rule C42) that stand after the
+derived list, so a typed pattern never hides a derived one. A run of
+whitespace separates each pattern: a space, a tab, or a line break. Write
+one pattern for each line, or write the patterns with a space between them.
+Never use a comma as the separator. A comma is a valid character of a
+pattern under contract rule C39.
 
 The tracker (`kit/tracker/README.md`) takes no route pattern list of its own
 (design decision D49). It sends the raw page path, and the kit alone matches
-it against the list above.
+it against the derived list, plus `OCTOMETER_PATH_PATTERNS` when you set it.
 
 > A path can hold an identifier, a token, or a search term. Mark each such
 > segment with `:name` in the route list. Never use `*` for a segment that
@@ -255,8 +269,8 @@ breaks the grammar of contract rule C39, for example a double slash after
 the host (contract rule C41, amended by design decision D49). The kit never
 drops the `path` field for any of these cases.
 
-Without `OCTOMETER_PATH_PATTERNS`, the kit stores no `path` field, and it
-writes one warning at the start.
+Without a derived GET route, and without `OCTOMETER_PATH_PATTERNS`, the kit
+stores no `path` field, and it writes one warning at the start.
 
 **Give the same list to the monitor (issue #226).** Paste the same list into
 the "Route patterns" field of the app, in the manage view of the monitor. The

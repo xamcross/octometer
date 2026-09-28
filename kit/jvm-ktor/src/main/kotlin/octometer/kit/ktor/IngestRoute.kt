@@ -9,6 +9,7 @@ import io.ktor.server.request.header
 import io.ktor.server.request.receiveChannel
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.application
 import io.ktor.server.routing.post
 import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.CancellationException
@@ -69,6 +70,20 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  * attributes of the app (for example `call.principal()` or
  * `call.sessions`), because a value that the app keeps in a `ThreadLocal`
  * is lost once the store call moves to a different thread.
+ *
+ * **The route pattern list (design decision D46, issue #275).** With no
+ * `path` matcher of its own, [settings] gets one, derived from the
+ * routes of the app, once, at the
+ * [io.ktor.server.application.ApplicationStarted] event. This function
+ * then reads every route of the whole app, not only a route below this
+ * [Route]; a route that a later call adds to the same `routing {}`
+ * block still counts, because the event fires only once the whole
+ * block already ran. Every other field of [settings] survives
+ * unchanged. A [settings] with a `path` matcher of its own (for
+ * example a test that builds one by hand) keeps it, with no
+ * derivation. A derivation failure logs one warning and leaves
+ * [settings] as it is; read `kit/jvm-ktor/README.md` for the full rule
+ * and for `OCTOMETER_PATH_EXCLUDE`.
  *
  * **The order of the checks (design decision D43, issue #117; issue #116;
  * issue #69).** [IngestRequestProcessor] of `kit/jvm-core` now holds the
@@ -188,6 +203,7 @@ public fun Route.octometerIngestRoute(
         clientIpHeaderName,
         trustedProxyCount,
     )
+    installRoutePatternDerivation(application, ingestPath, settings, processor)
 
     post(ingestPath) {
         try {

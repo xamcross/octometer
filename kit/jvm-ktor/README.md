@@ -109,9 +109,54 @@ design decision D43 then apply instead, keyed by the first 64 bits of
 an IPv6 address (see `kit/jvm-core/README.md`). Issue #118 owns the
 remaining fix of the D20 rate limiter itself.
 
-## OCTOMETER_PATH_PATTERNS
+## The route pattern list (design decision D46, issue #275)
 
-A run of whitespace separates each route pattern of `OCTOMETER_PATH_PATTERNS` (a space, a tab, or a line break).
+`octometerIngestRoute` derives its own route pattern list from the
+routes of the app. It types no list by hand, and a new route joins the
+list from its first deploy. This runs once, at the
+`io.ktor.server.application.ApplicationStarted` event, so it reads
+every route of the app, also a route that a call after
+`octometerIngestRoute` adds inside the same `routing {}` block.
+
+The derivation walks the routing tree of the app (`RoutingNode`, cast
+from `Route`; `RoutingNode` has no `children` and no `selector` in
+Ktor 3.2.0, the floor version above). It keeps a GET route only, and it
+skips the ingest route itself. Each route template becomes a contract
+rule C42 pattern: a literal segment stays; `{name}` becomes `:name`; an
+optional segment `{name?}` gives two routes, one with `:name`, one with
+no such segment; a tail card `{...}`, a wildcard segment, and a regex
+segment each become one `*` segment. The list is prefixed with the
+Ktor `rootPath` of the app, sorted (a literal segment first, then
+`:name`, then `*`, at each depth, then by text), and it holds no
+duplicate.
+
+`OCTOMETER_PATH_PATTERNS` stays optional: a run of whitespace separates
+each entry (a space, a tab, or a line break). Its entries stand after
+the derived ones, so a typed pattern never hides a derived one. An
+invalid entry there makes the whole combined list count as no list at
+all (contract rule C42): the route then stores no `path` field, with
+one warning. `OCTOMETER_PATH_EXCLUDE` skips each route under one of its
+prefixes (also a run of whitespace between prefixes), for example
+`OCTOMETER_PATH_EXCLUDE="/api/ /actuator/"`.
+
+An app with no GET route, and no `OCTOMETER_PATH_PATTERNS`, gives an
+empty list; the route then stores no `path` field, the same behaviour
+as before this issue. A combined list above 200 entries keeps its
+first 200, with one warning. The route writes one INFO line at start
+with the final stored count.
+
+A derivation failure (an unknown selector, for example of a plugin's
+own routing extension) logs one warning with the exception class only,
+and it falls back to `OCTOMETER_PATH_PATTERNS` alone, with no derived
+entry.
+
+**A caveat.** The derivation rebuilds the whole settings object from
+the process environment, including `OCTOMETER_RECORD_ANONYMOUS` and
+each daily cap and per-minute limit. An app that gives
+`octometerIngestRoute` a `settings` value built by hand, and not
+through `IngestSettings.fromEnvironment()`, must set every other field
+through its own environment variable too, because the derivation
+replaces the whole object once it completes.
 
 ## The anonymous per-minute limits
 
