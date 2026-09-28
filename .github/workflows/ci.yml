@@ -42,6 +42,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A push to the private repository refuses an anonymous fetch of the
+          # previous commit. Two commits in the clone remove the need to fetch.
+          fetch-depth: 2
       # Issue #177, step 3. This filter picks the test job of each changed
       # module. A path that fits more than one filter stays in each filter
       # it fits. A doubtful path goes into the "jvm" filter: a run too many
