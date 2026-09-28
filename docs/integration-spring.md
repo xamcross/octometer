@@ -371,9 +371,10 @@ path, and the kit alone matches it:
 /contact
 ```
 
-Paste the same list into the "Route patterns" field of the app, in the manage
-view of the monitor (issue #226). The monitor then admits a `path` value only
-when it is a result of that list.
+The kit publishes this same list to the monitor's database on its own (design
+decision D47, D48, issue #277); the manage view shows it read-only, with the
+publish time and the kit version, and holds no field to type a list by hand.
+`docs/integration-ktor.md` states the read and the cache in full.
 
 **The anonymous setting.** The pilot app sets `OCTOMETER_RECORD_ANONYMOUS=true`. The
 default of design decision D19 stays off; only the pilot app turns the setting on.
