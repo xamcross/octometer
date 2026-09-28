@@ -390,6 +390,35 @@ This rule states the render side of the `start()` call only. Issue #41 still own
 consent moment: the app must call `start()` after its own consent signal, as section 5
 states.
 
+## 8. Upgrade to kit 0.3.0
+
+This section guides an app on kit 0.2.0, or on an earlier version, through the
+full upgrade to 0.3.0. Follow the five steps in order.
+
+1. **Widen the two database roles, in one command each.** Read the "An
+   existing deployment" note of section 2 of this guide for the app
+   role. Read the "An existing deployment" note of section 3 of
+   `docs/integration-ktor.md` for the monitor role. The `atlas
+   customDbRoles update` command replaces the whole privilege list; give
+   every privilege in the one call, or the update drops each privilege
+   you do not name. Neither command changes a user or a password.
+2. **Upgrade the kit dependency to 0.3.0.** Use the coordinates of
+   section 1, with the version `0.3.0` in place of your present version,
+   for `octometer-kit-spring` and for `octometer-kit-mongo`.
+3. **Drop the typed route list.** `RoutePatternDerivationInitializer`
+   (section 4) already derives the list. Remove
+   `OCTOMETER_PATH_PATTERNS`, or keep it as an addition to the derived
+   list. Remove the tracker's `routes` option (section 5); the tracker
+   sends the raw page path only.
+4. **Deploy your app.** The Spring adapter derives the list with no INFO
+   line of its own; a derivation failure gives one WARNING line with the
+   exception class (`kit/jvm-spring/README.md`, "The route pattern
+   list").
+5. **Upgrade the monitor before your app (design decision D26).** Read
+   the published route list, with its count, read-only, in the manage
+   view of the monitor. `docs/run-guide.md` states the order and the
+   cache rule in full.
+
 <!--
 Sources:
 kit/jvm-spring/README.md
@@ -420,4 +449,11 @@ Section 5, the change from the earlier tracker step of issue #70: pull request #
 Section 7, the route pattern list: updated for issue #278 and design decision D49. The
   tracker option `routes` goes; the tracker sends the raw page path, and the kit alone
   matches it.
+Section 8 is new text of this guide, for issue #279 and design decisions D26, D46,
+  D47, D48, and D49. It links to section 2 of this guide, to sections 1, 2, and 3 of
+  docs/integration-ktor.md, and to docs/run-guide.md, and it repeats none of their
+  commands. The absent INFO line of step 4 is confirmed by a read of
+  kit/jvm-spring/src/main/java/octometer/kit/spring/RoutePatternDerivationInitializer.java
+  on 2026-09-28: the class logs one WARNING line on a derivation failure, and no line
+  of the derived count.
 -->

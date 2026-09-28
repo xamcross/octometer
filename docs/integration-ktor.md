@@ -530,6 +530,33 @@ https://github.com/xamcross/octometer/blob/main/docs/demo.md, lines 85-87; desig
 decision D26; the GitHub Release page of `xamcross/octometer`.
 ```
 
+## 11. Upgrade to kit 0.3.0
+
+This section guides an app on kit 0.2.0, or on an earlier version, through the
+full upgrade to 0.3.0. Follow the five steps in order.
+
+1. **Widen the two database roles, in one command each.** Read the "An
+   existing deployment" note of section 2 for the app role: its present
+   privileges, plus `insert` and `update` on `octometer_config`. Read the
+   "An existing deployment" note of section 3 for the monitor role: `find`
+   on `octometer_events` and on `octometer_config`. The `atlas
+   customDbRoles update` command replaces the whole privilege list; give
+   every privilege in the one call, or the update drops each privilege
+   you do not name. Neither command changes a user or a password.
+2. **Upgrade the kit dependency to 0.3.0.** Use the coordinates of
+   section 1, with the version `0.3.0` in place of your present version.
+3. **Drop the typed route list.** Remove `OCTOMETER_PATH_PATTERNS`, or
+   keep it as an addition to the derived list (section 6). Remove the
+   tracker's `routes` option (section 8); the tracker sends the raw page
+   path only.
+4. **Deploy, and read the count.** Deploy your app. Read the start log
+   for the INFO line with the count of the derived route pattern list
+   (section 6; `kit/jvm-ktor/README.md`, "The route pattern list").
+5. **Upgrade the monitor before your app (design decision D26).** Read
+   the published route list, read-only, in the manage view of the
+   monitor. `docs/run-guide.md` states the order and the cache rule in
+   full.
+
 <!--
 Sources:
 kit/jvm-ktor/README.md
@@ -592,4 +619,8 @@ Section 10, the mixed template: docs/demo.md, lines 85-87 (the prod mode default
   .github/workflows/release.yml. The open `production-blocker` issue list
   (xamcross/octometer#205, #42, #41, #30) comes from `gh issue list --repo
   xamcross/octometer --label production-blocker --state open`, read 2026-09-27.
+Section 11 is new text of this guide, for issue #279, design decisions D26, D46, D47,
+  D48, and D49, and the INFO line of kit/jvm-ktor/README.md ("The route pattern
+  list"). It links to sections 1, 2, 3, 6, and 8 of this guide, and to
+  docs/run-guide.md, and it repeats none of their commands.
 -->

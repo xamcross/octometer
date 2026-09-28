@@ -17,6 +17,8 @@ items:
 - the session id of your browser tab.
 
 The stored path is the pattern of the page route, or the word `/other`.
+The raw path of the page travels to our own server only, on each page
+request. The event record holds the pattern, never the raw path.
 
 The first record of a session also holds the host of the page that sent
 you here. The stored value is one of three words: `google.com`, `bing.com`,
@@ -128,4 +130,8 @@ Issue #119 added the sentence on the first page, the source, and the pre-sign-in
   named neither the first page nor a button before a sign-in, so the new sentence
   adds content. Lines 88-89 already state the join after a sign-in in section 9;
   both sentences stay, because each one states a different fact of the same rule.
+Issue #279 added the raw-path sentence of section 2, design decision D49: the raw
+  path of the page travels to the app's own server only, and the event record
+  holds the pattern, never the raw path. Section 2 already named the pattern; the
+  new sentence adds the raw-path fact only.
 -->

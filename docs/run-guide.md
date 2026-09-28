@@ -138,6 +138,15 @@ Follow one rule today and after #56 lands: upgrade the monitor before an
 app (design decision D26). Read the release notes of the new monitor
 version first.
 
+**The route list case.** Kit 0.3.0 lets an app derive and publish its own
+route pattern list; the monitor reads that list at each poll cycle
+(design decisions D46 to D48). Upgrade the monitor first, so it can read
+a published list from the app's first deploy on the new kit. A list that
+an operator typed on `/manage` before this change stays as the cached
+copy until the app publishes its own list. The manage view shows the
+published list read-only, with the publish time and the kit version;
+section 6 states the full detail.
+
 ## 4. The secrets
 
 The monitor stores each connection string in `secrets\apps.json`, outside
@@ -273,4 +282,7 @@ Issue #64 comments of 2026-09-22 (the shell-variable form of the erasure
   ConsoleHost_history.txt note, the checkpointed:false action).
 The upgrade step of section 3 is a placeholder. Issue #56 gives
   `scripts/upgrade.ps1` and the full text of that step.
+The route list case of section 3: added for issue #279 and design decisions D26,
+  D46, D47, and D48. It restates the cache sentence and the read-only manage view
+  of section 6 in the context of the upgrade order, for a reader of section 3 alone.
 -->
