@@ -3,7 +3,7 @@ import { Component, inject, output, signal } from '@angular/core';
 
 import { Announcer } from '../announcer';
 import { AppSummary, CreateAppRequest, readApiErrorMessage } from './app-registry-api';
-import { CONNECTION_STRING_HINT, PATH_PATTERNS_HINT } from './field-hints';
+import { CONNECTION_STRING_HINT } from './field-hints';
 
 /**
  * The form of step 2: `POST /api/apps` with the fields of D13. The
@@ -29,11 +29,9 @@ export class AddAppForm {
   readonly added = output<AppSummary>();
 
   protected readonly connectionStringHint = CONNECTION_STRING_HINT;
-  protected readonly pathPatternsHint = PATH_PATTERNS_HINT;
 
   protected readonly name = signal('');
   protected readonly connectionString = signal('');
-  protected readonly pathPatterns = signal('');
 
   protected readonly pending = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
@@ -46,10 +44,6 @@ export class AddAppForm {
     this.connectionString.set((event.target as HTMLInputElement).value);
   }
 
-  protected onPathPatternsInput(event: Event): void {
-    this.pathPatterns.set((event.target as HTMLTextAreaElement).value);
-  }
-
   protected onSubmit(event: Event): void {
     event.preventDefault();
     if (this.pending()) {
@@ -58,7 +52,6 @@ export class AddAppForm {
     const request: CreateAppRequest = {
       name: this.name(),
       connectionString: this.connectionString(),
-      ...(this.pathPatterns().trim() ? { pathPatterns: this.pathPatterns() } : {}),
     };
     this.pending.set(true);
     this.errorMessage.set(null);
@@ -72,7 +65,6 @@ export class AddAppForm {
     this.pending.set(false);
     this.name.set('');
     this.connectionString.set('');
-    this.pathPatterns.set('');
     this.announcer.announce('App added');
     this.added.emit(summary);
   }

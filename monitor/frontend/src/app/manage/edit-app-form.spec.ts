@@ -110,11 +110,18 @@ describe('EditAppForm', () => {
     return fixture.nativeElement as HTMLElement;
   }
 
-  // Issue #226: opening the form now also fires GET /api/apps/{id}, to
-  // read the stored route pattern list. This flushes that request with
-  // a fixed answer of no list, unless the caller gives its own detail.
+  // Design decision D48 (issue #277): opening the form fires
+  // GET /api/apps/{id}, to read the app's own published route list.
+  // This flushes that request with a fixed answer of no list, unless
+  // the caller gives its own detail.
   function openEditor(
-    detail: AppDetail = { appId: 3, name: 'traficio', pathPatterns: null },
+    detail: AppDetail = {
+      appId: 3,
+      name: 'traficio',
+      pathPatterns: null,
+      pathPatternsPublishedAt: null,
+      kitVersion: null,
+    },
   ): void {
     root().querySelector<HTMLButtonElement>('button.edit-toggle')!.click();
     fixture.detectChanges();
@@ -238,31 +245,45 @@ describe('EditAppForm', () => {
     ).toBeGreaterThan(0);
   });
 
-  it('labels the route pattern field, and loads the stored list on open', () => {
-    openEditor({ appId: 3, name: 'traficio', pathPatterns: '/checkout\n/cart' });
+  // Design decision D48 (issue #277): the form shows the published
+  // route list read-only, with the publish line, instead of the typed
+  // field of issue #226.
+  it('shows the published route list as a list, and the publish line, on open', () => {
+    openEditor({
+      appId: 3,
+      name: 'traficio',
+      pathPatterns: '/checkout\n/cart',
+      pathPatternsPublishedAt: '2026-09-21T14:23:07.512Z',
+      kitVersion: '1.2.3',
+    });
 
-    const field = root().querySelector<HTMLTextAreaElement>(
-      'textarea[id^="edit-app-path-patterns-"]',
-    )!;
-    expect(
-      root().querySelector(`label[for="${field.id}"]`)?.textContent?.trim().length,
-    ).toBeGreaterThan(0);
-    expect(field.value).toBe('/checkout\n/cart');
+    const heading = Array.from(root().querySelectorAll('h3')).find(
+      (element) => element.textContent?.trim() === 'Route patterns',
+    );
+    expect(heading).toBeTruthy();
+    const items = Array.from(root().querySelectorAll('li code')).map((element) =>
+      element.textContent?.trim(),
+    );
+    expect(items).toEqual(['/checkout', '/cart']);
+    expect(root().textContent).toContain('kit 1.2.3');
   });
 
-  it('names the hint id of each input in aria-describedby, and the hint holds the example', () => {
+  it('shows "The app has published no list yet." when the app gives no list', () => {
+    openEditor();
+
+    expect(root().textContent).toContain('The app has published no list yet.');
+    expect(root().querySelector('li')).toBeNull();
+  });
+
+  it('names the hint id of the connection string field in aria-describedby, and the hint holds the example', () => {
     openEditor();
     const connectionString = root().querySelector<HTMLInputElement>(
       'input[id^="edit-app-connection-string-"]',
-    )!;
-    const pathPatterns = root().querySelector<HTMLTextAreaElement>(
-      'textarea[id^="edit-app-path-patterns-"]',
     )!;
 
     expect(connectionString.getAttribute('aria-describedby')).toBe(
       'edit-app-connection-string-hint-3',
     );
-    expect(pathPatterns.getAttribute('aria-describedby')).toBe('edit-app-path-patterns-hint-3');
 
     const connectionStringHint = root().querySelector('#edit-app-connection-string-hint-3');
     expect(connectionStringHint?.textContent).toContain('mongodb://127.0.0.1:27017');
@@ -271,78 +292,28 @@ describe('EditAppForm', () => {
     );
   });
 
-  it('sends the loaded route pattern list as it is, when the user makes no change', () => {
-    openEditor({ appId: 3, name: 'traficio', pathPatterns: '/checkout' });
-    root()
-      .querySelector('form')!
-      .dispatchEvent(new Event('submit', { cancelable: true }));
-
-    const req = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
-    expect(req.request.body).toEqual({ name: 'traficio', pathPatterns: '/checkout' });
-    req.flush(null, { status: 204, statusText: 'No Content' });
-  });
-
-  it('sends an empty pathPatterns text when the user clears the field, to clear the stored list', () => {
-    openEditor({ appId: 3, name: 'traficio', pathPatterns: '/checkout' });
-    const field = root().querySelector<HTMLTextAreaElement>(
-      'textarea[id^="edit-app-path-patterns-"]',
-    )!;
-    field.value = '';
-    field.dispatchEvent(new Event('input'));
-    root()
-      .querySelector('form')!
-      .dispatchEvent(new Event('submit', { cancelable: true }));
-
-    const req = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
-    expect(req.request.body).toEqual({ name: 'traficio', pathPatterns: '' });
-    req.flush(null, { status: 204, statusText: 'No Content' });
-  });
-
-  it('shows the fixed 400 message for an invalid route pattern list, linked with aria-describedby', () => {
-    openEditor();
-    const field = root().querySelector<HTMLTextAreaElement>(
-      'textarea[id^="edit-app-path-patterns-"]',
-    )!;
-    field.value = '/a?b';
-    field.dispatchEvent(new Event('input'));
-    root()
-      .querySelector('form')!
-      .dispatchEvent(new Event('submit', { cancelable: true }));
-    httpMock
-      .expectOne({ url: '/api/apps/3', method: 'PATCH' })
-      .flush(
-        { error: 'The route pattern at index 0 breaks the route pattern grammar.' },
-        { status: 400, statusText: 'Bad Request' },
-      );
-    fixture.detectChanges();
-
-    expect(root().textContent).toContain(
-      'The route pattern at index 0 breaks the route pattern grammar.',
-    );
-    expect(field.getAttribute('aria-describedby')).toBe(
-      'edit-app-path-patterns-hint-3 edit-app-error-3',
-    );
-  });
-
-  // MAJOR 1 of the Angular review of pull request #243: a failed read
-  // must not stay silent, and it must block the save.
-  it('shows a message and disables Save when the GET on open fails, and a submit sends no PATCH', () => {
+  // Design decision D48, the correction of the brief review of
+  // 2026-09-28: a failed read shows a message, and Save stays enabled,
+  // because the save never carries a pathPatterns field.
+  it('shows a message but keeps Save enabled when the GET on open fails, and a submit still sends PATCH', () => {
     openEditorWithFailedGet();
 
     expect(root().textContent).toContain(
       'Octometer cannot read the route pattern list. Close this form, then open it again.',
     );
     const save = root().querySelector<HTMLButtonElement>('button[type="submit"]')!;
-    expect(save.disabled).toBe(true);
+    expect(save.disabled).toBe(false);
 
     root()
       .querySelector('form')!
       .dispatchEvent(new Event('submit', { cancelable: true }));
 
-    httpMock.expectNone({ url: '/api/apps/3', method: 'PATCH' });
+    const req = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
+    expect(req.request.body).toEqual({ name: 'traficio' });
+    req.flush(null, { status: 204, statusText: 'No Content' });
   });
 
-  it('sends PATCH /api/apps/{id} with the name, and no connectionString when that field is empty', () => {
+  it('sends PATCH /api/apps/{id} with the name, and no pathPatterns field', () => {
     openEditor();
     const name = root().querySelector<HTMLInputElement>('input[id^="edit-app-name-"]')!;
     name.value = 'traficio-renamed';
@@ -352,11 +323,11 @@ describe('EditAppForm', () => {
       .dispatchEvent(new Event('submit', { cancelable: true }));
 
     const req = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
-    expect(req.request.body).toEqual({ name: 'traficio-renamed', pathPatterns: '' });
+    expect(req.request.body).toEqual({ name: 'traficio-renamed' });
     req.flush(null, { status: 204, statusText: 'No Content' });
   });
 
-  it('sends the connectionString field when the user fills it', () => {
+  it('sends the connectionString field when the user fills it, and no pathPatterns field', () => {
     openEditor();
     const connectionString = root().querySelector<HTMLInputElement>(
       'input[id^="edit-app-connection-string-"]',
@@ -371,7 +342,6 @@ describe('EditAppForm', () => {
     expect(req.request.body).toEqual({
       name: 'traficio',
       connectionString: 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net',
-      pathPatterns: '',
     });
     req.flush(null, { status: 204, statusText: 'No Content' });
   });

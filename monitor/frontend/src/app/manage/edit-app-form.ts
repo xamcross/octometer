@@ -4,6 +4,7 @@ import {
   ElementRef,
   Injector,
   afterNextRender,
+  computed,
   inject,
   input,
   output,
@@ -13,8 +14,9 @@ import {
 
 import { Announcer } from '../announcer';
 import type { AppRow } from '../apps/app-row';
+import { formatLocalDateTime } from '../status-format';
 import { AppDetail, UpdateAppRequest, readApiErrorMessage } from './app-registry-api';
-import { EDIT_CONNECTION_STRING_HINT, PATH_PATTERNS_HINT } from './field-hints';
+import { EDIT_CONNECTION_STRING_HINT } from './field-hints';
 
 /**
  * The control of step 3: `PATCH /api/apps/{id}` with the name and the
@@ -30,11 +32,13 @@ import { EDIT_CONNECTION_STRING_HINT, PATH_PATTERNS_HINT } from './field-hints';
  * successful save, so a keyboard user stays near the row (the pattern of
  * `DeleteAppDialog.onDialogClose`).
  *
- * The route pattern list field (issue #226) starts empty, and it reads
- * `GET /api/apps/{id}` on open, so it shows the stored list. A failed
- * read (MAJOR 1 of the Angular review of pull request #243) shows a
- * message, and the save then sends no PATCH at all, so the form never
- * stores a wrong clear of the list.
+ * Design decision D48 (issue #277) ends the typed route pattern list of
+ * issue #226: the form shows the published list read-only. It reads
+ * `GET /api/apps/{id}` on open, so it shows the app's own published list
+ * and the "Published by the app on" line. A failed read shows a message
+ * next to the block; Save stays enabled, because the save never carries
+ * a `pathPatterns` field any more (the correction of the brief review of
+ * 2026-09-28).
  *
  * A 404 on the save means a second window already removed the app. The
  * form emits `staleList` in that case, so the parent reads the list again
@@ -63,23 +67,38 @@ export class EditAppForm {
   private readonly editToggle = viewChild<ElementRef<HTMLButtonElement>>('editToggle');
 
   protected readonly connectionStringHint = EDIT_CONNECTION_STRING_HINT;
-  protected readonly pathPatternsHint = PATH_PATTERNS_HINT;
 
   protected readonly editing = signal(false);
   protected readonly name = signal('');
   protected readonly connectionString = signal('');
-  protected readonly pathPatterns = signal('');
   protected readonly pending = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
 
-  /** True once `GET /api/apps/{id}` loads. The save omits pathPatterns until then. */
-  private readonly pathPatternsLoaded = signal(false);
+  /** The published route list, split into one entry per line, or an empty array before the first publish. */
+  protected readonly pathPatterns = signal<string[]>([]);
+
+  private readonly pathPatternsPublishedAt = signal<string | null>(null);
+  private readonly kitVersion = signal<string | null>(null);
+
+  /** The "Published by the app on" line, for the read-only block. */
+  protected readonly publishedLine = computed(() => {
+    const publishedAt = this.pathPatternsPublishedAt();
+    const kitVersion = this.kitVersion();
+    if (publishedAt === null) {
+      return '';
+    }
+    const time = formatLocalDateTime(publishedAt);
+    return kitVersion === null
+      ? `Published by the app on ${time}`
+      : `Published by the app on ${time} (kit ${kitVersion})`;
+  });
 
   /**
-   * True after a failed `GET /api/apps/{id}` (MAJOR 1 of the Angular
-   * review of pull request #243). The save button stays disabled, and
-   * a submit sends no PATCH, so the app never stores a list that the
-   * form could not read first.
+   * True after a failed `GET /api/apps/{id}` (design decision D48, the
+   * correction of the brief review of 2026-09-28). The block shows a
+   * message; Save stays enabled, because the save carries no
+   * `pathPatterns` field any more, so a failed read of this read-only
+   * block risks no wrong write.
    */
   protected readonly pathPatternsReadFailed = signal(false);
 
@@ -95,38 +114,32 @@ export class EditAppForm {
     return `edit-app-connection-string-hint-${this.app().appId}`;
   }
 
-  protected get pathPatternsId(): string {
-    return `edit-app-path-patterns-${this.app().appId}`;
-  }
-
-  protected get pathPatternsHintId(): string {
-    return `edit-app-path-patterns-hint-${this.app().appId}`;
-  }
-
   protected get errorId(): string {
     return `edit-app-error-${this.app().appId}`;
   }
 
-  /** Opens the form with the current name, an empty connection string field, and the stored route pattern list. */
+  /** Opens the form with the current name, an empty connection string field, and the published route list. */
   protected open(): void {
     this.name.set(this.app().name);
     this.connectionString.set('');
-    this.pathPatterns.set('');
-    this.pathPatternsLoaded.set(false);
+    this.pathPatterns.set([]);
+    this.pathPatternsPublishedAt.set(null);
+    this.kitVersion.set(null);
     this.pathPatternsReadFailed.set(false);
     this.errorMessage.set(null);
     this.editing.set(true);
     afterNextRender(() => this.nameField()?.nativeElement.focus(), { injector: this.injector });
     this.http.get<AppDetail>(`/api/apps/${this.app().appId}`).subscribe({
       next: (detail) => {
-        this.pathPatterns.set(detail.pathPatterns ?? '');
-        this.pathPatternsLoaded.set(true);
+        this.pathPatterns.set(detail.pathPatterns === null ? [] : detail.pathPatterns.split('\n'));
+        this.pathPatternsPublishedAt.set(detail.pathPatternsPublishedAt);
+        this.kitVersion.set(detail.kitVersion);
       },
-      // MAJOR 1 of the Angular review of pull request #243: a failed
-      // read must not stay silent. It leaves pathPatternsLoaded false,
-      // so the save still omits the field and keeps the stored list
-      // (see the class KDoc), and it shows a message, so the user
-      // knows the field does not show the true stored value.
+      // Design decision D48 (the correction of the brief review of
+      // 2026-09-28): a failed read must not stay silent. It shows a
+      // message next to the read-only block. Save stays enabled: the
+      // save never carries a pathPatterns field, so this failure risks
+      // no wrong write.
       error: () => {
         this.pathPatternsReadFailed.set(true);
         this.errorMessage.set(
@@ -151,25 +164,18 @@ export class EditAppForm {
     this.connectionString.set((event.target as HTMLInputElement).value);
   }
 
-  protected onPathPatternsInput(event: Event): void {
-    this.pathPatterns.set((event.target as HTMLTextAreaElement).value);
-  }
-
   protected onSubmit(event: Event): void {
     event.preventDefault();
     if (this.pending()) {
       return;
     }
-    // MAJOR 1 of the Angular review of pull request #243: the read of
-    // the stored list failed, so the form does not know the true
-    // value. The save sends no PATCH, and the message stays.
-    if (this.pathPatternsReadFailed()) {
-      return;
-    }
+    // Design decision D48 (the correction of the brief review of
+    // 2026-09-28): the save never carries a pathPatterns field any
+    // more, so a failed read of the read-only block no longer disables
+    // this submit.
     const request: UpdateAppRequest = {
       name: this.name(),
       ...(this.connectionString() ? { connectionString: this.connectionString() } : {}),
-      ...(this.pathPatternsLoaded() ? { pathPatterns: this.pathPatterns() } : {}),
     };
     this.pending.set(true);
     this.errorMessage.set(null);
