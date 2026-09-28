@@ -107,4 +107,27 @@ public interface EventLogStore {
      * cycle read the erased events again from this store.
      */
     DeletionResult deleteByUserId(String userId);
+
+    /**
+     * Publishes the route pattern list of design decision D47 (issue
+     * #276). A caller runs this method once, after the derivation of
+     * design decision D46, at the start of the app.
+     *
+     * <p>This default method does nothing. An implementation with no
+     * config document, for example {@link InMemoryEventLogStore},
+     * keeps this default. {@code MongoEventLogStore} of {@code
+     * kit/jvm-mongo} overrides this method, and it writes the config
+     * document of contract rule C44. An app with a different store
+     * publishes no route list, and it logs no line of its own for
+     * this case; the adapter's own log line names only the derivation
+     * step.
+     *
+     * <p>{@code patterns} holds one entry or more, or it is empty. A
+     * store must never keep a reference to {@code patterns} after the
+     * call.
+     */
+    default void publishRoutePatterns(List<String> patterns) {
+        // No-op by default (design decision D47). An implementation
+        // with a config document overrides this method.
+    }
 }

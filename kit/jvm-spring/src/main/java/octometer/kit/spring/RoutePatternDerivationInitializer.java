@@ -42,6 +42,15 @@ import org.springframework.web.util.pattern.PathPatternParser;
  * <p>A derivation failure (an unknown pattern segment, or another
  * defect) logs one warning with the exception class only, and it
  * leaves the app's own settings in place, with no derived route.
+ *
+ * <p><strong>The route publication (design decision D47, issue
+ * #276).</strong> After a successful derivation, this class calls
+ * {@link IngestController#store()}'s {@link
+ * octometer.kit.core.store.EventLogStore#publishRoutePatterns} with the
+ * derived list. The default of that method does nothing; only a store
+ * with a config document, for example {@code MongoEventLogStore} of
+ * {@code kit/jvm-mongo}, writes it. A failed derivation publishes
+ * nothing.
  */
 public final class RoutePatternDerivationInitializer implements SmartInitializingSingleton {
 
@@ -87,6 +96,9 @@ public final class RoutePatternDerivationInitializer implements SmartInitializin
             // round of issue #275; the same form as the Ktor adapter's
             // IngestSettings.withDerivedPathPatterns).
             controller.updateSettings(controller.settings().withDerivedPathPatterns(derived));
+            // The route publication of design decision D47 (issue #276):
+            // the derived list only, never the typed addition.
+            controller.store().publishRoutePatterns(derived);
         } catch (RuntimeException cause) {
             LOGGER.log(Level.WARNING, "The route derivation of design decision D46 failed. The exception "
                     + "class is {0}. The kit keeps the app's own settings, with no derived route.",

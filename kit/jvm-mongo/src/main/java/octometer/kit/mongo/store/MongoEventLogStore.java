@@ -10,6 +10,7 @@ import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 import com.mongodb.client.model.InsertManyOptions;
+import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.result.DeleteResult;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
@@ -22,6 +23,7 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import octometer.kit.core.ingest.IngestEvent;
+import octometer.kit.core.path.RoutePatternDerivation;
 import octometer.kit.core.store.DeletionResult;
 import octometer.kit.core.store.EventCapGuard;
 import octometer.kit.core.store.EventCountEstimator;
@@ -136,11 +138,35 @@ import org.bson.conversions.Bson;
  * /api/apps/{appId}/events?userId=<id>} (issue #61). A call to the
  * monitor route before that wait lets the poll cycle read the erased
  * events again from this store.
+ *
+ * <p><strong>The route pattern publication (design decision D47, issue
+ * #276).</strong> {@link #publishRoutePatterns} writes the config
+ * document of contract rule C44 into {@link #CONFIG_COLLECTION_NAME},
+ * with one {@code replaceOne} call and {@code upsert: true}. The app
+ * database user needs the {@code find} action on {@link
+ * #CONFIG_COLLECTION_NAME} too, beside {@code octometer_events}, so the
+ * monitor can read the document (contract rule C35, C27, issue #276).
  */
 public final class MongoEventLogStore implements EventLogStore, EventCountEstimator {
 
     /** The collection name of contract rule C1. */
     public static final String COLLECTION_NAME = "octometer_events";
+
+    /**
+     * The collection name of the config document of contract rule C44
+     * (design decision D47, issue #276).
+     */
+    public static final String CONFIG_COLLECTION_NAME = "octometer_config";
+
+    /** The fixed {@code _id} value of the one config document of rule C44. */
+    private static final String CONFIG_DOCUMENT_ID = "route-patterns";
+
+    /**
+     * The fallback {@code kitVersion} value of {@link
+     * #publishRoutePatterns}, for a classpath with no built jar and no
+     * manifest, for example a test classpath.
+     */
+    private static final String UNKNOWN_KIT_VERSION = "unknown";
 
     private static final String OCTOMETER_RETENTION_DAYS = "OCTOMETER_RETENTION_DAYS";
     private static final String OCTOMETER_MAX_EVENTS = "OCTOMETER_MAX_EVENTS";
@@ -191,6 +217,7 @@ public final class MongoEventLogStore implements EventLogStore, EventCountEstima
 
     private static final Logger LOGGER = System.getLogger("octometer.kit.mongo");
 
+    private final MongoDatabase database;
     private final MongoCollection<Document> collection;
     private final EventCapGuard eventCapGuard;
 
@@ -230,6 +257,7 @@ public final class MongoEventLogStore implements EventLogStore, EventCountEstima
         if (retentionDays < 1) {
             throw new IllegalArgumentException("retentionDays must be 1 or more");
         }
+        this.database = database;
         this.collection = database.getCollection(COLLECTION_NAME);
         ensureTtlIndex(database, retentionDays);
         this.eventCapGuard = new EventCapGuard(maxEvents, EVENT_CAP_REFRESH_INTERVAL, clock, this,
@@ -349,6 +377,54 @@ public final class MongoEventLogStore implements EventLogStore, EventCountEstima
         } catch (RuntimeException e) {
             throw new EventLogDeleteException(-1);
         }
+    }
+
+    /**
+     * Writes the config document of contract rule C44 (design decision
+     * D47, issue #276). This method sends one {@code replaceOne} call
+     * on {@link #CONFIG_COLLECTION_NAME}, with {@code upsert: true},
+     * through the {@link MongoDatabase} of the app. The document holds
+     * {@code _id: "route-patterns"}, {@code patterns} (a copy of {@code
+     * patterns}), {@code kitVersion} (see {@link #kitVersion()}), and
+     * {@code publishedAt} (a BSON date, the time of this call).
+     *
+     * <p>A failed write logs one warning, with the exception class
+     * only; it never stops the app, and it never repeats the pattern
+     * list. Two app instances of a rolling deploy each call this
+     * method at their own start; the last writer wins for one poll
+     * cycle of the monitor.
+     */
+    @Override
+    public void publishRoutePatterns(List<String> patterns) {
+        Objects.requireNonNull(patterns, "patterns must not be null");
+        Document filter = new Document("_id", CONFIG_DOCUMENT_ID);
+        Document replacement = new Document("_id", CONFIG_DOCUMENT_ID)
+                .append("patterns", new ArrayList<>(patterns))
+                .append("kitVersion", kitVersion())
+                .append("publishedAt", new Date());
+        try {
+            database.getCollection(CONFIG_COLLECTION_NAME)
+                    .replaceOne(filter, replacement, new ReplaceOptions().upsert(true));
+        } catch (RuntimeException e) {
+            LOGGER.log(Level.WARNING, "The route pattern publication of design decision D47 failed. "
+                    + "The exception class is {0}. The app start continues.", e.getClass().getName());
+        }
+    }
+
+    /**
+     * The {@code kitVersion} value of {@link #publishRoutePatterns}: the
+     * {@code Implementation-Version} manifest attribute of the package
+     * of {@link RoutePatternDerivation}, the class of the {@code
+     * jvm-core} jar (design decision D47). This method reads the
+     * version of that package, never its own package, because {@code
+     * kit/jvm-mongo} carries no {@code Implementation-Version}
+     * attribute of its own. A classpath with no built jar and no
+     * manifest, for example a test classpath, gives {@code null} here;
+     * this method then gives {@link #UNKNOWN_KIT_VERSION}.
+     */
+    private static String kitVersion() {
+        String implementationVersion = RoutePatternDerivation.class.getPackage().getImplementationVersion();
+        return implementationVersion == null ? UNKNOWN_KIT_VERSION : implementationVersion;
     }
 
     /**

@@ -19,6 +19,7 @@ import java.lang.System.Logger.Level
 import octometer.kit.core.ingest.IngestRequestProcessor
 import octometer.kit.core.ingest.IngestSettings
 import octometer.kit.core.path.RoutePatternDerivation
+import octometer.kit.core.store.EventLogStore
 
 /**
  * The full class name of `io.ktor.server.routing.TransparentRouteSelector`
@@ -164,16 +165,28 @@ private class UnknownRouteSelectorException(val selectorClassName: String) : Ill
  * exception class only, and it leaves [settings] as it is. [processor]
  * keeps serving requests with no interruption either way; the update
  * takes effect for the next request onward.
+ *
+ * **The route publication (design decision D47, issue #276).** After a
+ * successful derivation, this function calls
+ * [EventLogStore.publishRoutePatterns] of [store] with the derived list
+ * (never the typed addition of `OCTOMETER_PATH_PATTERNS`). The default
+ * of [EventLogStore.publishRoutePatterns] does nothing; only a store
+ * with a config document, for example `MongoEventLogStore` of
+ * `kit/jvm-mongo`, writes it. A failed derivation publishes nothing.
  */
 internal fun installRoutePatternDerivation(
     application: Application,
     ingestPath: String,
     settings: IngestSettings,
     processor: IngestRequestProcessor,
+    store: EventLogStore,
 ) {
     application.monitor.subscribe(ApplicationStarted) {
+        var derivedPatterns: List<String>? = null
         val updatedSettings = try {
-            settings.withDerivedPathPatterns(deriveKtorRoutePatterns(application, ingestPath))
+            val patterns = deriveKtorRoutePatterns(application, ingestPath)
+            derivedPatterns = patterns
+            settings.withDerivedPathPatterns(patterns)
         } catch (cause: Exception) {
             LOGGER.log(
                 Level.WARNING,
@@ -184,6 +197,7 @@ internal fun installRoutePatternDerivation(
             settings
         }
         processor.updateSettings(updatedSettings)
+        derivedPatterns?.let { store.publishRoutePatterns(it) }
     }
 }
 

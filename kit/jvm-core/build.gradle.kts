@@ -25,6 +25,18 @@ java {
     withSourcesJar()
 }
 
+// The manifest attribute of the kitVersion field of design decision D47
+// (issue #276). MongoEventLogStore.publishRoutePatterns reads this
+// attribute from the package of RoutePatternDerivation, through
+// Package.getImplementationVersion(). A test classpath, with no built
+// jar, has no manifest; the reader then falls back to the text
+// "unknown".
+tasks.jar {
+    manifest {
+        attributes("Implementation-Version" to project.version)
+    }
+}
+
 // JUnit Jupiter: gradle/libs.versions.toml holds the version (issue #138).
 dependencies {
     testImplementation(platform(libs.junit.bom))
