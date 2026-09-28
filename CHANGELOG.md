@@ -7,6 +7,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ## Unreleased
 
+## 0.3.0 - 2026-09-28
+
 ### Tests
 
 - Measure the JVM line coverage and the browser-suite line coverage, with the JaCoCo plugin on the six JVM modules, the V8 coverage of the frontend, and `docs/test-coverage.md`. (#176)
@@ -59,6 +61,12 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Purge a gap row whose `to_ts` is older than the retention time. (#227)
 - Add the perf test of the three levels, at 1 million and 10 million events. (#63)
 - Refuse a corrupt database, and a second monitor instance, with a clear log line and exit code 2; map a locked or a full database to a fixed `last_error` text; add `databaseBytes` and `freeDiskBytes` to `GET /api/health`. (#58)
+
+### Documentation
+
+- Add the "Upgrade to kit 0.3.0" section to the Ktor guide and the Spring guide, with the role widen command, the dependency bump, and the route list steps. (#279)
+- State the route list case of the monitor upgrade order, the cache sentence, and the read-only manage view in the run guide. (#279)
+- State the raw-path sentence in the privacy notice, where it names the route list. (#279)
 
 ## 0.2.0 - 2026-09-27
 
