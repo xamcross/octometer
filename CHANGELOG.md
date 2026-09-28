@@ -13,6 +13,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   fields of `GET /api/health`, the public bind and the temporary admin guard, and the CI
   deploy job. (#295)
 
+### CI
+
+- Give the secret scan job the `pull-requests: read` permission, so it passes on the
+  private repository. (#308)
+
 ### Documentation
 
 - Record the hosted model (D50 to D58) in the design document, with the closure notes, the
