@@ -20,6 +20,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 - Give the secret scan job the `pull-requests: read` permission, so it passes on the
   private repository. (#308)
+- Remove the Windows job and the weekly run, so the private repository stays inside the
+  Free plan minutes. (#306)
 
 ### Documentation
 

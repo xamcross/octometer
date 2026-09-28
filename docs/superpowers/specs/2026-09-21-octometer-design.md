@@ -629,6 +629,7 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   `monitor-windows` (tests without Docker, `installDist`, start the script, read
   `/api/health`), `frontend`, `tracker`, `consumer-smoke`, `secrets`.
   `@Testcontainers(disabledWithoutDocker = true)` locally.
+  D39, 2026-09-28: the Windows job and the weekly run went with the private repository (#306).
 
 ### Version 1.1 (the first page and the anonymous visitor)
 

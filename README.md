@@ -39,6 +39,10 @@ the `changes` job). The job `secrets` always runs. Each doubtful path
 sits in the `jvm` filter, on purpose: a run too many costs less than a
 missed test.
 
+The repository is private since 2026-09-28. The Free plan gives 2 000
+Actions minutes each month, so the Windows job and the weekly run left
+the workflow (#306).
+
 For a local run of one module before a push, use these commands. They
 run one module or one changed file, not the whole suite.
 
