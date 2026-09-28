@@ -19,10 +19,12 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     environment:
-      # A fake, loopback-only connection string. #297 wires this value
-      # into a real MongoDB read; this run proves the image and the
-      # health route only.
-      OCTOMETER_CLUSTER_URI: "mongodb://127.0.0.1:27018/exampledb"
+      # The service name "mongo" of the compose network below, not the
+      # host port 27018 (correction round of #307, MAJOR 3: the old
+      # value named the monitor container itself). #297 wires this
+      # value into a real MongoDB read; this run proves the image and
+      # the health route only.
+      OCTOMETER_CLUSTER_URI: "mongodb://mongo:27017/exampledb"
       OCTOMETER_ADMIN_TOKEN: "local-run-token"
     volumes:
       - octometer-local-data:/data

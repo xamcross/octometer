@@ -1,15 +1,20 @@
 # The Fly.io app of the hosted monitor (issue #295, D56).
 #
-# Owner steps 1 and 4 of the issue: "flyctl apps create" fills app and
-# the region; "flyctl volumes create octometer_data" makes the volume
+# The deploy job of .github/workflows/ci.yml passes the app name with
+# "--app", from the GitHub Actions repository variable FLY_APP_NAME.
+# This file holds no "app" line (correction round of #307, MAJOR 2).
+#
+# Owner step: "flyctl volumes create octometer_data" makes the volume
 # of [mounts] below.
 #
 # Three Fly secrets carry the values that this file never holds:
 #   OCTOMETER_CLUSTER_URI    the Atlas connection string
 #   OCTOMETER_MAIL_API_KEY   the Resend API key
 #   OCTOMETER_ADMIN_TOKEN    the temporary admin guard token (until #301)
-app = "<the owner fills the name>"
-primary_region = "<the owner fills the region>"
+primary_region = "<region>"
+# m7: the memory budget is tight on 512 MB; this swap gives a margin
+# under a poll spike.
+swap_size_mb = 512
 
 [build]
   dockerfile = "monitor/backend/Dockerfile"
@@ -43,6 +48,3 @@ primary_region = "<the owner fills the region>"
 [[vm]]
   size = "shared-cpu-1x"
   memory = "512mb"
-  # m7: the memory budget is tight on 512 MB; this swap gives a
-  # margin under a poll spike.
-  swap_size_mb = 512

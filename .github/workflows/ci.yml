@@ -520,23 +520,43 @@ jobs:
       # Brief review m3: the token presence, never the token value, so
       # a fork pull request or a missing owner secret never fails
       # main. m12: id: token, the step that the "if" below reads.
-      - name: Read the FLY_API_TOKEN presence
+      #
+      # Correction round of #307, MAJOR 2: "present" also needs the
+      # repository variable FLY_APP_NAME and a real region in fly.toml,
+      # or flyctl deploy fails with no app name and no region.
+      - name: Read the deploy readiness
         id: token
-        run: echo "present=${{ secrets.FLY_API_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+        run: |
+          reason=""
+          if [ "${{ secrets.FLY_API_TOKEN != '' }}" != "true" ]; then
+            reason="no FLY_API_TOKEN"
+          elif [ -z "${{ vars.FLY_APP_NAME }}" ]; then
+            reason="no FLY_APP_NAME"
+          elif grep -q 'primary_region = "<' fly.toml; then
+            reason="no region in fly.toml"
+          fi
+          if [ -z "$reason" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          fi
       - name: Set up flyctl
         if: steps.token.outputs.present == 'true'
         uses: superfly/flyctl-actions/setup-flyctl@dfdfedc86b296f5e5384f755a18bf400409a15d0 # v1.4
       # Brief review M7: --ha=false, because fly.toml names one volume
-      # and one machine; the run guide states the reason.
+      # and one machine; the run guide states the reason. Correction
+      # round of #307, MAJOR 2: --app names the Fly app, because
+      # fly.toml holds no "app" line.
       - name: Deploy to Fly.io
         if: steps.token.outputs.present == 'true'
-        run: flyctl deploy --remote-only --ha=false
+        run: flyctl deploy --remote-only --ha=false --app "${{ vars.FLY_APP_NAME }}"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - name: Report the skipped deploy
         if: steps.token.outputs.present != 'true'
         run: |
-          echo "The deploy is skipped: no FLY_API_TOKEN."
+          echo "The deploy is skipped: ${{ steps.token.outputs.reason }}."
 
   secrets:
     name: Secret scan

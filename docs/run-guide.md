@@ -272,6 +272,11 @@ agent, a pull request, or a comment.
 secret. It lets the deploy job of `.github/workflows/ci.yml` run
 `flyctl deploy`.
 
+`FLY_APP_NAME` is a GitHub Actions repository **variable**, not a
+secret (the app name is not sensitive). The deploy job passes it to
+`flyctl deploy --app`, because `fly.toml` holds no `app` line
+(correction round of pull request #307, MAJOR 2).
+
 ### The image environment
 
 `monitor/backend/Dockerfile` sets these values inside the image:
@@ -285,20 +290,28 @@ secrets folder, the log folder, and the backup folder land under
 
 1. Create the Fly app and the volume first (`flyctl apps create`, then
    `flyctl volumes create octometer_data --region <region> --size 1`).
-2. Set the GitHub Actions secret `FLY_API_TOKEN` after that, or the
-   first deploy job runs with no app and no volume to deploy to.
+2. Set the GitHub Actions repository variable `FLY_APP_NAME` to the
+   Fly app name.
+3. Record the region in a comment on issue #295. The maintainer then
+   writes `primary_region` into `fly.toml`, in a one-line pull
+   request.
+4. Set the GitHub Actions secret `FLY_API_TOKEN` last, or the first
+   deploy job runs with no app, no region, and no volume to deploy to.
 
 ### The deploy job
 
 `.github/workflows/ci.yml` runs the job `deploy` on a push to `main`
 only, after the jobs `jvm`, `frontend`, and `e2e` pass or skip, and
-only on a change that its path filter covers. It reads the presence
-of `FLY_API_TOKEN`, never its value. With no token set, the job prints
-"The deploy is skipped: no FLY_API_TOKEN." and passes, so `main` stays
-green until the owner sets the secret. The deploy command is
-`flyctl deploy --remote-only --ha=false`: `fly.toml` names one volume
-and one machine, so a second, parallel machine of a normal Fly deploy
-would compete for that one volume.
+only on a change that its path filter covers. It checks three things:
+the presence of `FLY_API_TOKEN` (never its value), the presence of the
+variable `FLY_APP_NAME`, and a real region in `fly.toml` (a grep for
+the placeholder `primary_region = "<` finds nothing). When one item is
+missing, the job prints one notice that names it, for example "The
+deploy is skipped: no FLY_APP_NAME.", and passes, so `main` stays
+green until the owner sets each item. The deploy command is
+`flyctl deploy --remote-only --ha=false --app "${{ vars.FLY_APP_NAME }}"`:
+`fly.toml` names one volume and one machine, so a second, parallel
+machine of a normal Fly deploy would compete for that one volume.
 
 ### The deploy window
 
