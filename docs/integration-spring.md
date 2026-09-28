@@ -15,7 +15,7 @@ as the page.
 The Spring MVC adapter is the artifact `octometer-kit-spring`, group
 `com.github.xamcross.octometer`. Release `0.1.0` holds no `kit/jvm-spring` module
 (`CHANGELOG.md`; `jitpack.yml` names the next tag `0.2.0`). Release `0.2.0` is the first
-release with the Spring module. Use tag `0.2.0` for each kit module of your app (design
+release with the Spring module. Use one tag for each kit module of your app (design
 decision D26): one tag builds each module together, so a mixed pair of tags never
 happens.
 
@@ -26,8 +26,8 @@ and the `exclusiveContent` block. Add this dependency beside the ones of that se
 
 ```kotlin
 dependencies {
-    implementation("com.github.xamcross.octometer:octometer-kit-spring:0.2.0")
-    implementation("com.github.xamcross.octometer:octometer-kit-mongo:0.2.0")
+    implementation("com.github.xamcross.octometer:octometer-kit-spring:0.3.0")
+    implementation("com.github.xamcross.octometer:octometer-kit-mongo:0.3.0")
 }
 ```
 
@@ -73,12 +73,12 @@ snapshot:
   <dependency>
     <groupId>com.github.xamcross.octometer</groupId>
     <artifactId>octometer-kit-spring</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
   </dependency>
   <dependency>
     <groupId>com.github.xamcross.octometer</groupId>
     <artifactId>octometer-kit-mongo</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
   </dependency>
 </dependencies>
 ```
@@ -395,29 +395,29 @@ states.
 This section guides an app on kit 0.2.0, or on an earlier version, through the
 full upgrade to 0.3.0. Follow the five steps in order.
 
-1. **Widen the two database roles, in one command each.** Read the "An
+1. **Upgrade the monitor before your app (design decision D26).** Read
+   the release notes of the new monitor version first. `docs/run-guide.md`
+   states the order and the cache rule in full.
+2. **Widen the two database roles, in one command each.** Read the "An
    existing deployment" note of section 2 of this guide for the app
    role. Read the "An existing deployment" note of section 3 of
    `docs/integration-ktor.md` for the monitor role. The `atlas
    customDbRoles update` command replaces the whole privilege list; give
    every privilege in the one call, or the update drops each privilege
    you do not name. Neither command changes a user or a password.
-2. **Upgrade the kit dependency to 0.3.0.** Use the coordinates of
+3. **Upgrade the kit dependency to 0.3.0.** Use the coordinates of
    section 1, with the version `0.3.0` in place of your present version,
    for `octometer-kit-spring` and for `octometer-kit-mongo`.
-3. **Drop the typed route list.** `RoutePatternDerivationInitializer`
+4. **Drop the typed route list.** `RoutePatternDerivationInitializer`
    (section 4) already derives the list. Remove
    `OCTOMETER_PATH_PATTERNS`, or keep it as an addition to the derived
    list. Remove the tracker's `routes` option (section 5); the tracker
    sends the raw page path only.
-4. **Deploy your app.** The Spring adapter derives the list with no INFO
-   line of its own; a derivation failure gives one WARNING line with the
-   exception class (`kit/jvm-spring/README.md`, "The route pattern
-   list").
-5. **Upgrade the monitor before your app (design decision D26).** Read
-   the published route list, with its count, read-only, in the manage
-   view of the monitor. `docs/run-guide.md` states the order and the
-   cache rule in full.
+5. **Deploy your app. Read the manage view.** The Spring adapter
+   derives the list with no INFO line of its own; a derivation failure
+   gives one WARNING line with the exception class
+   (`kit/jvm-spring/README.md`, "The route pattern list"). Read the
+   published route list, read-only, in the manage view of the monitor.
 
 <!--
 Sources:
@@ -456,4 +456,9 @@ Section 8 is new text of this guide, for issue #279 and design decisions D26, D4
   kit/jvm-spring/src/main/java/octometer/kit/spring/RoutePatternDerivationInitializer.java
   on 2026-09-28: the class logs one WARNING line on a derivation failure, and no line
   of the derived count.
+The correction round of pull request #293 (MAJOR 1, 2, and 4, 2026-09-28): step 1 of
+  section 8 is now the monitor upgrade, D26; the read-only manage-view check moved to
+  the end of step 5, after the deploy. Section 1 now names 0.3.0 in each coordinate and
+  each `<version>` element, and line 18 names no version. Step 5 no longer claims a
+  count in the manage view.
 -->

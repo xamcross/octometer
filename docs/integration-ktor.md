@@ -30,8 +30,8 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.xamcross.octometer:octometer-kit-ktor:0.2.0")
-    implementation("com.github.xamcross.octometer:octometer-kit-mongo:0.2.0")
+    implementation("com.github.xamcross.octometer:octometer-kit-ktor:0.3.0")
+    implementation("com.github.xamcross.octometer:octometer-kit-mongo:0.3.0")
 }
 ```
 
@@ -353,7 +353,7 @@ events again.
 Install the tracker from the tarball of a GitHub release.
 
 ```
-npm install https://github.com/xamcross/octometer/releases/download/0.2.0/octometer-tracker-0.2.0.tgz
+npm install https://github.com/xamcross/octometer/releases/download/0.3.0/octometer-tracker-0.3.0.tgz
 ```
 
 Use the tag of the monitor you run.
@@ -438,7 +438,7 @@ gh issue create --repo <your app repository> --title "Integrate Octometer into <
    user id from your own session.
 4. Add the account deletion call of section 7: `deleteByUserId(userId)`.
 5. Install the tracker of section 8, and call `start()`:
-   `npm install https://github.com/xamcross/octometer/releases/download/0.2.0/octometer-tracker-0.2.0.tgz`.
+   `npm install https://github.com/xamcross/octometer/releases/download/0.3.0/octometer-tracker-0.3.0.tgz`.
    Use the tag of the monitor you run. The moment of the `start()` call follows
    the decision of `xamcross/octometer#41` (open).
 6. Show the text of `xamcross/octometer#42`
@@ -535,7 +535,10 @@ decision D26; the GitHub Release page of `xamcross/octometer`.
 This section guides an app on kit 0.2.0, or on an earlier version, through the
 full upgrade to 0.3.0. Follow the five steps in order.
 
-1. **Widen the two database roles, in one command each.** Read the "An
+1. **Upgrade the monitor before your app (design decision D26).** Read
+   the release notes of the new monitor version first. `docs/run-guide.md`
+   states the order and the cache rule in full.
+2. **Widen the two database roles, in one command each.** Read the "An
    existing deployment" note of section 2 for the app role: its present
    privileges, plus `insert` and `update` on `octometer_config`. Read the
    "An existing deployment" note of section 3 for the monitor role: `find`
@@ -543,19 +546,17 @@ full upgrade to 0.3.0. Follow the five steps in order.
    customDbRoles update` command replaces the whole privilege list; give
    every privilege in the one call, or the update drops each privilege
    you do not name. Neither command changes a user or a password.
-2. **Upgrade the kit dependency to 0.3.0.** Use the coordinates of
+3. **Upgrade the kit dependency to 0.3.0.** Use the coordinates of
    section 1, with the version `0.3.0` in place of your present version.
-3. **Drop the typed route list.** Remove `OCTOMETER_PATH_PATTERNS`, or
+4. **Drop the typed route list.** Remove `OCTOMETER_PATH_PATTERNS`, or
    keep it as an addition to the derived list (section 6). Remove the
    tracker's `routes` option (section 8); the tracker sends the raw page
    path only.
-4. **Deploy, and read the count.** Deploy your app. Read the start log
+5. **Deploy, and read the count.** Deploy your app. Read the start log
    for the INFO line with the count of the derived route pattern list
-   (section 6; `kit/jvm-ktor/README.md`, "The route pattern list").
-5. **Upgrade the monitor before your app (design decision D26).** Read
+   (section 6; `kit/jvm-ktor/README.md`, "The route pattern list"). Read
    the published route list, read-only, in the manage view of the
-   monitor. `docs/run-guide.md` states the order and the cache rule in
-   full.
+   monitor.
 
 <!--
 Sources:
@@ -623,4 +624,8 @@ Section 11 is new text of this guide, for issue #279, design decisions D26, D46,
   D48, and D49, and the INFO line of kit/jvm-ktor/README.md ("The route pattern
   list"). It links to sections 1, 2, 3, 6, and 8 of this guide, and to
   docs/run-guide.md, and it repeats none of their commands.
+The correction round of pull request #293 (MAJOR 1, 2, and 3, 2026-09-28): step 1 of
+  section 11 is now the monitor upgrade, D26; the read-only manage-view check moved to
+  the end of step 5, after the deploy. Section 1 now names 0.3.0 in each coordinate, and
+  section 8 names the 0.3.0 tracker tarball.
 -->
