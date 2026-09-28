@@ -25,10 +25,12 @@ import octometer.monitor.devConfig
 import octometer.monitor.erasure.eraseUserEvents
 import octometer.monitor.module
 import octometer.monitor.retention.RetentionPurge
+import octometer.monitor.sessionCookieValueForAccount
 import octometer.monitor.store.EventStore
 import octometer.monitor.store.NewEvent
 import octometer.monitor.store.SqliteDatabase
 import octometer.monitor.testDataDir
+import octometer.monitor.withSession
 import org.slf4j.LoggerFactory
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -46,10 +48,24 @@ class SessionsRouteTest {
 
     private val dataDir = testDataDir()
     private lateinit var database: SqliteDatabase
+    private var accountId: Long = 0
 
     @BeforeTest
     fun setUp() = runBlocking {
         database = SqliteDatabase.open(dataDir)
+        accountId = database.write { writer ->
+            writer.prepareStatement("INSERT INTO account (email, created_at) VALUES (?, ?)").use { insert ->
+                insert.setString(1, "sessions-test@example.com")
+                insert.setLong(2, 1_700_000_000_000L)
+                insert.executeUpdate()
+            }
+            writer.createStatement().use { statement ->
+                statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+                    result.next()
+                    result.getLong(1)
+                }
+            }
+        }
     }
 
     @AfterTest
@@ -57,12 +73,15 @@ class SessionsRouteTest {
         database.close()
     }
 
+    // Issue #301: the session of this test's one account.
+    private fun session(): String = sessionCookieValueForAccount(dataDir, accountId)
+
     // -- The selection and the row shape (steps 2, 3, 4) --------------------
 
     @Test
     fun `a session with a start row and clicks gives the path, the source, the start time, and the click count`() =
         runBlocking {
-            val appId = insertApp(database, "shop")
+            val appId = insertApp(database, accountId, "shop")
             insertEvent(
                 database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1,
                 path = "/landing", referrerHost = "example.com", ts = 1_700_000_000_000L,
@@ -70,7 +89,7 @@ class SessionsRouteTest {
             insertEvent(database, appId, "e2", "s1", userId = null, element = "checkout.save", kind = 0, ts = 1_700_000_001_000L)
             insertEvent(database, appId, "e3", "s1", userId = null, element = "checkout.save", kind = 0, ts = 1_700_000_002_000L)
 
-            val row = successRows(database, appId).single()
+            val row = successRows(database, accountId, appId).single()
 
             assertEquals("s1", row.sessionId)
             assertEquals("/landing", row.firstPath)
@@ -85,11 +104,11 @@ class SessionsRouteTest {
     // missing field, only one of the two values of the contract set.
     @Test
     fun `a session with clicks only gives a null firstPath and the time of the first click`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", userId = null, element = "checkout.save", kind = 0, ts = 1_700_000_005_000L)
         insertEvent(database, appId, "e2", "s1", userId = null, element = "checkout.save", kind = 0, ts = 1_700_000_003_000L)
 
-        val row = successRows(database, appId).single()
+        val row = successRows(database, accountId, appId).single()
 
         assertNull(row.firstPath)
         assertEquals("(direct)", row.source)
@@ -99,20 +118,20 @@ class SessionsRouteTest {
 
     @Test
     fun `a start row without referrerHost gives the source (direct)`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(
             database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1,
             path = "/landing", referrerHost = null,
         )
 
-        val row = successRows(database, appId).single()
+        val row = successRows(database, accountId, appId).single()
 
         assertEquals("(direct)", row.source)
     }
 
     @Test
     fun `a session with a later sign-in shows the user id of that sign-in`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(
             database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1,
             path = "/landing", ts = 1_700_000_000_000L,
@@ -120,7 +139,7 @@ class SessionsRouteTest {
         insertEvent(database, appId, "e2", "s1", userId = null, element = "checkout.save", kind = 0, ts = 1_700_000_001_000L)
         insertEvent(database, appId, "e3", "s1", userId = "user-1", element = "checkout.save", kind = 0, ts = 1_700_000_002_000L)
 
-        val row = successRows(database, appId).single()
+        val row = successRows(database, accountId, appId).single()
 
         assertEquals("user-1", row.userId)
         assertEquals(2L, row.clicks, "the click after the sign-in still counts")
@@ -130,12 +149,12 @@ class SessionsRouteTest {
     // earliest sign-in row by ts, never the last.
     @Test
     fun `a session with two later sign-ins shows the earliest one`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1, ts = 1_700_000_000_000L)
         insertEvent(database, appId, "e2", "s1", userId = "user-second", element = "checkout.save", kind = 0, ts = 1_700_000_003_000L)
         insertEvent(database, appId, "e3", "s1", userId = "user-first", element = "checkout.save", kind = 0, ts = 1_700_000_002_000L)
 
-        val row = successRows(database, appId).single()
+        val row = successRows(database, accountId, appId).single()
 
         assertEquals("user-first", row.userId)
     }
@@ -147,7 +166,7 @@ class SessionsRouteTest {
     // the earliest start row.
     @Test
     fun `two start rows of one session give one page row and a count of 1, from the earliest one`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(
             database, appId, "e1", "dup", userId = null, element = "octo:session-start", kind = 1,
             path = "/home", referrerHost = "ref.example", ts = 1_700_000_000_100L,
@@ -160,7 +179,7 @@ class SessionsRouteTest {
 
         val count = database.read { reader -> countSessions(reader, appId, firstPath = null) }
         val pageRows = database.read { reader -> readSessionsPage(reader, appId, firstPath = null, page = 1) }
-        val result = loadAnonymousSessions(database, appId, firstPath = null, requestedPage = 1)
+        val result = loadAnonymousSessions(database, accountId, appId, firstPath = null, requestedPage = 1)
         check(result is SessionsResult.Success)
 
         assertEquals(1, count, "the count statement must count the session once")
@@ -178,23 +197,23 @@ class SessionsRouteTest {
     // when it holds clicks.
     @Test
     fun `a session with every event signed in from the first click never appears`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", userId = "user-1", element = "checkout.save", kind = 0)
 
-        val rows = successRows(database, appId)
+        val rows = successRows(database, accountId, appId)
 
         assertEquals(emptyList(), rows)
     }
 
     @Test
     fun `a second app never mixes its rows into the first app's sessions`() = runBlocking {
-        val appOne = insertApp(database, "app-one")
-        val appTwo = insertApp(database, "app-two")
+        val appOne = insertApp(database, accountId, "app-one")
+        val appTwo = insertApp(database, accountId, "app-two")
         insertEvent(database, appOne, "e1", "s1", userId = null, element = "checkout.save", kind = 0)
         insertEvent(database, appTwo, "e2", "s2", userId = null, element = "checkout.save", kind = 0)
 
-        val rowsOfAppOne = successRows(database, appOne)
-        val rowsOfAppTwo = successRows(database, appTwo)
+        val rowsOfAppOne = successRows(database, accountId, appOne)
+        val rowsOfAppTwo = successRows(database, accountId, appTwo)
 
         assertEquals("s1", rowsOfAppOne.single().sessionId)
         assertEquals("s2", rowsOfAppTwo.single().sessionId)
@@ -202,23 +221,23 @@ class SessionsRouteTest {
 
     @Test
     fun `the order is startTime DESC then sessionId ASC`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s-older-a", userId = null, element = "octo:session-start", kind = 1, ts = 1_000L)
         insertEvent(database, appId, "e2", "s-older-b", userId = null, element = "octo:session-start", kind = 1, ts = 1_000L)
         insertEvent(database, appId, "e3", "s-newest", userId = null, element = "octo:session-start", kind = 1, ts = 2_000L)
 
-        val rows = successRows(database, appId)
+        val rows = successRows(database, accountId, appId)
 
         assertEquals(listOf("s-newest", "s-older-a", "s-older-b"), rows.map { it.sessionId })
     }
 
     @Test
     fun `firstPath filters the rows, and the value is a bound parameter`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1, path = "/a")
         insertEvent(database, appId, "e2", "s2", userId = null, element = "octo:session-start", kind = 1, path = "/b")
 
-        val result = loadAnonymousSessions(database, appId, firstPath = "/a", requestedPage = 1)
+        val result = loadAnonymousSessions(database, accountId, appId, firstPath = "/a", requestedPage = 1)
         check(result is SessionsResult.Success)
 
         assertEquals(listOf("s1"), result.rows.map { it.sessionId })
@@ -226,10 +245,10 @@ class SessionsRouteTest {
 
     @Test
     fun `firstPath never matches a session without a start row`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", userId = null, element = "checkout.save", kind = 0)
 
-        val result = loadAnonymousSessions(database, appId, firstPath = "/a", requestedPage = 1)
+        val result = loadAnonymousSessions(database, accountId, appId, firstPath = "/a", requestedPage = 1)
         check(result is SessionsResult.Success)
 
         assertEquals(emptyList(), result.rows)
@@ -237,7 +256,7 @@ class SessionsRouteTest {
 
     @Test
     fun `an unknown app id gives AppNotFound`() = runBlocking {
-        val result = loadAnonymousSessions(database, appId = 999_999L, firstPath = null, requestedPage = 1)
+        val result = loadAnonymousSessions(database, accountId, appId = 999_999L, firstPath = null, requestedPage = 1)
 
         assertEquals(SessionsResult.AppNotFound, result)
     }
@@ -246,7 +265,7 @@ class SessionsRouteTest {
 
     @Test
     fun `one page holds a maximum of 50 rows, and page 2 gives the rest`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         repeat(55) { index ->
             insertEvent(
                 database, appId, "e$index", "s%03d".format(index), userId = null,
@@ -254,8 +273,8 @@ class SessionsRouteTest {
             )
         }
 
-        val pageOne = loadAnonymousSessions(database, appId, firstPath = null, requestedPage = 1)
-        val pageTwo = loadAnonymousSessions(database, appId, firstPath = null, requestedPage = 2)
+        val pageOne = loadAnonymousSessions(database, accountId, appId, firstPath = null, requestedPage = 1)
+        val pageTwo = loadAnonymousSessions(database, accountId, appId, firstPath = null, requestedPage = 2)
         check(pageOne is SessionsResult.Success)
         check(pageTwo is SessionsResult.Success)
 
@@ -266,10 +285,10 @@ class SessionsRouteTest {
 
     @Test
     fun `a requested page above pageCount clamps to the last page`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1)
 
-        val result = loadAnonymousSessions(database, appId, firstPath = null, requestedPage = 99)
+        val result = loadAnonymousSessions(database, accountId, appId, firstPath = null, requestedPage = 99)
         check(result is SessionsResult.Success)
 
         assertEquals(1, result.page)
@@ -282,7 +301,7 @@ class SessionsRouteTest {
     @Test
     fun `a committed insert between the count statement and the page statement changes neither result`() =
         runBlocking {
-            val appId = insertApp(database, "shop")
+            val appId = insertApp(database, accountId, "shop")
             repeat(60) { index ->
                 insertEvent(
                     database, appId, "e$index", "s%03d".format(index), userId = null,
@@ -315,7 +334,7 @@ class SessionsRouteTest {
 
     @Test
     fun `a hostile firstPath value is a bound parameter, thus the rows stay unchanged`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1, path = "/a")
         database.close()
 
@@ -324,11 +343,11 @@ class SessionsRouteTest {
 
             val quote = client.get(
                 "/api/apps/$appId/sessions?anonymous=true&firstPath=" + "'".encodeURLQueryComponent(),
-            ) { allowedHost() }
+            ) { allowedHost(); withSession(session()) }
             val dropTable = client.get(
                 "/api/apps/$appId/sessions?anonymous=true&firstPath=" +
                     "'; DROP TABLE event; --".encodeURLQueryComponent(),
-            ) { allowedHost() }
+            ) { allowedHost(); withSession(session()) }
 
             assertTrue(quote.status == HttpStatusCode.OK || quote.status == HttpStatusCode.BadRequest)
             assertTrue(dropTable.status == HttpStatusCode.OK || dropTable.status == HttpStatusCode.BadRequest)
@@ -354,7 +373,7 @@ class SessionsRouteTest {
     // an index, and none must show a full scan of the event table.
     @Test
     fun `EXPLAIN QUERY PLAN of each executed statement shows an index, never a full scan of event`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1, path = "/a")
         insertEvent(database, appId, "e2", "s2", userId = null, element = "checkout.save", kind = 0)
 
@@ -384,7 +403,7 @@ class SessionsRouteTest {
     // 1 form of BLOCKER 2 could not give.
     @Test
     fun `EXPLAIN QUERY PLAN of the start-row statement drives on event_start, its first line`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1)
 
         val plan = database.read { reader ->
@@ -414,7 +433,7 @@ class SessionsRouteTest {
     @Test
     fun `EXPLAIN QUERY PLAN of the anonymous-clicks statement searches event_session, both parts`() =
         runBlocking {
-            val appId = insertApp(database, "shop")
+            val appId = insertApp(database, accountId, "shop")
             insertEvent(database, appId, "e1", "s1", userId = null, element = "checkout.save", kind = 0)
 
             val plan = database.read { reader ->
@@ -455,7 +474,7 @@ class SessionsRouteTest {
     @Test
     fun `the grouped anonymous-clicks form agrees with the plain form after a commit, a purge, and an erasure`() =
         runBlocking {
-            val appId = insertApp(database, "shop")
+            val appId = insertApp(database, accountId, "shop")
             val eventStore = EventStore(database)
             val oldTs = FIXTURE_NOW - (RETENTION_DAYS_FOR_FIXTURE + 10) * DAY_MILLIS_FOR_FIXTURE
             val recentTs = FIXTURE_NOW
@@ -533,14 +552,14 @@ class SessionsRouteTest {
     // start row.
     @Test
     fun `GET answers with the JSON value null for firstPath of a session without a start row`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", userId = null, element = "checkout.save", kind = 0)
         database.close()
 
         testApplication {
             application { module(devConfig(dataDir)) }
 
-            val response = client.get("/api/apps/$appId/sessions?anonymous=true") { allowedHost() }
+            val response = client.get("/api/apps/$appId/sessions?anonymous=true") { allowedHost(); withSession(session()) }
 
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
@@ -551,7 +570,7 @@ class SessionsRouteTest {
 
     @Test
     fun `GET with anonymous=true answers 200 with page, pageCount, and the six row fields`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(
             database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1,
             path = "/landing", referrerHost = "example.com",
@@ -561,7 +580,7 @@ class SessionsRouteTest {
         testApplication {
             application { module(devConfig(dataDir)) }
 
-            val response = client.get("/api/apps/$appId/sessions?anonymous=true") { allowedHost() }
+            val response = client.get("/api/apps/$appId/sessions?anonymous=true") { allowedHost(); withSession(session()) }
 
             assertEquals(HttpStatusCode.OK, response.status)
             val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
@@ -580,13 +599,13 @@ class SessionsRouteTest {
 
     @Test
     fun `GET without anonymous gets 400`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         database.close()
 
         testApplication {
             application { module(devConfig(dataDir)) }
 
-            val response = client.get("/api/apps/$appId/sessions") { allowedHost() }
+            val response = client.get("/api/apps/$appId/sessions") { allowedHost(); withSession(session()) }
 
             assertEquals(HttpStatusCode.BadRequest, response.status)
         }
@@ -595,13 +614,13 @@ class SessionsRouteTest {
 
     @Test
     fun `GET with anonymous=false gets 400`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         database.close()
 
         testApplication {
             application { module(devConfig(dataDir)) }
 
-            val response = client.get("/api/apps/$appId/sessions?anonymous=false") { allowedHost() }
+            val response = client.get("/api/apps/$appId/sessions?anonymous=false") { allowedHost(); withSession(session()) }
 
             assertEquals(HttpStatusCode.BadRequest, response.status)
         }
@@ -610,14 +629,14 @@ class SessionsRouteTest {
 
     @Test
     fun `GET with anonymous repeated as true and false gets 400`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         database.close()
 
         testApplication {
             application { module(devConfig(dataDir)) }
 
             val response =
-                client.get("/api/apps/$appId/sessions?anonymous=true&anonymous=false") { allowedHost() }
+                client.get("/api/apps/$appId/sessions?anonymous=true&anonymous=false") { allowedHost(); withSession(session()) }
 
             assertEquals(HttpStatusCode.BadRequest, response.status)
         }
@@ -631,7 +650,7 @@ class SessionsRouteTest {
         testApplication {
             application { module(devConfig(dataDir)) }
 
-            val response = client.get("/api/apps/not-a-number/sessions?anonymous=true") { allowedHost() }
+            val response = client.get("/api/apps/not-a-number/sessions?anonymous=true") { allowedHost(); withSession(session()) }
 
             assertEquals(HttpStatusCode.BadRequest, response.status)
         }
@@ -640,13 +659,13 @@ class SessionsRouteTest {
 
     @Test
     fun `GET with a bad page gets 400, not 500`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         database.close()
 
         testApplication {
             application { module(devConfig(dataDir)) }
 
-            val response = client.get("/api/apps/$appId/sessions?anonymous=true&page=0") { allowedHost() }
+            val response = client.get("/api/apps/$appId/sessions?anonymous=true&page=0") { allowedHost(); withSession(session()) }
 
             assertEquals(HttpStatusCode.BadRequest, response.status)
         }
@@ -660,7 +679,7 @@ class SessionsRouteTest {
         testApplication {
             application { module(devConfig(dataDir)) }
 
-            val response = client.get("/api/apps/999999/sessions?anonymous=true") { allowedHost() }
+            val response = client.get("/api/apps/999999/sessions?anonymous=true") { allowedHost(); withSession(session()) }
 
             assertEquals(HttpStatusCode.NotFound, response.status)
         }
@@ -669,14 +688,14 @@ class SessionsRouteTest {
 
     @Test
     fun `GET answers with Cache-Control no-store and no CORS header`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", userId = null, element = "octo:session-start", kind = 1)
         database.close()
 
         testApplication {
             application { module(devConfig(dataDir)) }
 
-            val response = client.get("/api/apps/$appId/sessions?anonymous=true") { allowedHost() }
+            val response = client.get("/api/apps/$appId/sessions?anonymous=true") { allowedHost(); withSession(session()) }
 
             assertEquals(HttpStatusCode.OK, response.status)
             assertEquals("no-store", response.headers[HttpHeaders.CacheControl])
@@ -710,7 +729,7 @@ class SessionsRouteTest {
     @Test
     fun `the captured log holds no session id, no query string, and no raw path, on 200, 400, and 404`() =
         runBlocking {
-            val appId = insertApp(database, "shop")
+            val appId = insertApp(database, accountId, "shop")
             val sessionIdMarker = "the-secret-session-id"
             val pathMarker = "/the-secret-path"
             insertEvent(
@@ -723,21 +742,23 @@ class SessionsRouteTest {
                 application { module(devConfig(dataDir)) }
                 val encodedPath = pathMarker.encodeURLQueryComponent()
 
+                startApplication()
+                val cookie = session()
                 lateinit var okStatus: HttpStatusCode
                 lateinit var badRequestStatus: HttpStatusCode
                 lateinit var notFoundStatus: HttpStatusCode
                 val (_, events) = captureLogEvents {
                     okStatus =
                         client.get("/api/apps/$appId/sessions?anonymous=true&firstPath=$encodedPath") {
-                            allowedHost()
+                            allowedHost(); withSession(cookie)
                         }.status
                     badRequestStatus =
                         client.get("/api/apps/$appId/sessions?anonymous=true&firstPath=$encodedPath&page=bad") {
-                            allowedHost()
+                            allowedHost(); withSession(cookie)
                         }.status
                     notFoundStatus =
                         client.get("/api/apps/999999/sessions?anonymous=true&firstPath=$encodedPath") {
-                            allowedHost()
+                            allowedHost(); withSession(cookie)
                         }.status
                 }
 
@@ -928,21 +949,22 @@ private fun assertNoThrowableHoldsMarker(proxy: IThrowableProxy?, marker: String
     }
 }
 
-private suspend fun successRows(database: SqliteDatabase, appId: Long): List<SessionRow> {
-    val result = loadAnonymousSessions(database, appId, firstPath = null, requestedPage = 1)
+private suspend fun successRows(database: SqliteDatabase, accountId: Long, appId: Long): List<SessionRow> {
+    val result = loadAnonymousSessions(database, accountId, appId, firstPath = null, requestedPage = 1)
     check(result is SessionsResult.Success) { "expected Success, got $result" }
     return result.rows
 }
 
-private suspend fun insertApp(database: SqliteDatabase, name: String): Long =
+private suspend fun insertApp(database: SqliteDatabase, accountId: Long, name: String): Long =
     database.write { writer ->
         writer.prepareStatement(
-            "INSERT INTO app (name, database_name, collection_name, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO app (name, database_name, collection_name, created_at, account_id) VALUES (?, ?, ?, ?, ?)",
         ).use { insert ->
             insert.setString(1, name)
             insert.setString(2, "db")
             insert.setString(3, "octometer_events")
             insert.setLong(4, 1_700_000_000_000L)
+            insert.setLong(5, accountId)
             insert.executeUpdate()
         }
         writer.createStatement().use { statement ->

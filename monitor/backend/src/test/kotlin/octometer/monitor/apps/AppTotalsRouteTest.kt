@@ -22,9 +22,11 @@ import octometer.monitor.erasure.eraseUserEvents
 import octometer.monitor.module
 import octometer.monitor.registerTempRoot
 import octometer.monitor.retention.RetentionPurge
+import octometer.monitor.sessionCookieValueForAccount
 import octometer.monitor.store.EventStore
 import octometer.monitor.store.NewEvent
 import octometer.monitor.store.SqliteDatabase
+import octometer.monitor.withSession
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -45,9 +47,30 @@ class AppTotalsRouteTest {
     private val dataDir = File(root, "data")
     private lateinit var database: SqliteDatabase
 
+    // Issue #301: every app now belongs to an account; GET /api/apps
+    // lists the apps of the session's account only. Each test of this
+    // file runs as this one account. insertApp (file-scope, below)
+    // reads the same value through [currentTestAccountId], so every
+    // call site of this file needs no accountId argument of its own.
+    private var accountId: Long = 0
+
     @BeforeTest
     fun setUp() = runBlocking {
         database = SqliteDatabase.open(dataDir.absolutePath)
+        accountId = database.write { writer ->
+            writer.prepareStatement("INSERT INTO account (email, created_at) VALUES (?, ?)").use { insert ->
+                insert.setString(1, "app-totals-test@example.com")
+                insert.setLong(2, 1_700_000_000_000L)
+                insert.executeUpdate()
+            }
+            writer.createStatement().use { statement ->
+                statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+                    result.next()
+                    result.getLong(1)
+                }
+            }
+        }
+        currentTestAccountId = accountId
     }
 
     @AfterTest
@@ -60,7 +83,7 @@ class AppTotalsRouteTest {
     fun `an app without events returns zeros and NEVER_POLLED`() = runBlocking {
         insertApp(database, name = "solo-app")
 
-        val rows = loadAppTotals(database)
+        val rows = loadAppTotals(database, accountId)
 
         assertEquals(1, rows.size)
         val row = rows.single()
@@ -87,7 +110,7 @@ class AppTotalsRouteTest {
             // app-two: 1 click, its own session.
             insertEvent(database, appTwo, eventId = "e3", sessionId = "s2", userId = "user-2", kind = 0)
 
-            val rows = loadAppTotals(database).associateBy { it.name }
+            val rows = loadAppTotals(database, accountId).associateBy { it.name }
 
             val one = rows.getValue("app-one")
             assertEquals(2L, one.clicks)
@@ -108,7 +131,7 @@ class AppTotalsRouteTest {
             // A session start (kind = 1) of a second, click-less session.
             insertEvent(database, appId, eventId = "e2", sessionId = "s2", userId = null, kind = 1)
 
-            val row = loadAppTotals(database).single()
+            val row = loadAppTotals(database, accountId).single()
 
             assertEquals(1L, row.clicks, "the session-start row is not a click")
             assertEquals(1L, row.uniqueUsers, "the session-start row adds no user")
@@ -126,7 +149,7 @@ class AppTotalsRouteTest {
             insertGap(database, withGaps, fromTs = 1_700_000_000_000L, toTs = 1_700_100_000_000L)
             insertGap(database, withGaps, fromTs = 1_701_000_000_000L, toTs = 1_701_100_000_000L)
 
-            val rows = loadAppTotals(database).associateBy { it.name }
+            val rows = loadAppTotals(database, accountId).associateBy { it.name }
 
             val gaps = rows.getValue("app-with-gaps").gaps
             assertEquals(2, gaps.size)
@@ -149,7 +172,7 @@ class AppTotalsRouteTest {
             )
             insertEvent(database, appId, eventId = "e1", sessionId = "s1", userId = "user-1", kind = 0)
 
-            val row = loadAppTotals(database).single()
+            val row = loadAppTotals(database, accountId).single()
 
             assertEquals(appId, row.appId)
             assertEquals("timed-app", row.name)
@@ -186,7 +209,7 @@ class AppTotalsRouteTest {
             lastPollAt = 1_700_000_000_000L,
         )
 
-        val row = loadAppTotals(database).single()
+        val row = loadAppTotals(database, accountId).single()
 
         assertEquals("ERROR", row.status)
     }
@@ -219,8 +242,10 @@ class AppTotalsRouteTest {
             database.close()
 
             application { module(devConfig(dataDir = dataDir.absolutePath)) }
+            startApplication()
+            val session = sessionCookieValueForAccount(dataDir.absolutePath, accountId)
 
-            val response = client.get("/api/apps") { allowedHost() }
+            val response = client.get("/api/apps") { allowedHost(); withSession(session) }
 
             assertTrue(
                 response.headers[HttpHeaders.ContentType]?.startsWith("application/json") == true,
@@ -307,8 +332,10 @@ class AppTotalsRouteTest {
         database.close()
 
         application { module(devConfig(dataDir = dataDir.absolutePath)) }
+        startApplication()
+        val session = sessionCookieValueForAccount(dataDir.absolutePath, accountId)
 
-        val response = client.get("/api/apps") { allowedHost() }
+        val response = client.get("/api/apps") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals("no-store", response.headers[HttpHeaders.CacheControl])
@@ -383,8 +410,8 @@ private suspend fun insertApp(
     database.write { writer ->
         writer.prepareStatement(
             "INSERT INTO app (name, database_name, collection_name, created_at, status, " +
-                "last_poll_at, last_success_at, last_error, next_poll_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "last_poll_at, last_success_at, last_error, next_poll_at, account_id) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ).use { insert ->
             insert.setString(1, name)
             insert.setString(2, "db")
@@ -395,6 +422,7 @@ private suspend fun insertApp(
             insert.setNullableLong(7, lastSuccessAt)
             insert.setString(8, lastError)
             insert.setNullableLong(9, nextPollAt)
+            insert.setLong(10, currentTestAccountId)
             insert.executeUpdate()
         }
         writer.createStatement().use { statement ->
@@ -460,6 +488,11 @@ private fun explainPlanText(connection: Connection, sql: String): List<String> {
     }
     return lines
 }
+
+// Issue #301: the account id of the running test's insertApp calls.
+// AppTotalsRouteTest.setUp sets this before each test; insertApp reads
+// it, so every existing call site of this file keeps its own form.
+private var currentTestAccountId: Long = 0
 
 private fun java.sql.PreparedStatement.setNullableLong(index: Int, value: Long?) {
     if (value == null) {

@@ -161,6 +161,8 @@ class ConnectionStringSentinelContainerTest {
             )
             val monitorServer = embeddedServer(Netty, host = "127.0.0.1", port = monitorPort) { module(config) }
             monitorServer.start(wait = false)
+            // Issue #301, D52: every route below now needs a session.
+            val session = sessionCookieValue(config.dataDir)
 
             try {
                 val (responses, logEvents) = captureLogEvents {
@@ -183,11 +185,12 @@ class ConnectionStringSentinelContainerTest {
                     val badPasswordUri = "mongodb" + "://" + MARKER_CONNECTION_USER + ":" + MARKER_SECOND_VALUE +
                         "@" + MONGO.host + ":" + MONGO.getMappedPort(27017) + "/" + EXAMPLE_DATABASE +
                         "?authSource=admin"
-                    val appId = createApp(httpClient, monitorPort, badPasswordUri, EXAMPLE_DATABASE, EVENTS_COLLECTION)
+                    val appId = createApp(httpClient, monitorPort, session, badPasswordUri, EXAMPLE_DATABASE, EVENTS_COLLECTION)
 
                     val afterAuthFailure = waitForStatus(
                         httpClient,
                         monitorPort,
+                        session,
                         appId,
                         "UNAUTHORIZED",
                         AUTH_FAILURE_WAIT_BOUND_MILLIS,
@@ -198,10 +201,11 @@ class ConnectionStringSentinelContainerTest {
                     // port of the loopback address.
                     val deadPort = freePort()
                     val wrongHostUri = "mongodb" + "://" + "127.0.0.1:$deadPort/" + EXAMPLE_DATABASE
-                    patchConnectionString(httpClient, monitorPort, appId, wrongHostUri)
+                    patchConnectionString(httpClient, monitorPort, session, appId, wrongHostUri)
                     val afterHostFailure = waitForStatus(
                         httpClient,
                         monitorPort,
+                        session,
                         appId,
                         "UNREACHABLE",
                         HOST_FAILURE_WAIT_BOUND_MILLIS,
@@ -213,16 +217,17 @@ class ConnectionStringSentinelContainerTest {
                     // UpdateAppRequest carries no database field, so the
                     // path must name it; MONGO.connectionString has none
                     // on its own.
-                    patchConnectionString(httpClient, monitorPort, appId, "${MONGO.connectionString}/$EXAMPLE_DATABASE")
-                    val afterSuccess = waitForStatus(httpClient, monitorPort, appId, "OK", SUCCESS_WAIT_BOUND_MILLIS)
+                    patchConnectionString(httpClient, monitorPort, session, appId, "${MONGO.connectionString}/$EXAMPLE_DATABASE")
+                    val afterSuccess = waitForStatus(httpClient, monitorPort, session, appId, "OK", SUCCESS_WAIT_BOUND_MILLIS)
                     observedLastErrors += afterSuccess.lastError
 
                     SentinelResponses(
                         appId = appId,
-                        appsBody = fetchBody(httpClient, "http://127.0.0.1:$monitorPort/api/apps"),
-                        usersBody = fetchBody(httpClient, "http://127.0.0.1:$monitorPort/api/apps/$appId/users"),
+                        appsBody = fetchBody(httpClient, session, "http://127.0.0.1:$monitorPort/api/apps"),
+                        usersBody = fetchBody(httpClient, session, "http://127.0.0.1:$monitorPort/api/apps/$appId/users"),
                         elementsBody = fetchBody(
                             httpClient,
+                            session,
                             "http://127.0.0.1:$monitorPort/api/apps/$appId/elements?userId=$MARKER_USER_ID",
                         ),
                         // Merge correction of pull request #211: issue
@@ -235,6 +240,7 @@ class ConnectionStringSentinelContainerTest {
                         // proves that its body holds neither marker.
                         firstPagesBody = fetchBody(
                             httpClient,
+                            session,
                             "http://127.0.0.1:$monitorPort/api/apps/$appId/first-pages",
                         ),
                     )
@@ -316,6 +322,7 @@ class ConnectionStringSentinelContainerTest {
     private fun createApp(
         client: HttpClient,
         monitorPort: Int,
+        session: String,
         connectionString: String,
         database: String,
         collection: String,
@@ -325,6 +332,7 @@ class ConnectionStringSentinelContainerTest {
         val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$monitorPort/api/apps"))
             .header("Origin", "http://127.0.0.1:$monitorPort")
             .header("Content-Type", "application/json")
+            .header("Cookie", session)
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build()
         val response = client.send(request, HttpResponse.BodyHandlers.ofString())
@@ -334,11 +342,18 @@ class ConnectionStringSentinelContainerTest {
         return Json.parseToJsonElement(response.body()).jsonObject.getValue("appId").jsonPrimitive.long
     }
 
-    private fun patchConnectionString(client: HttpClient, monitorPort: Int, appId: Long, connectionString: String) {
+    private fun patchConnectionString(
+        client: HttpClient,
+        monitorPort: Int,
+        session: String,
+        appId: Long,
+        connectionString: String,
+    ) {
         val body = """{"connectionString":"$connectionString"}"""
         val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$monitorPort/api/apps/$appId"))
             .header("Origin", "http://127.0.0.1:$monitorPort")
             .header("Content-Type", "application/json")
+            .header("Cookie", session)
             .method("PATCH", HttpRequest.BodyPublishers.ofString(body))
             .build()
         val response = client.send(request, HttpResponse.BodyHandlers.ofString())
@@ -347,8 +362,10 @@ class ConnectionStringSentinelContainerTest {
         }
     }
 
-    private fun fetchAppRows(client: HttpClient, monitorPort: Int): List<SentinelAppRow> {
-        val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$monitorPort/api/apps")).GET().build()
+    private fun fetchAppRows(client: HttpClient, monitorPort: Int, session: String): List<SentinelAppRow> {
+        val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$monitorPort/api/apps"))
+            .header("Cookie", session)
+            .GET().build()
         val response = client.send(request, HttpResponse.BodyHandlers.ofString())
         check(response.statusCode() == 200) {
             "GET /api/apps answered ${response.statusCode()}, expected 200."
@@ -356,8 +373,8 @@ class ConnectionStringSentinelContainerTest {
         return Json.decodeFromString(response.body())
     }
 
-    private fun fetchBody(client: HttpClient, url: String): String {
-        val request = HttpRequest.newBuilder(URI.create(url)).GET().build()
+    private fun fetchBody(client: HttpClient, session: String, url: String): String {
+        val request = HttpRequest.newBuilder(URI.create(url)).header("Cookie", session).GET().build()
         val response = client.send(request, HttpResponse.BodyHandlers.ofString())
         check(response.statusCode() == 200) {
             "GET $url answered ${response.statusCode()}, expected 200."
@@ -375,6 +392,7 @@ class ConnectionStringSentinelContainerTest {
     private suspend fun waitForStatus(
         client: HttpClient,
         monitorPort: Int,
+        session: String,
         appId: Long,
         expectedStatus: String,
         boundMillis: Long,
@@ -382,7 +400,7 @@ class ConnectionStringSentinelContainerTest {
         val deadline = System.nanoTime() + boundMillis * 1_000_000
         var lastRow: SentinelAppRow? = null
         while (System.nanoTime() < deadline) {
-            val row = fetchAppRows(client, monitorPort).firstOrNull { it.appId == appId }
+            val row = fetchAppRows(client, monitorPort, session).firstOrNull { it.appId == appId }
             lastRow = row
             if (row != null && row.status == expectedStatus) return row
             delay(WAIT_STEP_MILLIS)

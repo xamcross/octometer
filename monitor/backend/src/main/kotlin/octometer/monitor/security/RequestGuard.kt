@@ -19,14 +19,9 @@ import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import java.net.URI
 import java.net.URISyntaxException
-import java.security.MessageDigest
 import kotlinx.serialization.Serializable
 import octometer.monitor.config.Mode
 import octometer.monitor.config.MonitorConfig
-
-// Issue #295 (D52): the header name of the temporary admin guard. #301
-// removes the guard and this header.
-private const val ADMIN_HEADER_NAME = "X-Octometer-Admin"
 
 // D12: the exact CSP text of the design.
 private const val CONTENT_SECURITY_POLICY = "default-src 'self'; style-src 'self' 'unsafe-inline'; " +
@@ -56,11 +51,14 @@ private data class RejectionBody(val error: String)
  * The order:
  * - the security response headers,
  * - the Host check, on each route except `/healthz` (D56),
- * - the admin guard, on each route under `/api/`, when `adminToken` is
- *   set (issue #295, D52; a temporary measure until #301),
  * - the Origin check, on each request with a method other than GET and
  *   HEAD,
  * - the content type check, only on a request that holds a body.
+ *
+ * `octometer.monitor.accounts.installSessionCheck` runs after this
+ * function, as a second interceptor of the same `Setup` phase (issue
+ * #301, D52): the session rule of every `/api/` route, except the two
+ * sign-in routes.
  *
  * A rejected request never reaches a route handler, thus it changes no
  * data. The server never installs the CORS plugin, thus no response holds
@@ -77,6 +75,12 @@ fun Application.installRequestGuard(config: MonitorConfig, env: Map<String, Stri
     intercept(ApplicationCallPipeline.Setup) {
         call.response.header("X-Content-Type-Options", "nosniff")
         call.response.header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+        // Issue #301, D52, brief review m4: no-referrer on every
+        // response, not only the two sign-in routes of the maintainer's
+        // first note. A mail scanner, or a shared link, then never
+        // carries the sign-in token or the session cookie in a Referer
+        // header to a third site.
+        call.response.header("Referrer-Policy", "no-referrer")
         val requestPath = call.request.path()
         if (isApiPath(requestPath)) {
             call.response.header(HttpHeaders.CacheControl, "no-store")
@@ -90,19 +94,6 @@ fun Application.installRequestGuard(config: MonitorConfig, env: Map<String, Stri
             val host = call.request.header(HttpHeaders.Host)?.lowercase()
             if (host == null || host !in allowedHosts) {
                 call.respond(HttpStatusCode.Forbidden, RejectionBody("The Host header is missing or not allowed."))
-                finish()
-                return@intercept
-            }
-        }
-
-        // Issue #295, brief review B2, B3: the temporary admin guard.
-        // isApiPath already excludes /healthz and the static frontend,
-        // so no extra path check is needed here. #301 removes this
-        // block and the config key adminToken with it.
-        if (config.adminToken.isNotBlank() && isApiPath(requestPath)) {
-            val provided = call.request.header(ADMIN_HEADER_NAME)
-            if (!constantTimeEquals(provided, config.adminToken)) {
-                call.respond(HttpStatusCode.Unauthorized, RejectionBody("The $ADMIN_HEADER_NAME header is missing or not valid."))
                 finish()
                 return@intercept
             }
@@ -175,14 +166,6 @@ internal fun isHealthzPath(rawPath: String): Boolean {
     }
     val normalised = Regex("/+").replace(decoded, "/")
     return normalised == "/healthz"
-}
-
-// Issue #295, brief review B2: a constant-time compare of the admin
-// header against the configured token, so a timing difference never
-// narrows down the token one byte at a time.
-private fun constantTimeEquals(provided: String?, expected: String): Boolean {
-    if (provided == null) return false
-    return MessageDigest.isEqual(provided.toByteArray(Charsets.UTF_8), expected.toByteArray(Charsets.UTF_8))
 }
 
 // The host of config.publicUrl, for example "app.0ct0meter.com" from

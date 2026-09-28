@@ -17,6 +17,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+// Issue #301, D52: /api/health now needs a session, the same as every
+// other /api/ route; each test below reads the config's own dataDir to
+// seed one, through sessionCookieValue. /healthz sits outside /api/
+// and needs none.
 class HealthRouteTest {
 
     // The project version, from build.gradle.kts. A change to one value needs
@@ -26,9 +30,12 @@ class HealthRouteTest {
     @Test
     fun `the health route answers with the version and the mode, and refreshSeconds is 5 in dev mode`() =
         testApplication {
-            application { module(devConfig()) }
+            val config = devConfig()
+            application { module(config) }
+            startApplication()
+            val session = sessionCookieValue(config.dataDir)
 
-            val response = client.get("/api/health") { allowedHost() }
+            val response = client.get("/api/health") { allowedHost(); withSession(session) }
 
             assertEquals(HttpStatusCode.OK, response.status)
             assertEquals(ContentType.Application.Json, response.contentType()?.withoutParameters())
@@ -40,9 +47,12 @@ class HealthRouteTest {
 
     @Test
     fun `refreshSeconds is 60 in prod mode`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/health") { allowedHost() }
+        val response = client.get("/api/health") { allowedHost(); withSession(session) }
 
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals("prod", body["mode"]!!.jsonPrimitive.content)
@@ -53,9 +63,12 @@ class HealthRouteTest {
     // retentionDays value, so the level 1 view can show it (issue #66).
     @Test
     fun `the health route answers with retentionDays`() = testApplication {
-        application { module(devConfig(retentionDays = 30)) }
+        val config = devConfig(retentionDays = 30)
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/health") { allowedHost() }
+        val response = client.get("/api/health") { allowedHost(); withSession(session) }
 
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals(30, body["retentionDays"]!!.jsonPrimitive.int)
@@ -67,9 +80,12 @@ class HealthRouteTest {
     // refreshSeconds = 7, in each mode.
     @Test
     fun `refreshSeconds follows the configured pollIntervalSeconds, for example 7`() = testApplication {
-        application { module(devConfig(pollIntervalSeconds = 7)) }
+        val config = devConfig(pollIntervalSeconds = 7)
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/health") { allowedHost() }
+        val response = client.get("/api/health") { allowedHost(); withSession(session) }
 
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals(7, body["refreshSeconds"]!!.jsonPrimitive.int)
@@ -80,9 +96,12 @@ class HealthRouteTest {
     // the HEAD answer from the GET route.
     @Test
     fun `HEAD on the health route answers 200 with no body`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.head("/api/health") { allowedHost() }
+        val response = client.head("/api/health") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals("", response.bodyAsText())
@@ -96,9 +115,12 @@ class HealthRouteTest {
     @Test
     fun `the health route answers with databaseBytes above 0 after the migrations, and freeDiskBytes above 0`() =
         testApplication {
-            application { module(devConfig()) }
+            val config = devConfig()
+            application { module(config) }
+            startApplication()
+            val session = sessionCookieValue(config.dataDir)
 
-            val response = client.get("/api/health") { allowedHost() }
+            val response = client.get("/api/health") { allowedHost(); withSession(session) }
 
             val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
             assertTrue(body["databaseBytes"]!!.jsonPrimitive.long > 0, "the migrations already wrote octometer.db")
@@ -110,9 +132,12 @@ class HealthRouteTest {
     // each null until #297 fills them.
     @Test
     fun `the health route answers with storeState ok, and the D56 fields null until #297`() = testApplication {
-        application { module(devConfig()) }
+        val config = devConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/health") { allowedHost() }
+        val response = client.get("/api/health") { allowedHost(); withSession(session) }
 
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals("ok", body["storeState"]!!.jsonPrimitive.content)
@@ -122,7 +147,8 @@ class HealthRouteTest {
     }
 
     // D56: the process-and-store check, with no other content and no
-    // cluster call.
+    // cluster call. /healthz sits outside /api/, so it needs no session
+    // (issue #301).
     @Test
     fun `healthz answers 200 with the plain text body ok`() = testApplication {
         application { module(devConfig()) }

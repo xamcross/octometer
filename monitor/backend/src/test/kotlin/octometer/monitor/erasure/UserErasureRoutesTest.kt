@@ -16,8 +16,10 @@ import octometer.monitor.allowedHost
 import octometer.monitor.captureLogEvents
 import octometer.monitor.module
 import octometer.monitor.prodConfig
+import octometer.monitor.sessionCookieValueForAccount
 import octometer.monitor.store.SqliteDatabase
 import octometer.monitor.testDataDir
+import octometer.monitor.withSession
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -31,16 +33,20 @@ import kotlin.test.assertTrue
 // JDBC connection. It closes that connection before testApplication
 // opens its own SqliteDatabase on the same folder. Two open writer
 // connections on one SQLite file at the same time give a lock error.
+//
+// Issue #301, brief review B2: this route now needs a session too, and
+// the account filter. Each test runs as the one account that
+// prepareStore seeds.
 class UserErasureRoutesTest {
 
     @Test
     fun `DELETE removes the rows of the user and gives 200 with the deleted count`() {
-        val dataDir = prepareStore()
-        val appId = insertApp(dataDir, "demo")
+        val (dataDir, accountId) = prepareStore()
+        val appId = insertApp(dataDir, accountId, "demo")
         insertEvent(dataDir, appId, "e1", sessionId = "s1", userId = "user-a")
         insertEvent(dataDir, appId, "e2", sessionId = "s1", userId = "user-b")
 
-        val response = runErase(dataDir, appId, "user-a")
+        val response = runErase(dataDir, accountId, appId, "user-a")
 
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals(1, response.deletedField())
@@ -53,11 +59,11 @@ class UserErasureRoutesTest {
     // match.
     @Test
     fun `DELETE with a userId over 254 characters gives 400`() {
-        val dataDir = prepareStore()
-        val appId = insertApp(dataDir, "demo")
+        val (dataDir, accountId) = prepareStore()
+        val appId = insertApp(dataDir, accountId, "demo")
         val tooLong = "u".repeat(255)
 
-        val response = runErase(dataDir, appId, tooLong)
+        val response = runErase(dataDir, accountId, appId, tooLong)
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
         assertEquals("The user id must have at most 254 characters.", response.errorField())
@@ -65,13 +71,13 @@ class UserErasureRoutesTest {
 
     @Test
     fun `DELETE also removes the anonymous rows of a session of the user`() {
-        val dataDir = prepareStore()
-        val appId = insertApp(dataDir, "demo")
+        val (dataDir, accountId) = prepareStore()
+        val appId = insertApp(dataDir, accountId, "demo")
         insertEvent(dataDir, appId, "e1", sessionId = "s1", userId = null)
         insertEvent(dataDir, appId, "e2", sessionId = "s1", userId = "user-a")
         insertEvent(dataDir, appId, "e3", sessionId = "s2", userId = null)
 
-        val response = runErase(dataDir, appId, "user-a")
+        val response = runErase(dataDir, accountId, appId, "user-a")
 
         assertEquals(2, response.deletedField())
         assertEquals(1, countEvents(dataDir, appId))
@@ -79,20 +85,24 @@ class UserErasureRoutesTest {
 
     @Test
     fun `DELETE with an unknown app id gives 404`() {
-        val dataDir = prepareStore()
+        val (dataDir, accountId) = prepareStore()
 
-        val response = runErase(dataDir, 999L, "user-a")
+        val response = runErase(dataDir, accountId, 999L, "user-a")
 
         assertEquals(HttpStatusCode.NotFound, response.status)
     }
 
     @Test
     fun `DELETE with a non-numeric app id gives 400`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValueForAccount(config.dataDir, insertAccount(config.dataDir))
 
         val response = client.delete("/api/apps/not-a-number/events?userId=user-a") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
+            withSession(session)
         }
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -100,15 +110,18 @@ class UserErasureRoutesTest {
 
     @Test
     fun `DELETE with no userId query parameter gives 400`() {
-        val dataDir = prepareStore()
-        val appId = insertApp(dataDir, "demo")
+        val (dataDir, accountId) = prepareStore()
+        val appId = insertApp(dataDir, accountId, "demo")
 
         lateinit var status: HttpStatusCode
         testApplication {
             application { module(prodConfig(dataDir = dataDir)) }
+            startApplication()
+            val session = sessionCookieValueForAccount(dataDir, accountId)
             status = client.delete("/api/apps/$appId/events") {
                 allowedHost()
                 header(HttpHeaders.Origin, "http://localhost:7431")
+                withSession(session)
             }.status
         }
 
@@ -117,10 +130,10 @@ class UserErasureRoutesTest {
 
     @Test
     fun `DELETE for a user with no events gives 200 with a deleted count of 0`() {
-        val dataDir = prepareStore()
-        val appId = insertApp(dataDir, "demo")
+        val (dataDir, accountId) = prepareStore()
+        val appId = insertApp(dataDir, accountId, "demo")
 
-        val response = runErase(dataDir, appId, "no-such-user")
+        val response = runErase(dataDir, accountId, appId, "no-such-user")
 
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals(0, response.deletedField())
@@ -128,12 +141,12 @@ class UserErasureRoutesTest {
 
     @Test
     fun `DELETE matches a user id with special characters, url-encoded`() {
-        val dataDir = prepareStore()
-        val appId = insertApp(dataDir, "demo")
+        val (dataDir, accountId) = prepareStore()
+        val appId = insertApp(dataDir, accountId, "demo")
         val userId = "user+plus&amp <tag> 'quote'"
         insertEvent(dataDir, appId, "e1", sessionId = "s1", userId = userId)
 
-        val response = runErase(dataDir, appId, userId)
+        val response = runErase(dataDir, accountId, appId, userId)
 
         assertEquals(1, response.deletedField())
         assertEquals(0, countEvents(dataDir, appId))
@@ -146,12 +159,13 @@ class UserErasureRoutesTest {
     // path.
     @Test
     fun `no log line holds the user id or the query string of the request, on 200`() {
-        val dataDir = prepareStore()
-        val appId = insertApp(dataDir, "demo")
+        val (dataDir, accountId) = prepareStore()
+        val appId = insertApp(dataDir, accountId, "demo")
         val marker = "secret-user-id-f3c9a1"
         insertEvent(dataDir, appId, "e1", sessionId = "s1", userId = marker)
 
-        val (status, events) = deleteAndCaptureLog(dataDir, "/api/apps/$appId/events?userId=${urlEncode(marker)}")
+        val (status, events) =
+            deleteAndCaptureLog(dataDir, accountId, "/api/apps/$appId/events?userId=${urlEncode(marker)}")
 
         assertEquals(HttpStatusCode.OK, status)
         assertNoLogLineHoldsMarker(events, marker)
@@ -159,11 +173,12 @@ class UserErasureRoutesTest {
 
     @Test
     fun `no log line holds the user id or the query string of the request, on 400`() {
-        val dataDir = prepareStore()
-        val appId = insertApp(dataDir, "demo")
+        val (dataDir, accountId) = prepareStore()
+        val appId = insertApp(dataDir, accountId, "demo")
         val marker = "secret-user-id-" + "u".repeat(255)
 
-        val (status, events) = deleteAndCaptureLog(dataDir, "/api/apps/$appId/events?userId=${urlEncode(marker)}")
+        val (status, events) =
+            deleteAndCaptureLog(dataDir, accountId, "/api/apps/$appId/events?userId=${urlEncode(marker)}")
 
         assertEquals(HttpStatusCode.BadRequest, status)
         assertNoLogLineHoldsMarker(events, marker)
@@ -171,10 +186,11 @@ class UserErasureRoutesTest {
 
     @Test
     fun `no log line holds the user id or the query string of the request, on 404`() {
-        val dataDir = prepareStore()
+        val (dataDir, accountId) = prepareStore()
         val marker = "secret-user-id-on-unknown-app"
 
-        val (status, events) = deleteAndCaptureLog(dataDir, "/api/apps/999999/events?userId=${urlEncode(marker)}")
+        val (status, events) =
+            deleteAndCaptureLog(dataDir, accountId, "/api/apps/999999/events?userId=${urlEncode(marker)}")
 
         assertEquals(HttpStatusCode.NotFound, status)
         assertNoLogLineHoldsMarker(events, marker)
@@ -182,16 +198,20 @@ class UserErasureRoutesTest {
 
     private fun deleteAndCaptureLog(
         dataDir: String,
+        accountId: Long,
         path: String,
     ): Pair<HttpStatusCode, List<ch.qos.logback.classic.spi.ILoggingEvent>> {
         lateinit var status: HttpStatusCode
         var events = emptyList<ch.qos.logback.classic.spi.ILoggingEvent>()
         testApplication {
             application { module(prodConfig(dataDir = dataDir)) }
+            startApplication()
+            val session = sessionCookieValueForAccount(dataDir, accountId)
             val (response, capturedEvents) = captureLogEvents {
                 client.delete(path) {
                     allowedHost()
                     header(HttpHeaders.Origin, "http://localhost:7431")
+                    withSession(session)
                 }
             }
             status = response.status
@@ -233,12 +253,12 @@ class UserErasureRoutesTest {
     // background job.
     @Test
     fun `a byte search of the store files finds no user id after the erasure`() {
-        val dataDir = prepareStore()
+        val (dataDir, accountId) = prepareStore()
         val marker = "byte-search-user-id-9b21"
-        val appId = insertApp(dataDir, "demo")
+        val appId = insertApp(dataDir, accountId, "demo")
         insertEvent(dataDir, appId, "e1", sessionId = "s1", userId = marker)
 
-        val response = runErase(dataDir, appId, marker)
+        val response = runErase(dataDir, accountId, appId, marker)
         assertEquals(HttpStatusCode.OK, response.status)
         assertTrue(response.checkpointedField(), "expected checkpointed = true with no other reader")
 
@@ -254,14 +274,17 @@ class UserErasureRoutesTest {
         }
     }
 
-    private fun runErase(dataDir: String, appId: Long, userId: String): CapturedResponse {
+    private fun runErase(dataDir: String, accountId: Long, appId: Long, userId: String): CapturedResponse {
         var status: HttpStatusCode = HttpStatusCode.InternalServerError
         var body = ""
         testApplication {
             application { module(prodConfig(dataDir = dataDir)) }
+            startApplication()
+            val session = sessionCookieValueForAccount(dataDir, accountId)
             val response = client.delete("/api/apps/$appId/events?userId=${urlEncode(userId)}") {
                 allowedHost()
                 header(HttpHeaders.Origin, "http://localhost:7431")
+                withSession(session)
             }
             status = response.status
             body = response.bodyAsText()
@@ -277,11 +300,29 @@ private data class CapturedResponse(val status: HttpStatusCode, val body: String
     fun errorField(): String = Json.parseToJsonElement(body).jsonObject["error"]!!.jsonPrimitive.content
 }
 
-/** Opens the store one time, so the schema exists, then closes it. */
-private fun prepareStore(): String {
+/** Opens the store one time, so the schema exists, and seeds one account (issue #301). It gives (dataDir, accountId). */
+private fun prepareStore(): Pair<String, Long> {
     val dataDir = testDataDir()
     SqliteDatabase.open(dataDir).close()
-    return dataDir
+    val accountId = insertAccount(dataDir)
+    return dataDir to accountId
+}
+
+private fun insertAccount(dataDir: String): Long {
+    val url = "jdbc:sqlite:" + File(dataDir, "octometer.db").absolutePath
+    DriverManager.getConnection(url).use { connection ->
+        connection.prepareStatement("INSERT INTO account (email, created_at) VALUES (?, ?)").use { insert ->
+            insert.setString(1, "erasure-test@example.com")
+            insert.setLong(2, 1_700_000_000_000L)
+            insert.executeUpdate()
+        }
+        connection.createStatement().use { statement ->
+            statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+                result.next()
+                return result.getLong(1)
+            }
+        }
+    }
 }
 
 private fun urlEncode(value: String): String = URLEncoder.encode(value, "UTF-8")
@@ -300,16 +341,17 @@ private fun checkpointWalFile(dataDir: String) {
     }
 }
 
-private fun insertApp(dataDir: String, name: String): Long {
+private fun insertApp(dataDir: String, accountId: Long, name: String): Long {
     val url = "jdbc:sqlite:" + File(dataDir, "octometer.db").absolutePath
     DriverManager.getConnection(url).use { connection ->
         connection.prepareStatement(
-            "INSERT INTO app (name, database_name, collection_name, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO app (name, database_name, collection_name, created_at, account_id) VALUES (?, ?, ?, ?, ?)",
         ).use { insert ->
             insert.setString(1, name)
             insert.setString(2, "db")
             insert.setString(3, "octometer_events")
             insert.setLong(4, 1_700_000_000_000L)
+            insert.setLong(5, accountId)
             insert.executeUpdate()
         }
         connection.createStatement().use { statement ->

@@ -7,6 +7,14 @@ export const RUN_DIR = path.resolve(__dirname, '..', '.run');
 /** The one state file of the run. The setup, the config, and the teardown share it. */
 export const STATE_FILE = path.join(RUN_DIR, 'state.json');
 
+/**
+ * The one storage state file of the run (issue #301, m11). The global
+ * setup writes it, and `playwright.config.ts` reads its fixed path at
+ * config load time, before the setup ever runs; the new scenario of
+ * issue #301 overrides it with `test.use({ storageState: undefined })`.
+ */
+export const STORAGE_STATE_FILE = path.join(RUN_DIR, 'storage-state.json');
+
 /** The three ports of one run, each free at the moment `pretest.mjs` reserved it. */
 export interface RunPorts {
   readonly mongo: number;
@@ -28,6 +36,8 @@ export interface RunState {
   pids: RunPids;
   monitorExtractRoot: string | null;
   monitorDataDir: string | null;
+  /** The file mail sender folder of issue #301, D52. Null before the global setup sets it. */
+  monitorMailDir: string | null;
 }
 
 /** Reads the state file. It throws a clear message when `npm test` did not run `pretest` first. */

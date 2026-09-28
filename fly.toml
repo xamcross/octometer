@@ -7,10 +7,11 @@
 # Owner step: "flyctl volumes create octometer_data" makes the volume
 # of [mounts] below.
 #
-# Three Fly secrets carry the values that this file never holds:
+# Two Fly secrets carry the values that this file never holds:
 #   OCTOMETER_CLUSTER_URI    the Atlas connection string
 #   OCTOMETER_MAIL_API_KEY   the Resend API key
-#   OCTOMETER_ADMIN_TOKEN    the temporary admin guard token (until #301)
+# Issue #301 removes the admin guard token of issue #295; the session
+# rule of D52 protects the service now.
 primary_region = "<region>"
 # m7: the memory budget is tight on 512 MB; this swap gives a margin
 # under a poll spike.

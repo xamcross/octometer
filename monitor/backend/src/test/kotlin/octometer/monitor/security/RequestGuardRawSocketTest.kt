@@ -17,7 +17,7 @@ class RequestGuardRawSocketTest {
 
     @Test
     fun `a repeated slash in the path still gets Cache-Control no-store`() {
-        withRawSocketServer { port, send ->
+        withRawSocketServer { port, _, send ->
             val response = send(
                 "GET //api/health HTTP/1.1\r\n" +
                     "Host: localhost:$port\r\n" +
@@ -31,7 +31,7 @@ class RequestGuardRawSocketTest {
 
     @Test
     fun `a path with a bad percent escape fails closed, thus it still gets Cache-Control no-store`() {
-        withRawSocketServer { port, send ->
+        withRawSocketServer { port, _, send ->
             val response = send(
                 "GET /%zz HTTP/1.1\r\n" +
                     "Host: localhost:$port\r\n" +
@@ -45,7 +45,7 @@ class RequestGuardRawSocketTest {
 
     @Test
     fun `two Host headers never give a passing response`() {
-        withRawSocketServer { port, send ->
+        withRawSocketServer { port, _, send ->
             val response = send(
                 "GET /api/health HTTP/1.1\r\n" +
                     "Host: localhost:$port\r\n" +
@@ -60,7 +60,7 @@ class RequestGuardRawSocketTest {
 
     @Test
     fun `a malformed Content-Type gets 415, and the body does not echo the header value`() {
-        withRawSocketServer { port, send ->
+        withRawSocketServer { port, _, send ->
             val body = "x"
             val response = send(
                 "POST /api/health HTTP/1.1\r\n" +

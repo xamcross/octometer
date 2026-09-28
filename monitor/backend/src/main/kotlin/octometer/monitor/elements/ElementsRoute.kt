@@ -13,6 +13,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlinx.serialization.Serializable
 import octometer.monitor.ErrorBody
+import octometer.monitor.accounts.accountId
 import octometer.monitor.store.SqliteDatabase
 
 /**
@@ -80,7 +81,7 @@ internal const val ELEMENT_TOTALS_BY_SESSION_SQL =
         "WHERE app_id = ? AND session_id = ? AND kind = 0 " +
         "GROUP BY element ORDER BY clicks DESC, element ASC"
 
-private const val APP_EXISTS_SQL = "SELECT 1 FROM app WHERE id = ?"
+private const val APP_EXISTS_SQL = "SELECT 1 FROM app WHERE id = ? AND account_id = ?"
 
 private val TIMESTAMP_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC)
@@ -98,7 +99,7 @@ fun Route.elementsRoute(database: SqliteDatabase) {
             call.respond(HttpStatusCode.BadRequest, ErrorBody(FILTER_MESSAGE))
             return@get
         }
-        when (val result = loadElementTotals(database, appId, filter)) {
+        when (val result = loadElementTotals(database, call.accountId(), appId, filter)) {
             is ElementsResult.Success -> call.respond(ElementsResponse(result.rows))
             ElementsResult.AppNotFound -> call.respond(HttpStatusCode.NotFound, ErrorBody(APP_NOT_FOUND_MESSAGE))
         }
@@ -114,11 +115,12 @@ fun Route.elementsRoute(database: SqliteDatabase) {
  */
 internal suspend fun loadElementTotals(
     database: SqliteDatabase,
+    accountId: Long,
     appId: Long,
     filter: ElementsFilter,
 ): ElementsResult =
     database.read { reader ->
-        if (!appExists(reader, appId)) {
+        if (!appExists(reader, accountId, appId)) {
             ElementsResult.AppNotFound
         } else {
             ElementsResult.Success(readElementRows(reader, appId, filter))
@@ -153,9 +155,10 @@ internal fun parseFilter(parameters: Parameters): ElementsFilter? {
     }
 }
 
-private fun appExists(connection: Connection, appId: Long): Boolean =
+private fun appExists(connection: Connection, accountId: Long, appId: Long): Boolean =
     connection.prepareStatement(APP_EXISTS_SQL).use { statement ->
         statement.setLong(1, appId)
+        statement.setLong(2, accountId)
         statement.executeQuery().use { it.next() }
     }
 

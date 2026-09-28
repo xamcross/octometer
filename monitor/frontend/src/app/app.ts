@@ -14,6 +14,7 @@ import { filter } from 'rxjs';
 
 import { AppNames } from './app-names';
 import { Announcer } from './announcer';
+import { Me } from './account/me';
 import { Banner } from './banner/banner';
 import type { BreadcrumbItem } from './breadcrumb';
 import { buildBreadcrumb } from './breadcrumb';
@@ -42,6 +43,9 @@ export class App {
 
   /** The status text of the one permanent status region (D33). */
   protected readonly announcer = inject(Announcer);
+
+  /** The signed-in account of issue #301, D52. The header reads its email and its sign-out control. */
+  protected readonly me = inject(Me);
 
   /** True once the router outlet activates its first view component. */
   protected readonly appReady = signal(false);
@@ -74,6 +78,16 @@ export class App {
   /** True when the monitor API did not answer the last request. */
   private monitorApiFailed = false;
 
+  /** The path part of the active URL, for [isSigninRoute]. */
+  private readonly currentPathState = signal(this.router.url.split(/[?#]/)[0]);
+
+  /**
+   * True on the sign-in page (issue #301). The sign-in page hides the
+   * main nav and the breadcrumb; the band with the name stays (the
+   * maintainer's correction).
+   */
+  protected readonly isSigninRoute = computed(() => this.currentPathState().startsWith('/signin'));
+
   constructor() {
     this.router.events
       .pipe(
@@ -83,11 +97,20 @@ export class App {
       .subscribe((event) => this.onNavigationEnd(event));
 
     effect(() => this.announceMonitorApiTransition());
+
+    // Issue #301, brief review B4: the health poll starts only after
+    // this call answers once, good or bad.
+    this.me.load();
   }
 
   /** Runs when the router outlet activates a view component. */
   protected onOutletActivated(): void {
     this.appReady.set(true);
+  }
+
+  /** Ends the session, on a click of the header "Sign out" control (D52). */
+  protected onSignOutClick(): void {
+    this.me.signOut();
   }
 
   /**
@@ -121,6 +144,7 @@ export class App {
     const isFirstNavigation = this.previousPath === null;
     const pathChanged = path !== this.previousPath;
     this.previousPath = path;
+    this.currentPathState.set(path);
 
     if (!isFirstNavigation && pathChanged) {
       afterNextRender(() => this.focusHeading(), { injector: this.injector });

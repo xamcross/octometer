@@ -72,6 +72,14 @@ internal const val DELETE_STALE_APP_PATH_SQL = """
 private const val SELECT_GAP_APP_IDS_SQL = "SELECT DISTINCT app_id FROM gap"
 internal const val DELETE_OLD_GAP_SQL = "DELETE FROM gap WHERE app_id = ? AND to_ts < ?"
 
+// Issue #301, D52, D58: the sign-in token and the session purge. A
+// signin_token row is used or expired for at least one day before this
+// removes it (the store keeps a short window of evidence); an expired
+// session row goes at each run, with no such grace period.
+internal const val DELETE_OLD_SIGNIN_TOKENS_SQL =
+    "DELETE FROM signin_token WHERE (used_at IS NOT NULL OR expires_at < ?) AND created_at < ?"
+internal const val DELETE_EXPIRED_SESSIONS_SQL = "DELETE FROM session WHERE expires_at < ?"
+
 /**
  * The purge function of issue #59, steps 2 and 3 (D15). One call to
  * [purgeOnce] deletes each event older than `retentionDays`, counted
@@ -127,8 +135,32 @@ class RetentionPurge(
         }
         purgeOldGaps(cutoff)
         purgeStaleAppPathValues()
+        purgeSignInArtifacts()
         runCheckpoint()
         logResult(totalDeleted)
+    }
+
+    // Issue #301, D52, D58: runs at every purge (the start, and each 24
+    // hours). It never logs the token, the session id, or the mail
+    // address (D15): each statement carries a bound time only.
+    private suspend fun purgeSignInArtifacts() {
+        val now = clock.millis()
+        val tokenCutoff = now - MILLIS_PER_DAY
+        database.write { writer ->
+            writer.prepareStatement(DELETE_OLD_SIGNIN_TOKENS_SQL).use { delete ->
+                delete.setLong(1, now)
+                delete.setLong(2, tokenCutoff)
+                delete.executeUpdate()
+            }
+        }
+        onWrite()
+        database.write { writer ->
+            writer.prepareStatement(DELETE_EXPIRED_SESSIONS_SQL).use { delete ->
+                delete.setLong(1, now)
+                delete.executeUpdate()
+            }
+        }
+        onWrite()
     }
 
     private fun logResult(totalDeleted: Int) {

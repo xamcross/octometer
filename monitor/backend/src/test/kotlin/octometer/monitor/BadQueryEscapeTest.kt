@@ -14,18 +14,25 @@ import kotlin.test.assertTrue
 // The Ktor test client rewrites a bad escape before the request leaves
 // the client. See RequestGuardRawSocketTest. This test uses a real
 // socket on a real server, the same pattern.
+//
+// Issue #301, D52: every path below is a "/api/" path, so each request
+// now also carries the Cookie header of a valid session; without one
+// the session check would answer 401 before the routing phase ever
+// throws the BadRequestException that this test proves.
 private const val BAD_ESCAPE = "%zz"
 
 class BadQueryEscapeTest {
 
     @Test
     fun `a bad percent escape in the query string of health gives 400, with the fixed body and no ERROR line`() {
-        withRawSocketServer { port, send ->
+        withRawSocketServer { port, dataDir, send ->
+            val session = sessionCookieValue(dataDir)
             val (response, events) = runBlocking {
                 captureLogEvents {
                     send(
                         "GET /api/health?x=$BAD_ESCAPE HTTP/1.1\r\n" +
                             "Host: localhost:$port\r\n" +
+                            "Cookie: $session\r\n" +
                             "Connection: close\r\n" +
                             "\r\n",
                     )
@@ -41,12 +48,14 @@ class BadQueryEscapeTest {
     // the query string.
     @Test
     fun `a bad percent escape in the query string of a users route gives 400 too`() {
-        withRawSocketServer { port, send ->
+        withRawSocketServer { port, dataDir, send ->
+            val session = sessionCookieValue(dataDir)
             val (response, events) = runBlocking {
                 captureLogEvents {
                     send(
                         "GET /api/apps/1/users?q=$BAD_ESCAPE HTTP/1.1\r\n" +
                             "Host: localhost:$port\r\n" +
+                            "Cookie: $session\r\n" +
                             "Connection: close\r\n" +
                             "\r\n",
                     )
@@ -63,12 +72,14 @@ class BadQueryEscapeTest {
     // message.
     @Test
     fun `a bad percent escape in the path of a users route gives 400 too, with no leak of the escape`() {
-        withRawSocketServer { port, send ->
+        withRawSocketServer { port, dataDir, send ->
+            val session = sessionCookieValue(dataDir)
             val (response, events) = runBlocking {
                 captureLogEvents {
                     send(
                         "GET /api/apps/1/users/$BAD_ESCAPE HTTP/1.1\r\n" +
                             "Host: localhost:$port\r\n" +
+                            "Cookie: $session\r\n" +
                             "Connection: close\r\n" +
                             "\r\n",
                     )
@@ -83,10 +94,12 @@ class BadQueryEscapeTest {
     // still give the fixed 500 body. The catch-all handler must stay.
     @Test
     fun `a plain app failure still gives the fixed 500 body`() {
-        withRawSocketServer(routes = { probeFailureRoute() }) { port, send ->
+        withRawSocketServer(routes = { probeFailureRoute() }) { port, dataDir, send ->
+            val session = sessionCookieValue(dataDir)
             val response = send(
                 "GET /api/probe/failure-raw HTTP/1.1\r\n" +
                     "Host: localhost:$port\r\n" +
+                    "Cookie: $session\r\n" +
                     "Connection: close\r\n" +
                     "\r\n",
             )

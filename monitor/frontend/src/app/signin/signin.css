@@ -1,0 +1,59 @@
+:host {
+  display: block;
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: var(--space-3);
+}
+
+h1 {
+  margin-bottom: var(--space-2);
+}
+
+.badge {
+  margin-top: var(--space-2);
+}
+
+/* The field, the label, and the error, the same rules as add-app-form.css:
+   Angular scopes a component stylesheet to its own template only, so a
+   plain form here needs its own copy, not a global class. */
+.field {
+  margin-bottom: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 32rem;
+}
+
+label {
+  font-weight: bold;
+}
+
+[aria-invalid='true'] {
+  box-shadow: inset 0 0 0 3px var(--coral-deep);
+}
+
+[aria-invalid='true']:focus-visible {
+  box-shadow:
+    inset 0 0 0 3px var(--coral-deep),
+    0 0 0 7px var(--ink);
+}
+
+@media (forced-colors: active) {
+  [aria-invalid='true'] {
+    outline: 3px dashed;
+    outline-offset: 2px;
+  }
+
+  [aria-invalid='true']:focus-visible {
+    outline: 3px solid;
+    outline-offset: 2px;
+  }
+}
+
+.form-error {
+  padding-left: 12px;
+  border-left: 3px solid var(--coral);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  margin: 8px 0 0;
+}

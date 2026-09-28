@@ -288,14 +288,16 @@ jobs:
           base_url="http://127.0.0.1:7431"
           health_ready=""
           for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error "$base_url/api/health" > /dev/null; then
+            # Issue #301, D52: /api/health now needs a session; /healthz
+            # sits outside /api/ and needs none.
+            if [ "$(curl --fail --silent --show-error "$base_url/healthz")" = "ok" ]; then
               health_ready="yes"
               break
             fi
             sleep 1
           done
           if [ -z "$health_ready" ]; then
-            echo "The monitor never answered /api/health within 30 seconds."
+            echo "The monitor never answered ok on /healthz within 30 seconds."
             exit 1
           fi
           curl --fail --silent --show-error "$base_url/" > /dev/null
@@ -445,7 +447,6 @@ jobs:
           docker run --rm -d --name octometer-image-check \
             -p 8080:8080 \
             -v "$PWD/image-check-data:/data" \
-            -e OCTOMETER_ADMIN_TOKEN=check \
             octometer-monitor:ci
           health_ready=""
           for attempt in $(seq 1 30); do

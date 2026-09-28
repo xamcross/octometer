@@ -7,7 +7,6 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
-import io.ktor.http.encodeURLQueryComponent
 import io.ktor.server.testing.testApplication
 import java.sql.Connection
 import kotlinx.coroutines.runBlocking
@@ -20,8 +19,10 @@ import octometer.monitor.captureErrorLogEvents
 import octometer.monitor.captureLogEvents
 import octometer.monitor.devConfig
 import octometer.monitor.module
+import octometer.monitor.sessionCookieValueForAccount
 import octometer.monitor.store.SqliteDatabase
 import octometer.monitor.testDataDir
+import octometer.monitor.withSession
 import org.slf4j.LoggerFactory
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -36,20 +37,40 @@ import kotlin.test.assertTrue
 // D14, D15, and section 6. The literal `kind = 0` and the index
 // `event_agg` come from issue #109. The third filter `sessionId` is the
 // work of issue #113 (this file), on the index `event_session`.
+//
+// Issue #301, D52: every route below now needs a session, and every
+// app row now needs the account_id of that session. Each test runs as
+// [accountId], the one account that setUp seeds into [dataDir].
 class ElementsRouteTest {
 
     private val dataDir = testDataDir()
     private lateinit var database: SqliteDatabase
+    private var accountId: Long = 0
 
     @BeforeTest
     fun setUp() = runBlocking {
         database = SqliteDatabase.open(dataDir)
+        accountId = database.write { writer ->
+            writer.prepareStatement("INSERT INTO account (email, created_at) VALUES (?, ?)").use { insert ->
+                insert.setString(1, "elements-test@example.com")
+                insert.setLong(2, 1_700_000_000_000L)
+                insert.executeUpdate()
+            }
+            writer.createStatement().use { statement ->
+                statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+                    result.next()
+                    result.getLong(1)
+                }
+            }
+        }
     }
 
     @AfterTest
     fun tearDown() {
         database.close()
     }
+
+    private fun session(): String = sessionCookieValueForAccount(dataDir, accountId)
 
     // -- The level 3 statement (step 3) -----------------------------------
 
@@ -62,13 +83,13 @@ class ElementsRouteTest {
     @Test
     fun `two users of one app give one row for their shared element, with the right clicks and sessions`() =
         runBlocking {
-            val appId = insertApp(database, "shop")
+            val appId = insertApp(database, accountId, "shop")
             insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
             insertEvent(database, appId, "e2", "s2", "user-1", element = "checkout.save", kind = 0)
             insertEvent(database, appId, "e3", "s1", "user-1", element = "checkout.save", kind = 0)
             insertEvent(database, appId, "e4", "s3", "user-2", element = "checkout.save", kind = 0)
 
-            val userOneRows = successRows(database, appId, ElementsFilter.ByUser("user-1"))
+            val userOneRows = successRows(database, accountId, appId, ElementsFilter.ByUser("user-1"))
             val row = userOneRows.single()
 
             assertEquals("checkout.save", row.element)
@@ -78,14 +99,14 @@ class ElementsRouteTest {
 
     @Test
     fun `a second app never mixes its rows into the first app's totals`() = runBlocking {
-        val appOne = insertApp(database, "app-one")
-        val appTwo = insertApp(database, "app-two")
+        val appOne = insertApp(database, accountId, "app-one")
+        val appTwo = insertApp(database, accountId, "app-two")
         insertEvent(database, appOne, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
         insertEvent(database, appTwo, "e2", "s2", "user-1", element = "checkout.save", kind = 0)
         insertEvent(database, appTwo, "e3", "s2", "user-1", element = "checkout.save", kind = 0)
 
-        val rowsOfAppOne = successRows(database, appOne, ElementsFilter.ByUser("user-1"))
-        val rowsOfAppTwo = successRows(database, appTwo, ElementsFilter.ByUser("user-1"))
+        val rowsOfAppOne = successRows(database, accountId, appOne, ElementsFilter.ByUser("user-1"))
+        val rowsOfAppTwo = successRows(database, accountId, appTwo, ElementsFilter.ByUser("user-1"))
 
         assertEquals(1L, rowsOfAppOne.single().clicks)
         assertEquals(2L, rowsOfAppTwo.single().clicks)
@@ -93,11 +114,11 @@ class ElementsRouteTest {
 
     @Test
     fun `anonymous=true reads the rows with user_id IS NULL, and never a named user's rows`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", userId = null, element = "banner.close", kind = 0)
         insertEvent(database, appId, "e2", "s2", userId = "user-1", element = "banner.close", kind = 0)
 
-        val anonymousRows = successRows(database, appId, ElementsFilter.Anonymous)
+        val anonymousRows = successRows(database, accountId, appId, ElementsFilter.Anonymous)
 
         assertEquals(1L, anonymousRows.single().clicks, "only the row with user_id IS NULL counts")
     }
@@ -105,11 +126,11 @@ class ElementsRouteTest {
     @Test
     fun `a session start row (kind = 1) never shows as a row, and octo-session-start never appears`() =
         runBlocking {
-            val appId = insertApp(database, "shop")
+            val appId = insertApp(database, accountId, "shop")
             insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
             insertEvent(database, appId, "e2", "s1", "user-1", element = "octo:session-start", kind = 1)
 
-            val rows = successRows(database, appId, ElementsFilter.ByUser("user-1"))
+            val rows = successRows(database, accountId, appId, ElementsFilter.ByUser("user-1"))
 
             assertEquals(1, rows.size)
             assertEquals("checkout.save", rows.single().element)
@@ -118,36 +139,36 @@ class ElementsRouteTest {
     @Test
     fun `lastInteractionAt is the UTC ISO 8601 form of the newest click of the element, with milliseconds`() =
         runBlocking {
-            val appId = insertApp(database, "shop")
+            val appId = insertApp(database, accountId, "shop")
             insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0, ts = 1_700_000_000_000L)
             insertEvent(database, appId, "e2", "s1", "user-1", element = "checkout.save", kind = 0, ts = 1_700_000_000_123L)
 
-            val row = successRows(database, appId, ElementsFilter.ByUser("user-1")).single()
+            val row = successRows(database, accountId, appId, ElementsFilter.ByUser("user-1")).single()
 
             assertEquals("2023-11-14T22:13:20.123Z", row.lastInteractionAt)
         }
 
     @Test
     fun `an element with every character of the allowed pattern reads back unchanged`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         val fullPatternElement = "Aa9_.:-Zz0"
         insertEvent(database, appId, "e1", "s1", "user-1", element = fullPatternElement, kind = 0)
 
-        val row = successRows(database, appId, ElementsFilter.ByUser("user-1")).single()
+        val row = successRows(database, accountId, appId, ElementsFilter.ByUser("user-1")).single()
 
         assertEquals(fullPatternElement, row.element)
     }
 
     @Test
     fun `the order is clicks DESC then element ASC`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         // "beta" and "alpha" tie on one click each; "gamma" leads with two.
         insertEvent(database, appId, "e1", "s1", "user-1", element = "gamma", kind = 0)
         insertEvent(database, appId, "e2", "s2", "user-1", element = "gamma", kind = 0)
         insertEvent(database, appId, "e3", "s3", "user-1", element = "beta", kind = 0)
         insertEvent(database, appId, "e4", "s4", "user-1", element = "alpha", kind = 0)
 
-        val rows = successRows(database, appId, ElementsFilter.ByUser("user-1"))
+        val rows = successRows(database, accountId, appId, ElementsFilter.ByUser("user-1"))
 
         assertEquals(listOf("gamma", "alpha", "beta"), rows.map { it.element })
     }
@@ -155,12 +176,12 @@ class ElementsRouteTest {
     @Test
     fun `a user id with a quote character stays a bound parameter, and never breaks the statement`() =
         runBlocking {
-            val appId = insertApp(database, "shop")
+            val appId = insertApp(database, accountId, "shop")
             val hostileUserId = "o'brien\"; DROP TABLE event; --"
             insertEvent(database, appId, "e1", "s1", hostileUserId, element = "checkout.save", kind = 0)
             insertEvent(database, appId, "e2", "s2", "user-1", element = "checkout.save", kind = 0)
 
-            val rows = successRows(database, appId, ElementsFilter.ByUser(hostileUserId))
+            val rows = successRows(database, accountId, appId, ElementsFilter.ByUser(hostileUserId))
 
             assertEquals(1L, rows.single().clicks)
             // MINOR 1 of the SQL review: COUNT(*) always returns one row,
@@ -179,7 +200,7 @@ class ElementsRouteTest {
 
     @Test
     fun `an unknown app id gives AppNotFound`() = runBlocking {
-        val result = loadElementTotals(database, appId = 999_999L, filter = ElementsFilter.ByUser("user-1"))
+        val result = loadElementTotals(database, accountId, appId = 999_999L, filter = ElementsFilter.ByUser("user-1"))
 
         assertEquals(ElementsResult.AppNotFound, result)
     }
@@ -194,7 +215,7 @@ class ElementsRouteTest {
     // index still selects the rows, and not the whole table.
     @Test
     fun `EXPLAIN QUERY PLAN shows the covering index event_agg for the level 3 statement`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
 
         val plan = database.read { reader -> explainPlanLines(reader, ELEMENT_TOTALS_SQL) }
@@ -307,14 +328,16 @@ class ElementsRouteTest {
 
     @Test
     fun `GET with userId answers 200 with the rows field and the four JSON names`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
         database.close()
 
         testApplication {
             application { module(devConfig(dataDir)) }
+            startApplication()
+            val cookie = session()
 
-            val response = client.get("/api/apps/$appId/elements?userId=user-1") { allowedHost() }
+            val response = client.get("/api/apps/$appId/elements?userId=user-1") { allowedHost(); withSession(cookie) }
 
             assertEquals(HttpStatusCode.OK, response.status)
             val rows = Json.parseToJsonElement(response.bodyAsText()).jsonObject.getValue("rows").jsonArray
@@ -337,14 +360,18 @@ class ElementsRouteTest {
     @Test
     fun `GET with userId answers with Cache-Control no-store, no CORS header, and application-json`() =
         runBlocking {
-            val appId = insertApp(database, "shop")
+            val appId = insertApp(database, accountId, "shop")
             insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
             database.close()
 
             testApplication {
                 application { module(devConfig(dataDir)) }
+                startApplication()
+                val cookie = session()
 
-                val response = client.get("/api/apps/$appId/elements?userId=user-1") { allowedHost() }
+                val response = client.get("/api/apps/$appId/elements?userId=user-1") {
+                    allowedHost(); withSession(cookie)
+                }
 
                 assertEquals(HttpStatusCode.OK, response.status)
                 assertEquals("no-store", response.headers[HttpHeaders.CacheControl])
@@ -362,15 +389,17 @@ class ElementsRouteTest {
     // locks the JSON round trip of the value.
     @Test
     fun `an element with HTML text reaches the response as one JSON string value`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         val hostileElement = "<script>alert(1)</script>"
         insertEvent(database, appId, "e1", "s1", "user-1", element = hostileElement, kind = 0)
         database.close()
 
         testApplication {
             application { module(devConfig(dataDir)) }
+            startApplication()
+            val cookie = session()
 
-            val response = client.get("/api/apps/$appId/elements?userId=user-1") { allowedHost() }
+            val response = client.get("/api/apps/$appId/elements?userId=user-1") { allowedHost(); withSession(cookie) }
 
             assertEquals("application/json", response.headers[HttpHeaders.ContentType])
             assertEquals("nosniff", response.headers["X-Content-Type-Options"])
@@ -387,15 +416,17 @@ class ElementsRouteTest {
     // behaviour instead of silently allowing it.
     @Test
     fun `an app id with a leading zero or a leading plus sign still reaches the same app`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
         database.close()
 
         testApplication {
             application { module(devConfig(dataDir)) }
+            startApplication()
+            val cookie = session()
 
-            val leadingZero = client.get("/api/apps/0$appId/elements?userId=user-1") { allowedHost() }
-            val leadingPlus = client.get("/api/apps/+$appId/elements?userId=user-1") { allowedHost() }
+            val leadingZero = client.get("/api/apps/0$appId/elements?userId=user-1") { allowedHost(); withSession(cookie) }
+            val leadingPlus = client.get("/api/apps/+$appId/elements?userId=user-1") { allowedHost(); withSession(cookie) }
 
             assertEquals(HttpStatusCode.OK, leadingZero.status)
             assertEquals(HttpStatusCode.OK, leadingPlus.status)
@@ -405,14 +436,16 @@ class ElementsRouteTest {
 
     @Test
     fun `GET with no filter gets 400, not 500, and writes no ERROR log line`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         database.close()
 
         testApplication {
             application { module(devConfig(dataDir)) }
+            startApplication()
+            val cookie = session()
 
             val (response, errorEvents) = captureErrorLogEvents {
-                client.get("/api/apps/$appId/elements") { allowedHost() }
+                client.get("/api/apps/$appId/elements") { allowedHost(); withSession(cookie) }
             }
 
             assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -427,8 +460,10 @@ class ElementsRouteTest {
 
         testApplication {
             application { module(devConfig(dataDir)) }
+            startApplication()
+            val cookie = session()
 
-            val response = client.get("/api/apps/999999/elements?anonymous=true") { allowedHost() }
+            val response = client.get("/api/apps/999999/elements?anonymous=true") { allowedHost(); withSession(cookie) }
 
             assertEquals(HttpStatusCode.NotFound, response.status)
         }
@@ -441,8 +476,12 @@ class ElementsRouteTest {
 
         testApplication {
             application { module(devConfig(dataDir)) }
+            startApplication()
+            val cookie = session()
 
-            val response = client.get("/api/apps/not-a-number/elements?anonymous=true") { allowedHost() }
+            val response = client.get("/api/apps/not-a-number/elements?anonymous=true") {
+                allowedHost(); withSession(cookie)
+            }
 
             assertEquals(HttpStatusCode.BadRequest, response.status)
         }
@@ -456,15 +495,17 @@ class ElementsRouteTest {
     // `captureLogEvents`, which keeps every level.
     @Test
     fun `a request with a userId query string writes no log line that holds that value`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", "the-secret-user-id", element = "checkout.save", kind = 0)
         database.close()
 
         testApplication {
             application { module(devConfig(dataDir)) }
+            startApplication()
+            val cookie = session()
 
             val (_, events) = captureLogEvents {
-                client.get("/api/apps/$appId/elements?userId=the-secret-user-id") { allowedHost() }
+                client.get("/api/apps/$appId/elements?userId=the-secret-user-id") { allowedHost(); withSession(cookie) }
             }
 
             assertTrue(events.none { it.formattedMessage.contains("the-secret-user-id") })
@@ -477,14 +518,14 @@ class ElementsRouteTest {
 
     @Test
     fun `sessionId counts only the clicks of that one session, with kind = 0`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         val sessionId = "22222222-2222-2222-2222-222222222222"
         insertEvent(database, appId, "e1", sessionId, "user-1", element = "checkout.save", kind = 0)
         insertEvent(database, appId, "e2", sessionId, "user-1", element = "checkout.save", kind = 0)
         insertEvent(database, appId, "e3", sessionId, "user-1", element = "octo:session-start", kind = 1)
         insertEvent(database, appId, "e4", "a-different-session", "user-1", element = "checkout.save", kind = 0)
 
-        val rows = successRows(database, appId, ElementsFilter.BySession(sessionId))
+        val rows = successRows(database, accountId, appId, ElementsFilter.BySession(sessionId))
 
         assertEquals(1, rows.size)
         assertEquals("checkout.save", rows.single().element)
@@ -493,13 +534,17 @@ class ElementsRouteTest {
 
     @Test
     fun `GET with a sessionId that is not a UUID form gets 400`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         database.close()
 
         testApplication {
             application { module(devConfig(dataDir)) }
+            startApplication()
+            val cookie = session()
 
-            val response = client.get("/api/apps/$appId/elements?sessionId=not-a-uuid") { allowedHost() }
+            val response = client.get("/api/apps/$appId/elements?sessionId=not-a-uuid") {
+                allowedHost(); withSession(cookie)
+            }
 
             assertEquals(HttpStatusCode.BadRequest, response.status)
         }
@@ -508,15 +553,19 @@ class ElementsRouteTest {
 
     @Test
     fun `GET with sessionId alone answers 200 with the rows field`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         val sessionId = "33333333-3333-3333-3333-333333333333"
         insertEvent(database, appId, "e1", sessionId, "user-1", element = "checkout.save", kind = 0)
         database.close()
 
         testApplication {
             application { module(devConfig(dataDir)) }
+            startApplication()
+            val cookie = session()
 
-            val response = client.get("/api/apps/$appId/elements?sessionId=$sessionId") { allowedHost() }
+            val response = client.get("/api/apps/$appId/elements?sessionId=$sessionId") {
+                allowedHost(); withSession(cookie)
+            }
 
             assertEquals(HttpStatusCode.OK, response.status)
             val rows = Json.parseToJsonElement(response.bodyAsText()).jsonObject.getValue("rows").jsonArray
@@ -533,11 +582,11 @@ class ElementsRouteTest {
     // layer itself still treats sessionId as a bound parameter.
     @Test
     fun `a hostile sessionId value is a bound parameter, thus the rows stay unchanged`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
         val hostileSessionId = "'; DROP TABLE event; --"
 
-        val result = loadElementTotals(database, appId, ElementsFilter.BySession(hostileSessionId))
+        val result = loadElementTotals(database, accountId, appId, ElementsFilter.BySession(hostileSessionId))
 
         check(result is ElementsResult.Success)
         assertEquals(emptyList(), result.rows, "no session has that literal id")
@@ -554,7 +603,7 @@ class ElementsRouteTest {
 
     @Test
     fun `EXPLAIN QUERY PLAN shows the index event_session for the sessionId statement`() = runBlocking {
-        val appId = insertApp(database, "shop")
+        val appId = insertApp(database, accountId, "shop")
         insertEvent(database, appId, "e1", "s1", "user-1", element = "checkout.save", kind = 0)
 
         val plan = database.read { reader ->
@@ -580,23 +629,31 @@ class ElementsRouteTest {
     @Test
     fun `a request with a sessionId query string writes no log line that holds that value, on 200, 400, and 404`() =
         runBlocking {
-            val appId = insertApp(database, "shop")
+            val appId = insertApp(database, accountId, "shop")
             val sessionId = "44444444-4444-4444-4444-444444444444"
             insertEvent(database, appId, "e1", sessionId, "user-1", element = "checkout.save", kind = 0)
             database.close()
 
             testApplication {
                 application { module(devConfig(dataDir)) }
+                startApplication()
+                val cookie = session()
 
                 lateinit var okStatus: HttpStatusCode
                 lateinit var badRequestStatus: HttpStatusCode
                 lateinit var notFoundStatus: HttpStatusCode
                 val (_, events) = captureLogEvents {
-                    okStatus = client.get("/api/apps/$appId/elements?sessionId=$sessionId") { allowedHost() }.status
+                    okStatus = client.get("/api/apps/$appId/elements?sessionId=$sessionId") {
+                        allowedHost(); withSession(cookie)
+                    }.status
                     badRequestStatus =
-                        client.get("/api/apps/$appId/elements?sessionId=not-a-uuid") { allowedHost() }.status
+                        client.get("/api/apps/$appId/elements?sessionId=not-a-uuid") {
+                            allowedHost(); withSession(cookie)
+                        }.status
                     notFoundStatus =
-                        client.get("/api/apps/999999/elements?sessionId=$sessionId") { allowedHost() }.status
+                        client.get("/api/apps/999999/elements?sessionId=$sessionId") {
+                            allowedHost(); withSession(cookie)
+                        }.status
                 }
 
                 assertEquals(HttpStatusCode.OK, okStatus)
@@ -672,21 +729,27 @@ private fun assertNoThrowableHoldsMarker(proxy: IThrowableProxy?, marker: String
 private fun paramsOf(vararg pairs: Pair<String, String>): Parameters =
     Parameters.build { for ((key, value) in pairs) append(key, value) }
 
-private suspend fun successRows(database: SqliteDatabase, appId: Long, filter: ElementsFilter): List<ElementRow> {
-    val result = loadElementTotals(database, appId, filter)
+private suspend fun successRows(
+    database: SqliteDatabase,
+    accountId: Long,
+    appId: Long,
+    filter: ElementsFilter,
+): List<ElementRow> {
+    val result = loadElementTotals(database, accountId, appId, filter)
     check(result is ElementsResult.Success) { "expected Success, got $result" }
     return result.rows
 }
 
-private suspend fun insertApp(database: SqliteDatabase, name: String): Long =
+private suspend fun insertApp(database: SqliteDatabase, accountId: Long, name: String): Long =
     database.write { writer ->
         writer.prepareStatement(
-            "INSERT INTO app (name, database_name, collection_name, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO app (name, database_name, collection_name, created_at, account_id) VALUES (?, ?, ?, ?, ?)",
         ).use { insert ->
             insert.setString(1, name)
             insert.setString(2, "db")
             insert.setString(3, "octometer_events")
             insert.setLong(4, 1_700_000_000_000L)
+            insert.setLong(5, accountId)
             insert.executeUpdate()
         }
         writer.createStatement().use { statement ->

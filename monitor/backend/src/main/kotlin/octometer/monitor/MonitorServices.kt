@@ -1,11 +1,16 @@
 package octometer.monitor
 
+import java.io.File
 import java.io.IOException
 import java.time.Clock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.accounts.SignInService
 import octometer.monitor.backup.DailyBackupJob
 import octometer.monitor.config.MonitorConfig
+import octometer.monitor.mail.FileMailSender
+import octometer.monitor.mail.MailSender
+import octometer.monitor.mail.ResendMailSender
 import octometer.monitor.mongo.MongoAppReader
 import octometer.monitor.poll.PollCycle
 import octometer.monitor.poll.PollScheduler
@@ -41,11 +46,23 @@ class MonitorServices private constructor(
 
     val appRegistryService: AppRegistryService = AppRegistryService(database, secretStore)
 
+    // Issue #301, D52: the mail sender follows config.mailSender
+    // (resend in the hosted service, file in the local run and in the
+    // end-to-end suite). signInService owns the sign-in, the confirm,
+    // the sign-out, and the /api/me logic.
+    private val mailSender: MailSender = when (config.mailSender) {
+        "file" -> FileMailSender(File(config.mailDir))
+        else -> ResendMailSender(apiKey = config.mailApiKey, from = config.mailFrom)
+    }
+    val signInService: SignInService = SignInService(database, mailSender, linkBaseUrl(config))
+
     // Issue #55: close() waits for a backup that runs, so the caller
     // never sees a half-written backup file. Issue #59: close() also
     // stops the retention purge job. Issue #17: close() also stops the
     // poll scheduler, and closes each kept MongoDB client of the reader.
+    // Issue #301: close() also cancels the sign-in mail scope.
     override fun close() {
+        signInService.close()
         runBlocking { dailyBackupJob.stop() }
         retentionPurgeJob.stop()
         runBlocking { pollScheduler.stop() }
@@ -167,6 +184,12 @@ private fun newRetentionPurgeJob(database: SqliteDatabase, retentionDays: Int): 
     val purge = RetentionPurge(database, Clock.systemUTC())
     return RetentionPurgeJob(action = { purge.purgeOnce(retentionDays) })
 }
+
+// Issue #301, brief review B3: a blank publicUrl (the local run, the
+// end-to-end suite) gives the loopback link base, so the sign-in mail
+// still carries a link that the same machine can open.
+private fun linkBaseUrl(config: MonitorConfig): String =
+    config.publicUrl.ifBlank { "http://127.0.0.1:${config.port}" }
 
 private suspend fun sweepOrphanSecrets(database: SqliteDatabase, secretStore: SecretStore): Int {
     val appIds = database.read { reader ->

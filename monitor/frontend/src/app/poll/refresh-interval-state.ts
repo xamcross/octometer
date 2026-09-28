@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, Signal, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import {
@@ -76,6 +76,13 @@ export class RefreshIntervalState {
    * The interval in ms. It tries the health route again each 5 seconds
    * until it gets a valid answer, then it stops. `shareReplay` gives the
    * cached answer to a later subscriber, and it sends no new request.
+   *
+   * Issue #301, brief review B4: `/api/health` now needs a session, so
+   * a visitor that has not signed in yet gets a 401 here. That answer
+   * never sets [errorState] (never shows the banner): the auth
+   * interceptor already sends the visitor to `/signin` for every 401 of
+   * `/api/`, so the banner would only flash for an instant, on a page
+   * the visitor is already leaving.
    */
   readonly intervalMs$: Observable<number> = timer(0, HEALTH_RETRY_MS).pipe(
     exhaustMap(() =>
@@ -90,7 +97,9 @@ export class RefreshIntervalState {
             : FALLBACK_INTERVAL_MS;
         }),
         catchError((healthError: unknown) => {
-          this.errorState.set(healthError);
+          if (!(healthError instanceof HttpErrorResponse && healthError.status === 401)) {
+            this.errorState.set(healthError);
+          }
           return of(undefined);
         }),
       ),

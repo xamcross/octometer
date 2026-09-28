@@ -493,11 +493,11 @@ class ConfigLoaderTest {
         assertEquals(0, resolved.config.settleLagSeconds)
     }
 
-    // Issue #295, brief review B1: logStart prints "set" or "not set" for
-    // each of the three secret keys, never the real value. markerConfigValue,
-    // not clusterUri = "...": the implementer rule of the secret scan
-    // keeps a secret-shaped literal off a line beside a name that holds
-    // the word "key".
+    // Issue #295, brief review B1; issue #301 drops adminToken.
+    // logStart prints "set" or "not set" for each secret key, never the
+    // real value. markerConfigValue, not clusterUri = "...": the
+    // implementer rule of the secret scan keeps a secret-shaped literal
+    // off a line beside a name that holds the word "key".
     @Test
     fun `logStart prints set or not set for each secret key, never the value`() = runBlocking {
         val userFile = missingUserConfigFile()
@@ -517,56 +517,43 @@ class ConfigLoaderTest {
 
         assertTrue(lines.contains("clusterUri = set"), "clusterUri must print set: $lines")
         assertTrue(lines.contains("mailApiKey = set"), "mailApiKey must print set: $lines")
-        assertTrue(lines.contains("adminToken = not set"), "adminToken must print not set: $lines")
         assertFalse(lines.contains(markerConfigValue), "the log must never hold the real secret value")
     }
 
-    // Issue #295, brief review B2: the admin guard fails closed. A
-    // public bind in prod mode with no adminToken gives a clear start
-    // error.
+    // Issue #301, brief review M8: the default of mailSender is "file"
+    // when publicUrl is blank or a loopback host, else "resend".
     @Test
-    fun `requireHostedSecrets gives a clear error when adminToken is missing and the bind is public, in prod mode`() {
-        val config = MonitorConfig(
-            mode = "prod",
-            port = 7431,
-            dataDir = "build/test-hosted-secrets-data",
-            settleLagSeconds = 60,
-            retentionDays = 395,
-            pollIntervalSeconds = 60,
-            bind = "0.0.0.0",
+    fun `the bundled default of mailSender is file with a blank publicUrl, and resend with a public host`() {
+        val userFile = missingUserConfigFile()
+
+        val blankPublicUrl = loadConfig(args = emptyArray(), env = emptyMap(), userConfigFile = userFile)
+        val loopbackPublicUrl = loadConfig(
+            args = arrayOf("-P:octometer.publicUrl=http://127.0.0.1:7431"),
+            env = emptyMap(),
+            userConfigFile = userFile,
+        )
+        val publicHost = loadConfig(
+            args = arrayOf("-P:octometer.publicUrl=https://app.0ct0meter.com"),
+            env = emptyMap(),
+            userConfigFile = userFile,
         )
 
-        val error = assertFailsWith<InvalidConfigException> { requireHostedSecrets(config) }
-        assertTrue(error.message!!.contains("adminToken"))
+        assertEquals("file", blankPublicUrl.config.mailSender)
+        assertEquals("file", loopbackPublicUrl.config.mailSender)
+        assertEquals("resend", publicHost.config.mailSender)
     }
 
     @Test
-    fun `requireHostedSecrets passes with a set adminToken, and with a loopback bind and no adminToken`() {
-        // markerConfigValue, not adminToken = "...": the implementer rule
-        // of the secret scan keeps a secret-shaped literal off a line
-        // beside a name that holds the word "token".
-        val markerConfigValue = "octoadminguardmarker7f3a"
-        val hostedConfig = MonitorConfig(
-            mode = "prod",
-            port = 7431,
-            dataDir = "build/test-hosted-secrets-data",
-            settleLagSeconds = 60,
-            retentionDays = 395,
-            pollIntervalSeconds = 60,
-            bind = "0.0.0.0",
-            adminToken = markerConfigValue,
-        )
-        val desktopConfig = MonitorConfig(
-            mode = "prod",
-            port = 7431,
-            dataDir = "build/test-hosted-secrets-data",
-            settleLagSeconds = 60,
-            retentionDays = 395,
-            pollIntervalSeconds = 60,
-        )
+    fun `an OCTOMETER_MAIL_SENDER value outside resend and file gives an InvalidConfigException`() {
+        val userFile = missingUserConfigFile()
 
-        requireHostedSecrets(hostedConfig)
-        requireHostedSecrets(desktopConfig)
+        assertFailsWith<InvalidConfigException> {
+            loadConfig(
+                args = emptyArray(),
+                env = mapOf("OCTOMETER_MAIL_SENDER" to "carrier-pigeon"),
+                userConfigFile = userFile,
+            )
+        }
     }
 
     private fun userConfigFile(content: String): File {

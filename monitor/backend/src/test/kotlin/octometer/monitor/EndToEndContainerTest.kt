@@ -175,6 +175,11 @@ class EndToEndContainerTest {
     private val root = Files.createTempDirectory("octometer-e2e-container-test-").toFile().also { registerTempRoot(it) }
     private val httpClient: HttpClient = HttpClient.newHttpClient()
 
+    // Issue #301, D52: every route below now needs a session. The test
+    // body sets this right after the monitor server starts; every HTTP
+    // helper below reads it.
+    private lateinit var session: String
+
     // classLoadNanos, not a fresh System.nanoTime() here, so the class
     // time budget below also covers the start of the two containers
     // (Kotlin review MINOR 4 of pull request #185).
@@ -226,6 +231,7 @@ class EndToEndContainerTest {
             )
             val monitorServer = embeddedServer(Netty, host = "127.0.0.1", port = monitorPort) { module(config) }
             monitorServer.start(wait = false)
+            session = sessionCookieValue(config.dataDir)
 
             try {
                 val (_, logEvents) = captureLogEvents {
@@ -447,6 +453,7 @@ class EndToEndContainerTest {
         val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$monitorPort/api/apps"))
             .header("Origin", "http://127.0.0.1:$monitorPort")
             .header("Content-Type", "application/json")
+            .header("Cookie", session)
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build()
         val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
@@ -468,6 +475,7 @@ class EndToEndContainerTest {
         val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$monitorPort/api/apps/$appId"))
             .header("Origin", "http://127.0.0.1:$monitorPort")
             .header("Content-Type", "application/json")
+            .header("Cookie", session)
             .method("PATCH", HttpRequest.BodyPublishers.ofString(body))
             .build()
         val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
@@ -478,6 +486,7 @@ class EndToEndContainerTest {
 
     private fun fetchAppRows(monitorPort: Int): List<AppRow> {
         val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$monitorPort/api/apps"))
+            .header("Cookie", session)
             .GET()
             .build()
         val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())

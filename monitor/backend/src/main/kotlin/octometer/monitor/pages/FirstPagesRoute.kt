@@ -8,6 +8,7 @@ import io.ktor.server.routing.get
 import java.sql.Connection
 import kotlinx.serialization.Serializable
 import octometer.monitor.ErrorBody
+import octometer.monitor.accounts.accountId
 import octometer.monitor.store.SqliteDatabase
 
 /** The row count of one page (issue #112, step 1). */
@@ -38,7 +39,7 @@ internal const val FIRST_PAGES_PAGE_SQL =
 internal const val FIRST_PAGES_COUNT_SQL =
     "SELECT COUNT(*) FROM (SELECT path FROM event WHERE app_id = ? AND kind = 1 GROUP BY path)"
 
-private const val APP_EXISTS_SQL = "SELECT 1 FROM app WHERE id = ?"
+private const val APP_EXISTS_SQL = "SELECT 1 FROM app WHERE id = ? AND account_id = ?"
 
 /**
  * One row of `GET /api/apps/{appId}/first-pages` (D13, D44). `path` is
@@ -76,7 +77,7 @@ fun Route.firstPagesRoute(database: SqliteDatabase) {
             call.respond(HttpStatusCode.BadRequest, ErrorBody(PAGE_MESSAGE))
             return@get
         }
-        when (val result = loadFirstPages(database, appId, requestedPage)) {
+        when (val result = loadFirstPages(database, call.accountId(), appId, requestedPage)) {
             FirstPagesResult.AppNotFound ->
                 call.respond(HttpStatusCode.NotFound, ErrorBody(APP_NOT_FOUND_MESSAGE))
             is FirstPagesResult.Success ->
@@ -105,11 +106,12 @@ private fun parsePage(raw: String?): Int? {
  */
 suspend fun loadFirstPages(
     database: SqliteDatabase,
+    accountId: Long,
     appId: Long,
     requestedPage: Int,
 ): FirstPagesResult =
     database.read { reader ->
-        if (!appExists(reader, appId)) {
+        if (!appExists(reader, accountId, appId)) {
             return@read FirstPagesResult.AppNotFound
         }
         val total = countFirstPages(reader, appId)
@@ -121,9 +123,10 @@ suspend fun loadFirstPages(
 
 private fun ceilDiv(total: Int, size: Int): Int = (total + size - 1) / size
 
-private fun appExists(reader: Connection, appId: Long): Boolean =
+private fun appExists(reader: Connection, accountId: Long, appId: Long): Boolean =
     reader.prepareStatement(APP_EXISTS_SQL).use { statement ->
         statement.setLong(1, appId)
+        statement.setLong(2, accountId)
         statement.executeQuery().use { it.next() }
     }
 

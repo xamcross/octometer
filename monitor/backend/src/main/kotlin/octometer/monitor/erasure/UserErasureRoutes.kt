@@ -7,6 +7,7 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import kotlinx.serialization.Serializable
 import octometer.monitor.ErrorBody
+import octometer.monitor.accounts.accountId
 import octometer.monitor.store.SqliteDatabase
 
 /** Contract rule C6: a `userId` string has 1 to 254 characters. */
@@ -47,7 +48,7 @@ fun Route.userErasureRoutes(database: SqliteDatabase) {
             call.respond(HttpStatusCode.BadRequest, ErrorBody("The user id must have at most 254 characters."))
             return@delete
         }
-        val found = database.read { reader -> appExists(reader, appId) }
+        val found = database.read { reader -> appExists(reader, call.accountId(), appId) }
         if (!found) {
             call.respond(HttpStatusCode.NotFound, ErrorBody("The app is not registered."))
             return@delete
