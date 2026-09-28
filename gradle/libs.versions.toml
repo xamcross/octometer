@@ -4,7 +4,7 @@ kotlin = "2.4.20"
 ktor = "3.6.0"
 kotlinx-serialization = "1.11.0"
 kotlinx-coroutines = "1.11.0"
-logback = "1.6.3"
+logback = "1.6.4"
 typesafe-config = "1.4.9"
 # The compile version of kit/jvm-mongo, the version of the Spring Boot 3.3
 # BOM (design decision D22).
@@ -19,7 +19,7 @@ mongodb-sync-newest = "5.12.0"
 # monorepo stay in step. Confirmed on Maven Central on 2026-09-22
 # (repo1.maven.org/maven2/org/mongodb/mongodb-driver-kotlin-coroutine/):
 # version 5.0.1 exists for this artifact too.
-mongodb-driver-kotlin-coroutine = "5.0.1"
+mongodb-driver-kotlin-coroutine = "5.13.0"
 sqlite-jdbc = "3.53.4.0"
 # The version of the three kit publications of JitPack (design decision
 # D25, issue #37). A release bump (D26, issue #39) changes this entry
@@ -28,7 +28,7 @@ octometer-kit = "0.3.0"
 # Test-only versions of kit/jvm-mongo. Each one is the current release on
 # Maven Central, confirmed on 2026-09-21.
 junit = "6.1.3"
-mockito = "5.23.0"
+mockito = "5.24.0"
 testcontainers = "2.0.5"
 # The compile version of kit/jvm-spring (design decision D17, issue #69):
 # the Spring Framework version of the Spring Boot 3.4.1 dependency list.
@@ -37,7 +37,7 @@ testcontainers = "2.0.5"
 # spring-boot-project/spring-boot-dependencies/build.gradle holds the
 # Jakarta Servlet entry "6.0.0" for the same tag.
 spring-framework = "6.2.1"
-jakarta-servlet-api = "6.0.0"
+jakarta-servlet-api = "6.1.0"
 # Issue #176, decision 1. The coverage tool of each of the six JVM
 # modules. Confirmed on Maven Central on 2026-09-27
 # (repo1.maven.org/maven2/org/jacoco/org.jacoco.agent/maven-metadata.xml):
