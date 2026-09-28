@@ -80,6 +80,7 @@ public final class IngestController {
 
     private final IngestRequestProcessor processor;
     private final SpringUserIdResolver userIdResolver;
+    private final EventLogStore store;
 
     /**
      * Builds one controller with the default settings, clock, rate
@@ -148,6 +149,7 @@ public final class IngestController {
             Clock clock, IngestRateLimiter rateLimiter, AnonymousMinuteLimiter minuteLimiter,
             AnonymousDailyCap dailyCap, String clientIpHeaderName, int trustedProxyCount) {
         this.userIdResolver = Objects.requireNonNull(userIdResolver, "userIdResolver must not be null");
+        this.store = Objects.requireNonNull(store, "store must not be null");
         this.processor = new IngestRequestProcessor(store, settings, clock, rateLimiter, minuteLimiter, dailyCap,
                 clientIpHeaderName, trustedProxyCount);
     }
@@ -171,6 +173,16 @@ public final class IngestController {
      */
     IngestSettings settings() {
         return processor.settings();
+    }
+
+    /**
+     * Gives the event log store of this controller (design decision
+     * D47, issue #276). {@link RoutePatternDerivationInitializer} calls
+     * {@link EventLogStore#publishRoutePatterns} on this value, once,
+     * after a successful derivation.
+     */
+    EventLogStore store() {
+        return store;
     }
 
     /**

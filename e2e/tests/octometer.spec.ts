@@ -1,3 +1,5 @@
+import { MongoClient } from 'mongodb';
+
 import { expect, test } from '../fixtures';
 import { AppsPage } from '../pages/apps-page';
 import { BreadcrumbPart } from '../pages/breadcrumb-part';
@@ -17,6 +19,14 @@ import { UsersPage } from '../pages/users-page';
  * bound, never a fixed sleep (acceptance criterion 3 of issue #175).
  */
 const CHAIN_WAIT_MS = 30_000;
+
+/** The config document of contract rule C44 (design decision D47, issue #276). */
+interface RoutePatternsDocument {
+  readonly _id: string;
+  readonly patterns: ReadonlyArray<string>;
+  readonly kitVersion: string;
+  readonly publishedAt: Date;
+}
 
 /**
  * One serial file, one shared app (decision 5). The scenarios run in
@@ -288,4 +298,44 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
       await firstPages.expectSessions('/items/:id', 1, CHAIN_WAIT_MS);
     },
   );
+
+  // Issue #276, design decision D47: the kit publishes its derived route
+  // pattern list into octometer_config, on the app's own database user.
+  // This scenario reads the document with the mongodb Node driver
+  // directly (a pinned dev dependency of e2e/), never through the
+  // monitor, because the monitor's own read of this document is a later
+  // story.
+  test('the app publishes its route list (design decision D47)', async () => {
+    const mongoPort = process.env.E2E_MONGO_PORT;
+    if (!mongoPort) {
+      throw new Error('E2E_MONGO_PORT is absent. The global setup did not run, or it failed.');
+    }
+
+    const client = new MongoClient(`mongodb://127.0.0.1:${mongoPort}`);
+    try {
+      await client.connect();
+      const collection = client.db('exampledb').collection<RoutePatternsDocument>('octometer_config');
+      const configDoc = await collection.findOne({ _id: 'route-patterns' });
+      if (!configDoc) {
+        throw new Error('The document "route-patterns" is absent from octometer_config.');
+      }
+
+      // Design decision D46: the demo app serves three GET routes, "/",
+      // "/items/{id}", and "/tracker/{fileName}" (Application.kt,
+      // demoModule). The kit's sort puts a literal segment before a
+      // ":name" segment, then orders by text, so "/items/:id" comes
+      // before "/tracker/:fileName".
+      expect(configDoc.patterns).toEqual(['/', '/items/:id', '/tracker/:fileName']);
+
+      expect(typeof configDoc.kitVersion).toBe('string');
+      expect(configDoc.kitVersion.length).toBeGreaterThan(0);
+
+      expect(configDoc.publishedAt).toBeInstanceOf(Date);
+      const ageMs = Date.now() - configDoc.publishedAt.getTime();
+      expect(ageMs).toBeGreaterThanOrEqual(0);
+      expect(ageMs).toBeLessThan(10 * 60 * 1000);
+    } finally {
+      await client.close();
+    }
+  });
 });

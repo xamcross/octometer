@@ -90,6 +90,11 @@ public fun defaultStoreDispatcher(): CoroutineDispatcher = Dispatchers.IO.limite
  * read `kit/jvm-ktor/README.md` for the full rule and for
  * `OCTOMETER_PATH_EXCLUDE`.
  *
+ * A successful derivation also calls [store]'s
+ * [octometer.kit.core.store.EventLogStore.publishRoutePatterns] with the
+ * derived list (design decision D47, issue #276); see
+ * [installRoutePatternDerivation] for the full rule.
+ *
  * **The order of the checks (design decision D43, issue #117; issue #116;
  * issue #69).** [IngestRequestProcessor] of `kit/jvm-core` now holds the
  * order of the checks; this function is a thin adapter over it. Read the
@@ -215,7 +220,7 @@ public fun Route.octometerIngestRoute(
         trustedProxyCount,
     )
     if (deriveRoutePatterns) {
-        installRoutePatternDerivation(application, ingestPath, settings, processor)
+        installRoutePatternDerivation(application, ingestPath, settings, processor, store)
     }
 
     post(ingestPath) {

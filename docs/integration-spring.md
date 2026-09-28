@@ -154,9 +154,30 @@ run no `collMod` repair of that index. Without `find`, the event cap of design d
 D21 never stops the ingest, and the store writes one warning each hour, with the MongoDB
 error code.
 
+The role also needs `insert` and `update` on `octometer_config` (design decision D47,
+issue #276). `publishRoutePatterns` upserts the route pattern list there at each app
+start, through this same user. Without the two actions, the upsert fails, the store
+writes one warning, and the monitor never sees the route list.
+
+```
+atlas customDbRoles create octometerApp --privilege INSERT@<database>.octometer_events,CREATE_INDEX@<database>.octometer_events,COLL_MOD@<database>.octometer_events,FIND@<database>.octometer_events,INSERT@<database>.octometer_config,UPDATE@<database>.octometer_config --projectId <id>
+atlas dbusers create --username octometer-app --role octometerApp --projectId <id>
+```
+
+**An existing deployment.** A role from before issue #276 holds the four actions on
+`octometer_events` only. `atlas customDbRoles update` replaces the whole privilege
+list; a call with only the two new actions drops the four old ones (Atlas CLI 1.56.0:
+"Passing this flag replaces preexisting data"). Give all six actions in the one call:
+
+```
+atlas customDbRoles update octometerApp --privilege INSERT@<database>.octometer_events,CREATE_INDEX@<database>.octometer_events,COLL_MOD@<database>.octometer_events,FIND@<database>.octometer_events,INSERT@<database>.octometer_config,UPDATE@<database>.octometer_config --projectId <id>
+```
+
 Read sections 3 and 4 of `docs/integration-ktor.md` for the read-only database user of
-the monitor and the three Atlas alerts. That user is not the app database user of this
-section.
+the monitor and the three Atlas alerts. That role now holds `find` on `octometer_events`
+and on `octometer_config` (design decision D47, issue #276), the config document of the
+app's route pattern list; the role command and the sentence for an existing deployment
+are both in section 3. That user is not the app database user of this section.
 
 Read section 7 of `docs/integration-ktor.md` for `deleteByUserId`, the 3 passes, and the
 erasure order (contract rule C43, design decision D15).

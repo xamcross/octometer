@@ -1,0 +1,94 @@
+{
+  "database": "exampledb",
+  "databaseWarning": null,
+  "eventsCollection": "octometer_events",
+  "otherCollection": "octometer_probe_other",
+  "connectionStatus": {
+    "authInfo": {
+      "authenticatedUsers": [
+        {
+          "user": "REDACTED",
+          "db": "admin"
+        }
+      ],
+      "authenticatedUserRoles": [
+        {
+          "role": "octometerEventReader",
+          "db": "admin"
+        }
+      ],
+      "authenticatedUserPrivileges": [
+        {
+          "resource": {
+            "db": "exampledb",
+            "collection": "octometer_events"
+          },
+          "actions": [
+            "find"
+          ]
+        },
+        {
+          "resource": {
+            "db": "exampledb",
+            "collection": "octometer_config"
+          },
+          "actions": [
+            "find"
+          ]
+        }
+      ]
+    },
+    "ok": 1
+  },
+  "listCollections": {
+    "ok": 1,
+    "collections": [
+      {
+        "name": "octometer_events",
+        "type": "collection"
+      },
+      {
+        "name": "octometer_config",
+        "type": "collection"
+      }
+    ]
+  },
+  "findEvents": {
+    "ok": true,
+    "count": 1,
+    "fields": [
+      "_id",
+      "ts",
+      "element",
+      "sessionId",
+      "userId"
+    ]
+  },
+  "findConfig": {
+    "ok": true,
+    "count": 1,
+    "fields": [
+      "_id",
+      "patterns",
+      "kitVersion",
+      "publishedAt"
+    ]
+  },
+  "insertEvents": {
+    "insertWorked": false,
+    "error": {
+      "code": 8000,
+      "codeName": "AtlasError",
+      "errmsg": "user is not allowed to do action [insert] on [exampledb.octometer_events]"
+    }
+  },
+  "findOther": {
+    "ok": false,
+    "count": null,
+    "error": {
+      "code": 8000,
+      "codeName": "AtlasError",
+      "errmsg": "user is not allowed to do action [find] on [exampledb.octometer_probe_other]"
+    }
+  }
+}

@@ -74,6 +74,25 @@ or newer, set `timeoutMS` instead.
 The built-in role `readWrite` has no `collMod`. Without `find`, the event cap of design
 decision D21 never stops the ingest, and the store writes one warning each hour.
 
+The role also needs `insert` and `update` on `octometer_config` (design decision D47,
+issue #276). `publishRoutePatterns` upserts the route pattern list there at each app
+start, through this same user. Without the two actions, the upsert fails, the store
+writes one warning, and the monitor never sees the route list.
+
+```
+atlas customDbRoles create octometerApp --privilege INSERT@<database>.octometer_events,CREATE_INDEX@<database>.octometer_events,COLL_MOD@<database>.octometer_events,FIND@<database>.octometer_events,INSERT@<database>.octometer_config,UPDATE@<database>.octometer_config --projectId <id>
+atlas dbusers create --username octometer-app --role octometerApp --projectId <id>
+```
+
+**An existing deployment.** A role from before issue #276 holds the four actions on
+`octometer_events` only. `atlas customDbRoles update` replaces the whole privilege
+list; a call with only the two new actions drops the four old ones (Atlas CLI 1.56.0:
+"Passing this flag replaces preexisting data"). Give all six actions in the one call:
+
+```
+atlas customDbRoles update octometerApp --privilege INSERT@<database>.octometer_events,CREATE_INDEX@<database>.octometer_events,COLL_MOD@<database>.octometer_events,FIND@<database>.octometer_events,INSERT@<database>.octometer_config,UPDATE@<database>.octometer_config --projectId <id>
+```
+
 ## 3. The database user
 
 Create the read-only role and the user for the monitor. This user is not the app
@@ -81,10 +100,30 @@ database user of section 2. The owner runs each command below on the Atlas CLI. 
 password must never pass through an agent.
 
 ```
-atlas customDbRoles create octometerEventReader --privilege FIND@<database>.octometer_events --projectId <id>
+atlas customDbRoles create octometerEventReader --privilege FIND@<database>.octometer_events,FIND@<database>.octometer_config --projectId <id>
 atlas dbusers create --username octometer-reader --role octometerEventReader --projectId <id>
 atlas dbusers describe octometer-reader --projectId <id> -o json
 ```
+
+The role needs `find` on `octometer_config` too (design decision D47, issue #276): the
+app writes its route pattern list there, and the monitor reads it. One `--privilege`
+flag takes a comma-separated list; the Atlas CLI documentation gives this exact form
+for a role on more than one collection (confirmed on the "atlas customDbRoles create"
+reference page on 2026-09-28: `atlas customDbRoles create customRole --privilege
+FIND@databaseName,UPDATE@databaseName.firstCollectionName,UPDATE@databaseName.secondCollectionName`).
+A repeated `--privilege` flag also works.
+
+**An existing deployment.** A role from before issue #276 holds `find` on
+`octometer_events` only. `atlas customDbRoles update` replaces the whole privilege
+list; a call with only the new privilege drops the old one (Atlas CLI 1.56.0: "Passing
+this flag replaces preexisting data"). Give both privileges in the one call:
+
+```
+atlas customDbRoles update octometerEventReader --privilege FIND@<database>.octometer_events,FIND@<database>.octometer_config --projectId <id>
+```
+
+`--append` also works, and it keeps the existing privilege with no need to repeat it.
+This step changes no user and no password.
 
 The CLI prompts for the password. This keeps the password out of the shell history.
 Make the password with `openssl rand -hex 24`. Use one password for each Atlas project.
@@ -94,8 +133,8 @@ Delete the user, then create it again.
 
 **Check the role.** Run `contract/fixtures/check-privileges.js` against the new user
 with `mongosh`, as `contract/fixtures/README.md` states. The script proves that the
-user holds only the `find` action on `octometer_events`. Design decision D9 gives the
-status `OVERPRIVILEGED` for a wider role, once issue #30 reaches `main`.
+user holds only the `find` action on `octometer_events` and on `octometer_config`.
+Design decision D9 gives the status `OVERPRIVILEGED` for a wider role.
 
 **The connection string for the monitor.** Build the string in this exact form:
 

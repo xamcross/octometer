@@ -21,6 +21,7 @@ const SCRIPT_SOURCE = fs.readFileSync(SCRIPT_PATH, "utf8");
 const FIXTURE = JSON.parse(fs.readFileSync(FIXTURE_PATH, "utf8"));
 
 const EVENTS_COLLECTION = "octometer_events";
+const CONFIG_COLLECTION = "octometer_config";
 const OTHER_COLLECTION = "octometer_probe_other";
 
 // Builds a test double for `db`. `throwOn` names the one probe that must
@@ -57,6 +58,9 @@ function buildDb(throwOn) {
                 toArray() {
                   if (name === EVENTS_COLLECTION && throwOn.findEvents) {
                     throw throwOn.findEvents;
+                  }
+                  if (name === CONFIG_COLLECTION && throwOn.findConfig) {
+                    throw throwOn.findConfig;
                   }
                   if (name === OTHER_COLLECTION && throwOn.findOther) {
                     throw throwOn.findOther;
@@ -115,6 +119,19 @@ test("a server error (code 13, Unauthorized) keeps code, codeName, and errmsg", 
   assert.equal(result.insertEvents.error.codeName, "Unauthorized");
   assert.equal(result.insertEvents.error.errmsg, "not authorized on testdb to execute command insert");
   assert.equal(result.insertEvents.error.driverError, undefined);
+});
+
+test("a find on octometer_config works by default, and it holds the config document fields", () => {
+  const { result } = runScript({});
+  assert.deepEqual(result.findConfig, { ok: true, count: 0, fields: [] });
+});
+
+test("a driver error on the octometer_config probe gives a driver error, with no host in the output", () => {
+  const e = new Error("connect ECONNREFUSED 127.0.0.1:27099");
+  const { printed, result } = runScript({ findConfig: e });
+  assert.deepEqual(result.findConfig.error, { code: null, codeName: null, errmsg: "", driverError: true });
+  assert.ok(!printed.includes("127.0.0.1"), "the output must hold no IP address");
+  assert.ok(!printed.includes("27099"), "the output must hold no port");
 });
 
 test("a MongoServerSelectionError shape (code undefined, a host in the message) gives a driver error", () => {
