@@ -15,6 +15,7 @@
 // always prints the JSON document, even after a failed command.
 
 const EVENTS_COLLECTION = "octometer_events";
+const CONFIG_COLLECTION = "octometer_config";
 const OTHER_COLLECTION = "octometer_probe_other";
 const REDACTED_USER = "REDACTED";
 const PROBE_MARKER = "octometer-check-privileges-probe";
@@ -128,10 +129,12 @@ const result = {
   database: null,
   databaseWarning: null,
   eventsCollection: EVENTS_COLLECTION,
+  configCollection: CONFIG_COLLECTION,
   otherCollection: OTHER_COLLECTION,
   connectionStatus: null,
   listCollections: null,
   findEvents: null,
+  findConfig: null,
   insertEvents: null,
   findOther: null,
 };
@@ -222,6 +225,21 @@ if (probeId !== null) {
     result.insertEvents.probeDeleted = false;
     result.insertEvents.deleteError = errorInfo(e);
   }
+}
+
+// One find on octometer_config must work when the role of issue #276
+// (design decision D47) gives the second privilege. The output holds the
+// document count and the field names of the first document, the same
+// shape as findEvents.
+try {
+  const configDocs = db.getCollection(CONFIG_COLLECTION).find({}).limit(1).toArray();
+  result.findConfig = {
+    ok: true,
+    count: configDocs.length,
+    fields: configDocs.length > 0 ? Object.keys(configDocs[0]) : [],
+  };
+} catch (e) {
+  result.findConfig = { ok: false, count: null, fields: [], error: errorInfo(e) };
 }
 
 // One find on a second collection must fail. The name of the second

@@ -24,10 +24,17 @@ list to the server only, and the tracker sends the raw page path with no list of
 (design decision D49). It also amends rule C41: a `path` value that breaks rule C39 gives
 `/other` on the server, never a dropped field. Version 1.3 adds no field and no collection,
 thus it is a minor change under rule C9, not a major change under rule C10. Issue #276 adds
-more to this version: rule C44, and a further amendment of rule C42, for the config document
-of the app's route list.
+rule C44 for the config document of the app's route list: the collection `octometer_config`,
+the four fields `_id`, `patterns`, `kitVersion`, and `publishedAt`, the upsert at each start
+with the app's own database user, the read by the monitor at each poll cycle, and the last
+writer in a rolling deploy. Issue #276 amends rule C42: the derivation of design decision D46
+is the source of the pattern list, and `OCTOMETER_PATH_PATTERNS` stays a typed addition after
+the derived list. Issue #276 amends rule C35 and rule C27: the database role and the role
+command cover the collection `octometer_config` beside `octometer_events`. Version 1.3 still
+adds no field to the event document and no new collection for the event log, thus issue #276
+stays a minor change under rule C9.
 
-Each rule has an ID, `C1` to `C43`. The table at the end maps each rule ID to its example file.
+Each rule has an ID, `C1` to `C44`. The table at the end maps each rule ID to its example file.
 
 ## Purpose
 
@@ -190,9 +197,11 @@ application/json`.
   the server still drops an invalid `path` value, the same way as an invalid `referrerHost`
   value. A `path` that matches no route pattern is not an invalid value; rule C42 states its
   stored result.
-- **C42. The stored `path`.** The app gives an ordered list of route patterns to the server
-  only (`OCTOMETER_PATH_PATTERNS`). The tracker holds no list of its own; it sends the raw
-  page path, and the server alone matches it (design decision D49). Each literal segment of a
+- **C42. The stored `path`.** The app gives an ordered list of route patterns to the server.
+  The derivation of design decision D46 is the source of this list (issue #276);
+  `OCTOMETER_PATH_PATTERNS` stays a typed addition, and its entries stand after the derived
+  list. The tracker holds no list of its own; it sends the raw page path, and the server alone
+  matches it (design decision D49). Each literal segment of a
   pattern is ASCII. A pattern holds a literal segment, the segment `*`, or the segment
   `:name`. A pattern matches only when it has the same count of segments as the path. The
   segment `*` and the segment `:name` each match exactly one segment. No pattern matches a prefix. The first
@@ -248,13 +257,14 @@ application/json`.
 The owner runs these commands. A password must not pass through an agent (rule C30).
 
 ```
-atlas customDbRoles create octometerEventReader --privilege FIND@<database>.octometer_events --projectId <id>
+atlas customDbRoles create octometerEventReader --privilege FIND@<database>.octometer_events,FIND@<database>.octometer_config --projectId <id>
 atlas dbusers create --username octometer-reader --role octometerEventReader --projectId <id>
 atlas dbusers describe octometer-reader --projectId <id> -o json
 ```
 
 The Atlas CLI prompts for the password. No command takes the password as an argument, so the
-shell history does not keep it.
+shell history does not keep it. One `--privilege` flag takes a comma-separated list; a
+repeated `--privilege` flag also works.
 
 - **C27.** The owner creates the database role and the database user with the three commands
   above.
@@ -266,7 +276,20 @@ shell history does not keep it.
 - **C31.** The owner rotates the password after a laptop loss, after a suspected leak, and
   each 12 months. A rotation deletes the user, then creates the user again.
 - **C35.** The database role holds only the `FIND` privilege. The role limits the privilege
-  to the collection `octometer_events` (design decision O4).
+  to the two collections `octometer_events` and `octometer_config` (design decision O4,
+  amended by design decision D47, issue #276).
+
+## 5. The config document (design decision D47, issue #276)
+
+- **C44.** The kit writes one document into the collection `octometer_config`, in the
+  database of the app: `{ _id: "route-patterns", patterns: [...], kitVersion: "<version>",
+  publishedAt: <date> }`. `patterns` is the ordered list of design decision D46. `kitVersion`
+  is the version text of the kit. `publishedAt` is a BSON date. The kit writes this document
+  once, at each start of the app, with one `replaceOne` call and `upsert: true`, through the
+  app's own database user. A failed write logs one warning; it never stops the app. The
+  monitor reads this document at each poll cycle. Two app instances of a rolling deploy each
+  write the document at their own start; the last writer wins for one poll cycle of the
+  monitor.
 
 ## Examples
 
@@ -311,3 +334,4 @@ is also valid JSON. Its value breaks one rule of the contract.
 | C41 | The rule for an invalid `path` or `referrerHost` value | `examples/ingest-valid-C41-bad-path-dropped.json` — the file holds a `path` value that breaks rule C39; the body stays valid, and the present parser ignores the field as an unknown field (rule C32). |
 | C42 | The route pattern list and the derivation of the stored `path` | `examples/event-valid-C42-masked-path.json` (a masked `:name` segment), `examples/event-valid-C42-other-path.json` (no matching pattern), `examples/event-valid-C39-path.json` (a kept `*` segment), `examples/C42-path-match-cases.json` (the shared matcher case table: an ordered route pattern list, an input path, and the expected result, for the tracker and for the server of issue #104). The case file covers the match rule only. Each side checks each pattern before the first match. |
 | C43 | The erasure of an anonymous session | No example file. This rule states an app action, not a document shape. |
+| C44 | The config document of the app's route list | No example file. This rule states an app action, on a document that only the kit writes; the fixture `contract/fixtures/check-privileges.js` covers the widened role. |

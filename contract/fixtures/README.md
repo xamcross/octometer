@@ -53,6 +53,8 @@ See "A failed connection at the start" for the reason of steps 1 to 4.
 | `connectionStatus` | The result of `connectionStatus` with `showPrivileges: true`. The script replaces each user name in `authInfo.authenticatedUsers` with the fixed text `REDACTED`. When `authInfo.authenticatedUserPrivileges` is absent, or the array is empty, the cluster gives no usable privilege list through this command. |
 | `listCollections` | The result of `listCollections` with `authorizedCollections: true, nameOnly: true`, reduced to the list of collection names and types that the user sees. |
 | `findEvents` | The result of one `find` with a limit of 1 on `octometer_events`. Holds 1 when the collection holds a document, and 0 when the collection is empty. Holds the field names of the first document, never a value. |
+| `configCollection` | The name of the config document's collection (design decision D47, issue #276). The value is the constant `octometer_config`. |
+| `findConfig` | The result of one `find` with a limit of 1 on `octometer_config` (design decision D47, issue #276). Same shape as `findEvents`. It works only when the role holds the second privilege of contract rule C35. |
 | `insertEvents` | The result of one `insertOne` on `octometer_events`. Holds `insertWorked`. When the insert fails, it holds the error. When the insert works, it holds `probeMarker`, `probeDeleted`, and `deleteError`. |
 | `findOther` | The result of one `find` on `octometer_probe_other`. Holds the document count on success, or the error on failure. |
 | `driverError` | Present, with the value `true`, inside an error object of a driver error. Absent from a server error. |
@@ -161,13 +163,27 @@ db.octometer_events.deleteMany({ octometerProbeMarker: "octometer-check-privileg
 
 ### The privilege check of D9
 
-- Check 1 (`listCollections`) must return exactly one collection:
-  `octometer_events`. A second collection in the list means the role is too
-  wide.
-- Check 2 (`connectionStatus`) must show one privilege: `find` on
-  `octometer_events`. An absent or an empty `authenticatedUserPrivileges`
-  array means check 1 alone must decide, since the cluster gives no usable
+Design decision D47 (issue #276) widens the role to a second collection,
+`octometer_config` (contract rule C44). The two rules below state the
+current check.
+
+- Check 1 (`listCollections`) must return only names from the set
+  `octometer_events` and `octometer_config`, in any order and in any
+  count from zero names to both names. A third name in the list means the
+  role is too wide.
+- Check 2 (`connectionStatus`) must show `find` on one of the two
+  collections, or `find` on each of the two collections (one entry per
+  collection). An absent or an empty `authenticatedUserPrivileges` array
+  means check 1 alone must decide, since the cluster gives no usable
   privilege list.
+
+### A synthetic fixture for the two-collection role
+
+`connection-status-two-collections.json` is a synthetic fixture, not a
+capture of a real Atlas run (unlike `connection-status-m0.json` below). It
+shows the shape of the script's output for a role with `find` on both
+`octometer_events` and `octometer_config`. `PrivilegeCheckTest.kt` reads
+it for the test "the fixture of the two-collection role gives OK".
 
 ### Result on Atlas M0
 
