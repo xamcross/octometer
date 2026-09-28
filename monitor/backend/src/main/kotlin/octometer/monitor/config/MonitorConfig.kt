@@ -21,4 +21,14 @@ data class MonitorConfig(
     // Issue #205, the D5 rule of 2026-09-27: the per-app cap on the
     // count of distinct path values of app_path.
     val pathValueCap: Int = 200,
+    // Issue #295 (D52, D56): the hosted-service keys. bind is
+    // 127.0.0.1 on a desktop run, or 0.0.0.0 behind Fly. clientIpHeader
+    // stays unused until #297. clusterUri, mailApiKey, and adminToken
+    // are secrets; a log line and an API answer never hold their value.
+    val bind: String = "127.0.0.1",
+    val publicUrl: String = "",
+    val clientIpHeader: String = "",
+    val clusterUri: String = "",
+    val mailApiKey: String = "",
+    val adminToken: String = "",
 )
