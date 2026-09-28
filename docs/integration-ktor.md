@@ -81,10 +81,30 @@ database user of section 2. The owner runs each command below on the Atlas CLI. 
 password must never pass through an agent.
 
 ```
-atlas customDbRoles create octometerEventReader --privilege FIND@<database>.octometer_events --projectId <id>
+atlas customDbRoles create octometerEventReader --privilege FIND@<database>.octometer_events,FIND@<database>.octometer_config --projectId <id>
 atlas dbusers create --username octometer-reader --role octometerEventReader --projectId <id>
 atlas dbusers describe octometer-reader --projectId <id> -o json
 ```
+
+The role needs `find` on `octometer_config` too (design decision D47, issue #276): the
+app writes its route pattern list there, and the monitor reads it. One `--privilege`
+flag takes a comma-separated list; the Atlas CLI documentation gives this exact form
+for a role on more than one collection (confirmed on the "atlas customDbRoles create"
+reference page on 2026-09-28: `atlas customDbRoles create customRole --privilege
+FIND@databaseName,UPDATE@databaseName.firstCollectionName,UPDATE@databaseName.secondCollectionName`).
+A repeated `--privilege` flag also works.
+
+**An existing deployment.** A role from before issue #276 holds `find` on
+`octometer_events` only. `atlas customDbRoles update` replaces the whole privilege
+list; a call with only the new privilege drops the old one (Atlas CLI 1.56.0: "Passing
+this flag replaces preexisting data"). Give both privileges in the one call:
+
+```
+atlas customDbRoles update octometerEventReader --privilege FIND@<database>.octometer_events,FIND@<database>.octometer_config --projectId <id>
+```
+
+`--append` also works, and it keeps the existing privilege with no need to repeat it.
+This step changes no user and no password.
 
 The CLI prompts for the password. This keeps the password out of the shell history.
 Make the password with `openssl rand -hex 24`. Use one password for each Atlas project.
@@ -94,8 +114,8 @@ Delete the user, then create it again.
 
 **Check the role.** Run `contract/fixtures/check-privileges.js` against the new user
 with `mongosh`, as `contract/fixtures/README.md` states. The script proves that the
-user holds only the `find` action on `octometer_events`. Design decision D9 gives the
-status `OVERPRIVILEGED` for a wider role, once issue #30 reaches `main`.
+user holds only the `find` action on `octometer_events` and on `octometer_config`.
+Design decision D9 gives the status `OVERPRIVILEGED` for a wider role.
 
 **The connection string for the monitor.** Build the string in this exact form:
 

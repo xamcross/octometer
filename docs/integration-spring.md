@@ -155,8 +155,10 @@ D21 never stops the ingest, and the store writes one warning each hour, with the
 error code.
 
 Read sections 3 and 4 of `docs/integration-ktor.md` for the read-only database user of
-the monitor and the three Atlas alerts. That user is not the app database user of this
-section.
+the monitor and the three Atlas alerts. That role now holds `find` on `octometer_events`
+and on `octometer_config` (design decision D47, issue #276), the config document of the
+app's route pattern list; the role command and the sentence for an existing deployment
+are both in section 3. That user is not the app database user of this section.
 
 Read section 7 of `docs/integration-ktor.md` for `deleteByUserId`, the 3 passes, and the
 erasure order (contract rule C43, design decision D15).
