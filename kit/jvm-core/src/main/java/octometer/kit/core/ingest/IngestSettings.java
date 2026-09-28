@@ -2,7 +2,10 @@ package octometer.kit.core.ingest;
 
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import octometer.kit.core.path.PathPatternMatcher;
 
@@ -69,6 +72,9 @@ public record IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher p
     /** Only an ASCII digit sets a daily cap or a per-minute limit. A Unicode digit does not. */
     private static final Pattern ASCII_DIGITS = Pattern.compile("[0-9]+");
 
+    /** The bound of the route pattern list of design decision D46, issue #275. */
+    private static final int MAX_PATH_PATTERN_COUNT = 200;
+
     /**
      * Builds a setting with no route pattern list, the default daily
      * caps, and the default per-minute limits. A caller from before
@@ -124,6 +130,126 @@ public record IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher p
                 ANON_SESSIONS_PER_MIN_VARIABLE, DEFAULT_ANON_SESSIONS_PER_MIN);
         return new IngestSettings(recordAnonymousClicks, pathPatternMatcher, anonMaxEventsPerDay,
                 anonEventsPerKeyPerDay, anonReqPerMinute, anonEventsPerMinute, anonSessionsPerMinute);
+    }
+
+    /**
+     * Builds the setting from {@code derivedPatterns} (design decision
+     * D46, issue #275) and each other environment variable of {@link
+     * #fromEnvironment()}. A Ktor or a Spring adapter calls this method
+     * once its framework derives its own route pattern list; {@code
+     * derivedPatterns} is that list, already sorted and with no
+     * duplicate ({@code octometer.kit.core.path.RoutePatternDerivation}
+     * of `kit/jvm-core`).
+     *
+     * <p>{@link #PATH_PATTERNS_VARIABLE} stays optional. Its entries
+     * stand after {@code derivedPatterns}, so a typed pattern never
+     * hides a derived one. An invalid entry of {@value
+     * #PATH_PATTERNS_VARIABLE} makes the whole combined list count as
+     * no list at all (contract rule C42), the same rule as {@link
+     * #fromEnvironment()}.
+     *
+     * <p>An app with no GET route and no {@value #PATH_PATTERNS_VARIABLE}
+     * gives an empty combined list; this method then keeps today's
+     * behaviour, a {@code null} matcher with one warning. A combined
+     * list above {@value #MAX_PATH_PATTERN_COUNT} entries keeps only
+     * its first {@value #MAX_PATH_PATTERN_COUNT} entries, with one
+     * warning. This method writes one INFO line with the final stored
+     * count.
+     */
+    public static IngestSettings fromEnvironment(List<String> derivedPatterns) {
+        boolean recordAnonymousClicks =
+                fromValue(System.getenv("OCTOMETER_RECORD_ANONYMOUS")).recordAnonymousClicks();
+        PathPatternMatcher pathPatternMatcher =
+                combinedPathPatternMatcher(derivedPatterns, System.getenv(PATH_PATTERNS_VARIABLE));
+        long anonMaxEventsPerDay = positiveWholeNumberFromValue(System.getenv(ANON_MAX_EVENTS_PER_DAY_VARIABLE),
+                ANON_MAX_EVENTS_PER_DAY_VARIABLE, DEFAULT_ANON_MAX_EVENTS_PER_DAY);
+        long anonEventsPerKeyPerDay = positiveWholeNumberFromValue(
+                System.getenv(ANON_EVENTS_PER_KEY_PER_DAY_VARIABLE), ANON_EVENTS_PER_KEY_PER_DAY_VARIABLE,
+                DEFAULT_ANON_EVENTS_PER_KEY_PER_DAY);
+        long anonReqPerMinute = positiveWholeNumberFromValue(System.getenv(ANON_REQ_PER_MIN_VARIABLE),
+                ANON_REQ_PER_MIN_VARIABLE, DEFAULT_ANON_REQ_PER_MIN);
+        long anonEventsPerMinute = positiveWholeNumberFromValue(System.getenv(ANON_EVENTS_PER_MIN_VARIABLE),
+                ANON_EVENTS_PER_MIN_VARIABLE, DEFAULT_ANON_EVENTS_PER_MIN);
+        long anonSessionsPerMinute = positiveWholeNumberFromValue(System.getenv(ANON_SESSIONS_PER_MIN_VARIABLE),
+                ANON_SESSIONS_PER_MIN_VARIABLE, DEFAULT_ANON_SESSIONS_PER_MIN);
+        return new IngestSettings(recordAnonymousClicks, pathPatternMatcher, anonMaxEventsPerDay,
+                anonEventsPerKeyPerDay, anonReqPerMinute, anonEventsPerMinute, anonSessionsPerMinute);
+    }
+
+    /**
+     * Builds a copy of this setting, with {@code pathPatternMatcher} in
+     * place of the matcher of this instance, and every other field
+     * unchanged.
+     */
+    public IngestSettings withPathPatternMatcher(PathPatternMatcher pathPatternMatcher) {
+        return new IngestSettings(recordAnonymousClicks(), pathPatternMatcher, anonMaxEventsPerDay(),
+                anonEventsPerKeyPerDay(), anonReqPerMinute(), anonEventsPerMinute(), anonSessionsPerMinute());
+    }
+
+    /**
+     * Builds a copy of this setting, with the combined matcher of
+     * {@code derivedPatterns} and {@value #PATH_PATTERNS_VARIABLE}
+     * (design decision D46, issue #275; see {@link
+     * #combinedPathPatternMatcher}), and every other field unchanged. A
+     * Ktor adapter calls this method on the settings that the app gave
+     * to `octometerIngestRoute`, once its framework derives its own
+     * route pattern list, so a field that the app set by hand (for
+     * example {@code recordAnonymousClicks}) survives the derivation.
+     */
+    public IngestSettings withDerivedPathPatterns(List<String> derivedPatterns) {
+        return withPathPatternMatcher(combinedPathPatternMatcher(derivedPatterns, System.getenv(PATH_PATTERNS_VARIABLE)));
+    }
+
+    /**
+     * Builds the combined matcher of {@link #fromEnvironment(List)}:
+     * {@code derivedPatterns}, then each entry of {@code rawTypedValue}
+     * (the raw text of {@value #PATH_PATTERNS_VARIABLE}), with no
+     * duplicate, the bound of {@value #MAX_PATH_PATTERN_COUNT}, and the
+     * one INFO line of the final count.
+     */
+    static PathPatternMatcher combinedPathPatternMatcher(List<String> derivedPatterns, String rawTypedValue) {
+        List<String> typedPatterns = rawTypedValue == null || rawTypedValue.isBlank()
+                ? List.of()
+                : List.of(rawTypedValue.trim().split("\\s+"));
+        List<Integer> invalidIndices = PathPatternMatcher.findInvalidIndices(typedPatterns);
+        if (!invalidIndices.isEmpty()) {
+            LOGGER.log(Level.WARNING, "OCTOMETER_PATH_PATTERNS holds an invalid pattern at "
+                    + "index " + joinIndices(invalidIndices) + ". The kit treats the whole "
+                    + "list as absent and stores no path field (contract rule C42).");
+            return null;
+        }
+        List<String> combined = new ArrayList<>(derivedPatterns.size() + typedPatterns.size());
+        combined.addAll(derivedPatterns);
+        combined.addAll(typedPatterns);
+        List<String> deduplicated = keepFirstOccurrence(combined);
+        if (deduplicated.isEmpty()) {
+            LOGGER.log(Level.WARNING, "The app derives no GET route, and OCTOMETER_PATH_PATTERNS "
+                    + "is absent. The kit stores no path field for a click (contract rule C42, "
+                    + "design decision D46).");
+            return null;
+        }
+        List<String> bounded = deduplicated;
+        if (deduplicated.size() > MAX_PATH_PATTERN_COUNT) {
+            bounded = deduplicated.subList(0, MAX_PATH_PATTERN_COUNT);
+            LOGGER.log(Level.WARNING, "The route pattern list holds " + deduplicated.size()
+                    + " entries, above the bound of " + MAX_PATH_PATTERN_COUNT + " (design "
+                    + "decision D46). The kit keeps the first " + MAX_PATH_PATTERN_COUNT + " entries.");
+        }
+        LOGGER.log(Level.INFO, "The kit stores the path field with " + bounded.size()
+                + " route patterns (design decision D46).");
+        return PathPatternMatcher.of(bounded);
+    }
+
+    /** Keeps the first occurrence of each entry of {@code patterns}, in order. */
+    private static List<String> keepFirstOccurrence(List<String> patterns) {
+        List<String> result = new ArrayList<>(patterns.size());
+        Set<String> seen = new HashSet<>();
+        for (String pattern : patterns) {
+            if (seen.add(pattern)) {
+                result.add(pattern);
+            }
+        }
+        return result;
     }
 
     /**

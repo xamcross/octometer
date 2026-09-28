@@ -127,7 +127,7 @@ public final class IngestRequestProcessor {
             Pattern.COMMENTS);
 
     private final EventLogStore store;
-    private final IngestSettings settings;
+    private volatile IngestSettings settings;
     private final Clock clock;
     private final IngestRateLimiter rateLimiter;
     private final AnonymousMinuteLimiter minuteLimiter;
@@ -171,6 +171,20 @@ public final class IngestRequestProcessor {
         this.clientIpHeaderName = clientIpHeaderName;
         this.trustedProxyCount = trustedProxyCount;
         this.botDropLogThrottle = new BotDropLogThrottle(clock);
+    }
+
+    /**
+     * Replaces the settings that {@link #beforeBody} and {@link
+     * #afterBody} read (design decision D46, issue #275). A Ktor or a
+     * Spring adapter calls this method once, after its framework
+     * derives its own route pattern list, because the routing tree of
+     * the app is not always complete at the time the adapter builds
+     * this processor. Each check of this class reads {@code settings}
+     * fresh, so a request that this method overlaps sees either the
+     * old value or the new value, never a mix of the two.
+     */
+    public void updateSettings(IngestSettings settings) {
+        this.settings = Objects.requireNonNull(settings, "settings must not be null");
     }
 
     /**
