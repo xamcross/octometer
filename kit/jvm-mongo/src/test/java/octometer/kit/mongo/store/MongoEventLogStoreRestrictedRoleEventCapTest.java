@@ -32,8 +32,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * review of pull request #165: the documented minimum role of the app
  * database user ({@code insert}, {@code createIndex}, {@code collMod},
  * and {@code find} on {@code octometer_events}) lets the event cap of
- * design decision D21 work. Each test needs Docker; a machine with no
- * Docker skips the whole class.
+ * design decision D21 work. It also confirms MAJOR 1 of the review of
+ * pull request #285: a role with {@code insert} and {@code update} on
+ * {@code octometer_config} too lets {@link MongoEventLogStore#publishRoutePatterns}
+ * publish the config document, and a role with no privilege on {@code
+ * octometer_config} logs one warning and stops nothing. Each test needs
+ * Docker; a machine with no Docker skips the whole class.
  */
 @Testcontainers(disabledWithoutDocker = true)
 class MongoEventLogStoreRestrictedRoleEventCapTest {
@@ -41,9 +45,12 @@ class MongoEventLogStoreRestrictedRoleEventCapTest {
     private static final Instant START = Instant.parse("2026-09-22T10:00:00.000Z");
     private static final String ROOT_USER = "root";
     private static final String ROOT_PASSWORD = "test-root-pass";
-    private static final String APP_DATABASE = "octometer_app_test";
     private static final String APP_USER = "app";
     private static final String APP_PASSWORD = "test-app-pass";
+    private static final String WIDENED_USER = "appWidened";
+    private static final String WIDENED_PASSWORD = "test-app-widened-pass";
+
+    private String appDatabaseName;
 
     @Container
     private static final GenericContainer<?> MONGO = new GenericContainer<>(DockerImageName.parse("mongo:7.0"))
@@ -57,19 +64,20 @@ class MongoEventLogStoreRestrictedRoleEventCapTest {
 
     @BeforeEach
     void createTheDocumentedMinimumRoleUser() {
+        appDatabaseName = "octometer_app_test_" + System.nanoTime();
         rootClient = connectWithRetry(ROOT_USER, ROOT_PASSWORD, "admin");
-        MongoDatabase appDatabaseAsRoot = rootClient.getDatabase(APP_DATABASE);
+        MongoDatabase appDatabaseAsRoot = rootClient.getDatabase(appDatabaseName);
         appDatabaseAsRoot.runCommand(new Document("createRole", "octometerApp")
                 .append("privileges", List.of(new Document("resource",
-                                new Document("db", APP_DATABASE)
+                                new Document("db", appDatabaseName)
                                         .append("collection", MongoEventLogStore.COLLECTION_NAME))
                         .append("actions", List.of("insert", "createIndex", "collMod", "find"))))
                 .append("roles", List.of()));
         appDatabaseAsRoot.runCommand(new Document("createUser", APP_USER)
                 .append("pwd", APP_PASSWORD)
-                .append("roles", List.of(new Document("role", "octometerApp").append("db", APP_DATABASE))));
+                .append("roles", List.of(new Document("role", "octometerApp").append("db", appDatabaseName))));
 
-        appClient = clientFor(APP_USER, APP_PASSWORD, APP_DATABASE);
+        appClient = clientFor(APP_USER, APP_PASSWORD, appDatabaseName);
     }
 
     @AfterEach
@@ -81,13 +89,13 @@ class MongoEventLogStoreRestrictedRoleEventCapTest {
     @Test
     void theDocumentedMinimumRoleLetsTheCapStopTheIngest() {
         CapturingLoggerFinder.clear();
-        MongoDatabase appDatabase = appClient.getDatabase(APP_DATABASE);
+        MongoDatabase appDatabase = appClient.getDatabase(appDatabaseName);
         MutableClock clock = new MutableClock(START);
         // maxEvents 1: the first batch fills the cap.
         MongoEventLogStore store = new MongoEventLogStore(appDatabase, 30, 1, clock);
 
         store.append(List.of(new IngestEvent("s1", "e1", Instant.now())), "user-1");
-        MongoCollection<Document> rawCollectionAsRoot = rootClient.getDatabase(APP_DATABASE)
+        MongoCollection<Document> rawCollectionAsRoot = rootClient.getDatabase(appDatabaseName)
                 .getCollection(MongoEventLogStore.COLLECTION_NAME);
         assertEquals(1, rawCollectionAsRoot.countDocuments());
 
@@ -105,6 +113,74 @@ class MongoEventLogStoreRestrictedRoleEventCapTest {
             }
         }
         assertTrue(!sawAFailureWarning, "The find action must let the count succeed, with no failure warning.");
+    }
+
+    @Test
+    void theWidenedRoleWithInsertAndUpdateOnConfigLetsThePublicationSucceed() {
+        CapturingLoggerFinder.clear();
+        MongoDatabase appDatabaseAsRoot = rootClient.getDatabase(appDatabaseName);
+        appDatabaseAsRoot.runCommand(new Document("createRole", "octometerAppWidened")
+                .append("privileges", List.of(
+                        new Document("resource", new Document("db", appDatabaseName)
+                                        .append("collection", MongoEventLogStore.COLLECTION_NAME))
+                                .append("actions", List.of("insert", "createIndex", "collMod", "find")),
+                        new Document("resource", new Document("db", appDatabaseName)
+                                        .append("collection", MongoEventLogStore.CONFIG_COLLECTION_NAME))
+                                .append("actions", List.of("insert", "update"))))
+                .append("roles", List.of()));
+        appDatabaseAsRoot.runCommand(new Document("createUser", WIDENED_USER)
+                .append("pwd", WIDENED_PASSWORD)
+                .append("roles", List.of(new Document("role", "octometerAppWidened").append("db", appDatabaseName))));
+        MongoClient widenedClient = clientFor(WIDENED_USER, WIDENED_PASSWORD, appDatabaseName);
+        try {
+            MongoDatabase widenedAppDatabase = widenedClient.getDatabase(appDatabaseName);
+            MongoEventLogStore store = new MongoEventLogStore(widenedAppDatabase, 30);
+
+            store.publishRoutePatterns(List.of("/", "/items/:id"));
+
+            Document publishedDocument = rootClient.getDatabase(appDatabaseName)
+                    .getCollection(MongoEventLogStore.CONFIG_COLLECTION_NAME)
+                    .find(new Document("_id", "route-patterns")).first();
+            assertNotNullDocument(publishedDocument);
+            boolean sawAWarning = false;
+            for (CapturingLoggerFinder.Record record : CapturingLoggerFinder.records()) {
+                if (record.message().contains("route pattern publication")) {
+                    sawAWarning = true;
+                }
+            }
+            assertTrue(!sawAWarning, "The widened role must let the write succeed, with no warning.");
+        } finally {
+            widenedClient.close();
+        }
+    }
+
+    @Test
+    void theDocumentedMinimumRoleWithNoConfigPrivilegeLogsOneWarningAndStopsNothing() {
+        CapturingLoggerFinder.clear();
+        MongoDatabase appDatabase = appClient.getDatabase(appDatabaseName);
+        MongoEventLogStore store = new MongoEventLogStore(appDatabase, 30);
+
+        store.publishRoutePatterns(List.of("/", "/items/:id"));
+
+        Document publishedDocument = rootClient.getDatabase(appDatabaseName)
+                .getCollection(MongoEventLogStore.CONFIG_COLLECTION_NAME)
+                .find(new Document("_id", "route-patterns")).first();
+        assertTrue(publishedDocument == null, "A role with no privilege on octometer_config must publish nothing.");
+        boolean sawTheWarning = false;
+        for (CapturingLoggerFinder.Record record : CapturingLoggerFinder.records()) {
+            if (record.message().contains("route pattern publication")) {
+                sawTheWarning = true;
+            }
+        }
+        assertTrue(sawTheWarning, "A failed publication must log one warning.");
+        // "Stops nothing": the app's own action of design decision D21 still works.
+        store.append(List.of(new IngestEvent("s1", "e1", Instant.now())), "user-1");
+        assertEquals(1, rootClient.getDatabase(appDatabaseName)
+                .getCollection(MongoEventLogStore.COLLECTION_NAME).countDocuments());
+    }
+
+    private static void assertNotNullDocument(Document document) {
+        assertTrue(document != null, "The config document is absent from octometer_config.");
     }
 
     private static MongoClient connectWithRetry(String user, String password, String authDatabase) {

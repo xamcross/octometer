@@ -286,10 +286,11 @@ repeated `--privilege` flag also works.
   publishedAt: <date> }`. `patterns` is the ordered list of design decision D46. `kitVersion`
   is the version text of the kit. `publishedAt` is a BSON date. The kit writes this document
   once, at each start of the app, with one `replaceOne` call and `upsert: true`, through the
-  app's own database user. A failed write logs one warning; it never stops the app. The
-  monitor reads this document at each poll cycle. Two app instances of a rolling deploy each
-  write the document at their own start; the last writer wins for one poll cycle of the
-  monitor.
+  app's own database user. That user holds `insert` and `update` on `octometer_config`, beside
+  `insert`, `createIndex`, `collMod`, and `find` on `octometer_events`. A failed write logs one
+  warning; it never stops the app. The monitor reads this document at each poll cycle. Two app
+  instances of a rolling deploy each write the document at their own start; the last writer
+  wins for one poll cycle of the monitor.
 
 ## Examples
 

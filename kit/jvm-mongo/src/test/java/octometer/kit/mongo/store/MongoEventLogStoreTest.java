@@ -19,6 +19,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -275,6 +276,60 @@ class MongoEventLogStoreTest {
         assertNotNull(ttlIndex, "The index \"ts_ttl\" is missing.");
         assertEquals(new Document("ts", 1), ttlIndex.get("key"));
         assertEquals(30L * 24 * 60 * 60, ((Number) ttlIndex.get("expireAfterSeconds")).longValue());
+    }
+
+    @Test
+    void publishRoutePatternsWritesTheFourFieldsWithABsonDatePublishedAt() {
+        MongoEventLogStore store = new MongoEventLogStore(database);
+        List<String> patterns = List.of("/", "/items/:id");
+
+        store.publishRoutePatterns(patterns);
+
+        Document stored = configCollection().find().first();
+        assertEquals(Set.of("_id", "patterns", "kitVersion", "publishedAt"), stored.keySet());
+        assertEquals("route-patterns", stored.getString("_id"));
+        assertEquals(patterns, stored.getList("patterns", String.class));
+        assertNotNull(stored.getString("kitVersion"), "kitVersion must hold a value, also on a test classpath.");
+        assertTrue(stored.get("publishedAt") instanceof Date, "publishedAt must be a BSON date.");
+    }
+
+    @Test
+    void aSecondCallOfPublishRoutePatternsKeepsOneDocumentWithTheNewPublishedAt() throws InterruptedException {
+        MongoEventLogStore store = new MongoEventLogStore(database);
+        store.publishRoutePatterns(List.of("/"));
+        Date firstPublishedAt = (Date) configCollection().find().first().get("publishedAt");
+
+        Thread.sleep(5);
+        store.publishRoutePatterns(List.of("/", "/items/:id"));
+
+        assertEquals(1, configCollection().countDocuments(), "A second call must keep one document.");
+        Document stored = configCollection().find().first();
+        assertEquals(List.of("/", "/items/:id"), stored.getList("patterns", String.class));
+        Date secondPublishedAt = (Date) stored.get("publishedAt");
+        assertTrue(secondPublishedAt.after(firstPublishedAt), "The second call must give a newer publishedAt.");
+    }
+
+    @Test
+    void aFailedPublishRoutePatternsLogsOneWarningAndThrowsNoException() {
+        MongoClient closedClient = MongoClients.create(MONGO.getConnectionString());
+        MongoDatabase closedDatabase = closedClient.getDatabase("octometer_test_" + System.nanoTime());
+        MongoEventLogStore store = new MongoEventLogStore(closedDatabase);
+        closedClient.close();
+        CapturingLoggerFinder.clear();
+
+        store.publishRoutePatterns(List.of("/"));
+
+        boolean sawTheWarning = false;
+        for (CapturingLoggerFinder.Record record : CapturingLoggerFinder.records()) {
+            if (record.message().contains("route pattern publication")) {
+                sawTheWarning = true;
+            }
+        }
+        assertTrue(sawTheWarning, "A failed write must log one warning, with no exception reaching the caller.");
+    }
+
+    private MongoCollection<Document> configCollection() {
+        return database.getCollection("octometer_config");
     }
 
     private MongoCollection<Document> rawCollection() {
