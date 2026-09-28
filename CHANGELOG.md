@@ -7,6 +7,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ## Unreleased
 
+### Documentation
+
+- Record the hosted model (D50 to D58) in the design document, with the closure notes, the
+  change notes, and the milestone I backlog. (#294)
+
 ## 0.3.0 - 2026-09-28
 
 ### Tests
