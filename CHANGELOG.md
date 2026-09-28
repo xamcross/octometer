@@ -7,6 +7,12 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ## Unreleased
 
+### Monitor
+
+- Scaffold the hosted service: the Docker image, `fly.toml`, the `/healthz` route, the D56
+  fields of `GET /api/health`, the public bind and the temporary admin guard, and the CI
+  deploy job. (#295)
+
 ### Documentation
 
 - Record the hosted model (D50 to D58) in the design document, with the closure notes, the
