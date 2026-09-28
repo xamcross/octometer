@@ -218,8 +218,24 @@ public class OctometerConfiguration {
             SpringUserIdResolver userIdResolver) {
         return new IngestController(store, userIdResolver);
     }
+
+    // Design decision D46, issue #275: derives the route pattern list
+    // of the app; add no route pattern list of your own for it.
+    @Bean
+    public RoutePatternDerivationInitializer octometerRouteDerivation(
+            RequestMappingHandlerMapping handlerMapping, ServletContext servletContext,
+            IngestController ingestController) {
+        return new RoutePatternDerivationInitializer(handlerMapping, servletContext, ingestController,
+                IngestController.DEFAULT_INGEST_PATH);
+    }
 }
 ```
+
+`RoutePatternDerivationInitializer` runs once Spring builds every
+`@RequestMapping` of the app; it derives the route pattern list, and it
+replaces the `path` matcher of `ingestController`. Read
+`kit/jvm-spring/README.md` ("The route pattern list") for the full rule,
+`OCTOMETER_PATH_PATTERNS`, and `OCTOMETER_PATH_EXCLUDE`.
 
 **Permit the path, and exempt it from CSRF.** The ingest path needs no authorization
 check of its own; the kit decides with `OCTOMETER_RECORD_ANONYMOUS` whether it stores an

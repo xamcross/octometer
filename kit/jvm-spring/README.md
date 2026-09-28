@@ -2,9 +2,9 @@
 
 The Spring MVC adapter of the kit (design decision D17, issue #69).
 `IngestController` mounts the ingest route of design section 4.2 in a
-Spring MVC app. `spring-web` and the Jakarta Servlet API are
-`compileOnly` dependencies: the app gives Spring MVC, and the kit adds
-no Spring dependency of its own.
+Spring MVC app. `spring-web`, `spring-webmvc`, and the Jakarta Servlet
+API are `compileOnly` dependencies: the app gives Spring MVC, and the
+kit adds no Spring Boot dependency of its own.
 
 ## The order of the checks
 
@@ -18,10 +18,11 @@ and this controller run one order, not two.
 
 ## The two compile versions
 
-`org.springframework:spring-web` (6.2.1) and
-`jakarta.servlet:jakarta.servlet-api` (6.0.0) are the versions of the
-Spring Boot 3.4.1 dependency list. Confirmed on 2026-09-26 from the
-`v3.4.1` tag of `spring-projects/spring-boot` on GitHub:
+`org.springframework:spring-web`, `org.springframework:spring-webmvc`
+(6.2.1), and `jakarta.servlet:jakarta.servlet-api` (6.0.0) are the
+versions of the Spring Boot 3.4.1 dependency list. Confirmed on
+2026-09-26 from the `v3.4.1` tag of `spring-projects/spring-boot` on
+GitHub:
 
 - `gradle.properties` of that tag holds `springFrameworkVersion=6.2.1`.
 - `spring-boot-project/spring-boot-dependencies/build.gradle` of that
@@ -49,6 +50,42 @@ public class OctometerConfiguration {
 Spring finds the `@PostMapping` method of any bean of this type, so a
 plain `@Bean` method registers the route with no component scan of the
 kit's own package.
+
+## The route pattern list (design decision D46, issue #275)
+
+`RoutePatternDerivationInitializer` derives the route pattern list of
+the app from `RequestMappingHandlerMapping.getHandlerMethods()`, once
+Spring builds every singleton bean (`SmartInitializingSingleton`, not
+an `ApplicationRunner`: this module adds no Spring Boot dependency).
+Add it as one more bean:
+
+```java
+@Bean
+public RoutePatternDerivationInitializer octometerRouteDerivation(
+        RequestMappingHandlerMapping handlerMapping, ServletContext servletContext,
+        IngestController ingestController) {
+    return new RoutePatternDerivationInitializer(handlerMapping, servletContext, ingestController,
+            IngestController.DEFAULT_INGEST_PATH);
+}
+```
+
+Give the fourth constructor argument the same value as
+`octometer.ingest-path`, when the app sets that property.
+
+The deriver keeps a GET route only, and it converts each Spring
+Ant-style or `PathPattern` mapping to a contract rule C42 pattern: a
+literal segment stays; `{name}` becomes `:name`; a wildcard segment
+(`*`, `**`, or a capturing wildcard variable `{*name}`) becomes one
+`*` segment. It prefixes the list with `ServletContext.getContextPath()`
+(this module has no `ServerProperties`, so it reads the context path,
+not a Spring Boot property). `OCTOMETER_PATH_PATTERNS` and
+`OCTOMETER_PATH_EXCLUDE` apply the same rule as `kit/jvm-ktor/README.md`
+("The route pattern list"); read that section for the full rule, the
+200-entry bound, and the caveat about a hand-built `IngestSettings`.
+
+A derivation failure (an unknown pattern segment) logs one warning
+with the exception class only, and it falls back to
+`IngestSettings.fromEnvironment()` with no derived list.
 
 The path of the route reads the Spring property
 `octometer.ingest-path`, with `/api/octometer/v1/clicks` (contract rule
