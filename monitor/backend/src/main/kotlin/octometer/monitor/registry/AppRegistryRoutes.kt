@@ -15,23 +15,41 @@ import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import octometer.monitor.ErrorBody
 
 private const val SECRET_STORE_UNAVAILABLE_MESSAGE = "The secret store is not available. Try again."
 
 /**
+ * The fixed 400 text of design decision D48 (issue #277): the app
+ * publishes its own route list now, so a create or an update body with
+ * `pathPatterns` is a client mistake, the same as a body with an
+ * unknown shape.
+ */
+private const val PATH_PATTERNS_REJECTED_MESSAGE = "The app publishes its route list; the monitor takes no list."
+
+/**
  * The registry routes of steps 3, 4, and 5. Each handler reads the body
- * with [receiveOrNull]. A malformed body then never reaches the default
- * error page. That page can quote part of the body. A connection string
- * can sit in that part (D11, D15).
+ * with [receiveAppRequest]. A malformed body then never reaches the
+ * default error page. That page can quote part of the body. A
+ * connection string can sit in that part (D11, D15).
  */
 fun Route.appRegistryRoutes(registry: AppRegistryService) {
     post("/api/apps") {
-        val request = receiveOrNull<CreateAppRequest>(call)
-        if (request == null) {
-            call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
-            return@post
+        val request = when (val outcome = receiveAppRequest<CreateAppRequest>(call)) {
+            is AppRequestOutcome.Ok -> outcome.request
+            AppRequestOutcome.Invalid -> {
+                call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
+                return@post
+            }
+            AppRequestOutcome.PathPatternsRejected -> {
+                call.respond(HttpStatusCode.BadRequest, ErrorBody(PATH_PATTERNS_REJECTED_MESSAGE))
+                return@post
+            }
         }
         when (val result = registry.createApp(request)) {
             is CreateAppResult.Created -> {
@@ -71,10 +89,16 @@ fun Route.appRegistryRoutes(registry: AppRegistryService) {
             call.respond(HttpStatusCode.BadRequest, ErrorBody("The app id must be a whole number."))
             return@patch
         }
-        val request = receiveOrNull<UpdateAppRequest>(call)
-        if (request == null) {
-            call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
-            return@patch
+        val request = when (val outcome = receiveAppRequest<UpdateAppRequest>(call)) {
+            is AppRequestOutcome.Ok -> outcome.request
+            AppRequestOutcome.Invalid -> {
+                call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
+                return@patch
+            }
+            AppRequestOutcome.PathPatternsRejected -> {
+                call.respond(HttpStatusCode.BadRequest, ErrorBody(PATH_PATTERNS_REJECTED_MESSAGE))
+                return@patch
+            }
         }
         when (val result = registry.updateApp(appId, request)) {
             UpdateAppResult.Updated -> call.respond(HttpStatusCode.NoContent)
@@ -110,6 +134,17 @@ fun Route.appRegistryRoutes(registry: AppRegistryService) {
     }
 }
 
+/**
+ * The result of [receiveAppRequest]: the decoded body of [Ok], or the
+ * one reason that a create or an update route gives no body at all
+ * (design decision D48, issue #277).
+ */
+private sealed class AppRequestOutcome<out T> {
+    data class Ok<T>(val request: T) : AppRequestOutcome<T>()
+    object Invalid : AppRequestOutcome<Nothing>()
+    object PathPatternsRejected : AppRequestOutcome<Nothing>()
+}
+
 // MINOR 8 (Ktor review): the old catch caught every Exception, thus a
 // defect of the serializer looked like a bad request too. This catches
 // only the exceptions of a malformed body, a wrong content shape, or a
@@ -120,13 +155,31 @@ fun Route.appRegistryRoutes(registry: AppRegistryService) {
 // ContentTransformationException, not BadRequestException, thus the
 // two catches above missed it, and the catch-all of StatusPages
 // answered 500 for a plain client mistake.
-private suspend inline fun <reified T : Any> receiveOrNull(call: ApplicationCall): T? =
-    try {
-        call.receive<T>()
+//
+// Design decision D48 (issue #277): the read now goes through a
+// JsonObject first, so this function can tell a body with a
+// `pathPatterns` field apart from each other malformed or wrong-shape
+// body, with the same three catches as before. [CreateAppRequest] and
+// [UpdateAppRequest] carry no `pathPatterns` field any more (the app
+// publishes its own list; the registry never reads it through the
+// API), so this is the one place that names the field, only to reject
+// it with the fixed sentence of [PATH_PATTERNS_REJECTED_MESSAGE].
+private suspend inline fun <reified T : Any> receiveAppRequest(call: ApplicationCall): AppRequestOutcome<T> {
+    val rawJson = try {
+        call.receive<JsonObject>()
     } catch (malformedBody: BadRequestException) {
-        null
+        return AppRequestOutcome.Invalid
     } catch (wrongShape: ContentConvertException) {
-        null
+        return AppRequestOutcome.Invalid
     } catch (noUsableBody: ContentTransformationException) {
-        null
+        return AppRequestOutcome.Invalid
     }
+    if ("pathPatterns" in rawJson) return AppRequestOutcome.PathPatternsRejected
+    return try {
+        AppRequestOutcome.Ok(Json.decodeFromJsonElement<T>(rawJson))
+    } catch (malformed: SerializationException) {
+        AppRequestOutcome.Invalid
+    } catch (malformed: IllegalArgumentException) {
+        AppRequestOutcome.Invalid
+    }
+}

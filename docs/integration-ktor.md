@@ -313,9 +313,16 @@ drops the `path` field for any of these cases.
 Without a derived GET route, and without `OCTOMETER_PATH_PATTERNS`, the kit
 stores no `path` field, and it writes one warning at the start.
 
-**Give the same list to the monitor (issue #226).** Paste the same list into
-the "Route patterns" field of the app, in the manage view of the monitor. The
-monitor then admits a `path` value only when it is a result of that list.
+**The monitor takes the list from the app (design decision D48, issue
+#277).** The kit already publishes this derived list, plus
+`OCTOMETER_PATH_PATTERNS` when you set it, in the config document
+`route-patterns` of `octometer_config` (design decision D47, section 2).
+The monitor reads that document at the start of each poll cycle; it
+admits a `path` value only when it is a result of that list. The manage
+view shows the list read-only, with the publish time and the kit
+version; it holds no field to type a list by hand any more. A list that
+an operator typed there before this change stays as the monitor's
+cached copy until the app publishes its own list.
 
 ## 7. The account deletion
 

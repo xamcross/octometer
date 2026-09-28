@@ -30,20 +30,20 @@
       <p [id]="connectionStringHintId" class="form-hint">{{ connectionStringHint }}</p>
     </div>
 
-    <div class="field">
-      <label [for]="pathPatternsId">Route patterns (one per line)</label>
-      <textarea
-        [id]="pathPatternsId"
-        [value]="pathPatterns()"
-        (input)="onPathPatternsInput($event)"
-        [attr.aria-describedby]="
-          errorMessage() ? pathPatternsHintId + ' ' + errorId : pathPatternsHintId
-        "
-      ></textarea>
-      <p [id]="pathPatternsHintId" class="form-hint">
-        {{ pathPatternsHint }} Example: <code>/</code>, <code>/articles/*</code>,
-        <code>/history/:id</code>, each on its own line.
-      </p>
+    <div class="field route-patterns-block">
+      <h3>Route patterns</h3>
+      @if (pathPatterns().length > 0) {
+        <ul>
+          @for (pattern of pathPatterns(); track pattern) {
+            <li>
+              <code>{{ pattern }}</code>
+            </li>
+          }
+        </ul>
+        <p class="form-hint">{{ publishedLine() }}</p>
+      } @else {
+        <p class="form-hint">The app has published no list yet.</p>
+      }
     </div>
 
     @if (errorMessage(); as message) {
@@ -51,13 +51,7 @@
     }
 
     <div class="actions">
-      <button
-        type="submit"
-        class="btn btn-primary"
-        [disabled]="pending() || pathPatternsReadFailed()"
-      >
-        Save
-      </button>
+      <button type="submit" class="btn btn-primary" [disabled]="pending()">Save</button>
       <button type="button" class="btn cancel" (click)="cancel()">Cancel</button>
     </div>
   </form>

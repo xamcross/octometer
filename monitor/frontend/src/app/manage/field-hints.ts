@@ -23,12 +23,3 @@ export const CONNECTION_STRING_HINT =
  */
 export const EDIT_CONNECTION_STRING_HINT =
   CONNECTION_STRING_HINT + ' Leave the field empty to keep the stored string.';
-
-/**
- * The hint of "Route patterns" on the add form and the edit form. The
- * template adds the three example lines as `<code>` elements once, after
- * this text.
- */
-export const PATH_PATTERNS_HINT =
-  'The same list as OCTOMETER_PATH_PATTERNS of the app, one pattern per line, in the same order. ' +
-  'Leave the field empty for an app without a list.';

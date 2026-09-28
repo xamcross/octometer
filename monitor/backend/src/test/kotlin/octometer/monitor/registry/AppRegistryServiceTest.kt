@@ -198,32 +198,14 @@ class AppRegistryServiceTest {
         assertEquals(before, readPollState(created.summary.appId), "a name-only PATCH must keep the cursor")
     }
 
-    // Issue #226: the route pattern list of one app.
+    // Design decision D48 (issue #277) ends the typed route pattern list
+    // of issue #226: create and update take no pathPatterns field any
+    // more. MongoAppReader is now the one writer of path_patterns,
+    // path_patterns_published_at, and kit_version; the tests below seed
+    // those columns directly, the same rule as seedPollState.
 
     @Test
-    fun `createApp with a route pattern list stores the normalized text`() = runBlocking {
-        val result = service.createApp(
-            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events", pathPatterns = "/a  /b"),
-        )
-
-        val created = assertIs<CreateAppResult.Created>(result)
-        val detail = service.getApp(created.summary.appId)
-        assertEquals("/a\n/b", detail?.pathPatterns)
-    }
-
-    @Test
-    fun `createApp rejects an invalid route pattern list, and writes no app row`() = runBlocking {
-        val result = service.createApp(
-            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events", pathPatterns = "/a //b"),
-        )
-
-        val invalid = assertIs<CreateAppResult.InvalidRequest>(result)
-        assertTrue(invalid.message.contains("index 1"), "the reason names the index of the bad pattern")
-        assertEquals(0, countAppRows())
-    }
-
-    @Test
-    fun `createApp with no route pattern list stores a NULL value`() = runBlocking {
+    fun `createApp stores a NULL path_patterns value`() = runBlocking {
         val result = service.createApp(
             CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
         )
@@ -231,96 +213,26 @@ class AppRegistryServiceTest {
         val created = assertIs<CreateAppResult.Created>(result)
         val detail = service.getApp(created.summary.appId)
         assertNull(detail?.pathPatterns)
+        assertNull(detail?.pathPatternsPublishedAt)
+        assertNull(detail?.kitVersion)
     }
 
     @Test
-    fun `updateApp with pathPatterns alone sets the list, and gives no InvalidRequest`() = runBlocking {
-        val created = service.createApp(
-            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
-        ) as CreateAppResult.Created
+    fun `getApp gives the id, the name, the published route list, its time, and the kit version, never a connection string`() =
+        runBlocking {
+            val created = service.createApp(
+                CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+            ) as CreateAppResult.Created
+            seedRoutePatterns(created.summary.appId, "/checkout", publishedAt = 1_700_000_000_000L, kitVersion = "1.2.3")
 
-        val result = service.updateApp(created.summary.appId, UpdateAppRequest(pathPatterns = "/checkout /cart"))
+            val detail = service.getApp(created.summary.appId)
 
-        assertEquals(UpdateAppResult.Updated, result)
-        assertEquals("/checkout\n/cart", service.getApp(created.summary.appId)?.pathPatterns)
-    }
-
-    @Test
-    fun `updateApp with a whitespace-only pathPatterns clears the stored list`() = runBlocking {
-        val created = service.createApp(
-            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events", pathPatterns = "/checkout"),
-        ) as CreateAppResult.Created
-
-        val result = service.updateApp(created.summary.appId, UpdateAppRequest(pathPatterns = "   "))
-
-        assertEquals(UpdateAppResult.Updated, result)
-        assertNull(service.getApp(created.summary.appId)?.pathPatterns)
-    }
-
-    @Test
-    fun `updateApp with an absent pathPatterns field keeps the stored list`() = runBlocking {
-        val created = service.createApp(
-            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events", pathPatterns = "/checkout"),
-        ) as CreateAppResult.Created
-
-        val result = service.updateApp(created.summary.appId, UpdateAppRequest(name = "demo2"))
-
-        assertEquals(UpdateAppResult.Updated, result)
-        assertEquals("/checkout", service.getApp(created.summary.appId)?.pathPatterns)
-    }
-
-    @Test
-    fun `updateApp rejects an invalid pathPatterns list, and keeps the old list`() = runBlocking {
-        val created = service.createApp(
-            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events", pathPatterns = "/checkout"),
-        ) as CreateAppResult.Created
-
-        val result = service.updateApp(created.summary.appId, UpdateAppRequest(pathPatterns = "/a?b"))
-
-        val invalid = assertIs<UpdateAppResult.InvalidRequest>(result)
-        assertTrue(invalid.message.contains("index 0"), "the reason names the index of the bad pattern")
-        assertEquals("/checkout", service.getApp(created.summary.appId)?.pathPatterns)
-    }
-
-    @Test
-    fun `updateApp with pathPatterns alone resets no poll state`() = runBlocking {
-        val created = service.createApp(
-            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
-        ) as CreateAppResult.Created
-        seedPollState(created.summary.appId)
-        val before = readPollState(created.summary.appId)
-
-        val result = service.updateApp(created.summary.appId, UpdateAppRequest(pathPatterns = "/checkout"))
-
-        assertEquals(UpdateAppResult.Updated, result)
-        assertEquals(before, readPollState(created.summary.appId), "a pathPatterns-only PATCH must keep the cursor")
-    }
-
-    @Test
-    fun `updateApp with pathPatterns alone keeps app_path`() = runBlocking {
-        val created = service.createApp(
-            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
-        ) as CreateAppResult.Created
-        seedAppPath(created.summary.appId, "/checkout")
-
-        val result = service.updateApp(created.summary.appId, UpdateAppRequest(pathPatterns = "/checkout"))
-
-        assertEquals(UpdateAppResult.Updated, result)
-        assertEquals(1, countAppPathRows(created.summary.appId))
-    }
-
-    @Test
-    fun `getApp gives the id, the name, and the route pattern list, never a connection string`() = runBlocking {
-        val created = service.createApp(
-            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events", pathPatterns = "/checkout"),
-        ) as CreateAppResult.Created
-
-        val detail = service.getApp(created.summary.appId)
-
-        assertEquals(created.summary.appId, detail?.appId)
-        assertEquals("demo", detail?.name)
-        assertEquals("/checkout", detail?.pathPatterns)
-    }
+            assertEquals(created.summary.appId, detail?.appId)
+            assertEquals("demo", detail?.name)
+            assertEquals("/checkout", detail?.pathPatterns)
+            assertEquals("2023-11-14T22:13:20.000Z", detail?.pathPatternsPublishedAt)
+            assertEquals("1.2.3", detail?.kitVersion)
+        }
 
     @Test
     fun `getApp on an unknown id gives null`() = runBlocking {
@@ -328,7 +240,7 @@ class AppRegistryServiceTest {
     }
 
     @Test
-    fun `updateApp with no name, no connectionString, and no pathPatterns gives InvalidRequest`() = runBlocking {
+    fun `updateApp with no name and no connectionString gives InvalidRequest`() = runBlocking {
         val created = service.createApp(
             CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
         ) as CreateAppResult.Created
@@ -622,6 +534,23 @@ class AppRegistryServiceTest {
                 insert.setString(2, path)
                 insert.setLong(3, 1_700_000_000_000L)
                 insert.executeUpdate()
+            }
+        }
+    }
+
+    // Design decision D48 (issue #277): only MongoAppReader writes these
+    // three columns in production. This mimics that write, the same
+    // rule as seedPollState and seedAppPath above.
+    private suspend fun seedRoutePatterns(appId: Long, patterns: String, publishedAt: Long, kitVersion: String) {
+        database.write { writer ->
+            writer.prepareStatement(
+                "UPDATE app SET path_patterns = ?, path_patterns_published_at = ?, kit_version = ? WHERE id = ?",
+            ).use { update ->
+                update.setString(1, patterns)
+                update.setLong(2, publishedAt)
+                update.setString(3, kitVersion)
+                update.setLong(4, appId)
+                update.executeUpdate()
             }
         }
     }

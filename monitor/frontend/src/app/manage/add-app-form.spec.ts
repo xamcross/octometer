@@ -100,12 +100,10 @@ describe('AddAppForm', () => {
     overrides: {
       name?: string;
       connectionString?: string;
-      pathPatterns?: string;
     } = {},
   ): void {
     const name = root().querySelector<HTMLInputElement>('#add-app-name')!;
     const connectionString = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
-    const pathPatterns = root().querySelector<HTMLTextAreaElement>('#add-app-path-patterns')!;
 
     name.value = overrides.name ?? 'traficio';
     name.dispatchEvent(new Event('input'));
@@ -113,10 +111,6 @@ describe('AddAppForm', () => {
       overrides.connectionString ??
       'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
     connectionString.dispatchEvent(new Event('input'));
-    if (overrides.pathPatterns) {
-      pathPatterns.value = overrides.pathPatterns;
-      pathPatterns.dispatchEvent(new Event('input'));
-    }
 
     root()
       .querySelector('form')!
@@ -129,11 +123,15 @@ describe('AddAppForm', () => {
   });
 
   it('labels each field', () => {
-    for (const id of ['add-app-name', 'add-app-connection-string', 'add-app-path-patterns']) {
+    for (const id of ['add-app-name', 'add-app-connection-string']) {
       const label = root().querySelector(`label[for="${id}"]`);
       expect(label, `label for #${id}`).toBeTruthy();
       expect(label?.textContent?.trim().length).toBeGreaterThan(0);
     }
+  });
+
+  it('shows no #add-app-path-patterns element (design decision D48, issue #277)', () => {
+    expect(root().querySelector('#add-app-path-patterns')).toBeNull();
   });
 
   it('gives the connection string field type password and autocomplete new-password', () => {
@@ -206,55 +204,19 @@ describe('AddAppForm', () => {
     );
   });
 
-  it('sends POST /api/apps with pathPatterns when the route pattern field is filled', () => {
-    fillAndSubmit({ name: 'traficio', pathPatterns: '/checkout\n/cart' });
-
-    const req = httpMock.expectOne({ url: '/api/apps', method: 'POST' });
-    expect(req.request.body).toEqual({
-      name: 'traficio',
-      connectionString: 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net',
-      pathPatterns: '/checkout\n/cart',
-    });
-    req.flush(
-      { appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
-      { status: 201, statusText: 'Created' },
-    );
-  });
-
   it('shows no #add-app-collection element', () => {
     expect(root().querySelector('#add-app-collection')).toBeNull();
   });
 
-  it('names the hint id of each input in aria-describedby, and the hint holds the example', () => {
+  it('names the hint id of the connection string field in aria-describedby, and the hint holds the example', () => {
     const connectionString = root().querySelector('#add-app-connection-string')!;
-    const pathPatterns = root().querySelector('#add-app-path-patterns')!;
 
     expect(connectionString.getAttribute('aria-describedby')).toBe(
       'add-app-connection-string-hint',
     );
-    expect(pathPatterns.getAttribute('aria-describedby')).toBe('add-app-path-patterns-hint');
 
     const connectionStringHint = root().querySelector('#add-app-connection-string-hint');
     expect(connectionStringHint?.textContent).toContain('mongodb://127.0.0.1:27017/<database>');
-  });
-
-  it('shows the fixed 400 message for an invalid route pattern list, linked with aria-describedby', () => {
-    fillAndSubmit({ pathPatterns: '/a?b' });
-    httpMock
-      .expectOne({ url: '/api/apps', method: 'POST' })
-      .flush(
-        { error: 'The route pattern at index 0 breaks the route pattern grammar.' },
-        { status: 400, statusText: 'Bad Request' },
-      );
-    fixture.detectChanges();
-
-    expect(root().textContent).toContain(
-      'The route pattern at index 0 breaks the route pattern grammar.',
-    );
-    const pathPatterns = root().querySelector('#add-app-path-patterns');
-    expect(pathPatterns?.getAttribute('aria-describedby')).toBe(
-      'add-app-path-patterns-hint add-app-error',
-    );
   });
 
   it('disables the submit button while the request is pending', () => {

@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
@@ -150,14 +151,57 @@ data class PollTarget(
     val cursor: String?,
     val checkPrivileges: Boolean = false,
     /**
-     * The route pattern list of the app (issue #226, the D5 rule of
-     * 2026-09-27), or `null` when the app gives no list.
-     * [PollScheduler] parses it from `AppRow.pathPatterns`, one pattern
-     * per line. [MongoAppReader.runCycle] then admits a `path` value
-     * only when it is a result of this list.
+     * The cached route pattern list of the app (design decision D48,
+     * issue #277; formerly the typed list of issue #226), or `null`
+     * when the app has no stored list yet. [PollScheduler] parses it
+     * from `AppRow.pathPatterns`, one pattern per line. [pollOnce] uses
+     * it as the admission list of the cycle only when the read of the
+     * published document of this cycle fails, is absent, or is invalid.
      */
     val pathPatterns: List<String>? = null,
+    /**
+     * `AppRow.pathPatternsPublishedAt` (design decision D48, issue
+     * #277): the `publishedAt` of the last route list that
+     * [pollOnce] stored, or `null` before the first stored list.
+     * [pollOnce] compares this value with the `publishedAt` of the
+     * document that this cycle reads, and it writes the app row again
+     * only on a change.
+     */
+    val pathPatternsPublishedAt: Long? = null,
+    /** `AppRow.kitVersion` (design decision D48, issue #277), or `null` before the first stored list. */
+    val kitVersion: String? = null,
 )
+
+/**
+ * The result of one read of the `route-patterns` document of
+ * `octometer_config` (design decision D48, issue #277).
+ * [normalizedText] is the same normalized, one-pattern-per-line form
+ * that [PathPatternList.parse] gives, the form that `app.path_patterns`
+ * already stores (issue #226); [patterns] is that same text, split back
+ * into a list, ready for [MongoAppReader.runCycle].
+ */
+private data class PublishedRoutePatterns(
+    val patterns: List<String>,
+    val normalizedText: String,
+    val publishedAt: Long,
+    val kitVersion: String?,
+)
+
+/**
+ * One invalid state of the `route-patterns` document (design decision
+ * D48, issue #277; MAJOR 1 of the correction round of pull request
+ * #286). [readPublishedRoutePatterns][MongoAppReader.readPublishedRoutePatterns]
+ * throws this inside its own `runCatching`, so a wrong BSON type of a
+ * field never escapes as a [ClassCastException]. [reason] names the
+ * field and the rule only, never a value of the document.
+ */
+private class InvalidRoutePatternsDocument(val reason: String) : Exception()
+
+/** The `_id` of the config document of design decision D47 and D48. */
+internal const val ROUTE_PATTERNS_DOCUMENT_ID = "route-patterns"
+
+/** The dedup window of the WARN line of a kept, cached route list (design decision D48). */
+private const val ROUTE_PATTERNS_WARN_INTERVAL_MILLIS = 60 * 60 * 1000L
 
 /**
  * The bound of one cycle's [MongoAppReader.readBound] call: the server
@@ -267,6 +311,12 @@ class MongoAppReader(
 
     private val clients = ConcurrentHashMap<Long, CachedClient>()
 
+    // Design decision D48 (issue #277): the last time this app id got
+    // its one WARN line for a kept, cached route list (an absent
+    // document, an invalid list, or a failed read). One entry per app
+    // id, in memory only; a restart of the monitor resets it.
+    private val routePatternsWarnAt = ConcurrentHashMap<Long, Long>()
+
     /**
      * Runs one poll cycle for [target], with the connection string
      * [connectionString]. The whole cycle now runs inside one
@@ -290,15 +340,97 @@ class MongoAppReader(
                 checkPrivileges(database, target)
                 eventStore.recordPrivilegeCheck(target.appId, clock.millis())
             }
+            // Design decision D48 (issue #277): the reader reads the
+            // published route list before the events, one findOne. The
+            // local val below holds the admission list of this cycle:
+            // the published list when the read gives one, else the
+            // cached list of the app row (target.pathPatterns). No
+            // PollTarget replacement (the correction of the brief
+            // review of 2026-09-28).
+            val published = readPublishedRoutePatterns(target.appId, database)
+            val patternsForCycle = published?.patterns ?: target.pathPatterns
+            if (published != null && routePatternsChanged(published, target)) {
+                eventStore.updateRoutePatterns(target.appId, published.normalizedText, published.publishedAt, published.kitVersion)
+            }
             val bound = readBound(database)
             checkGap(target.appId, target.cursor, bound.serverTime)
             val outcome =
-                runCycle(target.appId, target.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, target.pathPatterns) { cursor ->
+                runCycle(target.appId, target.cursor, MAX_PAGES_PER_CYCLE, PAGE_LIMIT, patternsForCycle) { cursor ->
                     readPage(database, target.collection, cursor, bound.bound, PAGE_LIMIT)
                 }
             recordCycleSuccess(target.appId, outcome.eventsSkipped)
             outcome
         }
+
+    /**
+     * Reads the config document `route-patterns` of `octometer_config`
+     * (design decision D48, issue #277). The whole read and parse — the
+     * `findOne`, the `patterns` array, the `publishedAt` date, and the
+     * `kitVersion` text — sits inside the one `runCatching` (MAJOR 1 of
+     * the correction round of pull request #286): a wrong BSON type of
+     * any field is then an invalid document, the same as a failed read,
+     * never an exception that escapes [pollOnce]. This call never runs
+     * inside [withMongoFailure]: a failed read here must never stop the
+     * poll status of the cycle, unlike each other MongoDB call of this
+     * class. An absent document, a `patterns` field that is not an
+     * array of strings, an invalid list (the bound of D5 stays, through
+     * [PathPatternList.parse]), a `publishedAt` field of the wrong type
+     * or absent, a `kitVersion` field of the wrong type, or a failed
+     * read each give `null`: [pollOnce] then keeps the cached list of
+     * the app row. Each case writes one WARN line for this app id, at
+     * most one per hour ([warnRoutePatternsKept]), with no field of the
+     * document.
+     */
+    private suspend fun readPublishedRoutePatterns(appId: Long, database: MongoDatabase): PublishedRoutePatterns? {
+        val result = runCatching {
+            val document = withContext(Dispatchers.IO) {
+                database.getCollection<Document>(CONFIG_COLLECTION_NAME)
+                    .find(Document("_id", ROUTE_PATTERNS_DOCUMENT_ID))
+                    .firstOrNull()
+            } ?: throw InvalidRoutePatternsDocument("no document")
+            val rawPatterns = document["patterns"] as? List<*>
+            if (rawPatterns == null || rawPatterns.any { it !is String }) {
+                throw InvalidRoutePatternsDocument("an invalid list")
+            }
+            @Suppress("UNCHECKED_CAST")
+            val patterns = rawPatterns as List<String>
+            val parsed = PathPatternList.parse(patterns.joinToString("\n"))
+            if (parsed !is PathPatternListResult.Accepted) {
+                throw InvalidRoutePatternsDocument("an invalid list")
+            }
+            val publishedAtField = document["publishedAt"]
+            val publishedAt = publishedAtField as? Date
+                ?: throw InvalidRoutePatternsDocument(if (publishedAtField == null) "no publishedAt field" else "publishedAt wrong type")
+            val kitVersionField = document["kitVersion"]
+            if (kitVersionField != null && kitVersionField !is String) {
+                throw InvalidRoutePatternsDocument("kitVersion wrong type")
+            }
+            val kitVersion = kitVersionField as String?
+            PublishedRoutePatterns(parsed.normalizedText.split("\n"), parsed.normalizedText, publishedAt.time, kitVersion)
+        }
+        return result.getOrElse { failure ->
+            val reason = (failure as? InvalidRoutePatternsDocument)?.reason ?: "a failed read"
+            warnRoutePatternsKept(appId, reason)
+            null
+        }
+    }
+
+    /** Tells whether [published] differs from the stored values of [target] (design decision D48). */
+    private fun routePatternsChanged(published: PublishedRoutePatterns, target: PollTarget): Boolean =
+        published.publishedAt != target.pathPatternsPublishedAt || published.kitVersion != target.kitVersion
+
+    /**
+     * Writes one WARN line for [appId], at most one per hour (design
+     * decision D48). [reason] names the field and the rule only, never
+     * a value of the document (the same rule as [invalidReason]).
+     */
+    private fun warnRoutePatternsKept(appId: Long, reason: String) {
+        val now = clock.millis()
+        val last = routePatternsWarnAt[appId]
+        if (last != null && now - last < ROUTE_PATTERNS_WARN_INTERVAL_MILLIS) return
+        routePatternsWarnAt[appId] = now
+        log.warn("The reader kept the cached route pattern list for one app. {}", reason)
+    }
 
     /**
      * Runs the privilege check of design decision D9 (issue #30, a

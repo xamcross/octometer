@@ -371,9 +371,12 @@ separate guide.
 
 **Anatomy.**
 - `<p id="..." class="form-hint">{{ ... }}</p>`, tied to its field by `aria-describedby`
-  (`add-app-form.html:23`, `:36-39`).
-- The two hint texts live once in `field-hints.ts` (issue #272 removed the database hint), so
-  the add form and the edit form show the same words (`manage/field-hints.ts:1-6`).
+  (`add-app-form.html:23`).
+- The connection-string hint text lives once in `field-hints.ts`, so the add form and the
+  edit form show the same words for the field they share (`manage/field-hints.ts:1-17`).
+  Design decision D48 (issue #277) removes the route pattern hint of issue #226: the app
+  publishes its own list now, and the edit form shows it read-only (see "The published
+  route list" below).
 
 **States.**
 
@@ -390,9 +393,6 @@ separate guide.
 - Do set the margin in the hint's own rule, `margin: 4px 0 0`, because the base sheet
   resets no `<p>` margin (rule: "a paragraph inside a new rule sets its margin",
   `add-app-form.css:41-46`).
-- Do not give the hint's `<code>` example a monospace face; the type plan allows no
-  monospace face anywhere (open finding of `minor_issues/258.md`,
-  `add-app-form.html:37-38`).
 
 ## The error
 
@@ -423,6 +423,45 @@ separate guide.
 - Do not omit the margin reset when a shared rule changes. `.form-error` sets
   `margin: 8px 0 0` in its own rule, because the base sheet resets no `<p>` margin (rule:
   "a paragraph inside a new rule sets its margin", `add-app-form.css:38`).
+
+## The published route list
+
+**Purpose.** The edit form shows the route pattern list that the app itself publishes, and
+the time of the last publish, so the operator reads what the app tracks with no typed field
+(design decision D48, issue #277; it ends the typed field of issue #226).
+
+**Anatomy.**
+- A `<div class="field">` under the connection string field: an `<h3>` heading "Route
+  patterns", then either a `<ul>` of `<code>` items (one per pattern) plus a
+  `<p class="form-hint">` with the publish line, or a `<p class="form-hint">` that reads "The
+  app has published no list yet." (`edit-app-form.html:33-45`).
+- The publish line reads "Published by the app on `<local time>` (kit `<version>`)", built
+  through `formatLocalDateTime` of `status-format.ts`, text interpolation only
+  (`edit-app-form.ts:83-94`).
+- The block reads `GET /api/apps/{id}` when the form opens, the same request that fills the
+  name field (`edit-app-form.ts:121-150`).
+
+**States.**
+
+| State | Cue |
+| --- | --- |
+| A published list | A `<ul>` of `<code>` patterns, then the publish line |
+| A cached list with no publish record | A `<ul>` of `<code>` patterns, then "Typed before the app published a list." (a list typed before design decision D48, `docs/run-guide.md`, `docs/integration-ktor.md`; MAJOR 2 of the correction round of pull request #286) |
+| No list yet | "The app has published no list yet." |
+| A failed read | The list keeps its last value (or its empty state); a `.form-error`
+  message shows next to the form, and Save stays enabled (the correction of the brief
+  review of 2026-09-28: a failed read of this read-only block risks no wrong write) |
+
+**Accessibility.**
+- Role: none beyond the native `<h3>`, `<ul>`, `<li>`, and `<p>` roles.
+- Accessible name: not applicable; the heading and the list carry their own text.
+- Live region: none; the block re-renders with the rest of the form on open.
+
+**Rules.**
+- Do keep `<code>` for each pattern, so a pattern with a `:name` or a `*` segment reads as
+  code, not as prose.
+- Do not let the publish line show while `pathPatterns` is empty; the two states are
+  mutually exclusive (`edit-app-form.html:35-44`).
 
 ## The panel and the scroll region
 

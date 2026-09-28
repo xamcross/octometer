@@ -23,22 +23,6 @@
     <p id="add-app-connection-string-hint" class="form-hint">{{ connectionStringHint }}</p>
   </div>
 
-  <div class="field">
-    <label for="add-app-path-patterns">Route patterns (one per line)</label>
-    <textarea
-      id="add-app-path-patterns"
-      [value]="pathPatterns()"
-      (input)="onPathPatternsInput($event)"
-      [attr.aria-describedby]="
-        errorMessage() ? 'add-app-path-patterns-hint add-app-error' : 'add-app-path-patterns-hint'
-      "
-    ></textarea>
-    <p id="add-app-path-patterns-hint" class="form-hint">
-      {{ pathPatternsHint }} Example: <code>/</code>, <code>/articles/*</code>,
-      <code>/history/:id</code>, each on its own line.
-    </p>
-  </div>
-
   @if (errorMessage(); as message) {
     <p id="add-app-error" class="form-error">{{ message }}</p>
   }

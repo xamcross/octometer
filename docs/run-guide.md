@@ -235,6 +235,13 @@ The owner accepts each risk below (design section 8):
   line, and the set never ages out on its own. A pattern-shaped raw path
   passes the shape check. The first `pathValueCap` raw values stay in
   `event.path` until the retention purge or an erasure of their user id.
+- The monitor takes the route pattern list from the app's own database
+  now (design decision D48, issue #277); the manage view shows it
+  read-only, with the publish time and the kit version. An absent
+  document, an invalid list, or a failed read keeps the monitor's last
+  stored list, with one WARN line for that app, at most once an hour. A
+  list that an operator typed on `/manage` before this change stays as
+  that stored, cached copy until the app publishes its own list.
 
 <!--
 Sources:

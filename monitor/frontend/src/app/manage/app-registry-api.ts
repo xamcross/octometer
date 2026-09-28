@@ -1,10 +1,10 @@
 import { HttpErrorResponse } from '@angular/common/http';
 
 /**
- * The body of `POST /api/apps` (D13). `pathPatterns` is the route
- * pattern list of issue #226, in the form of `OCTOMETER_PATH_PATTERNS`:
- * patterns with whitespace between them. An absent or a blank text
- * means the app gives no list.
+ * The body of `POST /api/apps` (D13). Design decision D48 (issue #277)
+ * ends the typed route pattern list of issue #226: the app publishes
+ * its own list now, so this body carries no `pathPatterns` field. The
+ * API gives 400 with a fixed reason for a body with that field.
  *
  * Issue #272: the registry derives the database name from the path of
  * `connectionString`. This form gives the API no `database` field any
@@ -13,20 +13,18 @@ import { HttpErrorResponse } from '@angular/common/http';
 export interface CreateAppRequest {
   readonly name: string;
   readonly connectionString: string;
-  readonly pathPatterns?: string;
 }
 
 /**
  * The body of `PATCH /api/apps/{id}` (D13). The caller gives a name, a
- * connection string, a route pattern list, or a mix. An absent
- * `name` or `connectionString` means "keep the old value". For
- * `pathPatterns` (issue #226): an absent field keeps the stored list, a
- * blank text clears it, a non-blank text sets it.
+ * connection string, or both. An absent `name` or `connectionString`
+ * means "keep the old value". Design decision D48 (issue #277): this
+ * body carries no `pathPatterns` field any more (see
+ * [CreateAppRequest]).
  */
 export interface UpdateAppRequest {
   readonly name?: string;
   readonly connectionString?: string;
-  readonly pathPatterns?: string;
 }
 
 /**
@@ -41,14 +39,20 @@ export interface AppSummary {
 }
 
 /**
- * The answer of `GET /api/apps/{id}` (issue #226). It never holds a
- * connection string. `pathPatterns` is the stored, normalized text, or
- * `null` when the app gives no list.
+ * The answer of `GET /api/apps/{id}` (design decision D48, issue #277;
+ * formerly issue #226). It never holds a connection string.
+ * `pathPatterns` is the route list that the app published, one pattern
+ * per line, or `null` before the app's first published list.
+ * `pathPatternsPublishedAt` is the UTC ISO 8601 text of that publish
+ * time, or `null` with `pathPatterns`. `kitVersion` is the kit version
+ * of that same publish, or `null` with `pathPatterns`.
  */
 export interface AppDetail {
   readonly appId: number;
   readonly name: string;
   readonly pathPatterns: string | null;
+  readonly pathPatternsPublishedAt: string | null;
+  readonly kitVersion: string | null;
 }
 
 /**

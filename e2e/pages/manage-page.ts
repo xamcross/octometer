@@ -68,6 +68,37 @@ export class ManagePage {
       timeout: timeoutMs,
     });
   }
+
+  /**
+   * Opens the edit form of the row named `name`, and gives that row's
+   * own locator back (design decision D48, issue #277). Each other
+   * method below takes that same locator, so it reads and fills the
+   * open edit form of that one row, never the always-visible add-app
+   * form below the table (both share the label "Name").
+   */
+  row(name: string) {
+    return this.page.getByRole('row', { name: new RegExp(`\\b${escapeRegExp(name)}\\b`) });
+  }
+
+  async openEditForm(row: ReturnType<ManagePage['row']>): Promise<void> {
+    await row.getByRole('button', { name: 'Edit' }).click();
+  }
+
+  /** The `<code>` items of the published route list of the open edit form (design decision D48). */
+  routePatternItems(row: ReturnType<ManagePage['row']>) {
+    return row.locator('.route-patterns-block li code');
+  }
+
+  /** The "Published by the app on" line of the open edit form (design decision D48). */
+  publishedLine(row: ReturnType<ManagePage['row']>) {
+    return row.locator('.route-patterns-block .form-hint');
+  }
+
+  /** Renames the app of the open edit form, and saves it (design decision D48). */
+  async renameAndSave(row: ReturnType<ManagePage['row']>, newName: string): Promise<void> {
+    await row.getByLabel('Name', { exact: true }).fill(newName);
+    await row.getByRole('button', { name: 'Save' }).click();
+  }
 }
 
 function escapeRegExp(value: string): string {

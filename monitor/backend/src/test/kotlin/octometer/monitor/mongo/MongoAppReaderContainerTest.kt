@@ -160,12 +160,28 @@ class MongoAppReaderContainerTest {
     // read for a moment and see the test fail." A CommandListener on a
     // dedicated client proves that one poll cycle always sends a hello
     // command before the find command of the page.
+    // Design decision D48 (issue #277) adds the reader's own find of the
+    // config document route-patterns, before hello. This test now tells
+    // that find apart from the find of the events page, by its own
+    // target collection, and it keeps its original proof: hello runs
+    // before the events page find.
     @Test
-    fun `one poll cycle sends a hello command before the find command`() = runBlocking {
-        val commandNames = Collections.synchronizedList(mutableListOf<String>())
+    fun `one poll cycle sends a hello command before the find command of the events page`() = runBlocking {
+        // The command's own BsonDocument sits in a shared, reused buffer
+        // (a defect of this test, found while debugging issue #277): a
+        // read after the callback returns can decode a later command's
+        // bytes instead. Each entry below reads the one field this test
+        // needs, inside the callback itself, as a plain Kotlin value.
+        data class Seen(val commandName: String, val findCollection: String?)
+        val commandEvents = Collections.synchronizedList(mutableListOf<Seen>())
         val listener = object : CommandListener {
             override fun commandStarted(event: CommandStartedEvent) {
-                commandNames += event.commandName
+                val findCollection = if (event.commandName == "find") {
+                    event.command.getString("find")?.value
+                } else {
+                    null
+                }
+                commandEvents += Seen(event.commandName, findCollection)
             }
         }
         val settings = MongoClientSettings.builder()
@@ -180,11 +196,11 @@ class MongoAppReaderContainerTest {
 
         listenerReader.pollOnce(target(cursor = null), MONGO.connectionString)
 
-        val helloIndex = commandNames.indexOf("hello")
-        val findIndex = commandNames.indexOf("find")
+        val helloIndex = commandEvents.indexOfFirst { it.commandName == "hello" }
+        val eventsFindIndex = commandEvents.indexOfFirst { it.findCollection == "octometer_events" }
         assertTrue(helloIndex != -1, "One pollOnce must send a hello command.")
-        assertTrue(findIndex != -1, "One pollOnce must send a find command.")
-        assertTrue(helloIndex < findIndex, "The hello command must run before the find command.")
+        assertTrue(eventsFindIndex != -1, "One pollOnce must send a find command of the events page.")
+        assertTrue(helloIndex < eventsFindIndex, "The hello command must run before the find command of the events page.")
         listenerReader.close()
     }
 
@@ -550,7 +566,15 @@ class MongoAppReaderContainerTest {
         }
 
         assertEquals(0, outcome.eventsSkipped)
-        val warnLines = logEvents.filter { it.level == ch.qos.logback.classic.Level.WARN && it.loggerName.contains("MongoAppReader") }
+        // Design decision D48 (issue #277): a first pollOnce of a fresh
+        // app also writes one WARN line for the app's still-absent
+        // route-patterns document. This filter keeps this test to the
+        // referrerHost WARN line alone.
+        val warnLines = logEvents.filter {
+            it.level == ch.qos.logback.classic.Level.WARN &&
+                it.loggerName.contains("MongoAppReader") &&
+                it.formattedMessage.contains("referrerHost")
+        }
         assertEquals(1, warnLines.size, "One WARN line must count the dropped referrerHost fields.")
         assertTrue(warnLines.single().formattedMessage.contains("2"), "The line must hold the dropped count.")
         logEvents.forEach { event ->
@@ -706,6 +730,217 @@ class MongoAppReaderContainerTest {
         assertEquals(null, row.lastError, "a good cycle clears the last error text")
     }
 
+    // --- D48, the published route list (issue #277; MAJOR 4 of the correction round of pull request #286) ---
+    // Each test below proves one rule of D48 against a real MongoDB: the
+    // good path stores the published list one time, and each of the
+    // five failure rules keeps the last stored list, keeps the poll
+    // status OK, and still reads the events of the cycle.
+
+    @Test
+    fun `a valid published list becomes the admission list of the cycle, and the reader stores it one time`() = runBlocking {
+        val publishedAt = Date()
+        rawClient.getDatabase(databaseName).getCollection(CONFIG_COLLECTION_NAME).insertOne(
+            org.bson.Document("_id", ROUTE_PATTERNS_DOCUMENT_ID)
+                .append("patterns", listOf("/", "/items/:id"))
+                .append("publishedAt", publishedAt)
+                .append("kitVersion", "1.4.0"),
+        )
+        rawClient.getDatabase(databaseName).getCollection("octometer_events").insertOne(
+            invalidDocument().append("ts", Date()).append("element", "checkout.save")
+                .append("sessionId", "session-1").append("userId", "user-1").append("path", "/items/42"),
+        )
+        settle()
+
+        val outcome = reader.pollOnce(target(cursor = null), MONGO.connectionString)
+
+        assertEquals(1, outcome.eventsStored)
+        val row = readEventColumns(sqlite, appId).single()
+        assertEquals("/items/:id", row.path, "The published list must become the admission list of the cycle.")
+        val columns = readRoutePatternColumns(sqlite, appId)
+        assertEquals("/\n/items/:id", columns.pathPatterns, "The reader must store the normalized list.")
+        assertEquals(publishedAt.time, columns.pathPatternsPublishedAt)
+        assertEquals("1.4.0", columns.kitVersion)
+        assertEquals("OK", readAppRow(sqlite, appId).status)
+    }
+
+    @Test
+    fun `an absent route-patterns document keeps the stored list, and the poll status stays OK`() = runBlocking {
+        val stored = publishGoodRouteList()
+        rawClient.getDatabase(databaseName).getCollection(CONFIG_COLLECTION_NAME)
+            .deleteOne(org.bson.Document("_id", ROUTE_PATTERNS_DOCUMENT_ID))
+        rawClient.getDatabase(databaseName).getCollection("octometer_events").insertOne(
+            invalidDocument().append("ts", Date()).append("element", "nav.open")
+                .append("sessionId", "session-2").append("userId", "user-1"),
+        )
+        settle()
+
+        val outcome = reader.pollOnce(target(cursor = stored.cursor), MONGO.connectionString)
+
+        assertEquals(1, outcome.eventsStored, "An absent document must not stop the events read.")
+        assertEquals(stored.columns, readRoutePatternColumns(sqlite, appId), "The stored list must stay.")
+        assertEquals("OK", readAppRow(sqlite, appId).status)
+    }
+
+    @Test
+    fun `a patterns field that is not an array keeps the stored list`() = runBlocking {
+        val stored = publishGoodRouteList()
+        rawClient.getDatabase(databaseName).getCollection(CONFIG_COLLECTION_NAME).replaceOne(
+            org.bson.Document("_id", ROUTE_PATTERNS_DOCUMENT_ID),
+            org.bson.Document("_id", ROUTE_PATTERNS_DOCUMENT_ID)
+                .append("patterns", "/not-an-array")
+                .append("publishedAt", Date())
+                .append("kitVersion", "1.5.0"),
+        )
+        rawClient.getDatabase(databaseName).getCollection("octometer_events").insertOne(
+            invalidDocument().append("ts", Date()).append("element", "nav.open")
+                .append("sessionId", "session-2").append("userId", "user-1"),
+        )
+        settle()
+
+        val outcome = reader.pollOnce(target(cursor = stored.cursor), MONGO.connectionString)
+
+        assertEquals(1, outcome.eventsStored, "A non-array patterns field must not stop the events read.")
+        assertEquals(stored.columns, readRoutePatternColumns(sqlite, appId), "The stored list must stay.")
+        assertEquals("OK", readAppRow(sqlite, appId).status)
+    }
+
+    @Test
+    fun `an invalid pattern in the published list keeps the stored list`() = runBlocking {
+        val stored = publishGoodRouteList()
+        rawClient.getDatabase(databaseName).getCollection(CONFIG_COLLECTION_NAME).replaceOne(
+            org.bson.Document("_id", ROUTE_PATTERNS_DOCUMENT_ID),
+            org.bson.Document("_id", ROUTE_PATTERNS_DOCUMENT_ID)
+                .append("patterns", listOf("no-leading-slash"))
+                .append("publishedAt", Date())
+                .append("kitVersion", "1.5.0"),
+        )
+        rawClient.getDatabase(databaseName).getCollection("octometer_events").insertOne(
+            invalidDocument().append("ts", Date()).append("element", "nav.open")
+                .append("sessionId", "session-2").append("userId", "user-1"),
+        )
+        settle()
+
+        val outcome = reader.pollOnce(target(cursor = stored.cursor), MONGO.connectionString)
+
+        assertEquals(1, outcome.eventsStored, "An invalid pattern must not stop the events read.")
+        assertEquals(stored.columns, readRoutePatternColumns(sqlite, appId), "The stored list must stay.")
+        assertEquals("OK", readAppRow(sqlite, appId).status)
+    }
+
+    @Test
+    fun `a publishedAt field of the wrong BSON type keeps the stored list`() = runBlocking {
+        val stored = publishGoodRouteList()
+        rawClient.getDatabase(databaseName).getCollection(CONFIG_COLLECTION_NAME).replaceOne(
+            org.bson.Document("_id", ROUTE_PATTERNS_DOCUMENT_ID),
+            org.bson.Document("_id", ROUTE_PATTERNS_DOCUMENT_ID)
+                .append("patterns", listOf("/", "/items/:id"))
+                .append("publishedAt", "not-a-date")
+                .append("kitVersion", "1.5.0"),
+        )
+        rawClient.getDatabase(databaseName).getCollection("octometer_events").insertOne(
+            invalidDocument().append("ts", Date()).append("element", "nav.open")
+                .append("sessionId", "session-2").append("userId", "user-1"),
+        )
+        settle()
+
+        val outcome = reader.pollOnce(target(cursor = stored.cursor), MONGO.connectionString)
+
+        assertEquals(1, outcome.eventsStored, "A wrong publishedAt type must not stop the events read.")
+        assertEquals(stored.columns, readRoutePatternColumns(sqlite, appId), "The stored list must stay.")
+        assertEquals("OK", readAppRow(sqlite, appId).status)
+    }
+
+    // The fifth failure rule of D48: a failed read of the config
+    // document. This test builds a throwaway container with auth on
+    // (the env setup of PrivilegeCheckContainerTest), never the shared
+    // MONGO of this class, and a role with find on octometer_events
+    // only, no find on octometer_config.
+    @Test
+    fun `a role with no find on octometer_config keeps the poll status OK, and reads the events`() = runBlocking {
+        val rootUser = "octorootroutereader3f8c"
+        val rootSecondValue = "octorootroutepass3f8c"
+        // org.testcontainers.mongodb.MongoDBContainer, not the plain
+        // org.testcontainers.containers.MongoDBContainer of the other
+        // throwaway container in this file (the form of
+        // PrivilegeCheckContainerTest): the plain container inits its
+        // replica set before auth, so it fails to start once these two
+        // env values turn auth on.
+        val throwaway: org.testcontainers.mongodb.MongoDBContainer = org.testcontainers.mongodb.MongoDBContainer(DockerImageName.parse("mongo:7.0"))
+            .withEnv("MONGO_INITDB_ROOT_USERNAME", rootUser)
+            .withEnv("MONGO_INITDB_ROOT_PASSWORD", rootSecondValue)
+        throwaway.start()
+        try {
+            val restrictedDatabaseName = "octometer_test_restricted_" + System.nanoTime()
+            val rootConnectionString = "mongodb" + "://" + rootUser + ":" + rootSecondValue + "@" +
+                throwaway.host + ":" + throwaway.getMappedPort(27017) + "/?authSource=admin"
+            val throwawayRootClient = MongoClients.create(rootConnectionString)
+            try {
+                val rootDatabase = throwawayRootClient.getDatabase(restrictedDatabaseName)
+                rootDatabase.getCollection("octometer_events").insertOne(
+                    org.bson.Document("_id", org.bson.types.ObjectId())
+                        .append("ts", Date())
+                        .append("element", "nav.open")
+                        .append("sessionId", "session-1")
+                        .append("userId", "user-1"),
+                )
+                val roleName = "octoEventsOnlyRole3f8c"
+                rootDatabase.runCommand(
+                    org.bson.Document("createRole", roleName)
+                        .append(
+                            "privileges",
+                            listOf(
+                                org.bson.Document(
+                                    "resource",
+                                    org.bson.Document("db", restrictedDatabaseName).append("collection", "octometer_events"),
+                                ).append("actions", listOf("find")),
+                            ),
+                        )
+                        .append("roles", emptyList<org.bson.Document>()),
+                )
+                val restrictedUser = "octorestrictedreader6b2d"
+                val restrictedSecondValue = "octorestrictedreaderpass6b2d"
+                rootDatabase.runCommand(
+                    org.bson.Document("createUser", restrictedUser)
+                        .append("pwd", restrictedSecondValue)
+                        .append("roles", listOf(org.bson.Document("role", roleName).append("db", restrictedDatabaseName))),
+                )
+                val restrictedConnectionString = "mongodb" + "://" + restrictedUser + ":" + restrictedSecondValue + "@" +
+                    throwaway.host + ":" + throwaway.getMappedPort(27017) +
+                    "/$restrictedDatabaseName?authSource=$restrictedDatabaseName"
+
+                val restrictedTarget = PollTarget(appId, restrictedDatabaseName, "octometer_events", cursor = null)
+                val outcome = reader.pollOnce(restrictedTarget, restrictedConnectionString)
+
+                assertEquals(1, outcome.eventsStored, "The events must still arrive with no find privilege on octometer_config.")
+                assertEquals("OK", readAppRow(sqlite, appId).status, "The poll status must stay OK.")
+                assertEquals(null, readRoutePatternColumns(sqlite, appId).pathPatterns, "The app started with no stored list.")
+            } finally {
+                throwawayRootClient.close()
+            }
+        } finally {
+            throwaway.stop()
+        }
+    }
+
+    /**
+     * Publishes a valid route list and polls once, so a failure-case
+     * test above can corrupt the document from a known good state
+     * (MAJOR 4 of the correction round of pull request #286). Gives
+     * back the cursor of the good cycle and the stored route pattern
+     * columns, for the failure-case test to compare against.
+     */
+    private suspend fun publishGoodRouteList(): StoredRouteList {
+        rawClient.getDatabase(databaseName).getCollection(CONFIG_COLLECTION_NAME).insertOne(
+            org.bson.Document("_id", ROUTE_PATTERNS_DOCUMENT_ID)
+                .append("patterns", listOf("/", "/items/:id"))
+                .append("publishedAt", Date())
+                .append("kitVersion", "1.4.0"),
+        )
+        settle()
+        val outcome = reader.pollOnce(target(cursor = null), MONGO.connectionString)
+        return StoredRouteList(outcome.cursor, readRoutePatternColumns(sqlite, appId))
+    }
+
     private fun target(cursor: String?) = PollTarget(appId, databaseName, "octometer_events", cursor)
 
     private fun ingestEvent(element: String) =
@@ -813,6 +1048,33 @@ private suspend fun readEventColumns(database: SqliteDatabase, appId: Long): Lis
                     )
                 }
                 rows
+            }
+        }
+    }
+
+/** The three route pattern columns of one app row (design decision D48, issue #277). */
+private data class RoutePatternColumns(
+    val pathPatterns: String?,
+    val pathPatternsPublishedAt: Long?,
+    val kitVersion: String?,
+)
+
+/** The cursor and the route pattern columns of one good cycle (design decision D48). */
+private data class StoredRouteList(val cursor: String?, val columns: RoutePatternColumns)
+
+private suspend fun readRoutePatternColumns(database: SqliteDatabase, appId: Long): RoutePatternColumns =
+    database.read { reader ->
+        reader.prepareStatement(
+            "SELECT path_patterns, path_patterns_published_at, kit_version FROM app WHERE id = ?",
+        ).use { select ->
+            select.setLong(1, appId)
+            select.executeQuery().use { result ->
+                result.next()
+                RoutePatternColumns(
+                    pathPatterns = result.getString(1),
+                    pathPatternsPublishedAt = result.getLong(2).takeUnless { result.wasNull() },
+                    kitVersion = result.getString(3),
+                )
             }
         }
     }

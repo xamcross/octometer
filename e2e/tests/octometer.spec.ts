@@ -338,4 +338,42 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
       await client.close();
     }
   });
+
+  // Design decision D48 (issue #277): the monitor reads the published
+  // config document at each poll cycle, and caches it in the app row;
+  // the manage view shows it read-only. This scenario is the last of
+  // the file (the correction of the brief review of 2026-09-28): it
+  // renames the app, so a name change here never breaks a later
+  // scenario.
+  test('the manage view shows the list the app published', async ({ page }) => {
+    const manage = new ManagePage(page);
+    await manage.goto();
+    const demoRow = manage.row('demo');
+    await manage.openEditForm(demoRow);
+
+    // The three patterns of design decision D46 (the same list that
+    // "the app publishes its route list" above reads straight from
+    // MongoDB): a literal segment before a ":name" segment, then text
+    // order.
+    await expect(manage.routePatternItems(demoRow)).toHaveText(
+      ['/', '/items/:id', '/tracker/:fileName'],
+      { timeout: CHAIN_WAIT_MS },
+    );
+    await expect(manage.publishedLine(demoRow)).toContainText('Published by the app on', {
+      timeout: CHAIN_WAIT_MS,
+    });
+
+    // A submit of the form with a new name changes the name and not
+    // the list (the third acceptance criterion of issue #277).
+    await manage.renameAndSave(demoRow, 'demo-renamed');
+    const renamedRow = manage.row('demo-renamed');
+    await expect(renamedRow).toBeVisible();
+
+    await manage.openEditForm(renamedRow);
+    await expect(manage.routePatternItems(renamedRow)).toHaveText([
+      '/',
+      '/items/:id',
+      '/tracker/:fileName',
+    ]);
+  });
 });
