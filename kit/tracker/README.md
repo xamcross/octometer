@@ -52,7 +52,7 @@ rule C38).
 For a new session id, `start()` sends one entry `octo:session-start` at
 once. The request is its own request, before any click. It waits for no
 `flushIntervalMs` (contract rule C38, design decision D41). The entry
-holds `ageMs: 0` and, with the `routes` option, the `path` of the page.
+holds `ageMs: 0` and the raw `path` of the page (design decision D49).
 The request uses `fetch` with `keepalive: true`, so a visitor who leaves
 the page at once still delivers it. A failed request follows the retry
 rule of the timer flush, not of the page lifecycle flush. It sends the
@@ -110,7 +110,6 @@ session start.
 | `credentials` | `same-origin` | The `fetch` credentials mode. |
 | `headers` | none | A function that returns extra request headers. |
 | `flushIntervalMs` | `5000` | The delay before the tracker sends a filled queue. |
-| `routes` | none | The ordered route pattern list of the app. With this option, each click entry holds `path`. |
 | `ignoreWebdriver` | `false` | Turns off the `navigator.webdriver` filter. Set it to `true` only for an end-to-end test. |
 
 ## The page lifecycle flush
@@ -178,63 +177,40 @@ session id.
 
 ## The path of a click
 
-Give the option `routes` to add `path` to each click entry. The value is
-an ordered list of route patterns, for example `['/', '/articles',
-'/articles/*', '/history/:id']` (contract rule C42). Without this
-option, no click entry holds `path`.
+Each click entry and the session start hold `path`: the raw
+`location.pathname` of the page, at the time of the click (design
+decision D49). The tracker holds no route pattern list of its own. The
+kit alone matches the value against the route pattern list of the app
+(contract rule C42) and stores the pattern or `/other`. Give
+`OCTOMETER_PATH_PATTERNS` to the kit for this match; see the guide of
+your framework, for example `docs/integration-ktor.md`.
 
-The tracker reads `location.pathname` at the time of the click. It
-removes a trailing slash, but not for the root path. It finds the first
-pattern with the same count of segments that matches:
+Before the send, the tracker percent-encodes each byte of
+`location.pathname` outside the character set of contract rule C39:
 
-- A literal segment matches without the ASCII letter case. The stored
-  text is the text of the pattern, never the text of the input.
-- A `:name` segment matches one segment, and the stored text is the
-  literal `:name`.
-- A `*` segment matches one segment, and it keeps the real segment only
-  when the segment holds a plain token: `^[A-Za-z0-9](?:[A-Za-z0-9._~-]|
-  %[0-9A-Fa-f]{2}){0,79}$`.
+- the four ASCII characters `[`, `]`, `^`, and `|`;
+- each non-ASCII byte.
 
-> **Warning for an app team.** A path can hold an identifier, a token, or a
-> search term. Mark each such segment with `:name` in the route list. Never
-> use `*` for a segment that holds a token, an email address, or a user id.
->
-> A `*` segment keeps a percent escape. A browser writes an `@` sign as
-> `%40`, a space as `%20`, and a `<` as `%3C`. The segment
-> `user%40example.com` passes the test, thus it leaves the browser. Use
-> `:name` for each such segment.
->
-> A `*` segment also keeps `%00`, `%2F`, and a double escape such as
-> `%252F`. A reader of the value decodes nothing.
+It also turns a lone `%` into `%25`: Chromium can leave such a `%` in
+`location.pathname`, a `%` with no two hex digits after it. It never
+decodes a `%` escape that is already well formed, and it never removes
+a trailing slash or a double slash. A slash, a letter, a digit, and each
+other C39 character stay as they are.
 
-The tracker sends `/other` in five cases:
+The tracker sends `/other` for a result above 150 bytes in UTF-8. It
+sends the value as it is for each other case, also a value that still
+breaks the grammar of rule C39, for example a double slash after the
+host (Chromium keeps this). The kit maps such a value to `/other` too
+(rule C41, amended by design decision D49); it never drops the `path`
+field or the batch for this case.
 
-- No pattern matches.
-- A `*` segment is bad.
-- A segment is empty.
-- A segment is `.` or `..`.
-- The result passes 150 bytes in UTF-8.
-
-It never decodes a `%` escape.
-
-The tracker checks each route pattern one time, at the creation of the
-tracker. A pattern is a string. It starts with `/`. Each segment holds
-only the character set of rule C39, or a well-formed escape
-`%[0-9A-Fa-f]{2}`.
-
-One bad entry stops the whole list, because a dropped entry would move a
-later pattern into its place and change the match order. The tracker
-then sends no `path` field for the whole list. It writes exactly one
-console warning for the list, and the warning names the index of each
-bad entry. A `routes` value that is not an array gives the same result:
-no `path` field, with one console warning. An empty list also sends no
-`path` field, with one console warning. No warning holds the text of a
-pattern, and no throw of a bad `routes` value reaches the page.
+The tracker reads `location.pathname` only, never the query string and
+never the fragment.
 
 The matcher itself, `matchPath` in `src/path-match.ts`, is an internal
-module. The package `exports` list holds no entry for it, thus an app
-cannot import it on its own. Use the `routes` option of `createTracker`
-instead.
+module that the server side of the kit uses (issue #104). The package
+`exports` list holds no entry for it, thus an app cannot import it on
+its own.
 
 ## The visitor source of the session start
 
@@ -282,8 +258,8 @@ host (issue #103). The tracker of this package changes no file of
 ## What leaves the browser
 
 Each request body holds only `sessionId` and `clicks`. Each click holds
-only `element`, `ageMs`, and, with the `routes` option, `path`. The
-session start also holds `referrerHost`, when the referrer gives one.
+only `element`, `ageMs`, and `path`. The session start also holds
+`referrerHost`, when the referrer gives one.
 The tracker never sends a user id: the app takes the user id from its own
 authentication context (owner decision O5).
 
@@ -312,7 +288,7 @@ for the call, with no click text in it.
 
 This package holds the tracker core, the page lifecycle flush, the retry
 rule, the session start of design decision D41, and the visitor source
-of design decision D42 (issue #108). It holds no route pattern list of
-its own for the demo app, and no server-side field check: the app gives
-its own route list, and `kit/jvm-core` checks `referrerHost` again on
-the server (rule C41, issue #103).
+of design decision D42 (issue #108). It holds no route pattern list, and
+no server-side field check: the app gives its route list to the kit
+only (design decision D49), and `kit/jvm-core` checks `referrerHost`
+again on the server (rule C41, issue #103).

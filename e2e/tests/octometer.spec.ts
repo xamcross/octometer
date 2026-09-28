@@ -3,6 +3,7 @@ import { AppsPage } from '../pages/apps-page';
 import { BreadcrumbPart } from '../pages/breadcrumb-part';
 import { DemoPage } from '../pages/demo-page';
 import { ElementsPage } from '../pages/elements-page';
+import { FirstPagesPage } from '../pages/first-pages-page';
 import { ManagePage } from '../pages/manage-page';
 import { SessionsPage } from '../pages/sessions-page';
 import { UsersPage } from '../pages/users-page';
@@ -210,4 +211,52 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     const gap = await elements.gapAbovePanel();
     expect(gap).toBeGreaterThanOrEqual(16);
   });
+
+  // Issue #278, design decision D49: the tracker sends the raw page path;
+  // it holds no routes option. #275 is not yet on main, so the demo app
+  // still has its typed server pattern list "/" only (Application.kt,
+  // DEMO_PATH_PATTERNS). A start on the root path still gives "/"; a
+  // start on an unknown path still gives "/other" (the correction of the
+  // brief review of 2026-09-28, note 4).
+  test(
+    'the tracker sends the raw path and the kit stores the pattern (design decision D49)',
+    async ({ page, newTrackedContext }) => {
+      const demoUrl = process.env.E2E_DEMO_URL;
+      if (!demoUrl) {
+        throw new Error('E2E_DEMO_URL is absent. The global setup did not run, or it failed.');
+      }
+
+      // A cookie set before the page load reaches the server with the
+      // session-start request too: that request goes out at once, inside
+      // the tracker's own start() call, before the page can select a demo
+      // user of its own (D19 off, no cookie means an anonymous, dropped
+      // batch).
+      const rootContext = await newTrackedContext();
+      await rootContext.addCookies([{ name: 'demo_user', value: 'cleo', url: demoUrl }]);
+      const rootPage = await rootContext.newPage();
+      const demoRoot = new DemoPage(rootPage);
+      await demoRoot.goto();
+
+      const html = await rootPage.content();
+      expect(html).not.toContain('routes');
+
+      // The demo app serves one route, "/" (Application.kt): a page load
+      // at another path never reaches it. This suite serves the same page
+      // body under that other URL itself, so the real tracker script
+      // still runs, with location.pathname set to that other path.
+      const otherContext = await newTrackedContext();
+      await otherContext.addCookies([{ name: 'demo_user', value: 'cleo', url: demoUrl }]);
+      const otherPage = await otherContext.newPage();
+      await otherPage.route('**/anything', async (route) => {
+        const response = await route.fetch({ url: `${demoUrl}/` });
+        await route.fulfill({ response });
+      });
+      await otherPage.goto(`${demoUrl}/anything`);
+
+      const firstPages = new FirstPagesPage(page);
+      await firstPages.goto(appId);
+      await firstPages.expectSessions('/', 1, CHAIN_WAIT_MS);
+      await firstPages.expectSessions('/other', 1, CHAIN_WAIT_MS);
+    },
+  );
 });

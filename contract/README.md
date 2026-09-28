@@ -1,4 +1,4 @@
-# Event log contract v1.2
+# Event log contract v1.3
 
 This document states the event log contract of Octometer. The contract has four parts: the
 event document, the ingest request, the reader rule, and the database user. The source is
@@ -18,6 +18,14 @@ C42. Each one now agrees word for word with design version 1.1. It adds no field
 thus it is not a major change under rule C10. A reader of version 1.1 already matches each
 corrected rule, because the correction states no new behavior of the tracker or of the
 server.
+
+Version 1.3. It is in progress. This change amends rule C42: the app gives its route pattern
+list to the server only, and the tracker sends the raw page path with no list of its own
+(design decision D49). It also amends rule C41: a `path` value that breaks rule C39 gives
+`/other` on the server, never a dropped field. Version 1.3 adds no field and no collection,
+thus it is a minor change under rule C9, not a major change under rule C10. Issue #276 adds
+more to this version: rule C44, and a further amendment of rule C42, for the config document
+of the app's route list.
 
 Each rule has an ID, `C1` to `C43`. The table at the end maps each rule ID to its example file.
 
@@ -173,16 +181,21 @@ application/json`.
 
   The server never adds a `referrerHost` field on its own. An entry `octo:session-start`
   without `referrerHost` is a direct visit, or a visit from a source that sends no referrer.
-- **C41.** An invalid `path` or `referrerHost` value does not make the body invalid. The
-  server drops that field, it keeps the entry, and it writes a maximum of one warning for
-  each batch. No log line holds a raw path or a raw host. This rule holds only for a value
-  that breaks the shape rule of C39 or of C40. A `path` that matches no route pattern is not
-  an invalid value; rule C42 states its stored result.
-- **C42. The stored `path`.** The app gives an ordered list of route patterns to the tracker
-  and to the server (`OCTOMETER_PATH_PATTERNS`). Each literal segment of a pattern is ASCII.
-  A pattern holds a literal segment, the segment `*`, or the segment `:name`. A pattern
-  matches only when it has the same count of segments as the path. The segment `*` and the
-  segment `:name` each match exactly one segment. No pattern matches a prefix. The first
+- **C41.** An invalid `referrerHost` value does not make the body invalid. The server drops
+  that field, it keeps the entry, and it writes a maximum of one warning for each batch. No
+  log line holds a raw host. This rule holds only for a value that breaks the shape rule of
+  C40. A `path` value that breaks the shape rule of C39 gives `/other` instead, on a server
+  with a route pattern list (design decision D49); the server never drops a `path` field or a
+  batch for this case, and no log line holds a raw path either. Without a route pattern list,
+  the server still drops an invalid `path` value, the same way as an invalid `referrerHost`
+  value. A `path` that matches no route pattern is not an invalid value; rule C42 states its
+  stored result.
+- **C42. The stored `path`.** The app gives an ordered list of route patterns to the server
+  only (`OCTOMETER_PATH_PATTERNS`). The tracker holds no list of its own; it sends the raw
+  page path, and the server alone matches it (design decision D49). Each literal segment of a
+  pattern is ASCII. A pattern holds a literal segment, the segment `*`, or the segment
+  `:name`. A pattern matches only when it has the same count of segments as the path. The
+  segment `*` and the segment `:name` each match exactly one segment. No pattern matches a prefix. The first
   pattern that matches gives the result. The segment `*` keeps the real segment, and only
   when that segment matches `^[A-Za-z0-9](?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2}){0,79}$`. Each
   other value for that segment makes the whole path `/other`. The segment `:name` writes the
@@ -205,9 +218,9 @@ application/json`.
     escape `%XX` is valid there too.
 
   The root entry `/` stays valid, because it has no segment. A pattern list with one invalid
-  pattern counts as no list: the tracker sends no `path`, and the server stores no `path` and
-  writes one warning at the start. Neither side drops one pattern and keeps the rest, because
-  a dropped pattern would change the match order. **Warning for an app team.** A path can hold
+  pattern counts as no list: the server stores no `path` and writes one warning at the start.
+  The server drops no single pattern and keeps the rest, because a dropped pattern would
+  change the match order. **Warning for an app team.** A path can hold
   an identifier, a token, or a search term. Mark each such segment with `:name` in the route
   list. Never use `*` for a segment that holds a token, an email address, or a user id.
 

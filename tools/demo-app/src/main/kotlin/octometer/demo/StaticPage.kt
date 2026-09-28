@@ -5,9 +5,10 @@ package octometer.demo
  * built tracker, and it holds three `data-octo` elements and a select
  * box for three demo user ids. The select box sets the cookie
  * `demo_user`. The route `demoUserId` reads that cookie (design decision
- * D19). The tracker option `flushIntervalMs` is 1000, and the option
- * `routes` holds the one path of this page, so each click carries a
- * `path`.
+ * D19). The tracker option `flushIntervalMs` is 1000. The tracker sends
+ * the raw path of the page in each click and in the session start; it
+ * takes no route list of its own (design decision D49). The kit matches
+ * that value against `DEMO_PATH_PATTERNS` of `Application.kt`.
  */
 object DemoIndexPage {
 
@@ -41,7 +42,6 @@ object DemoIndexPage {
           const tracker = createTracker({
             endpoint: '/api/octometer/v1/clicks',
             flushIntervalMs: 1000,
-            routes: ['/'],
           });
           tracker.start();
 

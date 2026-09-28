@@ -62,13 +62,16 @@ class IngestPipelinePathMatchTest {
     }
 
     @Test
-    void anInvalidShapedPathStillGivesNoPathEvenWithAMatcher() {
+    void anInvalidShapedPathBecomesOtherWithAMatcher() {
+        // Contract rule C41, amended by design decision D49: a path value
+        // outside the grammar of rule C39 becomes /other, never a dropped
+        // field, when a route pattern matcher exists.
         IngestSettings settings = new IngestSettings(false, PathPatternMatcher.of(SAMPLE_PATTERNS));
         String body = bodyWithPath("//two-slashes");
 
         List<IngestEvent> events = IngestPipeline.process(body, FIXED_CLOCK, settings);
 
-        assertNull(events.get(0).path());
+        assertEquals("/other", events.get(0).path());
     }
 
     @Test
@@ -136,7 +139,10 @@ class IngestPipelinePathMatchTest {
     }
 
     @Test
-    void aBatchWithAnInvalidShapedPathAndAMatcherStillWritesAtMostOneWarning() {
+    void aBatchWithAnInvalidShapedPathAndAMatcherWritesNoWarning() {
+        // Design decision D49: the server never drops a path value for
+        // this case, so it writes no warning either, the same as an
+        // ordinary path with no matching pattern.
         CapturingLoggerFinder.clear();
         IngestSettings settings = new IngestSettings(false, PathPatternMatcher.of(SAMPLE_PATTERNS));
         String body = """
@@ -149,8 +155,8 @@ class IngestPipelinePathMatchTest {
 
         List<IngestEvent> events = IngestPipeline.process(body, FIXED_CLOCK, settings);
 
-        assertTrue(events.stream().allMatch(event -> event.path() == null));
-        assertEquals(1, CapturingLoggerFinder.messages().size());
+        assertTrue(events.stream().allMatch(event -> "/other".equals(event.path())));
+        assertEquals(0, CapturingLoggerFinder.messages().size());
     }
 
     private static String bodyWithPath(String path) {

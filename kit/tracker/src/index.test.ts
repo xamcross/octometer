@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTracker, type Tracker } from './index.js';
-import * as pathMatch from './path-match.js';
+import { createTracker, type Tracker, type TrackerOptions } from './index.js';
 import * as batchModule from './batch.js';
 
 const ENDPOINT = 'https://app.example/api/octometer/v1/clicks';
@@ -119,6 +118,12 @@ describe('createTracker', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     document.body.innerHTML = '';
+    // jsdom shares one document, and one history, between every test of
+    // this file. Each click and each session start now always holds a
+    // raw path (design decision D49), so a test that pushes its own
+    // pathname must not leak it into a later test that reads no path of
+    // its own. Reset to the root path here, before each test.
+    window.history.pushState({}, '', '/');
     window.sessionStorage.clear();
     // Most tests run with an existing, valid session id already stored.
     // start() then finds no new session. It sends no octo:session-start
@@ -155,7 +160,7 @@ describe('createTracker', () => {
 
     const calls = parseCalls(fetchMock);
     expect(calls).toHaveLength(1);
-    expect(at(calls, 0).body.clicks).toEqual([{ element: 'save', ageMs: 5000 }]);
+    expect(at(calls, 0).body.clicks).toEqual([{ element: 'save', ageMs: 5000, path: '/' }]);
   });
 
   it('records no entry for a click without the data-octo attribute', () => {
@@ -209,7 +214,7 @@ describe('createTracker', () => {
     vi.advanceTimersByTime(5000);
 
     const calls = parseCalls(fetchMock);
-    expect(at(calls, 0).body.clicks).toEqual([{ element: 'shadow.save', ageMs: 5000 }]);
+    expect(at(calls, 0).body.clicks).toEqual([{ element: 'shadow.save', ageMs: 5000, path: '/' }]);
   });
 
   it('captures the click before a bubble-phase listener can stop its propagation', () => {
@@ -435,7 +440,7 @@ describe('createTracker', () => {
     expect(allElements).toContain('e200');
   });
 
-  it('sends a body that holds only sessionId and clicks, each click only element and ageMs', () => {
+  it('sends a body that holds only sessionId and clicks, each click only element, ageMs, and path', () => {
     const host = document.createElement('div');
     host.setAttribute('data-octo', 'save');
     document.body.appendChild(host);
@@ -448,7 +453,7 @@ describe('createTracker', () => {
     const calls = parseCalls(fetchMock);
     const body = at(calls, 0).body;
     expect(Object.keys(body).sort()).toEqual(['clicks', 'sessionId']);
-    expect(Object.keys(at(body.clicks, 0)).sort()).toEqual(['ageMs', 'element']);
+    expect(Object.keys(at(body.clicks, 0)).sort()).toEqual(['ageMs', 'element', 'path']);
     expect(typeof body.sessionId).toBe('string');
     expect(body.sessionId.length).toBeGreaterThan(0);
   });
@@ -821,7 +826,18 @@ describe('createTracker', () => {
     expect(() => createTracker({ endpoint: '' })).toThrow(TypeError);
   });
 
-  it('adds no path field to a click entry without the routes option', () => {
+  it('writes one console warning for a passed routes option, and ignores it (MAJOR 1 of pull request #283)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createTracker({ endpoint: ENDPOINT, routes: { '/history/:id': 'history' } } as TrackerOptions);
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      'The routes option is ignored since kit 0.3.0: the server matches the path.',
+    );
+  });
+
+  it('adds the raw location.pathname to a click entry, with no route match (design decision D49)', () => {
     window.history.pushState({}, '', '/history/42');
     const host = document.createElement('div');
     host.setAttribute('data-octo', 'save');
@@ -833,34 +849,16 @@ describe('createTracker', () => {
     vi.advanceTimersByTime(5000);
 
     const clicks = at(parseCalls(fetchMock), 0).body.clicks;
-    expect(at(clicks, 0)).not.toHaveProperty('path');
+    expect(at(clicks, 0).path).toBe('/history/42');
   });
 
-  it('adds the matched path field to a click entry with the routes option', () => {
-    window.history.pushState({}, '', '/history/42');
+  it('sends /other for a raw path above 150 bytes in UTF-8', () => {
+    window.history.pushState({}, '', `/${'a'.repeat(151)}`);
     const host = document.createElement('div');
     host.setAttribute('data-octo', 'save');
     document.body.appendChild(host);
 
-    tracker = createTracker({
-      endpoint: ENDPOINT,
-      routes: ['/', '/articles', '/articles/*', '/history/:id', '/ovdp/rates'],
-    });
-    tracker.start();
-    clickElement(host);
-    vi.advanceTimersByTime(5000);
-
-    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
-    expect(at(clicks, 0).path).toBe('/history/:id');
-  });
-
-  it('sends /other for a path without a matching pattern', () => {
-    window.history.pushState({}, '', '/tokens/abc');
-    const host = document.createElement('div');
-    host.setAttribute('data-octo', 'save');
-    document.body.appendChild(host);
-
-    tracker = createTracker({ endpoint: ENDPOINT, routes: ['/articles/*'] });
+    tracker = createTracker({ endpoint: ENDPOINT });
     tracker.start();
     clickElement(host);
     vi.advanceTimersByTime(5000);
@@ -869,13 +867,48 @@ describe('createTracker', () => {
     expect(at(clicks, 0).path).toBe('/other');
   });
 
+  it('percent-encodes a character outside rule C39 that a browser leaves as it is', () => {
+    // Chromium leaves `[`, `]`, `^`, and `|` as they are in location.pathname
+    // (they sit outside the WHATWG path percent-encode set). Rule C39 of
+    // the contract does not allow them raw, so the tracker escapes them
+    // itself before the send (design decision D49).
+    window.history.pushState({}, '', '/a[b]c^d|e');
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0).path).toBe('/a%5Bb%5Dc%5Ed%7Ce');
+  });
+
+  it('turns a lone % with no two hex digits after it into %25', () => {
+    // A well-formed escape, for example %20, stays as it is.
+    window.history.pushState({}, '', '/100%-off/caf%C3%A9');
+    const host = document.createElement('div');
+    host.setAttribute('data-octo', 'save');
+    document.body.appendChild(host);
+
+    tracker = createTracker({ endpoint: ENDPOINT });
+    tracker.start();
+    clickElement(host);
+    vi.advanceTimersByTime(5000);
+
+    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
+    expect(at(clicks, 0).path).toBe('/100%25-off/caf%C3%A9');
+  });
+
   it('reads location.pathname at the time of the click, not at the time of the flush', () => {
     window.history.pushState({}, '', '/articles/first');
     const host = document.createElement('div');
     host.setAttribute('data-octo', 'save');
     document.body.appendChild(host);
 
-    tracker = createTracker({ endpoint: ENDPOINT, routes: ['/articles/*'] });
+    tracker = createTracker({ endpoint: ENDPOINT });
     tracker.start();
     clickElement(host);
     window.history.pushState({}, '', '/articles/second');
@@ -886,14 +919,12 @@ describe('createTracker', () => {
   });
 
   it('reads location.pathname only, never the query string or the fragment', () => {
-    // A `*` segment rejects the character `?`. A tracker that also reads
-    // `location.search` would send `/other` here in place of the match.
     window.history.pushState({}, '', '/articles/42?token=a-secret-token#a-secret-fragment');
     const host = document.createElement('div');
     host.setAttribute('data-octo', 'save');
     document.body.appendChild(host);
 
-    tracker = createTracker({ endpoint: ENDPOINT, routes: ['/articles/*'] });
+    tracker = createTracker({ endpoint: ENDPOINT });
     tracker.start();
     clickElement(host);
     vi.advanceTimersByTime(5000);
@@ -969,7 +1000,7 @@ describe('createTracker', () => {
     expect(warnSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('still records a normal click when a routes list holds no octo: value', () => {
+  it('still records a normal click when no data-octo value starts with octo:', () => {
     const host = document.createElement('div');
     host.setAttribute('data-octo', 'save');
     document.body.appendChild(host);
@@ -980,188 +1011,6 @@ describe('createTracker', () => {
     vi.advanceTimersByTime(5000);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('sends no path field for the whole list when one entry is bad, with one console warning', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    window.history.pushState({}, '', '/history/42');
-    const host = document.createElement('div');
-    host.setAttribute('data-octo', 'save');
-    document.body.appendChild(host);
-
-    tracker = createTracker({
-      endpoint: ENDPOINT,
-      routes: ['/history/:id', 42 as unknown as string],
-    });
-    tracker.start();
-    clickElement(host);
-    vi.advanceTimersByTime(5000);
-
-    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
-    expect(at(clicks, 0)).not.toHaveProperty('path');
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(String(warnSpy.mock.calls[0]?.[0])).toContain('index 1');
-  });
-
-  it('writes exactly one console warning for a list with three invalid entries, and it names each index', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const host = document.createElement('div');
-    host.setAttribute('data-octo', 'save');
-    document.body.appendChild(host);
-
-    tracker = createTracker({
-      endpoint: ENDPOINT,
-      routes: [
-        42 as unknown as string,
-        '/articles',
-        'no-leading-slash',
-        '/history/:id',
-        { bad: true } as unknown as string,
-      ],
-    });
-    tracker.start();
-    clickElement(host);
-    vi.advanceTimersByTime(5000);
-
-    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
-    expect(at(clicks, 0)).not.toHaveProperty('path');
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    const message = String(warnSpy.mock.calls[0]?.[0]);
-    expect(message).toContain('index 0');
-    expect(message).toContain('index 2');
-    expect(message).toContain('index 4');
-    expect(message).toContain('path');
-  });
-
-  it('holds no text of a pattern, a path, or a data-octo value in the routes warning', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    window.history.pushState({}, '', '/history/42');
-    const host = document.createElement('div');
-    host.setAttribute('data-octo', 'a-secret-element-name');
-    document.body.appendChild(host);
-
-    tracker = createTracker({
-      endpoint: ENDPOINT,
-      routes: ['/history/:id', 'a-secret-bad-pattern'],
-    });
-    tracker.start();
-    clickElement(host);
-    vi.advanceTimersByTime(5000);
-
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    const message = String(warnSpy.mock.calls[0]?.[0]);
-    expect(message).not.toContain('a-secret-bad-pattern');
-    expect(message).not.toContain('a-secret-element-name');
-    expect(message).not.toContain('/history/42');
-  });
-
-  it('accepts an unknown routes value at the type level, and sends no path field for a non-array value', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const host = document.createElement('div');
-    host.setAttribute('data-octo', 'save');
-    document.body.appendChild(host);
-
-    const routesValue: unknown = 12345;
-    expect(() => {
-      tracker = createTracker({ endpoint: ENDPOINT, routes: routesValue as string[] });
-    }).not.toThrow();
-    tracker?.start();
-    clickElement(host);
-    vi.advanceTimersByTime(5000);
-
-    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
-    expect(at(clicks, 0)).not.toHaveProperty('path');
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('sends no path field when a missing leading slash reorders the match (MAJOR 1, privacy review)', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    window.history.pushState({}, '', '/reset-password/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
-    const host = document.createElement('div');
-    host.setAttribute('data-octo', 'save');
-    document.body.appendChild(host);
-
-    tracker = createTracker({
-      endpoint: ENDPOINT,
-      // The first entry holds no leading slash, thus it is a bad pattern.
-      // A dropped entry here would let the second pattern uncover the token.
-      routes: ['reset-password/:token', '/:lang/*'],
-    });
-    tracker.start();
-    clickElement(host);
-    vi.advanceTimersByTime(5000);
-
-    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
-    expect(at(clicks, 0)).not.toHaveProperty('path');
-    expect(warnSpy).toHaveBeenCalled();
-  });
-
-  it('sends no path field and throws nothing when the routes option is not an array', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const host = document.createElement('div');
-    host.setAttribute('data-octo', 'save');
-    document.body.appendChild(host);
-
-    expect(() => {
-      tracker = createTracker({ endpoint: ENDPOINT, routes: '/articles' as unknown as string[] });
-    }).not.toThrow();
-    tracker?.start();
-    clickElement(host);
-    vi.advanceTimersByTime(5000);
-
-    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
-    expect(at(clicks, 0)).not.toHaveProperty('path');
-    expect(warnSpy).toHaveBeenCalled();
-  });
-
-  it('sends no path field when every entry of the routes option is bad, with one console warning', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const host = document.createElement('div');
-    host.setAttribute('data-octo', 'save');
-    document.body.appendChild(host);
-
-    tracker = createTracker({ endpoint: ENDPOINT, routes: ['not-a-route'] });
-    tracker.start();
-    clickElement(host);
-    vi.advanceTimersByTime(5000);
-
-    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
-    expect(at(clicks, 0)).not.toHaveProperty('path');
-    expect(warnSpy).toHaveBeenCalled();
-  });
-
-  it('sends no path field for an empty routes list, with one console warning', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const host = document.createElement('div');
-    host.setAttribute('data-octo', 'save');
-    document.body.appendChild(host);
-
-    tracker = createTracker({ endpoint: ENDPOINT, routes: [] });
-    tracker.start();
-    clickElement(host);
-    vi.advanceTimersByTime(5000);
-
-    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
-    expect(at(clicks, 0)).not.toHaveProperty('path');
-    expect(warnSpy).toHaveBeenCalled();
-  });
-
-  it('falls back to /other and throws nothing when the matcher itself throws', () => {
-    const matchSpy = vi.spyOn(pathMatch, 'matchPreparedPath').mockImplementation(() => {
-      throw new Error('a broken matcher');
-    });
-    const host = document.createElement('div');
-    host.setAttribute('data-octo', 'save');
-    document.body.appendChild(host);
-
-    tracker = createTracker({ endpoint: ENDPOINT, routes: ['/articles/*'] });
-    tracker.start();
-    expect(() => clickElement(host)).not.toThrow();
-    expect(() => vi.advanceTimersByTime(5000)).not.toThrow();
-
-    const clicks = at(parseCalls(fetchMock), 0).body.clicks;
-    expect(at(clicks, 0).path).toBe('/other');
-    matchSpy.mockRestore();
   });
 
   // Issue #36, step 1: a pagehide listener flushes the queue with fetch
@@ -1180,7 +1029,7 @@ describe('createTracker', () => {
       const calls = parseCalls(fetchMock);
       expect(calls).toHaveLength(1);
       expect(at(calls, 0).init.keepalive).toBe(true);
-      expect(at(calls, 0).body.clicks).toEqual([{ element: 'save', ageMs: 0 }]);
+      expect(at(calls, 0).body.clicks).toEqual([{ element: 'save', ageMs: 0, path: '/' }]);
     });
 
     it('sends nothing on pagehide with an empty queue', () => {
@@ -1605,7 +1454,6 @@ describe('createTracker', () => {
       window.history.pushState({}, '', `/${longSegment}`);
       tracker = createTracker({
         endpoint: ENDPOINT,
-        routes: [`/${longSegment}`],
         flushIntervalMs: 100000,
       });
       tracker.start();
@@ -1639,7 +1487,7 @@ describe('createTracker', () => {
       expect(splitSpy).toHaveBeenCalledTimes(1);
       const [sessionIdArg, clicksArg] = splitSpy.mock.calls[0] as [string, unknown[]];
       expect(typeof sessionIdArg).toBe('string');
-      expect(clicksArg).toEqual([{ element: 'save', ageMs: 5000 }]);
+      expect(clicksArg).toEqual([{ element: 'save', ageMs: 5000, path: '/' }]);
     });
 
     it('sends one request for each batch that the splitter gives', () => {
@@ -1674,7 +1522,6 @@ describe('createTracker', () => {
       const element = 'b'.repeat(100);
       tracker = createTracker({
         endpoint: ENDPOINT,
-        routes: [`/${longSegment}`],
         flushIntervalMs: 1000000,
       });
       tracker.start();
@@ -1718,7 +1565,7 @@ describe('createTracker', () => {
       // went out inside the start() call itself.
       const calls = parseCalls(fetchMock);
       expect(calls).toHaveLength(1);
-      expect(at(calls, 0).body.clicks).toEqual([{ element: 'octo:session-start', ageMs: 0 }]);
+      expect(at(calls, 0).body.clicks).toEqual([{ element: 'octo:session-start', ageMs: 0, path: '/' }]);
     });
 
     it('holds the sessionId of the new session', () => {
@@ -1731,28 +1578,15 @@ describe('createTracker', () => {
       expect(call.body.sessionId).toBe(window.sessionStorage.getItem(SESSION_STORAGE_KEY));
     });
 
-    it('adds the path field of rule C39 when the routes option gives one', () => {
+    it('adds the raw path field of rule C39 to the session start (design decision D49)', () => {
       window.sessionStorage.clear();
       window.history.pushState({}, '', '/history/42');
-
-      tracker = createTracker({
-        endpoint: ENDPOINT,
-        routes: ['/', '/history/:id'],
-      });
-      tracker.start();
-
-      const clicks = at(parseCalls(fetchMock), 0).body.clicks;
-      expect(at(clicks, 0).path).toBe('/history/:id');
-    });
-
-    it('adds no path field without the routes option', () => {
-      window.sessionStorage.clear();
 
       tracker = createTracker({ endpoint: ENDPOINT });
       tracker.start();
 
       const clicks = at(parseCalls(fetchMock), 0).body.clicks;
-      expect(at(clicks, 0)).not.toHaveProperty('path');
+      expect(at(clicks, 0).path).toBe('/history/42');
     });
 
     it('sends the request with keepalive true, so a fast page exit does not cancel it', () => {
@@ -1812,7 +1646,7 @@ describe('createTracker', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-      tracker = createTracker({ endpoint: ENDPOINT, routes: ['/history/:id'] });
+      tracker = createTracker({ endpoint: ENDPOINT });
       tracker.start();
 
       const id = window.sessionStorage.getItem(SESSION_STORAGE_KEY) as string;

@@ -228,8 +228,9 @@ The kit reads each setting below from an environment variable.
 | `OCTOMETER_RETENTION_DAYS` | `30` | Sets the TTL retention of a stored event, in days. |
 | `OCTOMETER_PATH_PATTERNS` | none | Names the route pattern list of the app. Section 6 states its form. |
 
-Section 6 states the route pattern list, the tracker option `routes`, and the
-warning for an app team.
+Section 6 states the route pattern list and the warning for an app team. The
+tracker sends the raw page path with no list of its own (design decision D49);
+section 8 states this.
 
 ## 6. The route pattern list
 
@@ -239,9 +240,9 @@ space, a tab, or a line break. Write one pattern for each line, or write the
 patterns with a space between them. Never use a comma as the separator. A
 comma is a valid character of a pattern under contract rule C39.
 
-The tracker option `routes` (`kit/tracker/README.md`) takes the same list, in
-the same order. Give the kit and the tracker the same list. A different list
-gives a different stored path for the same click.
+The tracker (`kit/tracker/README.md`) takes no route pattern list of its own
+(design decision D49). It sends the raw page path, and the kit alone matches
+it against the list above.
 
 > A path can hold an identifier, a token, or a search term. Mark each such
 > segment with `:name` in the route list. Never use `*` for a segment that
@@ -249,16 +250,10 @@ gives a different stored path for the same click.
 
 **A path outside the list.** The kit stores the literal `/other` for a path
 that matches no pattern. It also stores `/other` for a path with an empty
-segment, a `.` segment, a `..` segment, or a bad `*` segment (contract rule
-C42). The kit never drops the `path` field for that case.
-
-**A bad `routes` value in the tracker.** One bad entry stops the whole list.
-A dropped entry would move a later pattern into its place, and that would
-change the match order. The tracker then sends no `path` field for the whole
-list. It writes one console warning, and the warning names the index of each
-bad entry. A `routes` value that is not an array gives the same result: no
-`path` field, with one console warning. An empty list also gives that same
-result.
+segment, a `.` segment, a `..` segment, a bad `*` segment, or a value that
+breaks the grammar of contract rule C39, for example a double slash after
+the host (contract rule C41, amended by design decision D49). The kit never
+drops the `path` field for any of these cases.
 
 Without `OCTOMETER_PATH_PATTERNS`, the kit stores no `path` field, and it
 writes one warning at the start.
@@ -320,6 +315,10 @@ Mark each clickable element with `data-octo="<name>"`. The name has 1 to 100 cha
 with the pattern `[A-Za-z0-9_.:-]+` (contract rule C4). The prefix `octo:` stays
 reserved for the contract. Give each `data-octo` value a name outside that prefix
 (contract rule C38).
+
+The tracker takes no route list of its own (design decision D49). It sends the raw page
+path of `location.pathname` in each click and in the session start. Give
+`OCTOMETER_PATH_PATTERNS` to the kit instead; section 6 states its form.
 
 ## 9. The check
 
@@ -508,11 +507,14 @@ Section 4, the storage alert metric name and its unit:
   The page holds `DB_DATA_SIZE_TOTAL`, not `DB_DATA_SIZE`, and states that this metric
   counts the document data of each database in bytes.
 Section 6 is new text of this guide, for issue #119. It cites contract rules C39 and
-  C42, kit/jvm-ktor/README.md ("OCTOMETER_PATH_PATTERNS"), kit/tracker/README.md (the
-  option `routes`, and the bad-value rule near line 229), and
+  C42, kit/jvm-ktor/README.md ("OCTOMETER_PATH_PATTERNS"), and
   kit/jvm-core/src/main/java/octometer/kit/core/ingest/IngestSettings.java (the
   whitespace separator, near line 189). The quoted warning is the text of issue #119's
   acceptance criteria.
+Section 6 and section 8: updated for issue #278 and design decision D49. The tracker
+  option `routes` goes; the tracker sends the raw page path, and the kit alone matches
+  it. It cites kit/tracker/README.md ("The path of a click") and contract rule C41,
+  amended.
 Section 8, the link sentence to `docs/privacy.md`: updated for issue #42 (the owner
   approval of 2026-09-27) to name the approved text and the open legal basis of
   issue #41.
