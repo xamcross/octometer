@@ -290,6 +290,16 @@ jobs:
       # below needs it.
       - name: Build the distribution and the demo app
         run: ./gradlew :monitor:backend:distZip :monitor:backend:installDist :tools:demo-app:installDist -PfrontendSourceMap=true
+      # Issue #306, correction round, MAJOR 2: the removed Windows job was
+      # the one job that ran these two classes after installDist. Each
+      # class reads a built file only, so ubuntu runs it too.
+      - name: Test the two distribution classes
+        env:
+          OCTOMETER_REQUIRE_DIST: 'true'
+        run: >-
+          ./gradlew :monitor:backend:test
+          --tests 'octometer.monitor.frontend.FrontendCspTest'
+          --tests 'octometer.monitor.windows.WindowsStartScriptTest'
       - name: Install the e2e dependencies
         working-directory: e2e
         run: npm ci
