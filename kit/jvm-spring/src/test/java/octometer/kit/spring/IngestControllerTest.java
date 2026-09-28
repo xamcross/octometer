@@ -13,8 +13,15 @@ import octometer.kit.core.store.EventLogStore;
 import octometer.kit.core.store.InMemoryEventLogStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockServletContext;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -373,6 +380,110 @@ class IngestControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_BODY))
                 .andExpect(status().isInternalServerError());
+    }
+
+    // The two tests below prove RoutePatternDerivationInitializer of
+    // design decision D46 (issue #275, BLOCKER 2 of the correction
+    // round). Each builds a real RequestMappingHandlerMapping through
+    // MockMvcBuilders.standaloneSetup, with RouteDerivationTestController
+    // below (one GET route with a {id} segment, one plain GET route,
+    // and one POST route), runs the initializer, then reads the stored
+    // path of a click through the existing MockMvc dispatch of
+    // IngestController.
+
+    private static String clicksBody(String... paths) {
+        StringBuilder json = new StringBuilder(
+                "{\"sessionId\":\"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11\",\"clicks\":[");
+        for (int i = 0; i < paths.length; i++) {
+            if (i > 0) {
+                json.append(',');
+            }
+            json.append("{\"element\":\"click-").append(i).append("\",\"ageMs\":900,\"path\":\"")
+                    .append(paths[i]).append("\"}");
+        }
+        return json.append("]}").toString();
+    }
+
+    @Test
+    void routePatternDerivationInitializerDerivesTheGetRoutesAndDropsThePostRoute() throws Exception {
+        InMemoryEventLogStore store = new InMemoryEventLogStore();
+        // 123 is a hand-set value, never the environment default (design
+        // decision D43): MAJOR 2 of the correction round of issue #275
+        // asks the initializer to keep it, in place of a fresh
+        // IngestSettings.fromEnvironment() call.
+        IngestController controller = new IngestController(store, request -> "user-1",
+                new IngestSettings(true, null, 123, 456), Clock.fixed(START, ZoneOffset.UTC));
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller, new RouteDerivationTestController()).build();
+        WebApplicationContext webApplicationContext = mockMvc.getDispatcherServlet().getWebApplicationContext();
+        RequestMappingHandlerMapping handlerMapping = webApplicationContext.getBean(RequestMappingHandlerMapping.class);
+        MockServletContext servletContext = new MockServletContext();
+
+        RoutePatternDerivationInitializer initializer = new RoutePatternDerivationInitializer(handlerMapping,
+                servletContext, controller, IngestController.DEFAULT_INGEST_PATH);
+        initializer.afterSingletonsInstantiated();
+
+        mockMvc.perform(post(IngestController.DEFAULT_INGEST_PATH)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(clicksBody("/items/42", "/items/new", "/submit")))
+                .andExpect(status().isNoContent());
+
+        assertEquals(3, store.events().size());
+        assertEquals("/items/:id", store.events().get(0).path(), "The {id} segment must derive to :id.");
+        assertEquals("/items/new", store.events().get(1).path(),
+                "The literal route must sort, and so match, before the parameter route (design decision D46).");
+        assertEquals("/other", store.events().get(2).path(),
+                "The POST-only route must stand absent from the derived list, so /submit matches no "
+                        + "pattern (contract rule C39).");
+        assertEquals(123, controller.settings().anonMaxEventsPerDay(),
+                "The initializer must keep the app's own hand-set field (MAJOR 2 of the correction round).");
+    }
+
+    @Test
+    void routePatternDerivationInitializerPrefixesTheDerivedListWithTheContextPath() throws Exception {
+        InMemoryEventLogStore store = new InMemoryEventLogStore();
+        IngestController controller = new IngestController(store, request -> "user-1", new IngestSettings(true),
+                Clock.fixed(START, ZoneOffset.UTC));
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller, new RouteDerivationTestController()).build();
+        WebApplicationContext webApplicationContext = mockMvc.getDispatcherServlet().getWebApplicationContext();
+        RequestMappingHandlerMapping handlerMapping = webApplicationContext.getBean(RequestMappingHandlerMapping.class);
+        MockServletContext servletContext = new MockServletContext();
+        servletContext.setContextPath("/app");
+
+        RoutePatternDerivationInitializer initializer = new RoutePatternDerivationInitializer(handlerMapping,
+                servletContext, controller, IngestController.DEFAULT_INGEST_PATH);
+        initializer.afterSingletonsInstantiated();
+
+        mockMvc.perform(post(IngestController.DEFAULT_INGEST_PATH)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(clicksBody("/app/items/42")))
+                .andExpect(status().isNoContent());
+
+        assertEquals("/app/items/:id", store.events().get(0).path(),
+                "The context path of the servlet must prefix each derived pattern.");
+    }
+
+    /**
+     * A small controller for the two tests above: one GET route with a
+     * {@code {id}} segment, one plain GET route, and one POST route
+     * (design decision D46, issue #275).
+     */
+    @RestController
+    private static final class RouteDerivationTestController {
+
+        @GetMapping("/items/{id}")
+        public String item(@PathVariable String id) {
+            return "ok";
+        }
+
+        @GetMapping("/items/new")
+        public String newItem() {
+            return "ok";
+        }
+
+        @PostMapping("/submit")
+        public String submit() {
+            return "ok";
+        }
     }
 
     // The tests below check

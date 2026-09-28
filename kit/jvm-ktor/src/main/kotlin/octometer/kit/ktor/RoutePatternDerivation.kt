@@ -36,10 +36,11 @@ private const val TRANSPARENT_SELECTOR_CLASS_NAME = "io.ktor.server.routing.Tran
  * list of design decision D46 (issue #275). A caller runs this after
  * the routing of the app is complete.
  *
- * @throws IllegalStateException for a selector that this function does
- *   not know (a new Ktor version, or a plugin that adds its own
- *   selector). The caller then falls back to the typed list; see
- *   [installRoutePatternDerivation].
+ * An unknown selector class (a new Ktor version, or a plugin that adds
+ * its own selector, other than a `TransparentRouteSelector` subclass)
+ * skips only its own subtree, with one warning; every other route of
+ * the app still joins the list (MAJOR 1 of the correction round of
+ * issue #275).
  */
 internal fun deriveKtorRoutePatterns(application: Application, ingestPath: String): List<String> {
     val root = application.routingRoot
@@ -54,12 +55,21 @@ private fun collectRouteTemplates(
     out: MutableList<RoutePatternDerivation.RouteTemplate>,
 ) {
     for (child in node.children) {
-        val method = methodOf(child.selector)
-        if (method != null) {
-            out.add(RoutePatternDerivation.RouteTemplate(method, segmentsSoFar))
+        try {
+            val method = methodOf(child.selector)
+            if (method != null) {
+                out.add(RoutePatternDerivation.RouteTemplate(method, segmentsSoFar))
+            }
+            val childSegments = segmentOf(child.selector)?.let { segmentsSoFar + it } ?: segmentsSoFar
+            collectRouteTemplates(child, childSegments, out)
+        } catch (cause: UnknownRouteSelectorException) {
+            LOGGER.log(
+                Level.WARNING,
+                "The route derivation of design decision D46 found an unknown selector class {0}. " +
+                    "The kit skips this one route subtree, and it keeps every other route.",
+                cause.selectorClassName,
+            )
         }
-        val childSegments = segmentOf(child.selector)?.let { segmentsSoFar + it } ?: segmentsSoFar
-        collectRouteTemplates(child, childSegments, out)
     }
 }
 
@@ -68,9 +78,16 @@ private fun methodOf(selector: RouteSelector): String? =
     (selector as? HttpMethodRouteSelector)?.method?.value
 
 /**
- * Gives the [RoutePatternDerivation.Segment] of [selector], `null` for
- * a selector that adds no path segment, or throws for a selector this
- * function does not know (design decision D46).
+ * Gives the [RoutePatternDerivation.Segment] of [selector], or `null`
+ * for a selector that adds no path segment. A `TransparentRouteSelector`
+ * subclass, by class name (design decision D46, MAJOR 1 of the
+ * correction round of issue #275), also gives `null`: it covers, for
+ * example, the Ktor auth plugin's `authenticate {}` selector, and the
+ * `header`, `accept`, `param`, and `host` selectors.
+ *
+ * @throws UnknownRouteSelectorException for a selector this function
+ *   does not know. [collectRouteTemplates] catches it and skips only
+ *   the one subtree below that selector.
  */
 private fun segmentOf(selector: RouteSelector): RoutePatternDerivation.Segment? = when (selector) {
     is PathSegmentConstantRouteSelector -> RoutePatternDerivation.Segment.Literal(selector.value)
@@ -84,15 +101,40 @@ private fun segmentOf(selector: RouteSelector): RoutePatternDerivation.Segment? 
     is HttpMethodRouteSelector -> null
     is RootRouteSelector -> null
     is TrailingSlashRouteSelector -> null
-    else -> if (selector::class.java.name == TRANSPARENT_SELECTOR_CLASS_NAME) {
+    else -> if (isTransparentSelectorClass(selector::class.java)) {
         null
     } else {
-        throw IllegalStateException(
-            "The route derivation of design decision D46 found an unknown selector class " +
-                "${selector::class.java.name}.",
-        )
+        throw UnknownRouteSelectorException(selector::class.java.name)
     }
 }
+
+/**
+ * True for [selectorClass] itself, or for any of its superclasses, by
+ * class name, equal to [TRANSPARENT_SELECTOR_CLASS_NAME] (design
+ * decision D46, MAJOR 1 of the correction round of issue #275). This
+ * function reads only the name of each superclass, so it matches a
+ * subclass that a Ktor plugin adds too, for example the auth plugin's
+ * `AuthenticationRouteSelector`, with no compile dependency on that
+ * plugin.
+ */
+private tailrec fun isTransparentSelectorClass(selectorClass: Class<*>): Boolean {
+    if (selectorClass.name == TRANSPARENT_SELECTOR_CLASS_NAME) {
+        return true
+    }
+    val superclass = selectorClass.superclass ?: return false
+    return isTransparentSelectorClass(superclass)
+}
+
+/**
+ * Marks a [RouteSelector] class that [segmentOf] does not know (design
+ * decision D46). [collectRouteTemplates] catches this exception and
+ * skips only the one subtree below that selector; every other route of
+ * the app still joins the list (MAJOR 1 of the correction round of
+ * issue #275).
+ */
+private class UnknownRouteSelectorException(val selectorClassName: String) : IllegalStateException(
+    "The route derivation of design decision D46 found an unknown selector class $selectorClassName.",
+)
 
 /**
  * Subscribes [application] on [ApplicationStarted], so that the
@@ -102,20 +144,23 @@ private fun segmentOf(selector: RouteSelector): RoutePatternDerivation.Segment? 
  * built its own routes, also a route that a call after
  * `octometerIngestRoute` adds inside the very same `routing {}` block.
  *
- * This function does nothing when [settings] already carries a
- * [IngestSettings.pathPatternMatcher] of its own: the app, or a test,
- * built that matcher by hand, so this function leaves it in place
- * (finding of `IngestRouteTest.kt`, `a route with a path pattern
- * matcher stores the match result`). Derivation runs only for the
- * common case, [settings] with no matcher of its own (`settings =
- * IngestSettings.fromEnvironment()`, the default parameter, with no
- * `OCTOMETER_PATH_PATTERNS`).
+ * This function always derives, also when [settings] already carries
+ * a `path` matcher that [IngestSettings.fromEnvironment] built from
+ * `OCTOMETER_PATH_PATTERNS`: [IngestSettings.withDerivedPathPatterns]
+ * reads that same environment variable again and appends its entries
+ * after the derived list, never before it (design decision D46,
+ * BLOCKER 1 of the correction round of issue #275). The caller of
+ * `octometerIngestRoute` skips this call, with `deriveRoutePatterns =
+ * false`, for a [settings] value with a `path` matcher that the app,
+ * or a test, builds by hand (finding of `IngestRouteTest.kt`, `a route
+ * with a path pattern matcher stores the match result`).
  *
  * [IngestRequestProcessor.updateSettings] then replaces only the
  * matcher of [settings]; every other field of [settings] (for example
  * [IngestSettings.recordAnonymousClicks]) survives unchanged
  * ([IngestSettings.withDerivedPathPatterns]). A derivation failure (an
- * unknown selector, or another defect) logs one warning with the
+ * unexpected exception, beyond the per-subtree skip of an unknown
+ * selector; see [collectRouteTemplates]) logs one warning with the
  * exception class only, and it leaves [settings] as it is. [processor]
  * keeps serving requests with no interruption either way; the update
  * takes effect for the next request onward.
@@ -126,9 +171,6 @@ internal fun installRoutePatternDerivation(
     settings: IngestSettings,
     processor: IngestRequestProcessor,
 ) {
-    if (settings.pathPatternMatcher() != null) {
-        return
-    }
     application.monitor.subscribe(ApplicationStarted) {
         val updatedSettings = try {
             settings.withDerivedPathPatterns(deriveKtorRoutePatterns(application, ingestPath))

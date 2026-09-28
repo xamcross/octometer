@@ -30,13 +30,18 @@ import org.springframework.web.util.pattern.PathPatternParser;
  * Spring calls {@link #afterSingletonsInstantiated} once, after every
  * singleton bean of the app already exists; {@link #handlerMapping}
  * then already holds every mapped route, also a controller bean that
- * this class knows nothing about. This class then gives the derived
- * list to {@link IngestController#updateSettings}.
+ * this class knows nothing about.
+ *
+ * <p>This class reads the app's own settings from {@link
+ * IngestController#settings()}, and it gives {@link
+ * IngestController#updateSettings} a copy with only the {@code path}
+ * matcher replaced ({@link IngestSettings#withDerivedPathPatterns});
+ * every hand-set field of the app's settings survives (MAJOR 2 of the
+ * correction round of issue #275, the same form as the Ktor adapter).
  *
  * <p>A derivation failure (an unknown pattern segment, or another
- * defect) logs one warning with the exception class only, and it falls
- * back to {@link IngestSettings#fromEnvironment()} with no derived
- * list, the pre-#275 behaviour.
+ * defect) logs one warning with the exception class only, and it
+ * leaves the app's own settings in place, with no derived route.
  */
 public final class RoutePatternDerivationInitializer implements SmartInitializingSingleton {
 
@@ -77,11 +82,15 @@ public final class RoutePatternDerivationInitializer implements SmartInitializin
         try {
             List<String> derived = RoutePatternDerivation.derive(routeTemplates(), servletContext.getContextPath(),
                     ingestPath);
-            controller.updateSettings(IngestSettings.fromEnvironment(derived));
+            // Keep every hand-set field of the app's own settings, and
+            // replace only the path matcher (MAJOR 2 of the correction
+            // round of issue #275; the same form as the Ktor adapter's
+            // IngestSettings.withDerivedPathPatterns).
+            controller.updateSettings(controller.settings().withDerivedPathPatterns(derived));
         } catch (RuntimeException cause) {
             LOGGER.log(Level.WARNING, "The route derivation of design decision D46 failed. The exception "
-                    + "class is {0}. The kit keeps the typed route pattern list.", cause.getClass().getName());
-            controller.updateSettings(IngestSettings.fromEnvironment());
+                    + "class is {0}. The kit keeps the app's own settings, with no derived route.",
+                    cause.getClass().getName());
         }
     }
 

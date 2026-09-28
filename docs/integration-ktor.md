@@ -248,11 +248,13 @@ metrics route that never needs a stored path.
 
 The setting `OCTOMETER_PATH_PATTERNS` stays an optional addition: an
 ordered list of route patterns (contract rule C42) that stand after the
-derived list, so a typed pattern never hides a derived one. A run of
-whitespace separates each pattern: a space, a tab, or a line break. Write
-one pattern for each line, or write the patterns with a space between them.
-Never use a comma as the separator. A comma is a valid character of a
-pattern under contract rule C39.
+derived list, so a typed pattern never hides a derived one. The kit
+derives every time, also when you set `OCTOMETER_PATH_PATTERNS` (BLOCKER
+1 of the correction round of issue #275). A run of whitespace separates
+each pattern: a space, a tab, or a line break. Write one pattern for
+each line, or write the patterns with a space between them. Never use a
+comma as the separator. A comma is a valid character of a pattern under
+contract rule C39.
 
 The tracker (`kit/tracker/README.md`) takes no route pattern list of its own
 (design decision D49). It sends the raw page path, and the kit alone matches

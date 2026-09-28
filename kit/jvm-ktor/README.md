@@ -130,6 +130,8 @@ Ktor `rootPath` of the app, sorted (a literal segment first, then
 `:name`, then `*`, at each depth, then by text), and it holds no
 duplicate.
 
+The route derives its list every time, also when `OCTOMETER_PATH_PATTERNS`
+holds a value (BLOCKER 1 of the correction round of issue #275).
 `OCTOMETER_PATH_PATTERNS` stays optional: a run of whitespace separates
 each entry (a space, a tab, or a line break). Its entries stand after
 the derived ones, so a typed pattern never hides a derived one. An
@@ -139,16 +141,27 @@ one warning. `OCTOMETER_PATH_EXCLUDE` skips each route under one of its
 prefixes (also a run of whitespace between prefixes), for example
 `OCTOMETER_PATH_EXCLUDE="/api/ /actuator/"`.
 
+Set `deriveRoutePatterns = false` on `octometerIngestRoute` to turn the
+derivation off, for a `settings` value with a `path` matcher that the
+app, or a test, builds by hand. The route then keeps that matcher, with
+no derivation.
+
+A route below a selector of the auth plugin (for example `authenticate
+{}`), or below a `header`, `accept`, `param`, or `host` selector, adds
+no path segment of its own; the derivation still reads its GET route.
+
 An app with no GET route, and no `OCTOMETER_PATH_PATTERNS`, gives an
 empty list; the route then stores no `path` field, the same behaviour
 as before this issue. A combined list above 200 entries keeps its
 first 200, with one warning. The route writes one INFO line at start
 with the final stored count.
 
-A derivation failure (an unknown selector, for example of a plugin's
-own routing extension) logs one warning with the exception class only,
-and it falls back to `OCTOMETER_PATH_PATTERNS` alone, with no derived
-entry.
+An unknown selector (for example of a plugin's own routing extension,
+other than a `TransparentRouteSelector` subclass) skips only its own
+subtree, with one warning; every other route still joins the list
+(MAJOR 1 of the correction round of issue #275). A different derivation
+failure logs one warning with the exception class only, and it falls
+back to `OCTOMETER_PATH_PATTERNS` alone, with no derived entry.
 
 **A caveat.** The derivation rebuilds the whole settings object from
 the process environment, including `OCTOMETER_RECORD_ANONYMOUS` and

@@ -188,6 +188,18 @@ public final class IngestRequestProcessor {
     }
 
     /**
+     * Gives the current settings of this processor (design decision
+     * D46, issue #275). {@code RoutePatternDerivationInitializer} of
+     * `kit/jvm-spring` reads this value once, so it can keep every
+     * hand-set field of the app's own settings and replace only the
+     * {@code path} matcher (MAJOR 2 of the correction round of issue
+     * #275; the same rule as {@link IngestSettings#withDerivedPathPatterns}).
+     */
+    public IngestSettings settings() {
+        return settings;
+    }
+
+    /**
      * Runs each check that needs no parsed body: the content type (415),
      * the rate limiter (429), the anonymous per-minute request counter
      * (429), the bot filter (204), and the declared body size (400).

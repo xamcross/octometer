@@ -83,9 +83,15 @@ not a Spring Boot property). `OCTOMETER_PATH_PATTERNS` and
 ("The route pattern list"); read that section for the full rule, the
 200-entry bound, and the caveat about a hand-built `IngestSettings`.
 
+`RoutePatternDerivationInitializer` reads the app's own `IngestSettings`
+from the controller, and it replaces only the `path` matcher; every
+hand-set field of the app's settings survives (MAJOR 2 of the
+correction round of issue #275, the same form as `kit/jvm-ktor`'s
+`withDerivedPathPatterns`).
+
 A derivation failure (an unknown pattern segment) logs one warning
-with the exception class only, and it falls back to
-`IngestSettings.fromEnvironment()` with no derived list.
+with the exception class only, and it leaves the app's own settings in
+place, with no derived route.
 
 The path of the route reads the Spring property
 `octometer.ingest-path`, with `/api/octometer/v1/clicks` (contract rule
