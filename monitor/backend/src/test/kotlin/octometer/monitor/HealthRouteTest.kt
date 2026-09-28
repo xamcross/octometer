@@ -8,6 +8,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -103,4 +104,33 @@ class HealthRouteTest {
             assertTrue(body["databaseBytes"]!!.jsonPrimitive.long > 0, "the migrations already wrote octometer.db")
             assertTrue(body["freeDiskBytes"]!!.jsonPrimitive.long > 0, "a real disk has free space above 0")
         }
+
+    // D56 (issue #295): the health route answers with storeState "ok",
+    // and with storageSizeBytes, writeStopped, and clusterCheckState
+    // each null until #297 fills them.
+    @Test
+    fun `the health route answers with storeState ok, and the D56 fields null until #297`() = testApplication {
+        application { module(devConfig()) }
+
+        val response = client.get("/api/health") { allowedHost() }
+
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("ok", body["storeState"]!!.jsonPrimitive.content)
+        assertEquals(JsonNull, body["storageSizeBytes"])
+        assertEquals(JsonNull, body["writeStopped"])
+        assertEquals(JsonNull, body["clusterCheckState"])
+    }
+
+    // D56: the process-and-store check, with no other content and no
+    // cluster call.
+    @Test
+    fun `healthz answers 200 with the plain text body ok`() = testApplication {
+        application { module(devConfig()) }
+
+        val response = client.get("/healthz") { allowedHost() }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("ok", response.bodyAsText())
+        assertEquals(ContentType.Text.Plain, response.contentType()?.withoutParameters())
+    }
 }

@@ -20,9 +20,21 @@ private val ENVIRONMENT_VARIABLE_NAMES = mapOf(
     "backupDir" to "OCTOMETER_BACKUP_DIR",
     "pollIntervalSeconds" to "OCTOMETER_POLL_INTERVAL_SECONDS",
     "pathValueCap" to "OCTOMETER_PATH_VALUE_CAP",
+    // Issue #295 (D2, D52, D56): the hosted-service keys.
+    "bind" to "OCTOMETER_BIND",
+    "publicUrl" to "OCTOMETER_PUBLIC_URL",
+    "clientIpHeader" to "OCTOMETER_CLIENT_IP_HEADER",
+    "clusterUri" to "OCTOMETER_CLUSTER_URI",
+    "mailApiKey" to "OCTOMETER_MAIL_API_KEY",
+    "adminToken" to "OCTOMETER_ADMIN_TOKEN",
 )
 
 private val KNOWN_KEYS = ENVIRONMENT_VARIABLE_NAMES.keys
+
+// Issue #295, brief review B1: a secret key never reaches the start log
+// or a resolved value list with its real value. This gives "set" or
+// "not set" in its place, right where the list builds.
+private fun secretDisplayValue(value: String): String = if (value.isBlank()) "not set" else "set"
 
 // The fallback folder of D2 for an environment with no LOCALAPPDATA
 // variable, for example a Linux or a macOS test runner.
@@ -117,6 +129,22 @@ fun loadConfig(
             userConfig,
             bundled.getString("octometer.pathValueCap"),
         )
+        // Issue #295: the hosted-service keys. Each one is a plain
+        // string; requireLoopbackBindAddress and requireHostedSecrets
+        // validate bind, clusterUri, and adminToken at the start, after
+        // loadConfig returns.
+        val bind = resolveValue("bind", arguments, env, userConfig, bundled.getString("octometer.bind"))
+        val publicUrl = resolveValue("publicUrl", arguments, env, userConfig, bundled.getString("octometer.publicUrl"))
+        val clientIpHeader = resolveValue(
+            "clientIpHeader",
+            arguments,
+            env,
+            userConfig,
+            bundled.getString("octometer.clientIpHeader"),
+        )
+        val clusterUri = resolveValue("clusterUri", arguments, env, userConfig, bundled.getString("octometer.clusterUri"))
+        val mailApiKey = resolveValue("mailApiKey", arguments, env, userConfig, bundled.getString("octometer.mailApiKey"))
+        val adminToken = resolveValue("adminToken", arguments, env, userConfig, bundled.getString("octometer.adminToken"))
         val validatedDataDir = validateDataDir(dataDir.value)
         // Issue #55: the bundled default is the folder "backups" beside
         // dataDir. The value depends on the resolved dataDir, so this
@@ -144,6 +172,12 @@ fun loadConfig(
                 includeValueInMessage = false,
             ),
             pathValueCap = toValidInt("pathValueCap", pathValueCap.value, 1..Int.MAX_VALUE, "1 or more"),
+            bind = bind.value,
+            publicUrl = publicUrl.value,
+            clientIpHeader = clientIpHeader.value,
+            clusterUri = clusterUri.value,
+            mailApiKey = mailApiKey.value,
+            adminToken = adminToken.value,
         )
 
         return ResolvedConfig(
@@ -157,6 +191,12 @@ fun loadConfig(
                 ResolvedValue("backupDir", File(config.backupDir).absolutePath, backupDir.source),
                 ResolvedValue("pollIntervalSeconds", config.pollIntervalSeconds.toString(), pollIntervalSeconds.source),
                 ResolvedValue("pathValueCap", config.pathValueCap.toString(), pathValueCap.source),
+                ResolvedValue("bind", config.bind, bind.source),
+                ResolvedValue("publicUrl", config.publicUrl, publicUrl.source),
+                ResolvedValue("clientIpHeader", config.clientIpHeader, clientIpHeader.source),
+                ResolvedValue("clusterUri", secretDisplayValue(config.clusterUri), clusterUri.source),
+                ResolvedValue("mailApiKey", secretDisplayValue(config.mailApiKey), mailApiKey.source),
+                ResolvedValue("adminToken", secretDisplayValue(config.adminToken), adminToken.source),
             ),
             warnings = warnings,
         )

@@ -36,6 +36,7 @@ jobs:
       smoke: ${{ steps.filter.outputs.smoke }}
       e2e: ${{ steps.filter.outputs.e2e }}
       ci: ${{ steps.filter.outputs.ci }}
+      deploy: ${{ steps.filter.outputs.deploy }}
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,6 +80,9 @@ jobs:
             # Issue #175, step 4, decision 6. The "ci" filter below
             # already covers a workflow change, so this filter leaves
             # out '.github/**' (correction of the brief review).
+            #
+            # Issue #295, brief review M9, M10: the e2e job's image
+            # check needs the Dockerfile and fly.toml too.
             e2e:
               - 'e2e/**'
               - 'monitor/**'
@@ -90,8 +94,15 @@ jobs:
               - '*.gradle.kts'
               - 'gradle.properties'
               - 'gradlew*'
+              - 'monitor/backend/Dockerfile'
+              - 'fly.toml'
             ci:
               - '.github/**'
+            # Issue #295, brief review m1, m2: the deploy job's own
+            # path filter.
+            deploy:
+              - 'monitor/backend/Dockerfile'
+              - 'fly.toml'
 
   jvm:
     name: JVM modules
@@ -387,8 +398,11 @@ jobs:
       # "--source-map" to the Angular build of this job only, so
       # coverage-report.mjs can map the served bundle back to
       # monitor/frontend/src.
+      # Issue #295, brief review M9, M10: installDist also builds
+      # monitor/backend/build/install/backend, the image check step
+      # below needs it.
       - name: Build the distribution and the demo app
-        run: ./gradlew :monitor:backend:distZip :tools:demo-app:installDist -PfrontendSourceMap=true
+        run: ./gradlew :monitor:backend:distZip :monitor:backend:installDist :tools:demo-app:installDist -PfrontendSourceMap=true
       - name: Install the e2e dependencies
         working-directory: e2e
         run: npm ci
@@ -415,6 +429,35 @@ jobs:
       - name: Run the end-to-end suite
         working-directory: e2e
         run: npm test
+      # Issue #295, criterion 3, brief review M9, M10: the image builds
+      # in CI and answers ok on /healthz in a container. The empty
+      # folder below reproduces the Fly volume state of brief review
+      # B5 (a root-owned mount); the entrypoint script fixes the
+      # ownership. This end-to-end suite of the monitor itself stays
+      # on the host; only this one check runs in the container.
+      - name: Build the Docker image and check its health route
+        run: |
+          docker build -f monitor/backend/Dockerfile -t octometer-monitor:ci .
+          mkdir image-check-data
+          docker run --rm -d --name octometer-image-check \
+            -p 8080:8080 \
+            -v "$PWD/image-check-data:/data" \
+            -e OCTOMETER_ADMIN_TOKEN=check \
+            octometer-monitor:ci
+          health_ready=""
+          for attempt in $(seq 1 30); do
+            if [ "$(curl -fsS http://127.0.0.1:8080/healthz)" = "ok" ]; then
+              health_ready="yes"
+              break
+            fi
+            sleep 1
+          done
+          docker logs octometer-image-check
+          docker stop octometer-image-check
+          if [ -z "$health_ready" ]; then
+            echo "The image never answered ok on /healthz within 30 seconds."
+            exit 1
+          fi
       # Step (d). Converts the V8 coverage of the browser suite into one
       # lcov file and one text summary of monitor/frontend/src.
       - name: Build the frontend coverage report
@@ -434,6 +477,86 @@ jobs:
             e2e/test-results
             e2e/.run/coverage
             monitor/backend/build/reports/jacoco/e2e
+
+  # Issue #295: the deploy job. It runs on a push to main only, after
+  # the other jobs pass or skip, and only on a change that the deploy
+  # path filter covers. Brief review M1: this job lists "changes" in
+  # "needs" too, because the "needs" context of a job does not carry
+  # through a chain.
+  deploy:
+    name: Deploy
+    needs: [changes, jvm, frontend, e2e]
+    if: |
+      !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.jvm.result != 'failure' && needs.frontend.result != 'failure' && needs.e2e.result != 'failure' &&
+      (needs.changes.outputs.jvm == 'true' || needs.changes.outputs.frontend == 'true' ||
+       needs.changes.outputs.deploy == 'true' || needs.changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Temurin 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          # cache-read-only: same source and rule as the "jvm" job above.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      # Brief review M2: installDist builds the Angular app first.
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: monitor/frontend/.nvmrc
+      - name: Build the distribution, with the Angular app inside it
+        run: ./gradlew :monitor:backend:installDist
+      # Brief review m3: the token presence, never the token value, so
+      # a fork pull request or a missing owner secret never fails
+      # main. m12: id: token, the step that the "if" below reads.
+      #
+      # Correction round of #307, MAJOR 2: "present" also needs the
+      # repository variable FLY_APP_NAME and a real region in fly.toml,
+      # or flyctl deploy fails with no app name and no region.
+      - name: Read the deploy readiness
+        id: token
+        run: |
+          reason=""
+          if [ "${{ secrets.FLY_API_TOKEN != '' }}" != "true" ]; then
+            reason="no FLY_API_TOKEN"
+          elif [ -z "${{ vars.FLY_APP_NAME }}" ]; then
+            reason="no FLY_APP_NAME"
+          elif grep -q 'primary_region = "<' fly.toml; then
+            reason="no region in fly.toml"
+          fi
+          if [ -z "$reason" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Set up flyctl
+        if: steps.token.outputs.present == 'true'
+        uses: superfly/flyctl-actions/setup-flyctl@dfdfedc86b296f5e5384f755a18bf400409a15d0 # v1.4
+      # Brief review M7: --ha=false, because fly.toml names one volume
+      # and one machine; the run guide states the reason. Correction
+      # round of #307, MAJOR 2: --app names the Fly app, because
+      # fly.toml holds no "app" line.
+      - name: Deploy to Fly.io
+        if: steps.token.outputs.present == 'true'
+        run: flyctl deploy --remote-only --ha=false --app "${{ vars.FLY_APP_NAME }}"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Report the skipped deploy
+        if: steps.token.outputs.present != 'true'
+        run: |
+          echo "The deploy is skipped: ${{ steps.token.outputs.reason }}."
 
   secrets:
     name: Secret scan

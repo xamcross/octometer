@@ -252,6 +252,127 @@ The owner accepts each risk below (design section 8):
   list that an operator typed on `/manage` before this change stays as
   that stored, cached copy until the app publishes its own list.
 
+## 7. The hosted service
+
+Issue #295 scaffolds a hosted copy of the monitor on Fly.io, beside the
+desktop app. This section covers the hosted service only.
+
+### The three secrets
+
+The service needs three secrets. Nobody types a secret value into an
+agent, a pull request, or a comment.
+
+| Secret | Fly secret name | Set with |
+| --- | --- | --- |
+| The Atlas cluster connection string | `OCTOMETER_CLUSTER_URI` | `flyctl secrets set` |
+| The Resend API key | `OCTOMETER_MAIL_API_KEY` | `flyctl secrets set` |
+| The admin guard token | `OCTOMETER_ADMIN_TOKEN` | `flyctl secrets set` |
+
+`FLY_API_TOKEN` is a fourth secret, a GitHub Actions secret, not a Fly
+secret. It lets the deploy job of `.github/workflows/ci.yml` run
+`flyctl deploy`.
+
+`FLY_APP_NAME` is a GitHub Actions repository **variable**, not a
+secret (the app name is not sensitive). The deploy job passes it to
+`flyctl deploy --app`, because `fly.toml` holds no `app` line
+(correction round of pull request #307, MAJOR 2).
+
+### The image environment
+
+`monitor/backend/Dockerfile` sets these values inside the image:
+`OCTOMETER_PORT=8080`, `OCTOMETER_BIND=0.0.0.0`,
+`OCTOMETER_DATA_DIR=/data/db`, `OCTOMETER_CLIENT_IP_HEADER=Fly-Client-IP`,
+`OCTOMETER_MODE=prod`. `fly.toml` adds `OCTOMETER_PUBLIC_URL`. The
+secrets folder, the log folder, and the backup folder land under
+`/data` too, so each one survives a deploy (design decision D56).
+
+### The order for the owner
+
+1. Create the Fly app and the volume first (`flyctl apps create`, then
+   `flyctl volumes create octometer_data --region <region> --size 1`).
+2. Set the GitHub Actions repository variable `FLY_APP_NAME` to the
+   Fly app name.
+3. Record the region in a comment on issue #295. The maintainer then
+   writes `primary_region` into `fly.toml`, in a one-line pull
+   request.
+4. Set the GitHub Actions secret `FLY_API_TOKEN` last, or the first
+   deploy job runs with no app, no region, and no volume to deploy to.
+
+### The deploy job
+
+`.github/workflows/ci.yml` runs the job `deploy` on a push to `main`
+only, after the jobs `jvm`, `frontend`, and `e2e` pass or skip, and
+only on a change that its path filter covers. It checks three things:
+the presence of `FLY_API_TOKEN` (never its value), the presence of the
+variable `FLY_APP_NAME`, and a real region in `fly.toml` (a grep for
+the placeholder `primary_region = "<` finds nothing). When one item is
+missing, the job prints one notice that names it, for example "The
+deploy is skipped: no FLY_APP_NAME.", and passes, so `main` stays
+green until the owner sets each item. The deploy command is
+`flyctl deploy --remote-only --ha=false --app "${{ vars.FLY_APP_NAME }}"`:
+`fly.toml` names one volume and one machine, so a second, parallel
+machine of a normal Fly deploy would compete for that one volume.
+
+### The deploy window
+
+Each deploy stops the old machine, then starts the new one. A click
+that reaches the service in that window is lost; the browser reader
+sees a failed request. Measured by the maintainer after the first
+deploy.
+
+### The memory measurement
+
+Read `flyctl machine status` after one poll cycle. When the value
+exceeds 450 MB, propose the 1 GB machine in a comment on the issue.
+Measured by the maintainer after the first deploy.
+
+### The rollback
+
+List each past release, then deploy the image of a working one:
+
+```
+flyctl releases
+flyctl deploy --image <image ref of a past release>
+```
+
+### The volume snapshot
+
+Fly takes one snapshot of the volume `octometer_data` each day, and
+keeps 5 days of snapshots. Restore from a snapshot through the Fly
+dashboard or `flyctl volumes` when the running volume is lost.
+
+### The admin guard, a temporary measure
+
+Until issue #301 lands, every route under `/api/` needs the header
+`X-Octometer-Admin` with the value of `OCTOMETER_ADMIN_TOKEN`. A
+browser cannot send that header on its own, so the dashboard shows an
+error on the hosted service for now; `/healthz` alone stays open. Read
+the health of a deployed app with:
+
+```
+curl -H "X-Octometer-Admin: <token>" https://app.0ct0meter.com/api/health
+```
+
+### The Atlas access list
+
+A Fly machine has no fixed address. Choose one:
+
+- Keep the IP access list entry `0.0.0.0/0` (the owner's credentials
+  protect the cluster).
+- Allocate a static egress address instead: `flyctl machines
+  egress-ip allocate`, then add that one address to the Atlas access
+  list.
+
+Give the service database user a password of 32 characters. Rotate it
+the same way as the reader password of section 4: delete the user,
+then create it again, and set the new connection string as the Fly
+secret `OCTOMETER_CLUSTER_URI`.
+
+### The local run
+
+`tools/local-service/README.md` runs the same image on your own
+machine, with a local MongoDB container in place of Atlas.
+
 <!--
 Sources:
 monitor/backend/README.md ("Config", "The daily backup", "How to restore a
@@ -285,4 +406,8 @@ The upgrade step of section 3 is a placeholder. Issue #56 gives
 The route list case of section 3: added for issue #279 and design decisions D26,
   D46, D47, and D48. It restates the cache sentence and the read-only manage view
   of section 6 in the context of the upgrade order, for a reader of section 3 alone.
+Section 7 (the hosted service): issue #295, design decisions D52 and D56, and the
+  brief review corrections B2, B5, M1, M2, M7, M8, m4, m13.
+  monitor/backend/Dockerfile, fly.toml, docker-entrypoint.sh,
+  tools/local-service/README.md, .github/workflows/ci.yml (the "deploy" job).
 -->

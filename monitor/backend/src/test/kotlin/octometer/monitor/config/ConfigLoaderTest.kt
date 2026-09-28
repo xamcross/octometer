@@ -1,9 +1,13 @@
 package octometer.monitor.config
 
 import java.io.File
+import kotlinx.coroutines.runBlocking
+import octometer.monitor.captureLogEvents
+import octometer.monitor.logStart
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 // One test for each precedence level of D2, plus a test for each review
@@ -487,6 +491,82 @@ class ConfigLoaderTest {
         )
 
         assertEquals(0, resolved.config.settleLagSeconds)
+    }
+
+    // Issue #295, brief review B1: logStart prints "set" or "not set" for
+    // each of the three secret keys, never the real value. markerConfigValue,
+    // not clusterUri = "...": the implementer rule of the secret scan
+    // keeps a secret-shaped literal off a line beside a name that holds
+    // the word "key".
+    @Test
+    fun `logStart prints set or not set for each secret key, never the value`() = runBlocking {
+        val userFile = missingUserConfigFile()
+        val markerConfigValue = "octoconfigsentinelmarker6a1c"
+
+        val resolved = loadConfig(
+            args = emptyArray(),
+            env = mapOf(
+                "OCTOMETER_CLUSTER_URI" to markerConfigValue,
+                "OCTOMETER_MAIL_API_KEY" to markerConfigValue,
+            ),
+            userConfigFile = userFile,
+        )
+
+        val (_, events) = captureLogEvents { logStart(resolved) }
+        val lines = events.joinToString("\n") { it.formattedMessage }
+
+        assertTrue(lines.contains("clusterUri = set"), "clusterUri must print set: $lines")
+        assertTrue(lines.contains("mailApiKey = set"), "mailApiKey must print set: $lines")
+        assertTrue(lines.contains("adminToken = not set"), "adminToken must print not set: $lines")
+        assertFalse(lines.contains(markerConfigValue), "the log must never hold the real secret value")
+    }
+
+    // Issue #295, brief review B2: the admin guard fails closed. A
+    // public bind in prod mode with no adminToken gives a clear start
+    // error.
+    @Test
+    fun `requireHostedSecrets gives a clear error when adminToken is missing and the bind is public, in prod mode`() {
+        val config = MonitorConfig(
+            mode = "prod",
+            port = 7431,
+            dataDir = "build/test-hosted-secrets-data",
+            settleLagSeconds = 60,
+            retentionDays = 395,
+            pollIntervalSeconds = 60,
+            bind = "0.0.0.0",
+        )
+
+        val error = assertFailsWith<InvalidConfigException> { requireHostedSecrets(config) }
+        assertTrue(error.message!!.contains("adminToken"))
+    }
+
+    @Test
+    fun `requireHostedSecrets passes with a set adminToken, and with a loopback bind and no adminToken`() {
+        // markerConfigValue, not adminToken = "...": the implementer rule
+        // of the secret scan keeps a secret-shaped literal off a line
+        // beside a name that holds the word "token".
+        val markerConfigValue = "octoadminguardmarker7f3a"
+        val hostedConfig = MonitorConfig(
+            mode = "prod",
+            port = 7431,
+            dataDir = "build/test-hosted-secrets-data",
+            settleLagSeconds = 60,
+            retentionDays = 395,
+            pollIntervalSeconds = 60,
+            bind = "0.0.0.0",
+            adminToken = markerConfigValue,
+        )
+        val desktopConfig = MonitorConfig(
+            mode = "prod",
+            port = 7431,
+            dataDir = "build/test-hosted-secrets-data",
+            settleLagSeconds = 60,
+            retentionDays = 395,
+            pollIntervalSeconds = 60,
+        )
+
+        requireHostedSecrets(hostedConfig)
+        requireHostedSecrets(desktopConfig)
     }
 
     private fun userConfigFile(content: String): File {
