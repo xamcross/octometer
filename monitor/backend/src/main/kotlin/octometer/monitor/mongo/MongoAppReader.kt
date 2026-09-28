@@ -857,7 +857,10 @@ internal fun privilegeVerdict(
     @Suppress("UNCHECKED_CAST")
     val firstBatch = cursor.get("firstBatch") as? List<Document> ?: emptyList()
     val visibleCollections = firstBatch.map { it.getString("name") }
-    return evaluatePrivileges(connectionStatus, visibleCollections, database, collection)
+    // Design decision D47 (issue #276): the allow-list widens to the
+    // app's own event collection and the fixed config collection
+    // octometer_config, of contract rule C44.
+    return evaluatePrivileges(connectionStatus, visibleCollections, database, setOf(collection, CONFIG_COLLECTION_NAME))
 }
 
 /**
