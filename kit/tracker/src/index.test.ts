@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTracker, type Tracker } from './index.js';
+import { createTracker, type Tracker, type TrackerOptions } from './index.js';
 import * as batchModule from './batch.js';
 
 const ENDPOINT = 'https://app.example/api/octometer/v1/clicks';
@@ -824,6 +824,17 @@ describe('createTracker', () => {
 
   it('throws a TypeError when the caller gives no endpoint', () => {
     expect(() => createTracker({ endpoint: '' })).toThrow(TypeError);
+  });
+
+  it('writes one console warning for a passed routes option, and ignores it (MAJOR 1 of pull request #283)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createTracker({ endpoint: ENDPOINT, routes: { '/history/:id': 'history' } } as TrackerOptions);
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      'The routes option is ignored since kit 0.3.0: the server matches the path.',
+    );
   });
 
   it('adds the raw location.pathname to a click entry, with no route match (design decision D49)', () => {

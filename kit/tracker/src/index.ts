@@ -129,6 +129,11 @@ export function createTracker(options: TrackerOptions): Tracker {
     throw new TypeError('The tracker needs a non-empty endpoint.');
   }
   const endpoint = options.endpoint;
+  if ((options as { routes?: unknown }).routes !== undefined) {
+    // MAJOR 1 of the security review (pull request #283): the server
+    // matches the path now, so the tracker ignores a passed routes option.
+    console.warn('The routes option is ignored since kit 0.3.0: the server matches the path.');
+  }
   const credentials = options.credentials ?? DEFAULT_CREDENTIALS;
   const getExtraHeaders = options.headers;
   const flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
