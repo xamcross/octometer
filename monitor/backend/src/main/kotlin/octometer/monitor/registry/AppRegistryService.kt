@@ -3,11 +3,12 @@ package octometer.monitor.registry
 import com.mongodb.ConnectionString
 import java.sql.Connection
 import java.sql.SQLException
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import octometer.monitor.mongo.PathPatternList
-import octometer.monitor.mongo.PathPatternListResult
 import octometer.monitor.mongo.sha256Hex
 import octometer.monitor.store.SqliteDatabase
 import org.sqlite.SQLiteErrorCode
@@ -53,35 +54,21 @@ data class CreateAppRequest(
      * for a major change of the contract.
      */
     val collection: String = "octometer_events",
-    /**
-     * The route pattern list of the app (issue #226), in the form of
-     * `OCTOMETER_PATH_PATTERNS`: patterns with whitespace between
-     * them. `null` or blank means the app gives no list; the reader
-     * then keeps the cap of issue #205.
-     */
-    val pathPatterns: String? = null,
 ) {
     // MAJOR 2 of the security review: the generated toString of a data
     // class holds every property. This override hides connectionString
     // from a log line, from a require message, and from a debugger.
     override fun toString(): String =
-        "CreateAppRequest(name=$name, database=$database, collection=$collection, pathPatterns=$pathPatterns)"
+        "CreateAppRequest(name=$name, database=$database, collection=$collection)"
 }
 
 @Serializable
 data class UpdateAppRequest(
     val name: String? = null,
     val connectionString: String? = null,
-    /**
-     * The route pattern list update of issue #226. An absent field or a
-     * JSON `null` keeps the stored list. A text of whitespace only
-     * clears it. A non-blank text sets it, after validation.
-     */
-    val pathPatterns: String? = null,
 ) {
     override fun toString(): String =
-        "UpdateAppRequest(name=$name, connectionString=${if (connectionString == null) "null" else "<hidden>"}, " +
-            "pathPatterns=$pathPatterns)"
+        "UpdateAppRequest(name=$name, connectionString=${if (connectionString == null) "null" else "<hidden>"})"
 }
 
 /** The response of a create and of a list row. It never holds a connection string. */
@@ -94,24 +81,22 @@ data class AppSummary(
 )
 
 /**
- * The response of `GET /api/apps/{id}` (issue #226, the correction of
- * the brief review of 2026-09-27). It never holds a connection string.
- * [pathPatterns] is the stored, normalized text, or `null` when the app
- * gives no list.
+ * The response of `GET /api/apps/{id}` (design decision D48, issue
+ * #277; formerly issue #226). It never holds a connection string.
+ * [pathPatterns] is the route list that the app published, the reader's
+ * cached copy, or `null` before the app's first published list.
+ * [pathPatternsPublishedAt] is the UTC ISO 8601 text of the `publishedAt`
+ * of that list, or `null` with [pathPatterns]. [kitVersion] is the
+ * `kitVersion` of that same document, or `null` with [pathPatterns].
  */
 @Serializable
 data class AppDetail(
     val appId: Long,
     val name: String,
     val pathPatterns: String?,
+    val pathPatternsPublishedAt: String?,
+    val kitVersion: String?,
 )
-
-/** A route pattern list update of one PATCH, decided from the three cases of issue #226. */
-private sealed class PathPatternsPatch {
-    object Keep : PathPatternsPatch()
-    object Clear : PathPatternsPatch()
-    data class Set(val normalizedText: String) : PathPatternsPatch()
-}
 
 sealed class CreateAppResult {
     data class Created(val summary: AppSummary) : CreateAppResult()
@@ -135,6 +120,13 @@ sealed class UpdateAppResult {
  * to [secretStore], never to the SQLite store. [eventDeleteChunkSize] is a
  * test seam for the chunked delete of step 5; production code keeps the
  * default of [EVENT_DELETE_CHUNK_SIZE].
+ *
+ * Design decision D48 (issue #277) ends the typed route pattern list of
+ * issue #226: [createApp] and [updateApp] take no `pathPatterns` field
+ * any more (`AppRegistryRoutes.kt` gives a fixed 400 for a body with
+ * that field). [octometer.monitor.mongo.MongoAppReader] is now the one
+ * writer of `app.path_patterns`, `app.path_patterns_published_at`, and
+ * `app.kit_version`; [getApp] only reads them back.
  */
 class AppRegistryService(
     private val database: SqliteDatabase,
@@ -168,17 +160,9 @@ class AppRegistryService(
             return CreateAppResult.InvalidRequest("Give a shorter database name.")
         }
 
-        val normalizedPathPatterns = when {
-            request.pathPatterns.isNullOrBlank() -> null
-            else -> when (val result = PathPatternList.parse(request.pathPatterns)) {
-                is PathPatternListResult.Accepted -> result.normalizedText
-                is PathPatternListResult.Rejected -> return CreateAppResult.InvalidRequest(result.message)
-            }
-        }
-
         val appId = try {
             database.write { writer ->
-                insertApp(writer, name, databaseName, request.collection, normalizedPathPatterns)
+                insertApp(writer, name, databaseName, request.collection)
             }
         } catch (constraintFailure: SQLException) {
             if (isUniqueNameViolation(constraintFailure)) {
@@ -246,10 +230,8 @@ class AppRegistryService(
         if (name != null && name.length > MAX_SHORT_FIELD_LENGTH) {
             return UpdateAppResult.InvalidRequest("Give a shorter name.")
         }
-        // Issue #226, decision 3 of the correction round: a PATCH with
-        // pathPatterns alone is now a valid request.
-        if (name == null && request.connectionString == null && request.pathPatterns == null) {
-            return UpdateAppResult.InvalidRequest("Give a name, a connection string, a route pattern list, or a mix.")
+        if (name == null && request.connectionString == null) {
+            return UpdateAppResult.InvalidRequest("Give a name, a connection string, or both.")
         }
         if (request.connectionString != null && request.connectionString.length > MAX_CONNECTION_STRING_LENGTH) {
             return UpdateAppResult.InvalidRequest("Give a shorter connection string.")
@@ -273,18 +255,6 @@ class AppRegistryService(
             null
         }
 
-        // Issue #226, decision 3: an absent field or a JSON null keeps
-        // the stored list; a whitespace-only text clears it; a
-        // non-blank text sets it, after validation.
-        val pathPatternsPatch: PathPatternsPatch = when {
-            request.pathPatterns == null -> PathPatternsPatch.Keep
-            request.pathPatterns.isBlank() -> PathPatternsPatch.Clear
-            else -> when (val result = PathPatternList.parse(request.pathPatterns)) {
-                is PathPatternListResult.Accepted -> PathPatternsPatch.Set(result.normalizedText)
-                is PathPatternListResult.Rejected -> return UpdateAppResult.InvalidRequest(result.message)
-            }
-        }
-
         val found = if (name != null) {
             val updated = try {
                 database.write { writer -> updateAppName(writer, appId, name) }
@@ -299,16 +269,6 @@ class AppRegistryService(
             database.read { reader -> appExists(reader, appId) }
         }
         if (!found) return UpdateAppResult.NotFound
-
-        // Issue #226, decision 3: this write changes only path_patterns.
-        // D10 names the connection string as the one field that resets
-        // the poll state; a PATCH of the list alone resets no poll
-        // state, and it keeps every app_path row (decision 6, the
-        // correction round): the retention purge removes a row with no
-        // matching event any more, over time.
-        if (pathPatternsPatch !is PathPatternsPatch.Keep) {
-            database.write { writer -> updateAppPathPatterns(writer, appId, pathPatternsPatch) }
-        }
 
         if (request.connectionString != null) {
             val oldConnectionString = try {
@@ -385,16 +345,17 @@ private fun insertApp(
     name: String,
     databaseName: String,
     collectionName: String,
-    pathPatterns: String?,
 ): Long {
+    // Design decision D48 (issue #277): path_patterns starts NULL. The
+    // registry writes it no more; the reader writes it, once the app
+    // publishes its first list.
     writer.prepareStatement(
-        "INSERT INTO app (name, database_name, collection_name, created_at, path_patterns) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO app (name, database_name, collection_name, created_at) VALUES (?, ?, ?, ?)",
     ).use { insert ->
         insert.setString(1, name)
         insert.setString(2, databaseName)
         insert.setString(3, collectionName)
         insert.setLong(4, System.currentTimeMillis())
-        insert.setString(5, pathPatterns)
         insert.executeUpdate()
     }
     return writer.createStatement().use { statement ->
@@ -465,22 +426,6 @@ private fun updateAppName(writer: Connection, appId: Long, name: String): Boolea
         update.executeUpdate() == 1
     }
 
-// Issue #226, decision 3 of the correction round: Clear writes NULL;
-// Set writes the normalized text. The caller never calls this method
-// for Keep.
-private fun updateAppPathPatterns(writer: Connection, appId: Long, patch: PathPatternsPatch) {
-    val value = when (patch) {
-        PathPatternsPatch.Keep -> return
-        PathPatternsPatch.Clear -> null
-        is PathPatternsPatch.Set -> patch.normalizedText
-    }
-    writer.prepareStatement("UPDATE app SET path_patterns = ? WHERE id = ?").use { update ->
-        update.setString(1, value)
-        update.setLong(2, appId)
-        update.executeUpdate()
-    }
-}
-
 private fun appExists(reader: Connection, appId: Long): Boolean =
     reader.prepareStatement("SELECT 1 FROM app WHERE id = ?").use { select ->
         select.setLong(1, appId)
@@ -508,12 +453,28 @@ private fun updateAppDatabaseName(writer: Connection, appId: Long, databaseName:
     }
 }
 
+// The same UTC ISO 8601 with milliseconds form as AppTotalsRoute.kt and
+// ElementsRoute.kt (design decision D48, issue #277).
+private val PATH_PATTERNS_PUBLISHED_AT_FORMATTER: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC)
+
 private fun readAppDetail(reader: Connection, appId: Long): AppDetail? =
-    reader.prepareStatement("SELECT name, path_patterns FROM app WHERE id = ?").use { select ->
+    reader.prepareStatement(
+        "SELECT name, path_patterns, path_patterns_published_at, kit_version FROM app WHERE id = ?",
+    ).use { select ->
         select.setLong(1, appId)
         select.executeQuery().use { result ->
             if (!result.next()) return@use null
-            AppDetail(appId = appId, name = result.getString("name"), pathPatterns = result.getString("path_patterns"))
+            val publishedAtMillis = result.getLong("path_patterns_published_at").takeUnless { result.wasNull() }
+            AppDetail(
+                appId = appId,
+                name = result.getString("name"),
+                pathPatterns = result.getString("path_patterns"),
+                pathPatternsPublishedAt = publishedAtMillis?.let {
+                    PATH_PATTERNS_PUBLISHED_AT_FORMATTER.format(Instant.ofEpochMilli(it))
+                },
+                kitVersion = result.getString("kit_version"),
+            )
         }
     }
 

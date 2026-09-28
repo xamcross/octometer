@@ -405,37 +405,84 @@ class AppRegistryRoutesTest {
         name: String,
         connectionString: String,
         collection: String = "octometer_events",
-        pathPatterns: String? = null,
     ) = client.post("/api/apps") {
         allowedHost()
         header(HttpHeaders.Origin, "http://localhost:7431")
         contentType(ContentType.Application.Json)
-        val pathPatternsField = if (pathPatterns == null) "" else ",\"pathPatterns\":\"$pathPatterns\""
         setBody(
             """{"name":"$name","connectionString":"${withDatabasePath(connectionString)}",""" +
-                """"collection":"$collection"$pathPatternsField}""",
+                """"collection":"$collection"}""",
         )
     }
 
-    // Issue #226, the correction of the brief review of 2026-09-27: the
-    // edit form reads this route when it opens.
+    // Design decision D48 (issue #277): the app publishes its own route
+    // list now; POST and PATCH take no pathPatterns field, and give the
+    // fixed 400 of PATH_PATTERNS_REJECTED_MESSAGE instead.
 
     @Test
-    fun `GET apps id gives the id, the name, and the route pattern list, never a connection string`() = testApplication {
+    fun `POST with a pathPatterns field gets 400 with the fixed reason`() = testApplication {
         application { module(prodConfig()) }
 
-        val created = createApp(name = "demo", connectionString = allowlistedSrvUri(), pathPatterns = "/checkout")
+        val response = client.post("/api/apps") {
+            allowedHost()
+            header(HttpHeaders.Origin, "http://localhost:7431")
+            contentType(ContentType.Application.Json)
+            setBody(
+                """{"name":"demo","connectionString":"${withDatabasePath(allowlistedSrvUri())}",""" +
+                    """"pathPatterns":"/checkout"}""",
+            )
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("The app publishes its route list; the monitor takes no list.", body["error"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `PATCH with a pathPatterns field gets 400 with the fixed reason`() = testApplication {
+        application { module(prodConfig()) }
+        val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
         val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
 
-        val response = client.get("/api/apps/$appId") { allowedHost() }
+        val response = client.patch("/api/apps/$appId") {
+            allowedHost()
+            header(HttpHeaders.Origin, "http://localhost:7431")
+            contentType(ContentType.Application.Json)
+            setBody("""{"pathPatterns":"/checkout"}""")
+        }
 
-        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(HttpStatusCode.BadRequest, response.status)
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
-        assertEquals(appId, body["appId"]!!.jsonPrimitive.long)
-        assertEquals("demo", body["name"]!!.jsonPrimitive.content)
-        assertEquals("/checkout", body["pathPatterns"]!!.jsonPrimitive.content)
-        assertFalse(response.bodyAsText().contains(allowlistedSrvUri()))
+        assertEquals("The app publishes its route list; the monitor takes no list.", body["error"]!!.jsonPrimitive.content)
     }
+
+    // Issue #226, the correction of the brief review of 2026-09-27: the
+    // edit form reads this route when it opens. Design decision D48
+    // (issue #277): the registry no longer writes path_patterns; this
+    // test seeds it with a direct SQL write, the same rule as the
+    // service test.
+
+    @Test
+    fun `GET apps id gives the id, the name, the published route list, its time, and the kit version, never a connection string`() =
+        testApplication {
+            val dataDir = testDataDir()
+            application { module(prodConfig(dataDir = dataDir)) }
+
+            val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
+            val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
+            seedRoutePatterns(dataDir, appId, "/checkout", publishedAt = 1_700_000_000_000L, kitVersion = "1.2.3")
+
+            val response = client.get("/api/apps/$appId") { allowedHost() }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals(appId, body["appId"]!!.jsonPrimitive.long)
+            assertEquals("demo", body["name"]!!.jsonPrimitive.content)
+            assertEquals("/checkout", body["pathPatterns"]!!.jsonPrimitive.content)
+            assertEquals("2023-11-14T22:13:20.000Z", body["pathPatternsPublishedAt"]!!.jsonPrimitive.content)
+            assertEquals("1.2.3", body["kitVersion"]!!.jsonPrimitive.content)
+            assertFalse(response.bodyAsText().contains(allowlistedSrvUri()))
+        }
 
     @Test
     fun `GET apps id on an unknown id gets 404`() = testApplication {
@@ -453,6 +500,24 @@ class AppRegistryRoutesTest {
         val response = client.get("/api/apps/not-a-number") { allowedHost() }
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+}
+
+// Design decision D48 (issue #277): only MongoAppReader writes these
+// three columns in production. This test double runs after the store
+// closes, the same rule as countAppRows and readCollectionName below.
+private fun seedRoutePatterns(dataDir: String, appId: Long, patterns: String, publishedAt: Long, kitVersion: String) {
+    val url = "jdbc:sqlite:" + File(dataDir, "octometer.db").absolutePath
+    DriverManager.getConnection(url).use { connection ->
+        connection.prepareStatement(
+            "UPDATE app SET path_patterns = ?, path_patterns_published_at = ?, kit_version = ? WHERE id = ?",
+        ).use { update ->
+            update.setString(1, patterns)
+            update.setLong(2, publishedAt)
+            update.setString(3, kitVersion)
+            update.setLong(4, appId)
+            update.executeUpdate()
+        }
     }
 }
 
