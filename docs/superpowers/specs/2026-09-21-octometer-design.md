@@ -120,6 +120,7 @@ tools/demo-app/      Ktor demo app: kit + tracker + synthetic clicks
 tools/consumer-smoke/ Minimal Spring Boot apps that use the kit
 scripts/             install.ps1, upgrade.ps1, bootstrap script
 site/                Landing page: Cloudflare Pages, the domain `0ct0meter.com`
+                     (comes with the landing page scaffold #287)
 docs/                Design, run guide, integration guides
 ```
 
@@ -791,8 +792,10 @@ Fly.io, the events live in one MongoDB Atlas cluster, and the kit goes. The doma
   in the header `X-Octometer-Key`. The tracker sends it with `fetch` and `keepalive`, as
   today. `sendBeacon` cannot set a header, so the tracker never uses it (M8). The body limit
   is 16 KB at the route, before the parse (M9). The `Origin` header must match one origin of
-  the app. The body goes through the parser of D18. The contract of section 4.2 stays
-  unchanged. The answer codes: `204` for a success, an unknown key, or an unlisted origin;
+  the app. The origin check is a hygiene control and not a security control, because a
+  program outside a browser sets any `Origin` value. The write stop and the caps below are
+  the controls that limit the damage. The body goes through the parser of D18. The contract
+  of section 4.2 stays unchanged. The answer codes: `204` for a success, an unknown key, or an unlisted origin;
   `400` for an invalid body; `415` for a wrong content type; `429` for the rate limit (M9).
   The rate limit of D20 and the caps of D43 key on the app id and the client address. The
   client address comes from the header `Fly-Client-IP`, which fly-proxy writes. The service
@@ -800,10 +803,11 @@ Fly.io, the events live in one MongoDB Atlas cluster, and the kit goes. The doma
   write time. A segment that is a number, a UUID, or a hex string of 8 or more characters
   becomes `:id`. The event document holds the pattern. The write goes through the store of
   D22 into `app_<id>`. That database holds `octometer_events` only (m2). The store creates
-  the TTL index of 365 days at the first write. The abuse controls: a write stop at 450 MB of
-  cluster storage, and a daily cap of 20 000 events per app (B5). The collector drops each
-  write above the storage stop; the health route reports the alarm. The values of D20, D21,
-  and D43 stay service-wide defaults. Each counter takes the app id and the client key (m3).
+  the TTL index of 365 days at the first write. The abuse controls: the event cap of D21, a
+  write stop at 450 MB of cluster storage, a daily cap of 20 000 events per app, and the
+  invite list of fewer than 20 apps in the pilot (B5, M10). The collector drops each write
+  above the storage stop; the health route reports the alarm. The values of D20, D21, and
+  D43 stay service-wide defaults. Each counter takes the app id and the client key (m3).
   The CORS plugin serves `/collect` and `/tracker.js` only. The preflight from a listed
   origin gets that origin, the header name, `POST`, and a `max-age` of one day.
 - **D51. The keys.** The app key is 32 random bytes from `SecureRandom`, in base64url form.
@@ -817,9 +821,10 @@ Fly.io, the events live in one MongoDB Atlas cluster, and the kit goes. The doma
   changes no state, because a mail scanner fetches the link too (M5). `POST
   /api/signin/confirm` consumes the token. The token lasts 15 minutes and works one time.
   That route sets the cookie: `HttpOnly`, `Secure`, `SameSite=Lax`, 30 days. The sign-in
-  route sends `Referrer-Policy: no-referrer` (m6). Every API route needs a session, except
-  `/collect`, `/tracker.js`, `/healthz`, the sign-in routes, and the erasure route. Each route
-  filters by the account id in its SQL statement. D12 changes in full (B2). The server binds
+  route sends `Referrer-Policy: no-referrer` (m6). Five routes need no session: `/collect`,
+  `/tracker.js`, `/healthz`, the sign-in routes, and the erasure route. Every other API route
+  needs a session and filters by the account id in the SQL statement. D12 changes in full
+  (B2). The server binds
   to `0.0.0.0` behind Fly. The Host allow-list holds the public host and the Fly host of the
   app. The Origin rule has three classes: the dashboard origin for the API, a registered app
   origin for `/collect`, and no Origin for the erasure route. The CORS plugin exists for the
@@ -944,7 +949,8 @@ new session id after 30 idle minutes, an hourly repair read, X.509 and AWS IAM a
 - Approve the privacy notice text in `docs/privacy.md`.
 - Create three Atlas alerts for each app: connections, network, and storage at 80 percent. M0
   records no access history, thus an alert is the only signal of a leaked password.
-- Decide the retention time of the monitor store. The default is 13 months.
+- Done: the owner set the retention at 365 days on 2026-09-28 (D57). Issue #60 closed on
+  2026-09-28 with that choice.
 - Done: the owner selected the pilot app on 2026-09-21 (the owner comment on
   issue #43). It uses Spring Boot 3.4.1 with Maven, and Angular 17.3.
 - Verify the start after a reboot, and do the screen reader pass.
@@ -970,6 +976,8 @@ new session id after 30 idle minutes, an hourly repair read, X.509 and AWS IAM a
 Five milestones, named after the result. Labels follow the skill `managing-github-issues`.
 Filed on 2026-09-21 in `xamcross/octometer` as the issues #1 to #71. Version 1.1 adds the
 issues #101 to #119, and issue #111 is closed, with its rule kept in issues #18, #50, and #51.
+Milestone I is added on 2026-09-28 (the hosted model, version 2.0). Its issues follow the
+order of the brief review of 2026-09-28.
 
 | Key, issue | Title |
 |---|---|
@@ -1049,10 +1057,6 @@ issues #101 to #119, and issue #111 is closed, with its rule kept in issues #18,
 | E02, #69 | Build the Spring MVC ingest controller in kit/jvm-spring |
 | E03, #70 | Write the integration guide for a Spring Boot app |
 | E04, #71 | Publish kit/jvm-spring through JitPack |
-
-Milestone I is added on 2026-09-28 (the hosted model, version 2.0). Its issues follow the
-order of the brief review of 2026-09-28.
-
 | **I** | **Hosted Octometer** |
 | I01, #294 | Record the hosted model in the design document |
 | I02, #295 | Add the scaffold: the Dockerfile, `fly.toml`, and the CI deploy job |
