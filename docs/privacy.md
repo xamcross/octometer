@@ -111,6 +111,12 @@ Each app that a dashboard user registers gets an app key and a secret key
 (issue #296). The app key is public; the secret key is a secret of the
 app owner.
 
+## 11. The waitlist notice of the public site
+
+The public site and this app are two products, each with its own notice.
+The public site holds its own privacy notice for the waitlist address, at
+`https://0ct0meter.com/#notice`. Read that notice for the waitlist data.
+
 <!--
 Sources:
 contract/README.md, rules C4, C6, C39, C40, C42, C43
@@ -154,4 +160,7 @@ Issue #279 added the raw-path sentence of section 2, design decision D49: the ra
   new sentence adds the raw-path fact only.
 Issue #296 added the app key and secret key sentence of section 10, design
   decisions D51 and D52.
+Issue #290 added section 11, the pointer to the waitlist notice of the public site
+  (`site/index.html`, `footer#notice`). The site and this app are two products, each
+  with its own notice.
 -->
