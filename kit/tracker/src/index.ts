@@ -14,8 +14,20 @@ import { computeSessionStartReferrerHost } from './referrer-source.js';
 
 /** An option of the tracker. `endpoint` is mandatory; the rest have a default. */
 export interface TrackerOptions {
-  /** The ingest URL of the app, for example `/api/octometer/v1/clicks`. */
+  /**
+   * The ingest URL of the app, for example `/api/octometer/v1/clicks`
+   * (a kit user's own route), or the full URL of the hosted collector,
+   * for example `https://app.0ct0meter.com/collect` (design decision
+   * D50, issue #297).
+   */
   endpoint: string;
+  /**
+   * The app key of the hosted collector of design decision D50 (issue
+   * #297). When set, the tracker sends it in the header
+   * `X-Octometer-Key` of each request. A kit user with its own ingest
+   * route (no hosted collector) leaves this option unset.
+   */
+  appKey?: string;
   /** The `fetch` credentials mode. The default is `same-origin`. */
   credentials?: RequestCredentials;
   /** A function that returns extra request headers. */
@@ -134,6 +146,7 @@ export function createTracker(options: TrackerOptions): Tracker {
     // matches the path now, so the tracker ignores a passed routes option.
     console.warn('The routes option is ignored since kit 0.3.0: the server matches the path.');
   }
+  const appKey = options.appKey;
   const credentials = options.credentials ?? DEFAULT_CREDENTIALS;
   const getExtraHeaders = options.headers;
   const flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
@@ -481,6 +494,7 @@ export function createTracker(options: TrackerOptions): Tracker {
   ): Promise<void> {
     return fetch(endpoint, {
       method: 'POST',
+      mode: 'cors',
       credentials,
       headers: buildHeaders(),
       referrerPolicy: 'no-referrer',
@@ -550,6 +564,18 @@ export function createTracker(options: TrackerOptions): Tracker {
       }
     }
     headers['Content-Type'] = 'application/json';
+    // Design decision D50 (issue #297): the hosted collector selects
+    // the app through this header. The tracker owns it, the same rule
+    // as Content-Type above, so a getExtraHeaders function cannot
+    // override it by accident.
+    if (appKey !== undefined) {
+      for (const name of Object.keys(headers)) {
+        if (name.toLowerCase() === 'x-octometer-key') {
+          delete headers[name];
+        }
+      }
+      headers['X-Octometer-Key'] = appKey;
+    }
     return headers;
   }
 
