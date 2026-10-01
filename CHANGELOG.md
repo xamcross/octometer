@@ -39,6 +39,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 - Add the option `appKey`, for the header `X-Octometer-Key` of the hosted collector; send
   each request with `mode: 'cors'`. (#297)
+- Add the IIFE bundle `dist/tracker.iife.js`, under 6 KB gzipped, built with `esbuild`; it
+  reads `data-app-key` and `data-endpoint` from its own script tag and starts the tracker.
+  Move the npm build into its own Gradle module, `kit/tracker`. (#298)
 
 ### Monitor
 
@@ -54,6 +57,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add the collector route `POST /collect`: the app key and Origin checks, the body limit,
   the rate limit and the daily caps, the cluster-wide write stop, the CORS preflight of
   `/collect` and `/tracker.js`, and the `writeStopped` field of `GET /api/health`. (#297)
+- Add the route `GET /tracker.js`: the served IIFE bundle, the ETag, and the two cache
+  rules; the manage view's keys panel shows the hashed script tag, from the new field
+  `trackerHash` of `GET /api/me`. (#298)
 
 ### CI
 
@@ -72,6 +78,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   `kit/tracker/package.json`, and the licence block of each kit module POM. (#203)
 - Add the collector paragraph to `docs/privacy.md`, and the collector section to
   `docs/run-guide.md`: the config keys, the write stop, and the daily cap. (#297)
+- Add `docs/add-octometer.md`: the served script tag, the npm option, the origins rule,
+  the app key and the secret key, and the Content-Security-Policy paragraph. Add the
+  served-tracker section to `docs/run-guide.md`. (#298)
 
 ## 0.3.0 - 2026-09-28
 

@@ -345,6 +345,29 @@ The event cap of design decision D21 is 50 000 events for one app, the
 hosted model's own default (design decision D57); this cap never
 resets.
 
+### The served tracker
+
+`GET /tracker.js` (design decision D53, issue #298) serves the IIFE
+bundle of `kit/tracker`. Read `docs/add-octometer.md` for the script
+tag that an app owner adds to a page.
+
+The Gradle module `kit/tracker` builds the bundle with its own task
+`npmBuild`. `./gradlew :monitor:backend:installDist` runs that task
+first, then copies the built file into the distribution's `static`
+folder, as `tracker.js`. This step needs Node 24 and npm, the same
+rule as the Angular build.
+
+A developer run with no `installDist` holds no built bundle. The route
+then answers 404, and the start log holds the line "The tracker bundle
+is absent." The manage view's keys panel shows "The script is not
+built on this instance." in that case.
+
+The route answers with a one-year, immutable cache header only when
+the request's query `v` equals the content hash of the current
+bundle. Each other request, for example an old URL with no `v` value,
+gets a one-hour cache header. A page with a stale script tag then gets
+the new bundle within one hour.
+
 ### The order for the owner
 
 1. Create the Fly app and the volume first (`flyctl apps create`, then
