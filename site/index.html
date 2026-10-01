@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Octometer</title>
+    <!-- The mark gives the favicon, as one inline SVG (issue #287, correction m5, m6). -->
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='13' r='9' fill='%23A78BFA'/%3E%3Ccircle cx='12.6' cy='11.5' r='1.6' fill='%23241F3D'/%3E%3Ccircle cx='19.4' cy='11.5' r='1.6' fill='%23241F3D'/%3E%3Cpath d='M12.4 16.2Q16 19.4 19.6 16.2' fill='none' stroke='%23241F3D' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/src/styles/tokens.css" />
+    <link rel="stylesheet" href="/src/styles/site.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <svg class="mark" width="96" height="96" viewBox="0 0 32 32" aria-hidden="true">
+          <g class="arms">
+            <path
+              d="M22.8 17.8 27.6 21.1M21.3 19.4 25 24M19.3 20.9 21.7 26M17.1 21.5 18 27.1M14.9 21.5 14 27.1M12.7 20.9 10.3 26M10.7 19.4 7 24M9.2 17.8 4.4 21.1"
+            />
+          </g>
+          <circle class="head" cx="16" cy="13" r="9" />
+          <circle class="eye" cx="12.6" cy="11.5" r="1.6" />
+          <circle class="eye" cx="19.4" cy="11.5" r="1.6" />
+          <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2" />
+        </svg>
+        <div class="hero-text">
+          <p class="word">Octometer</p>
+          <h1>Every click in your app, counted.</h1>
+          <p class="lead">
+            Octometer counts each click in your web app. One script tag, one dashboard, no cookie
+            banner.
+          </p>
+          <a class="btn btn-primary" href="#waitlist-email">Join the waitlist</a>
+          <p class="small soft">Octometer is in a pilot. Join the waitlist, and we invite you.</p>
+        </div>
+      </header>
+
+      <!-- #289: the "How it works" section, with the three steps and the flow diagram. -->
+      <!-- #289: the "Three levels in your dashboard" section. -->
+      <!-- #290: the "What we keep" privacy section. -->
+      <!-- #290: the footer notice of the waitlist. -->
+      <!-- #291: the "Join the waitlist" section, with the email field and its two answers. -->
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

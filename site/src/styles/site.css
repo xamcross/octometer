@@ -1,0 +1,182 @@
+/*
+ * The two bundled typefaces of the cartoon look (docs/design.md). Each
+ * import line loads one weight of the latin subset only, the same form as
+ * monitor/frontend/src/styles.css:9-11. The page makes no request to an
+ * outside font host.
+ */
+@import '@fontsource/fredoka/latin-600.css';
+@import '@fontsource/nunito/latin-400.css';
+@import '@fontsource/nunito/latin-700.css';
+
+/* The base rules of the mockup (site/design/mockup.html). */
+* {
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: smooth;
+}
+body {
+  margin: 0;
+  background: var(--shallows);
+  color: var(--ink);
+  font: 400 var(--text-m) / 1.5 var(--body);
+}
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  line-height: 1.15;
+  margin: 0;
+  text-wrap: balance;
+}
+p {
+  margin: 0;
+}
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--coral);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+a:hover {
+  text-decoration-thickness: 3px;
+}
+.page {
+  max-width: 76rem;
+  margin-inline: auto;
+  padding-inline: var(--space-4);
+  padding-block: var(--space-5) var(--space-7);
+  display: grid;
+  gap: var(--space-7);
+}
+.page > * {
+  min-width: 0;
+}
+.small {
+  font-size: var(--text-s);
+}
+.soft {
+  color: var(--ink-soft);
+}
+
+/* 1. The hero: the one bold place of the page. */
+.hero {
+  display: flex;
+  gap: var(--space-4) var(--space-6);
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.hero-text {
+  flex: 1 1 18rem;
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+}
+.word {
+  font: 600 var(--text-xl) / 1.15 var(--display);
+}
+.hero h1 {
+  font-size: clamp(var(--text-2xl), 7vw, var(--text-4xl));
+  max-width: 22ch;
+}
+.lead {
+  max-width: 44ch;
+  font-size: var(--text-l);
+}
+.mark {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  flex: none;
+}
+.mark .head {
+  fill: var(--octo);
+}
+.mark .eye {
+  fill: var(--on-bright);
+  stroke: none;
+}
+.mark .smile {
+  stroke: var(--on-bright);
+  stroke-width: 2;
+}
+/*
+ * The arms keep the ".arms" class of the mockup, with no animation rule
+ * for now (issue #287, correction M1, M2). Issue #288 adds the one-time
+ * wave, with its "@media (prefers-reduced-motion: reduce)" override.
+ */
+
+/* The controls. */
+.btn {
+  display: inline-block;
+  font: 600 var(--text-m) / 1.2 var(--display);
+  padding: var(--space-3) var(--space-5);
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line-control);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-control);
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    transform 80ms,
+    box-shadow 80ms;
+}
+.btn:active {
+  transform: translate(3px, 3px);
+  box-shadow: none;
+}
+.btn-primary {
+  background: var(--sunny);
+  color: var(--on-bright);
+  border-color: var(--on-bright);
+}
+.btn:hover {
+  text-decoration: none;
+}
+
+/*
+ * The quality floor (issue #287): the focus ring of docs/design.md, on
+ * every control, and the reduced-motion and forced-colors answers for the
+ * parts of the page that this scaffold ships.
+ */
+:focus-visible {
+  outline: 3px solid var(--sunny);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 7px var(--ink);
+}
+.btn:focus-visible {
+  box-shadow: var(--shadow-control), 0 0 0 7px var(--ink);
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .btn {
+    transition: none;
+  }
+}
+@media (forced-colors: active) {
+  .btn {
+    outline: 2px solid;
+    outline-offset: 0;
+  }
+  :focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+@media (min-width: 48rem) {
+  .page {
+    padding-inline: var(--space-6);
+  }
+}
