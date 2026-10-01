@@ -364,9 +364,14 @@ built on this instance." in that case.
 
 The route answers with a one-year, immutable cache header only when
 the request's query `v` equals the content hash of the current
-bundle. Each other request, for example an old URL with no `v` value,
-gets a one-hour cache header. A page with a stale script tag then gets
-the new bundle within one hour.
+bundle. Each other request, for example a URL with no `v` value, gets
+a one-hour cache header.
+
+A visitor with no cached copy of the script gets the new bundle at
+once, because the route always serves the current file. A visitor
+whose browser cached the hashed URL keeps the old bundle until that
+cache entry expires. The app owner must copy the new tag from the
+manage view after a deploy.
 
 ### The order for the owner
 
