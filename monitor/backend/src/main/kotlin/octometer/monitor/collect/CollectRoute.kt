@@ -17,6 +17,7 @@ import io.ktor.server.routing.options
 import io.ktor.server.routing.post
 import io.ktor.utils.io.readRemaining
 import java.time.Clock
+import java.util.regex.Pattern
 import kotlinx.io.readByteArray
 import octometer.kit.core.ingest.BotUserAgentFilter
 import octometer.kit.core.ingest.IngestException
@@ -56,6 +57,24 @@ private const val PRIVATE_NETWORK_ALLOW_HEADER = "Access-Control-Allow-Private-N
 private const val MAX_AGE_SECONDS = "86400"
 
 /**
+ * The exact length of an app key: 32 random bytes, base64url without
+ * padding (`octometer.monitor.accounts.newToken`), so this length is
+ * fixed, never a range.
+ */
+private const val APP_KEY_LENGTH = 43
+
+/** The base64url alphabet of an app key, with no padding character (MAJOR 1 of the review of pull request #327). */
+private val APP_KEY_PATTERN: Pattern = Pattern.compile("^[A-Za-z0-9_-]{$APP_KEY_LENGTH}$")
+
+/**
+ * True when [appKey] has the exact shape of a real app key (MAJOR 1):
+ * the base64url alphabet, at the fixed length of a real key. This check
+ * runs with no map read and no SQLite statement, so a request with an
+ * obviously invented key never reaches [AppKeyCache.lookup].
+ */
+private fun isPlausibleAppKey(appKey: String): Boolean = APP_KEY_PATTERN.matcher(appKey).matches()
+
+/**
  * The dependencies of [collectRoute], one instance for the life of the
  * application (issue #297). [clientIpHeaderName] is `config.clientIpHeader`
  * (`Fly-Client-IP` on Fly); a blank value gives the remote address for
@@ -86,7 +105,33 @@ fun Route.collectRoute(runtime: CollectorRuntime) {
 
     post("/collect") {
         val appKey = call.request.header("X-Octometer-Key")
-        val app = appKey?.let { runtime.appKeyCache.lookup(it) }
+        if (appKey == null || !isPlausibleAppKey(appKey)) {
+            // MAJOR 1 of the review of pull request #327: a cheap
+            // reject, with no map read and no SQLite statement, before
+            // this route ever calls AppKeyCache.lookup.
+            call.respond(HttpStatusCode.NoContent)
+            return@post
+        }
+
+        val clientIpHeaderLines = if (runtime.clientIpHeaderName.isBlank()) {
+            emptyList()
+        } else {
+            call.request.headers.getAll(runtime.clientIpHeaderName) ?: emptyList()
+        }
+        val clientAddress = clientAddressOf(clientIpHeaderLines, call.request.local.remoteAddress)
+
+        if (!runtime.rateLimiting.minuteLimiter.checkRequest(clientAddress)) {
+            // MAJOR 1: the per-address rate limit runs before the app
+            // key lookup, keyed on the client address alone (the app is
+            // not known yet). One client address can then never force a
+            // SQLite read for each of a flood of different invented
+            // keys; this gate bounds that cost, with no app known at
+            // all.
+            call.respond(HttpStatusCode.TooManyRequests)
+            return@post
+        }
+
+        val app = runtime.appKeyCache.lookup(appKey)
         if (app == null) {
             // Design decision D50: an unknown key answers 204, with no
             // body. A probe learns nothing.
@@ -132,12 +177,6 @@ fun Route.collectRoute(runtime: CollectorRuntime) {
             return@post
         }
 
-        val clientIpHeaderLines = if (runtime.clientIpHeaderName.isBlank()) {
-            emptyList()
-        } else {
-            call.request.headers.getAll(runtime.clientIpHeaderName) ?: emptyList()
-        }
-        val clientAddress = clientAddressOf(clientIpHeaderLines, call.request.local.remoteAddress)
         val rateLimitKey = runtime.rateLimiting.keyOf(app.appId, clientAddress)
         runtime.rateLimiting.recordRequest(rateLimitKey)
 
@@ -181,7 +220,7 @@ fun Route.collectRoute(runtime: CollectorRuntime) {
             return@post
         }
 
-        if (!runtime.rateLimiting.dailyCap.check(rateLimitKey, events.size)) {
+        if (!runtime.rateLimiting.dailyCapOf(app.appId).check(rateLimitKey, events.size)) {
             runtime.dailyEventCountStore.recordDrop(app.appId)
             call.respond(HttpStatusCode.NoContent)
             return@post

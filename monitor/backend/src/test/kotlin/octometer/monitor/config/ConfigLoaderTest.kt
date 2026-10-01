@@ -619,7 +619,7 @@ class ConfigLoaderTest {
         startApplication()
         val cookie = sessionCookieValue(config.dataDir)
 
-        val (secretKey, events) = captureLogEvents {
+        val (keys, events) = captureLogEvents {
             val response = client.post("/api/apps") {
                 allowedHost()
                 withSession(cookie)
@@ -628,14 +628,36 @@ class ConfigLoaderTest {
                 setBody("""{"name":"sentinel-app","origins":["https://example.com"]}""")
             }
             assertEquals(HttpStatusCode.Created, response.status)
-            Json.parseToJsonElement(response.bodyAsText()).jsonObject["secretKey"]!!.jsonPrimitive.content
+            val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            val secretKey = body["secretKey"]!!.jsonPrimitive.content
+            val appKey = body["appKey"]!!.jsonPrimitive.content
+
+            // MAJOR 5 of the review of pull request #327: design
+            // decision D15 states "no log line holds the app key" too,
+            // a different token than the secret key. This request posts
+            // one event with the app key, through the real collector
+            // route, so the sentinel also covers each log line that
+            // route can write (a write failure, for example).
+            client.post("/collect") {
+                header("Origin", "https://example.com")
+                header("X-Octometer-Key", appKey)
+                contentType(ContentType.Application.Json)
+                setBody("""{"sessionId":"00000000-0000-4000-8000-000000000000","clicks":[{"element":"a","ageMs":0}]}""")
+            }
+
+            secretKey to appKey
         }
 
+        val (secretKey, appKey) = keys
         val lines = events.joinToString("\n") { it.formattedMessage }
         val window = 12
         for (start in 0..secretKey.length - window) {
             val part = secretKey.substring(start, start + window)
             assertFalse(lines.contains(part), "the log must never hold a part of the secret key: $lines")
+        }
+        for (start in 0..appKey.length - window) {
+            val part = appKey.substring(start, start + window)
+            assertFalse(lines.contains(part), "the log must never hold a part of the app key: $lines")
         }
     }
 

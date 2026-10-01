@@ -1,13 +1,19 @@
 package octometer.monitor.collect
 
 import java.time.Clock
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import java.util.regex.Pattern
 import octometer.kit.core.ingest.AnonymousDailyCap
 import octometer.kit.core.ingest.AnonymousKey
 import octometer.kit.core.ingest.AnonymousMinuteLimiter
 import octometer.kit.core.ingest.IngestSettings
+
+/**
+ * The cap of the dev-only request counter map, and of the per-app daily
+ * cap map, with an LRU eviction (the size of design decision D20, the
+ * brief review of 2026-10-01, MAJOR 2 and MAJOR 3).
+ */
+private const val MAX_RATE_LIMITING_ENTRIES = 20_000
 
 /** The maximum length of a client address value, the same bound as `IngestRequestProcessor` of `kit/jvm-core`. */
 private const val MAX_CLIENT_ADDRESS_LENGTH = 64
@@ -63,12 +69,21 @@ private fun looksLikeAnIpAddress(value: String): Boolean =
     IPV4_ADDRESS_PATTERN.matcher(value).matches() || IPV6_ADDRESS_PATTERN.matcher(value).matches()
 
 /**
- * The one shared service-wide limiter pair of design decision D43, the
- * brief review of 2026-10-01 (M4, m4): one [AnonymousMinuteLimiter] and
- * one [AnonymousDailyCap] for the whole service, not one pair for each
- * app. [CollectRoute] keys each check on the app id plus the client
- * key, so two apps, or two clients of one app, never share one counter
- * ([keyOf]).
+ * The one shared service-wide [AnonymousMinuteLimiter] of design
+ * decision D43, the brief review of 2026-10-01 (M4, m4): one instance
+ * for the whole service, not one for each app. [CollectRoute] keys each
+ * check on the app id plus the client key, so two apps, or two clients
+ * of one app, never share one counter ([keyOf]).
+ *
+ * MAJOR 3 of the review of pull request #327: a daily cap needs one
+ * [AnonymousDailyCap] for each app id, not one shared instance. The
+ * class's own "global" counter must count one app's events only (the
+ * per-app cap of design decision D50, the same 20 000 bound as
+ * [DAILY_EVENT_CAP] of [DailyEventCountStore]), never the whole
+ * service; one shared instance made the whole service share one
+ * 20 000-event daily budget instead. [dailyCapOf] gives one instance
+ * for each app id, from an LRU-bounded map (the size of design decision
+ * D20), so this map too can never grow without a bound.
  *
  * Design decision D19 is on by default for the hosted model (the
  * maintainer's note of 2026-10-01): every request of this story is
@@ -77,7 +92,7 @@ private fun looksLikeAnIpAddress(value: String): Boolean =
  * limiter, the same rule as `IngestRequestProcessor.beforeBody` of
  * `kit/jvm-core` when `settings.recordAnonymousClicks()` is `true`.
  */
-class CollectorRateLimiting(clock: Clock) {
+class CollectorRateLimiting(private val clock: Clock) {
 
     val minuteLimiter: AnonymousMinuteLimiter = AnonymousMinuteLimiter(
         clock,
@@ -86,15 +101,24 @@ class CollectorRateLimiting(clock: Clock) {
         IngestSettings.DEFAULT_ANON_SESSIONS_PER_MIN,
     )
 
-    val dailyCap: AnonymousDailyCap = AnonymousDailyCap(
-        clock,
-        IngestSettings.DEFAULT_ANON_MAX_EVENTS_PER_DAY,
-        IngestSettings.DEFAULT_ANON_EVENTS_PER_KEY_PER_DAY,
-    )
+    private val dailyCapsByAppId = LruMap<AnonymousDailyCap>(MAX_RATE_LIMITING_ENTRIES)
 
     /**
-     * The shared key of [minuteLimiter] and [dailyCap] for [appId] and
-     * [clientAddress] (M4, m4). [AnonymousKey.of] collapses
+     * The daily cap of [appId] (MAJOR 3): a fresh [AnonymousDailyCap]
+     * the first time this app id is seen, with [DAILY_EVENT_CAP] as its
+     * own "global" bound (one app's whole daily budget, design decision
+     * D50) and [IngestSettings.DEFAULT_ANON_EVENTS_PER_KEY_PER_DAY] as
+     * the bound of one client key inside that app (design decision
+     * D43), after that from the LRU map.
+     */
+    fun dailyCapOf(appId: Long): AnonymousDailyCap =
+        dailyCapsByAppId.getOrPut(appId.toString()) {
+            AnonymousDailyCap(clock, DAILY_EVENT_CAP, IngestSettings.DEFAULT_ANON_EVENTS_PER_KEY_PER_DAY)
+        }
+
+    /**
+     * The shared key of [minuteLimiter] and of [dailyCapOf] for [appId]
+     * and [clientAddress] (M4, m4). [AnonymousKey.of] collapses
      * [clientAddress] to its design decision D43 form (the IPv6 /64
      * prefix) before the app id joins it, so the IPv6 collapse still
      * runs on the real address text, never on an app-qualified text.
@@ -107,14 +131,17 @@ class CollectorRateLimiting(clock: Clock) {
     // reads the map size only, and it is package-private). This map is
     // the monitor's own count of requests seen for one rate-limit key,
     // for the end-to-end scenario's own assertion; it is not part of
-    // the rate limit decision itself.
-    private val requestCounts = ConcurrentHashMap<String, AtomicLong>()
+    // the rate limit decision itself. MAJOR 2 of the review of pull
+    // request #327: an LRU bound (the size of design decision D20), so
+    // a flood of invented keys can never grow this map without a bound
+    // either.
+    private val requestCounts = LruMap<AtomicLong>(MAX_RATE_LIMITING_ENTRIES)
 
     /** Records one request of [rateLimitKey] for the dev-only counters. */
     fun recordRequest(rateLimitKey: String) {
-        requestCounts.computeIfAbsent(rateLimitKey) { AtomicLong() }.incrementAndGet()
+        requestCounts.getOrPut(rateLimitKey) { AtomicLong() }.incrementAndGet()
     }
 
     /** A snapshot of every counter that [recordRequest] built, for `GET /api/dev/collector-counters`. */
-    fun requestCountSnapshot(): Map<String, Long> = requestCounts.mapValues { it.value.get() }
+    fun requestCountSnapshot(): Map<String, Long> = requestCounts.snapshot().mapValues { it.value.get() }
 }

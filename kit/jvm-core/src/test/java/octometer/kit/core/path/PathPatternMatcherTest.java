@@ -191,4 +191,42 @@ class PathPatternMatcherTest {
         assertFalse(PathPatternMatcher.isValidPattern("/%zz"));
         assertTrue(PathPatternMatcher.isValidPattern("/caf%C3%A9"));
     }
+
+    // -- DefaultRoutePattern (issue #297, D40, D50, the brief review of
+    // 2026-10-01, MAJOR 6 of the review of pull request #327) ----------
+    //
+    // The collector of monitor/backend applies this rule to a path when
+    // an app gives no typed pattern list, or when PathPatternMatcher.match
+    // answers "/other". These cases cover each of its own segment forms:
+    // the whole number, the UUID, the hex string of 8 characters or
+    // more, a literal segment that stays as it is, and the query
+    // string, which this method never counts.
+
+    @Test
+    void defaultRoutePatternTurnsAWholeNumberSegmentIntoId() {
+        assertEquals("/orders/:id", DefaultRoutePattern.apply("/orders/42"));
+    }
+
+    @Test
+    void defaultRoutePatternTurnsAUuidSegmentIntoId() {
+        assertEquals(
+                "/users/:id",
+                DefaultRoutePattern.apply("/users/550e8400-e29b-41d4-a716-446655440000"));
+    }
+
+    @Test
+    void defaultRoutePatternTurnsAHexSegmentOfEightOrMoreCharactersIntoId() {
+        assertEquals("/sessions/:id", DefaultRoutePattern.apply("/sessions/deadbeef"));
+        assertEquals("/sessions/:id", DefaultRoutePattern.apply("/sessions/deadbeefcafe"));
+    }
+
+    @Test
+    void defaultRoutePatternKeepsALiteralSegmentAsItIs() {
+        assertEquals("/orders/history", DefaultRoutePattern.apply("/orders/history"));
+    }
+
+    @Test
+    void defaultRoutePatternNeverCountsTheQueryString() {
+        assertEquals("/orders/:id", DefaultRoutePattern.apply("/orders/42?ref=mail"));
+    }
 }

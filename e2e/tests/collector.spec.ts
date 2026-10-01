@@ -1,3 +1,5 @@
+import type { APIRequestContext } from '@playwright/test';
+
 import { expect, test } from '../fixtures';
 import { AppsPage } from '../pages/apps-page';
 import { FirstPagesPage } from '../pages/first-pages-page';
@@ -13,6 +15,40 @@ const CHAIN_WAIT_MS = 30_000;
 function fixedSessionId(marker: number): string {
   const hex = marker.toString(16).padStart(8, '0');
   return `${hex}-0000-4000-8000-000000000000`;
+}
+
+/** The `lastSuccessAt` field of `appId`'s own row of `GET /api/apps`, or `null` when absent. */
+async function readLastSuccessAt(request: APIRequestContext, appId: number): Promise<string | null> {
+  const response = await request.get('/api/apps');
+  const rows = (await response.json()) as ReadonlyArray<{ appId: number; lastSuccessAt: string | null }>;
+  const row = rows.find((entry) => entry.appId === appId);
+  return row?.lastSuccessAt ?? null;
+}
+
+/**
+ * Waits for `cycles` poll cycles of `appId` to complete, each one seen
+ * through a change of `lastSuccessAt` (BLOCKER 2 of the review of pull
+ * request #327). A "changes no number" assertion must let a wrong
+ * write reach the apps view before it reads the number; an immediate
+ * re-read is always green, because the number has had no chance to
+ * change yet. Two cycles match the wait of acceptance criterion 1
+ * ("within two poll cycles").
+ */
+async function waitForPollCycles(
+  request: APIRequestContext,
+  appId: number,
+  cycles: number,
+  timeoutMs: number,
+): Promise<void> {
+  let previous = await readLastSuccessAt(request, appId);
+  for (let cycle = 0; cycle < cycles; cycle += 1) {
+    await expect(async () => {
+      const current = await readLastSuccessAt(request, appId);
+      expect(current).not.toBeNull();
+      expect(current).not.toBe(previous);
+    }).toPass({ timeout: timeoutMs });
+    previous = await readLastSuccessAt(request, appId);
+  }
 }
 
 /**
@@ -93,6 +129,12 @@ test('a click in the demo page reaches the apps view through the collector', asy
     }),
   });
   expect(unknownKeyResponse.status()).toBe(204);
+  // BLOCKER 2 of the review of pull request #327: this assertion must
+  // let a wrong write reach the apps view before it reads the number,
+  // else it is always green. It waits for two real poll cycles first
+  // (the same bound as acceptance criterion 1), through a change of
+  // the app's own lastSuccessAt.
+  await waitForPollCycles(request, appId, 2, CHAIN_WAIT_MS);
   await apps.goto();
   await apps.expectTotals(appName, { clicks: 1, uniqueUsers: 0, uniqueSessions: 1 }, CHAIN_WAIT_MS);
 
@@ -111,6 +153,8 @@ test('a click in the demo page reaches the apps view through the collector', asy
     }),
   });
   expect(unlistedOriginResponse.status()).toBe(204);
+  // BLOCKER 2: the same real wait as the unknown-key probe above.
+  await waitForPollCycles(request, appId, 2, CHAIN_WAIT_MS);
   await apps.goto();
   await apps.expectTotals(appName, { clicks: 1, uniqueUsers: 0, uniqueSessions: 1 }, CHAIN_WAIT_MS);
 
@@ -150,24 +194,20 @@ test('a click in the demo page reaches the apps view through the collector', asy
   });
   expect(secondIpResponse.status()).toBe(204);
 
+  // MAJOR 8 of the review of pull request #327: the route now sits
+  // behind the session (the global setup's own sign-in carries the
+  // cookie already), and it gives no client address: addressHash is
+  // an opaque, hashed value, never firstClientIp or secondClientIp
+  // itself. This assertion thus checks for two distinct counters of
+  // this app, not for a literal address text.
   const countersResponse = await request.get('/api/dev/collector-counters');
   expect(countersResponse.status()).toBe(200);
   const countersBody = (await countersResponse.json()) as {
-    counters: ReadonlyArray<{ key: string; count: number }>;
+    counters: ReadonlyArray<{ appId: number; addressHash: string; count: number }>;
   };
-  const firstKey = `${appId}:${firstClientIp}`;
-  const secondKey = `${appId}:${secondClientIp}`;
-  const firstCounter = countersBody.counters.find((entry) => entry.key === firstKey);
-  const secondCounter = countersBody.counters.find((entry) => entry.key === secondKey);
-  if (!firstCounter || !secondCounter) {
-    throw new Error(
-      `The counters of ${firstKey} and ${secondKey} are both expected; got: ` +
-        JSON.stringify(countersBody.counters),
-    );
-  }
-  expect(firstCounter.count).toBeGreaterThanOrEqual(1);
-  expect(secondCounter.count).toBeGreaterThanOrEqual(1);
-  expect(firstKey).not.toBe(secondKey);
+  const appCounters = countersBody.counters.filter((entry) => entry.appId === appId && entry.count >= 1);
+  const distinctAddressHashes = new Set(appCounters.map((entry) => entry.addressHash));
+  expect(distinctAddressHashes.size).toBeGreaterThanOrEqual(2);
 
   // Acceptance criterion 2: a body over 16 KB answers 400.
   const oversizedPath = `/${'a'.repeat(20_000)}`;

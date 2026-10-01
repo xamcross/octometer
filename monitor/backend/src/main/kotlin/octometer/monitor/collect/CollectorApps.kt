@@ -2,7 +2,6 @@ package octometer.monitor.collect
 
 import java.sql.Connection
 import java.time.Clock
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import octometer.kit.core.path.PathPatternMatcher
@@ -11,6 +10,13 @@ import octometer.monitor.store.SqliteDatabase
 
 /** The read cache time of the app lookup and of the route pattern list (issue #297, D50). */
 const val APP_CACHE_TTL_MILLIS = 10_000L
+
+/**
+ * The cap of the app key cache, with an LRU eviction (the size of design
+ * decision D20, the brief review of 2026-10-01, MAJOR 1). A flood of
+ * invented keys can then never grow this map without a bound.
+ */
+const val MAX_APP_KEY_CACHE_ENTRIES = 20_000
 
 /**
  * One app of the registry, as the collector of issue #297 needs it: the
@@ -41,7 +47,10 @@ class AppKeyCache(private val database: SqliteDatabase, private val clock: Clock
 
     private data class Entry(val app: CollectorApp?, val cachedAtMillis: Long)
 
-    private val byAppKey = ConcurrentHashMap<String, Entry>()
+    // MAJOR 1 of the review of pull request #327: an LRU bound (the size
+    // of design decision D20), so a flood of invented keys can never
+    // grow this map without a bound.
+    private val byAppKey = LruMap<Entry>(MAX_APP_KEY_CACHE_ENTRIES)
 
     @Volatile
     private var originsUnionCachedAtMillis: Long = Long.MIN_VALUE
@@ -52,12 +61,12 @@ class AppKeyCache(private val database: SqliteDatabase, private val clock: Clock
     /** Gives the app of [appKey], or `null` for an unknown key. */
     suspend fun lookup(appKey: String): CollectorApp? {
         val now = clock.millis()
-        val cached = byAppKey[appKey]
+        val cached = byAppKey.get(appKey)
         if (cached != null && now - cached.cachedAtMillis < APP_CACHE_TTL_MILLIS) {
             return cached.app
         }
         val fresh = database.read { reader -> readApp(reader, appKey) }
-        byAppKey[appKey] = Entry(fresh, now)
+        byAppKey.put(appKey, Entry(fresh, now))
         return fresh
     }
 
@@ -66,15 +75,28 @@ class AppKeyCache(private val database: SqliteDatabase, private val clock: Clock
      * most one time in [APP_CACHE_TTL_MILLIS] (the preflight of
      * `OPTIONS /collect` and `OPTIONS /tracker.js`, the brief review of
      * 2026-10-01, B2).
+     *
+     * BLOCKER 1 of the review of pull request #327:
+     * [originsUnionCachedAtMillis] starts at `Long.MIN_VALUE`, so a plain
+     * `now - originsUnionCachedAtMillis >= APP_CACHE_TTL_MILLIS` test
+     * overflows at the first call (it wraps to a negative value, so the
+     * test reads false forever). [needsOriginsRefresh] guards the first
+     * call, and a clock step backwards too, the same form as
+     * [WriteStopGate.needsRefresh].
      */
     suspend fun allOrigins(): Set<String> {
         val now = clock.millis()
-        if (now - originsUnionCachedAtMillis >= APP_CACHE_TTL_MILLIS) {
+        if (needsOriginsRefresh(now)) {
             originsUnion = database.read { reader -> readAllOrigins(reader) }
             originsUnionCachedAtMillis = now
         }
         return originsUnion
     }
+
+    private fun needsOriginsRefresh(now: Long): Boolean =
+        originsUnionCachedAtMillis == Long.MIN_VALUE ||
+            now - originsUnionCachedAtMillis >= APP_CACHE_TTL_MILLIS ||
+            now < originsUnionCachedAtMillis
 
     private fun readApp(reader: Connection, appKey: String): CollectorApp? =
         reader.prepareStatement(

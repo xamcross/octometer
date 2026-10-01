@@ -6,8 +6,11 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.route
+import java.sql.Connection
 import kotlinx.serialization.Serializable
+import octometer.monitor.accounts.accountId
 import octometer.monitor.accounts.meRoute
+import octometer.monitor.accounts.sha256Hex
 import octometer.monitor.accounts.signInRoutes
 import octometer.monitor.apps.appTotals
 import octometer.monitor.config.Mode
@@ -16,6 +19,7 @@ import octometer.monitor.erasure.userErasureRoutes
 import octometer.monitor.pages.firstPagesRoute
 import octometer.monitor.registry.appRegistryRoutes
 import octometer.monitor.sessions.sessionsRoute
+import octometer.monitor.store.SqliteDatabase
 import octometer.monitor.users.userTotalsRoute
 
 /**
@@ -46,10 +50,25 @@ fun Route.apiRoutes(services: MonitorServices) {
     // end-to-end suite's own test hook, in config.mode == "dev" only.
     // It gives the monitor's own per-key request count, because
     // kit/jvm-core keeps no public getter for one key's own count.
+    //
+    // MAJOR 8 of the review of pull request #327: this route now sits
+    // behind the session check (SessionCheck.kt), and it gives the
+    // account filter the same as every other route of this file: a
+    // counter of an app that a different account owns never appears.
+    // It also gives no client address (design decision D15: the
+    // address stays in memory only); addressHash is the SHA-256 hex
+    // text of the address, never the address itself, so this route
+    // still proves two different addresses got two different
+    // counters, with no address disclosed.
     if (services.config.mode == Mode.DEV.value) {
         get("/api/dev/collector-counters") {
+            val ownedAppIds = ownedAppIds(services.database, call.accountId())
             val counters = services.collectorRuntime.rateLimiting.requestCountSnapshot()
-                .map { (key, count) -> CollectorCounterEntry(key, count) }
+                .mapNotNull { (key, count) ->
+                    val appId = key.substringBefore(':').toLongOrNull() ?: return@mapNotNull null
+                    if (appId !in ownedAppIds) return@mapNotNull null
+                    CollectorCounterEntry(appId, sha256Hex(key.substringAfter(':')).take(16), count)
+                }
             call.respond(HttpStatusCode.OK, CollectorCountersResponse(counters))
         }
     }
@@ -69,10 +88,30 @@ fun Route.apiRoutes(services: MonitorServices) {
     }
 }
 
-/** One row of [CollectorCountersResponse]: the rate-limit key, and its request count. */
+/**
+ * One row of [CollectorCountersResponse]: the app id, the hashed
+ * client address (MAJOR 8 of the review of pull request #327: never
+ * the address itself), and the request count.
+ */
 @Serializable
-data class CollectorCounterEntry(val key: String, val count: Long)
+data class CollectorCounterEntry(val appId: Long, val addressHash: String, val count: Long)
 
 /** The body of `GET /api/dev/collector-counters` (issue #297, the brief review of 2026-10-01, M5). */
 @Serializable
 data class CollectorCountersResponse(val counters: List<CollectorCounterEntry>)
+
+/** The app ids of [accountId] (MAJOR 8), for the account filter of `GET /api/dev/collector-counters`. */
+private suspend fun ownedAppIds(database: SqliteDatabase, accountId: Long): Set<Long> =
+    database.read { reader -> readOwnedAppIds(reader, accountId) }
+
+private fun readOwnedAppIds(connection: Connection, accountId: Long): Set<Long> =
+    connection.prepareStatement("SELECT id FROM app WHERE account_id = ?").use { select ->
+        select.setLong(1, accountId)
+        select.executeQuery().use { result ->
+            val ids = mutableSetOf<Long>()
+            while (result.next()) {
+                ids += result.getLong("id")
+            }
+            ids
+        }
+    }
