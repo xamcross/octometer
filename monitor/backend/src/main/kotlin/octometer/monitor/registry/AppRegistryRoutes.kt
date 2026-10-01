@@ -23,6 +23,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import octometer.monitor.ErrorBody
 import octometer.monitor.accounts.accountId
+import octometer.monitor.collect.DailyEventCountStore
 
 private const val SECRET_STORE_UNAVAILABLE_MESSAGE = "The secret store is not available. Try again."
 
@@ -44,7 +45,7 @@ private const val PATH_PATTERNS_REJECTED_MESSAGE = "The app publishes its route 
  * default error page. That page can quote part of the body. A
  * connection string can sit in that part (D11, D15).
  */
-fun Route.appRegistryRoutes(registry: AppRegistryService) {
+fun Route.appRegistryRoutes(registry: AppRegistryService, dailyEventCountStore: DailyEventCountStore) {
     // Issue #296, M8: the body's own keys pick the path. A body with
     // `connectionString` takes the present, local-developer path
     // (D32); a body with `origins` takes the hosted path of D51, D52,
@@ -139,7 +140,11 @@ fun Route.appRegistryRoutes(registry: AppRegistryService) {
         if (detail == null) {
             call.respond(HttpStatusCode.NotFound, ErrorBody("The app is not registered."))
         } else {
-            call.respond(HttpStatusCode.OK, detail)
+            // Issue #297 (D50, the brief review of 2026-10-01, M5): the
+            // collector's own daily drop count, behind the account
+            // filter that registry.getApp already applied above.
+            val droppedToday = dailyEventCountStore.droppedToday(appId)
+            call.respond(HttpStatusCode.OK, detail.copy(droppedToday = droppedToday))
         }
     }
 

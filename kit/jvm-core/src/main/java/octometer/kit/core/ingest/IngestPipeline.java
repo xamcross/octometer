@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.UnaryOperator;
 import octometer.kit.core.path.PathPatternMatcher;
 import octometer.kit.core.store.EventLogStore;
 import octometer.kit.core.user.UserIdResolver;
@@ -95,6 +96,39 @@ public final class IngestPipeline {
      * IngestSettings#fromEnvironment()} owns that read.
      */
     public static List<IngestEvent> process(String rawBody, Clock clock, IngestSettings settings) {
+        return process(rawBody, clock, settings, null);
+    }
+
+    /**
+     * Calls {@link #process(String, Clock, IngestSettings)} with the
+     * default route pattern rule of design decision D40 and design
+     * decision D50 (issue #297, {@code DefaultRoutePattern.apply}) as a
+     * fallback for a shape-valid {@code path} value.
+     *
+     * <p>{@code defaultPathRule} runs only for a {@code path} value that
+     * passes the shape check of rule C39. A {@code null}
+     * {@code defaultPathRule} gives the exact behavior of
+     * {@link #process(String, Clock, IngestSettings)}: with no route
+     * pattern matcher, a shape-valid value gives a {@code null} path
+     * (rule C42, no change for an existing caller). With
+     * {@code defaultPathRule} present:
+     * <ul>
+     *   <li>with no route pattern matcher, the path becomes
+     *       {@code defaultPathRule.apply(click.path())};</li>
+     *   <li>with a route pattern matcher, the path becomes the matcher's
+     *       own result, unless that result is
+     *       {@link PathPatternMatcher#OTHER}, in which case the path
+     *       becomes {@code defaultPathRule.apply(click.path())}
+     *       instead (the hosted collector's own rule: the typed list
+     *       first, then the default rule).</li>
+     * </ul>
+     * A shape-invalid {@code path} value with {@code defaultPathRule}
+     * present, and with no route pattern matcher, becomes
+     * {@link PathPatternMatcher#OTHER}; the kit never gives the raw
+     * client value to {@code defaultPathRule}.
+     */
+    public static List<IngestEvent> process(String rawBody, Clock clock, IngestSettings settings,
+            UnaryOperator<String> defaultPathRule) {
         ParsedIngestRequest parsed = IngestParser.parse(rawBody);
         EventFieldValidator.validateSessionId(parsed.sessionId());
 
@@ -130,9 +164,18 @@ public final class IngestPipeline {
             if (click.path() != null) {
                 if (EventFieldValidator.isValidPath(click.path())) {
                     if (pathPatternMatcher != null) {
-                        path = pathPatternMatcher.match(click.path());
+                        String matched = pathPatternMatcher.match(click.path());
+                        // Issue #297 (design decision D40, design
+                        // decision D50): the hosted collector gives a
+                        // defaultPathRule. The typed list wins first; the
+                        // default rule only replaces an /other result.
+                        path = (defaultPathRule != null && PathPatternMatcher.OTHER.equals(matched))
+                                ? defaultPathRule.apply(click.path())
+                                : matched;
+                    } else if (defaultPathRule != null) {
+                        path = defaultPathRule.apply(click.path());
                     }
-                } else if (pathPatternMatcher != null) {
+                } else if (pathPatternMatcher != null || defaultPathRule != null) {
                     // Contract rule C41 (amended by design decision D49): a
                     // path value outside the grammar of rule C39 becomes
                     // /other, never a dropped field or a dropped batch.

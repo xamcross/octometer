@@ -106,6 +106,10 @@ optional fields: `path` and `referrerHost`. Section 2 states their exact form: r
 `POST <ingestPath>`, default `/api/octometer/v1/clicks`, header `Content-Type:
 application/json`.
 
+The hosted collector of design decision D50 (issue #297) is `POST /collect`, with the same
+body and the same answer codes as this section; the tracker's `appKey` option sends the app
+key in the header `X-Octometer-Key`.
+
 - **C12.** The tracker sends `POST <ingestPath>`. The default path is
   `/api/octometer/v1/clicks`. The request header `Content-Type` is `application/json`.
 - **C13.** The request body has a `sessionId` field and a `clicks` array. Each entry of

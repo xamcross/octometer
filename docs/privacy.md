@@ -93,7 +93,20 @@ anonymous clicks of that tab to your account.
 The owner's own monitor keeps its own copy until the owner runs a separate
 erasure step, after one poll cycle of the monitor.
 
-## 10. The Octometer dashboard account
+## 10. The hosted collector
+
+Some apps send their clicks to the hosted collector of Octometer
+(`https://app.0ct0meter.com/collect`), in place of a route of their own
+(issue #297). The request holds the app key, the session id, the
+element name, and the page path pattern. It holds no user id in this
+release; a later release can add that field.
+
+The collector keeps your client address in memory only, for one minute
+at a time, to limit abuse. It never stores your client address.
+
+The collector keeps your click record for 365 days, then it deletes it.
+
+## 11. The Octometer dashboard account
 
 This section covers the Octometer dashboard itself (issue #301), not the
 app that this policy otherwise covers.
@@ -111,7 +124,7 @@ Each app that a dashboard user registers gets an app key and a secret key
 (issue #296). The app key is public; the secret key is a secret of the
 app owner.
 
-## 11. The waitlist notice of the public site
+## 12. The waitlist notice of the public site
 
 The public site and this app are two products, each with its own notice.
 The public site holds its own privacy notice for the waitlist address, at
@@ -158,9 +171,12 @@ Issue #279 added the raw-path sentence of section 2, design decision D49: the ra
   path of the page travels to the app's own server only, and the event record
   holds the pattern, never the raw path. Section 2 already named the pattern; the
   new sentence adds the raw-path fact only.
-Issue #296 added the app key and secret key sentence of section 10, design
-  decisions D51 and D52.
-Issue #290 added section 11, the pointer to the waitlist notice of the public site
-  (`site/index.html`, `footer#notice`). The site and this app are two products, each
-  with its own notice.
+Issue #296 added the app key and secret key sentence of section 11 (then section
+  10), design decisions D51 and D52.
+Issue #290 added section 11 (then section 12), the pointer to the waitlist notice of
+  the public site (`site/index.html`, `footer#notice`). The site and this app are two
+  products, each with its own notice.
+Issue #297 added section 10, the hosted collector, design decision D50. It moved the
+  former section 10 (the dashboard account) to section 11, and the former section 11
+  (the waitlist notice) to section 12.
 -->

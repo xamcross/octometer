@@ -7,6 +7,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import octometer.monitor.accounts.SignInService
 import octometer.monitor.backup.DailyBackupJob
+import octometer.monitor.collect.AppKeyCache
+import octometer.monitor.collect.CollectorRateLimiting
+import octometer.monitor.collect.CollectorRuntime
+import octometer.monitor.collect.CollectorStore
+import octometer.monitor.collect.DailyEventCountStore
+import octometer.monitor.collect.WriteStopGate
 import octometer.monitor.config.MonitorConfig
 import octometer.monitor.mail.FileMailSender
 import octometer.monitor.mail.MailSender
@@ -48,6 +54,23 @@ class MonitorServices private constructor(
     // service (D57) comes from config, so a new app with no connection
     // string of its own can still get a database.
     val appRegistryService: AppRegistryService = AppRegistryService(database, secretStore, config.clusterUri)
+
+    // Issue #297 (D50): the collector of POST /collect. dailyEventCountStore
+    // is also exposed for GET /api/apps/{id}'s droppedToday field
+    // (AppRegistryRoutes.kt). The Mongo client of the collector's write
+    // is the exact shared client instance of mongoAppReader (issue
+    // #296, M11): the write path and the read path of the hosted model
+    // share one pool, not two.
+    val dailyEventCountStore: DailyEventCountStore = DailyEventCountStore(database)
+    private val sharedWriteClient = { mongoAppReader.sharedClientForWriting(config.clusterUri) }
+    val collectorRuntime: CollectorRuntime = CollectorRuntime(
+        appKeyCache = AppKeyCache(database),
+        store = CollectorStore(sharedWriteClient),
+        dailyEventCountStore = dailyEventCountStore,
+        writeStopGate = WriteStopGate(database, client = { if (config.clusterUri.isBlank()) null else sharedWriteClient() }),
+        rateLimiting = CollectorRateLimiting(Clock.systemUTC()),
+        clientIpHeaderName = config.clientIpHeader,
+    )
 
     // Issue #301, D52: the mail sender follows config.mailSender
     // (resend in the hosted service, file in the local run and in the

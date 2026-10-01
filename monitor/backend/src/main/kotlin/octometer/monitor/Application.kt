@@ -28,6 +28,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.serialization.Serializable
 import octometer.monitor.accounts.installSessionCheck
 import octometer.monitor.accounts.runInviteCommandIfPresent
+import octometer.monitor.collect.collectRoute
 import octometer.monitor.config.InvalidConfigException
 import octometer.monitor.config.MonitorConfig
 import octometer.monitor.config.ResolvedConfig
@@ -293,9 +294,18 @@ fun Application.module(
                     databaseBytes = databaseBytes(config.dataDir),
                     freeDiskBytes = freeDiskBytes(config.dataDir),
                     storeState = if (storeIsHealthy(services)) "ok" else "unhealthy",
+                    // Issue #297 (D50): the cluster-wide write stop.
+                    // Every other D56 field of issue #295 (#296) stays
+                    // null until a later issue fills it.
+                    writeStopped = services.collectorRuntime.writeStopGate.isWriteStopped(),
                 ),
             )
         }
+        // Issue #297 (D50): the collector, outside "/api/" (it carries
+        // the app key and the app's own Origin, never a dashboard
+        // session). installRequestGuard already skips the Host check's
+        // one exception and the Origin check for these two paths.
+        collectRoute(services.collectorRuntime)
         apiRoutes(services)
         // Issue #38, step 4: the Angular build, when the distribution
         // has one. A dev-mode run through Gradle has none; ng serve

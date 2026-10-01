@@ -368,6 +368,11 @@ async function globalSetup(): Promise<void> {
     // as the demo app above; the compose file of tools/local-service
     // is a different service, not this suite's Mongo.
     OCTOMETER_CLUSTER_URI: `mongodb://127.0.0.1:${ports.mongo}/octometer_service`,
+    // Issue #297 (D50, the brief review of 2026-10-01, M5): the
+    // collector reads the client address from this header
+    // (`Fly-Client-IP` on Fly). `collector.spec.ts` sets its own
+    // stand-in value through it, for the rate limit counter scenario.
+    OCTOMETER_CLIENT_IP_HEADER: 'X-Test-Client-Ip',
     ...(process.env.E2E_JAVA_OPTS_MONITOR ? { JAVA_OPTS: process.env.E2E_JAVA_OPTS_MONITOR } : {}),
   };
   // Issue #301, D2: one run of the launcher, before the monitor starts,

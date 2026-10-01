@@ -595,6 +595,17 @@ class MongoAppReader(
         return sharedClients.computeIfAbsent(hash) { sharedClientFactory(connectionString) }
     }
 
+    /**
+     * Gives the one shared cluster client of [connectionString] (issue
+     * #296, M6, design decision D57), for a caller outside the poll
+     * loop. Issue #297's collector writes through this exact client
+     * instance, never a client of its own, so the write path and the
+     * read path of the hosted model share one pool of
+     * [MAX_SHARED_POOL_SIZE] connections, not two pools of that size
+     * (design decision D57, M11).
+     */
+    fun sharedClientForWriting(connectionString: String): MongoClient = sharedClientFor(connectionString)
+
     private suspend fun readBound(database: MongoDatabase): CycleBound =
         withMongoFailure {
             withContext(Dispatchers.IO) {

@@ -106,7 +106,8 @@ session start.
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `endpoint` | none, mandatory | The ingest URL of the app. `createTracker()` throws a `TypeError` for an empty or a missing value. |
+| `endpoint` | none, mandatory | The ingest URL of the app, or the full URL of the hosted collector, for example `https://app.0ct0meter.com/collect`. `createTracker()` throws a `TypeError` for an empty or a missing value. |
+| `appKey` | none | The app key of the hosted collector (design decision D50, issue #297). Set this option only with the hosted collector's `endpoint`. The tracker sends it in the header `X-Octometer-Key` of each request, and it sends each request with `mode: 'cors'`. |
 | `credentials` | `same-origin` | The `fetch` credentials mode. |
 | `headers` | none | A function that returns extra request headers. |
 | `flushIntervalMs` | `5000` | The delay before the tracker sends a filled queue. |
@@ -265,6 +266,12 @@ authentication context (owner decision O5).
 
 The session id is a UUID. The tracker keeps it under the `sessionStorage` key
 `octo_session_id`, for the life of one browser tab.
+
+With the `appKey` option set, each request also carries the header
+`X-Octometer-Key` (design decision D50, issue #297). The hosted collector
+answers 429 for the same rate limit as any other ingest route; the retry
+rule above (a wait of 2000 ms, plus a random value, after a 429 response)
+applies to the collector too.
 
 ## The queue and the request size
 

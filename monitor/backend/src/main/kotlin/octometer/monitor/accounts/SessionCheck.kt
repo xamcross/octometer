@@ -18,9 +18,16 @@ private data class SessionErrorBody(val error: String)
 
 private const val SIGN_IN_FIRST_MESSAGE = "Sign in first."
 
-// The two routes of D52 that need no session (issue #301, brief review
-// B1, m4): /healthz sits outside /api/ already, so the exception list
-// holds these two only.
+// The routes of D52 that need no session (issue #301, brief review B1,
+// m4): /healthz sits outside /api/ already.
+//
+// MAJOR 8 of the review of pull request #327: `/api/dev/collector-counters`
+// stays OFF this list. An earlier version excluded it, so an anonymous
+// caller with no cookie could read every rate-limit counter, each one
+// holding a client address. The route needs a session, the same as
+// every other `/api/` route; the end-to-end suite already signs in
+// through the global setup, so it reads this route with no change of
+// its own.
 private val EXCLUDED_PATHS = setOf("/api/signin", "/api/signin/confirm")
 
 /**

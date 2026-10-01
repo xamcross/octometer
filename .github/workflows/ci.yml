@@ -94,6 +94,11 @@ jobs:
               - 'gradlew*'
               - 'monitor/backend/Dockerfile'
               - 'fly.toml'
+              # Issue #297, the brief review of 2026-10-01 (M1, M12): the
+              # kit's Maven coordinate file. A change here can change the
+              # dependency that kit/jvm-* resolves, so the e2e job's own
+              # full build must run.
+              - 'jitpack.yml'
             # Issue #287. The public site is its own module, apart from
             # the monitor and the tracker.
             site:
@@ -347,6 +352,17 @@ jobs:
       # below needs it.
       - name: Build the distribution and the demo app
         run: ./gradlew :monitor:backend:distZip :monitor:backend:installDist :tools:demo-app:installDist -PfrontendSourceMap=true
+      # Issue #297 (the brief review of 2026-10-01, M1, M12): the deploy
+      # job downloads this install folder, in place of its own Gradle
+      # build (the owner's deploy-time question of 2026-10-01).
+      # retention-days: 1, because only the deploy job of this same
+      # workflow run ever reads it.
+      - name: Upload the backend install folder for the deploy job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-install-dist
+          path: monitor/backend/build/install/backend
+          retention-days: 1
       # Issue #306, correction round, MAJOR 2: the removed Windows job was
       # the one job that ran these two classes after installDist. Each
       # class reads a built file only, so ubuntu runs it too.
@@ -453,22 +469,39 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Issue #297 (the brief review of 2026-10-01, M1, M12): this job
+      # reuses the e2e job's own "installDist" output in place of a
+      # second Gradle build (the owner's deploy-time question of
+      # 2026-10-01). continue-on-error: true, because a run where the
+      # e2e job did not run (its path filter skipped it) carries no such
+      # artifact; the fallback build below then runs instead.
+      - name: Download the backend install folder of the e2e job
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: backend-install-dist
+          path: monitor/backend/build/install/backend
       - name: Set up Temurin 21
+        if: steps.download.outcome != 'success'
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: '21'
       - name: Set up Gradle
+        if: steps.download.outcome != 'success'
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           # cache-read-only: same source and rule as the "jvm" job above.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       # Brief review M2: installDist builds the Angular app first.
       - name: Set up Node
+        if: steps.download.outcome != 'success'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: monitor/frontend/.nvmrc
-      - name: Build the distribution, with the Angular app inside it
+      - name: Build the distribution, with the Angular app inside it (fallback)
+        if: steps.download.outcome != 'success'
         run: ./gradlew :monitor:backend:installDist
       # Brief review m3: the token presence, never the token value, so
       # a fork pull request or a missing owner secret never fails

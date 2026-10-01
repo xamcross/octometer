@@ -20,6 +20,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.delete as routeDelete
 import io.ktor.server.routing.get as routeGet
 import io.ktor.server.routing.method
+import io.ktor.server.routing.options as routeOptions
 import io.ktor.server.routing.patch as routePatch
 import io.ktor.server.routing.post as routePost
 import io.ktor.server.routing.put as routePut
@@ -601,6 +602,72 @@ class RequestGuardTest {
     // is the caller); the brief review of 2026-10-01 (m15) asks for the
     // case list here, so the function has its proof before that caller
     // exists.
+
+    // -- isCollectorPath (issue #297, D50, the brief review of 2026-10-01, B1) --
+    //
+    // MAJOR 4 of the review of pull request #327: isCollectorPath had no
+    // test. /collect and /tracker.js each skip the guard's Origin check
+    // and content type check (RequestGuard.kt:108); OPTIONS on each path
+    // does too, with the same decode-and-collapse path test as
+    // isHealthzPath. /collectx and /api/collect are each a different
+    // path, so each one stays inside the guard's own check.
+
+    @Test
+    fun `isCollectorPath matches the exact path of collect and of tracker-js`() {
+        assertEquals(true, isCollectorPath("/collect"))
+        assertEquals(true, isCollectorPath("/tracker.js"))
+    }
+
+    @Test
+    fun `isCollectorPath matches a repeated slash and a percent-encoded segment, the normalised path`() {
+        assertEquals(true, isCollectorPath("//collect"))
+        assertEquals(true, isCollectorPath("/%63ollect"))
+        assertEquals(true, isCollectorPath("//tracker.js"))
+    }
+
+    @Test
+    fun `isCollectorPath gives false for a longer or a different path`() {
+        assertEquals(false, isCollectorPath("/collectx"))
+        assertEquals(false, isCollectorPath("/api/collect"))
+        assertEquals(false, isCollectorPath("/tracker.js.map"))
+        assertEquals(false, isCollectorPath("/healthz"))
+    }
+
+    @Test
+    fun `isCollectorPath gives false on a bad escape, the same fail-closed rule as isHealthzPath`() {
+        assertEquals(false, isCollectorPath("/%zz"))
+    }
+
+    @Test
+    fun `a POST to collect with no Origin header still reaches the route, with no 403 of the guard`() = testApplication {
+        application {
+            module(prodConfig())
+            routing {
+                routePost("/collect") { call.respond(HttpStatusCode.NoContent) }
+            }
+        }
+
+        val response = client.post("/collect") { allowedHost() }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+    }
+
+    @Test
+    fun `an OPTIONS on collect and on tracker-js each skip the guard's Origin check too`() = testApplication {
+        application {
+            module(prodConfig())
+            routing {
+                routeOptions("/collect") { call.respond(HttpStatusCode.NoContent) }
+                routeOptions("/tracker.js") { call.respond(HttpStatusCode.NoContent) }
+            }
+        }
+
+        val collectResponse = client.options("/collect") { allowedHost() }
+        val trackerResponse = client.options("/tracker.js") { allowedHost() }
+
+        assertEquals(HttpStatusCode.NoContent, collectResponse.status)
+        assertEquals(HttpStatusCode.NoContent, trackerResponse.status)
+    }
 
     @Test
     fun `OriginCheck matches the scheme, the host, and the port, each after lower-casing`() {

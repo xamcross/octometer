@@ -9,6 +9,7 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -127,11 +128,12 @@ class HealthRouteTest {
             assertTrue(body["freeDiskBytes"]!!.jsonPrimitive.long > 0, "a real disk has free space above 0")
         }
 
-    // D56 (issue #295): the health route answers with storeState "ok",
-    // and with storageSizeBytes, writeStopped, and clusterCheckState
-    // each null until #297 fills them.
+    // D56 (issue #295, issue #297): the health route answers with
+    // storeState "ok", writeStopped a boolean (false, with no
+    // clusterUri and no app in this test), and storageSizeBytes and
+    // clusterCheckState each still null (a later issue fills them).
     @Test
-    fun `the health route answers with storeState ok, and the D56 fields null until #297`() = testApplication {
+    fun `the health route answers with storeState ok, writeStopped false, and the other D56 fields still null`() = testApplication {
         val config = devConfig()
         application { module(config) }
         startApplication()
@@ -142,7 +144,7 @@ class HealthRouteTest {
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals("ok", body["storeState"]!!.jsonPrimitive.content)
         assertEquals(JsonNull, body["storageSizeBytes"])
-        assertEquals(JsonNull, body["writeStopped"])
+        assertEquals(false, body["writeStopped"]!!.jsonPrimitive.boolean)
         assertEquals(JsonNull, body["clusterCheckState"])
     }
 
