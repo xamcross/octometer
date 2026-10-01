@@ -362,6 +362,12 @@ async function globalSetup(): Promise<void> {
     OCTOMETER_MAIL_SENDER: 'file',
     OCTOMETER_MAIL_DIR: monitorMailDir,
     OCTOMETER_PUBLIC_URL: monitorUrl,
+    // Issue #296, D57: the hosted cluster URI of an app with no
+    // connection string of its own. The loopback form that
+    // ConnectionStringValidator accepts, on the same MongoDB container
+    // as the demo app above; the compose file of tools/local-service
+    // is a different service, not this suite's Mongo.
+    OCTOMETER_CLUSTER_URI: `mongodb://127.0.0.1:${ports.mongo}/octometer_service`,
     ...(process.env.E2E_JAVA_OPTS_MONITOR ? { JAVA_OPTS: process.env.E2E_JAVA_OPTS_MONITOR } : {}),
   };
   // Issue #301, D2: one run of the launcher, before the monitor starts,

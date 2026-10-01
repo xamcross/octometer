@@ -38,15 +38,26 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
 
   test('the manage form registers the demo app', async ({ page, request }) => {
     const mongoPort = process.env.E2E_MONGO_PORT;
+    const monitorUrl = process.env.E2E_MONITOR_URL;
     if (!mongoPort) {
       throw new Error('E2E_MONGO_PORT is absent. The global setup did not run, or it failed.');
     }
+    if (!monitorUrl) {
+      throw new Error('E2E_MONITOR_URL is absent. The global setup did not run, or it failed.');
+    }
     const manage = new ManagePage(page);
+    // Issue #296, the brief review B3: the manage form carries no
+    // connection string field any more (it sends an origin list
+    // instead); the demo app's own registration keeps this legacy
+    // path, now through the API directly, with the dashboard Origin
+    // that D12 demands for a POST.
+    await manage.addAppWithConnectionString(
+      request,
+      monitorUrl,
+      'demo',
+      `mongodb://127.0.0.1:${mongoPort}/exampledb`,
+    );
     await manage.goto();
-    await manage.addApp({
-      name: 'demo',
-      connectionString: `mongodb://127.0.0.1:${mongoPort}/exampledb`,
-    });
     // D8: the first poll cycle can run inside this same wait.
     await manage.expectStatusOneOf('demo', ['Not polled yet', 'OK'], CHAIN_WAIT_MS);
 
@@ -66,17 +77,28 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     expect(appId).toBeGreaterThan(0);
 
     // Issue #272: the registry derives the database name from the path
-    // of the connection string. Two rejected submits, each read through
-    // the error area, with no wait for a row.
-    await manage.addAppExpectingError(
-      { name: 'demo-no-db', connectionString: `mongodb://127.0.0.1:${mongoPort}` },
+    // of the connection string. Two rejected creates, through the same
+    // API path (the brief review B3), each read through its own
+    // answer, with the same fixed text as before.
+    const noDbResponse = await manage.addAppWithConnectionStringExpectingError(
+      request,
+      monitorUrl,
+      'demo-no-db',
+      `mongodb://127.0.0.1:${mongoPort}`,
+    );
+    expect(noDbResponse.status()).toBe(400);
+    expect((await noDbResponse.json()).error).toBe(
       'Give the database name in the path of the connection string.',
     );
 
-    await manage.addAppExpectingError(
-      { name: 'demo-bad-port', connectionString: 'mongodb://127.0.0.1:99999999/exampledb' },
-      'The driver cannot read the connection string.',
+    const badPortResponse = await manage.addAppWithConnectionStringExpectingError(
+      request,
+      monitorUrl,
+      'demo-bad-port',
+      'mongodb://127.0.0.1:99999999/exampledb',
     );
+    expect(badPortResponse.status()).toBe(400);
+    expect((await badPortResponse.json()).error).toBe('The driver cannot read the connection string.');
   });
 
   test('the level 1 view shows the status badge OK after the first poll', async ({ page }) => {
@@ -376,4 +398,58 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
       '/tracker/:fileName',
     ]);
   });
+});
+
+// Issue #296 (D51, D52, D57): the hosted registration path. This
+// scenario names its own app, so it needs no serial order against the
+// "demo" app chain above.
+test('an app is registered and its keys show one time (issue #296)', async ({ page }) => {
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const appName = `keys-app-${Date.now()}`;
+  await manage.addApp({ name: appName, origins: ['https://a.example', 'https://b.example'] });
+
+  const appKeyField = manage.appKeyField();
+  const secretKeyField = manage.secretKeyField();
+  await expect(appKeyField).toBeVisible();
+  await expect(secretKeyField).toBeVisible();
+  const firstAppKey = await appKeyField.inputValue();
+  const firstSecretKey = await secretKeyField.inputValue();
+  expect(firstAppKey.length).toBeGreaterThan(0);
+  expect(firstSecretKey.length).toBeGreaterThan(0);
+  await expect(manage.scriptTag()).toContainText(`data-app-key="${firstAppKey}"`);
+
+  // A reload of the list shows the app with the short app key, the
+  // origins, and no secret key panel any more: that panel is the
+  // one-time display of the add form, not a stored value.
+  await manage.goto();
+  const row = manage.row(appName);
+  await expect(row).toBeVisible();
+  await expect(manage.appKeyCell(row)).toHaveText(firstAppKey.slice(0, 8));
+  await expect(manage.originCells(row)).toHaveText(['https://a.example', 'https://b.example']);
+
+  // "Edit origins" adds a third origin, and the list shows three.
+  await manage.openEditForm(row);
+  await manage.addOriginAndSave(row, 'https://c.example');
+  await expect(manage.originCells(row)).toHaveText([
+    'https://a.example',
+    'https://b.example',
+    'https://c.example',
+  ]);
+
+  // "New secret key" shows a new key that differs from the first.
+  const newSecretKeyField = await manage.rotateSecretKey(row);
+  const newSecretKey = await newSecretKeyField.inputValue();
+  expect(newSecretKey.length).toBeGreaterThan(0);
+  expect(newSecretKey).not.toBe(firstSecretKey);
+
+  // The API answer of GET /api/apps holds no secretKey field.
+  const response = await page.request.get('/api/apps');
+  expect(response.status()).toBe(200);
+  const rows = (await response.json()) as ReadonlyArray<Record<string, unknown>>;
+  const createdRow = rows.find((r) => r['name'] === appName);
+  if (!createdRow) {
+    throw new Error(`The app "${appName}" is absent from the answer of GET /api/apps.`);
+  }
+  expect(createdRow).not.toHaveProperty('secretKey');
 });
