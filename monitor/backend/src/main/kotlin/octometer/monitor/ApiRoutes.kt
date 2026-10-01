@@ -50,7 +50,7 @@ fun Route.apiRoutes(services: MonitorServices, trackerHash: String?) {
     userTotalsRoute(services.database)
     elementsRoute(services.database)
     firstPagesRoute(services.database)
-    userErasureRoutes(services.database)
+    userErasureRoutes(services.database, services.sharedWriteClient)
     sessionsRoute(services.database)
     // Issue #297 (D50, the brief review of 2026-10-01, M5): the
     // end-to-end suite's own test hook, in config.mode == "dev" only.

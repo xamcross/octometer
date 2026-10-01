@@ -198,13 +198,19 @@ fun Route.collectRoute(runtime: CollectorRuntime) {
             return@post
         }
 
-        val settings = IngestSettings(true, app.routePatternMatcher)
-        val events = try {
-            IngestPipeline.process(rawBody, runtime.clock, settings, DefaultRoutePattern::apply)
+        // Issue #300 (design decision D54): the collector is the one
+        // caller that sets acceptBodyUserId, so the body's own userId
+        // field reaches the stored event (contract rules C16, C32 keep
+        // the kit ingest route unchanged).
+        val settings = IngestSettings(true, app.routePatternMatcher).withAcceptBodyUserId(true)
+        val batch = try {
+            IngestPipeline.processBatch(rawBody, runtime.clock, settings, DefaultRoutePattern::apply)
         } catch (invalid: IngestException) {
             call.respond(HttpStatusCode.BadRequest)
             return@post
         }
+        val events = batch.events()
+        val userId = batch.userId()
 
         if (events.isNotEmpty()) {
             val (clickCount, sessionStartCount) = countEntries(events)
@@ -232,7 +238,7 @@ fun Route.collectRoute(runtime: CollectorRuntime) {
         }
 
         try {
-            runtime.store.write(app.appId, app.databaseName, events)
+            runtime.store.write(app.appId, app.databaseName, events, userId)
         } catch (writeFailure: RuntimeException) {
             // Design decision D15: the log holds the exception class
             // only, never a host, a database name, or an event field.

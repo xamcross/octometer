@@ -99,13 +99,14 @@ fun Application.installRequestGuard(config: MonitorConfig, env: Map<String, Stri
             }
         }
 
-        // Issue #297 (D50, the brief review of 2026-10-01, B1): /collect
-        // and /tracker.js carry the app key and the app's own Origin,
-        // never the dashboard's own Origin and session. The collector
-        // route runs its own Origin check (OriginCheck.matches) and its
-        // own content type check (415) in its place. isCollectorPath
-        // fails closed on a bad escape, the same rule as isHealthzPath.
-        if (call.request.httpMethod !in SAFE_METHODS && !isCollectorPath(requestPath)) {
+        // Issue #300 (D55, the correction round of 2026-10-01, B1): the
+        // erasure route's secret path carries the header
+        // X-Octometer-Secret and no Origin at all; a server of the app
+        // calls it directly, never a browser. isErasureSecretRequest
+        // fails closed on a bad escape, the same rule as isCollectorPath.
+        if (call.request.httpMethod !in SAFE_METHODS && !isCollectorPath(requestPath) &&
+            !isErasureSecretRequest(call.request, requestPath)
+        ) {
             val origin = call.request.header(HttpHeaders.Origin)?.lowercase()
             if (origin == null || origin !in allowedOrigins) {
                 call.respond(HttpStatusCode.Forbidden, RejectionBody("The Origin header is missing or not allowed."))
@@ -186,6 +187,35 @@ internal fun isCollectorPath(rawPath: String): Boolean {
     }
     val normalised = Regex("/+").replace(decoded, "/")
     return normalised == "/collect" || normalised == "/tracker.js"
+}
+
+/** The header of the erasure route's secret path (design decision D55, issue #300). */
+internal const val ERASURE_SECRET_HEADER = "X-Octometer-Secret"
+
+// Issue #300 (D55, the correction round of 2026-10-01, B1): the method
+// DELETE, the path /api/apps/{id}/events on a pattern match (not the
+// exact set of isApiPath), and the header X-Octometer-Secret present.
+// The header present means the secret decides the request; a missing
+// header keeps the normal Origin check and the normal session check.
+private val ERASURE_EVENTS_PATH = Regex("^/api/apps/[^/]+/events$")
+
+internal fun isErasureSecretRequest(request: ApplicationRequest, rawPath: String): Boolean =
+    request.httpMethod == HttpMethod.Delete &&
+        request.header(ERASURE_SECRET_HEADER) != null &&
+        isErasureEventsPath(rawPath)
+
+// The same two steps as isHealthzPath (the decode step, the collapse
+// step), with a pattern match instead of an exact match: the path
+// carries the app id. A bad escape fails closed: it returns false, so
+// the caller keeps the Origin check.
+internal fun isErasureEventsPath(rawPath: String): Boolean {
+    val decoded = try {
+        rawPath.decodeURLPart()
+    } catch (badEscape: URLDecodeException) {
+        return false
+    }
+    val normalised = Regex("/+").replace(decoded, "/")
+    return ERASURE_EVENTS_PATH.matches(normalised)
 }
 
 // The host of config.publicUrl, for example "app.0ct0meter.com" from
