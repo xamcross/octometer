@@ -32,6 +32,10 @@ test('the three sections render with their images and texts, and nothing moves u
   ]);
 
   const nodes = page.locator('.node');
+  // MAJOR 1 of the review of pull request #324: a loop of "nodeCount"
+  // passes on zero nodes with no count assertion. This line fails the
+  // scenario the moment the SVG loses its four ".node" groups.
+  await expect(nodes).toHaveCount(4);
   const nodeCount = await nodes.count();
 
   // State 1: without reduced motion, the root carries the class "js", and
@@ -101,6 +105,12 @@ test('the three sections render with their images and texts, and nothing moves u
     client: document.documentElement.clientWidth,
   }));
   expect(at360.scroll).toBeLessThanOrEqual(at360.client);
+
+  // Guard of BLOCKER 1, the review of pull request #324: at 360 px the
+  // phone source resolves, so a later source change away from the
+  // "*-600.png" file fails this scenario.
+  const firstImageSrc = await images.first().evaluate((el: HTMLImageElement) => el.currentSrc);
+  expect(firstImageSrc).toContain('-600.png');
 
   await page.setViewportSize({ width: 1440, height: 900 });
   const at1440 = await page.evaluate(() => ({
