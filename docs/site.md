@@ -16,6 +16,60 @@ The flow illustration of "How it works" reveals on a scroll: an `IntersectionObs
 adds the class `node-in` to each node, behind the same guard as the early class `js` of
 `index.html`. `prefers-reduced-motion: reduce` shows each node at once, with no move.
 
+## The waitlist (issue #291)
+
+The waitlist runs as the `fetch` handler of the Worker: `site/src/worker.ts`, named as
+`main` in `site/wrangler.jsonc`. `run_worker_first` sends only `/api/*`, `/confirm`, and
+`/remove` to that handler. Every other path goes to the static assets.
+
+### The bindings and the variables
+
+| Name | Kind | Holds |
+| --- | --- | --- |
+| `WAITLIST` | D1 database binding | The `waitlist`, `attempts`, and (in test mode) `outbox` tables. |
+| `MAIL_API_KEY` | Worker secret | The Resend API key. The owner sets it; an agent never reads it. |
+| `SITE_URL` | Variable | The origin of each mail link, for example `https://0ct0meter.com`. The handler also checks the request host against this value. A preview with the production `WAITLIST` binding then writes no row. |
+| `MAIL_MODE` | Variable, test only | The value `file` switches the mail sender to a write into the `outbox` table, so a test reads the mail with no call to Resend. |
+
+### The store
+
+`site/migrations/0001_waitlist.sql` holds the table `waitlist` (`email`, `token`,
+`created_at`, `confirmed_at`, `unsubscribed_at`) and the table `attempts` (`email_hash`,
+`at`), the per-address rate limit of 5 requests each hour. No table and no log line of
+this project holds an IP address. The `attempts` column holds the SHA-256 hash of the
+address, never the address itself.
+
+Apply the migration before the first local run, and once after the owner creates the
+database:
+
+```
+npx wrangler d1 migrations apply WAITLIST --local
+npx wrangler d1 migrations apply WAITLIST --remote
+```
+
+### The cleanup rule
+
+`POST /api/waitlist` deletes an old row at the start of each request: an `attempts` row
+older than one hour, and a `waitlist` row that stays unconfirmed for more than 7 days. No
+scheduled job runs this cleanup; the next real request runs it instead.
+
+### The local run
+
+```
+npm run build
+npx wrangler d1 migrations apply WAITLIST --local
+npx wrangler dev --var MAIL_MODE:file --var SITE_URL:http://localhost:8787
+```
+
+`npm test` runs this same Worker under Playwright: `site/e2e/run.mjs` picks a free port,
+clears the local D1 state, and passes that port to `site/e2e/playwright.config.ts`, so
+each run starts with an empty database.
+
+### The export of the list for the owner
+
+The site ships no export route. The owner reads the list through a D1 query in the
+Cloudflare dashboard, for example `SELECT email, created_at, confirmed_at FROM waitlist`.
+
 ## The screenshots of "Three levels in your dashboard"
 
 `site/scripts/screenshots.mjs` takes the three screenshots of the dashboard: the apps

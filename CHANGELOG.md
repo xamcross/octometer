@@ -20,6 +20,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   of the demo monitor; add the screenshot script `site/scripts/screenshots.mjs`. (#289)
 - Add the "What we keep" section and the footer notice of the waitlist, with a link
   from the section into the notice. (#290)
+- Add the waitlist form: the Worker handler of `POST /api/waitlist`, `GET`/`POST
+  /confirm`, and `GET`/`POST /remove`, the D1 migration, and the confirmation mail
+  through Resend. (#291)
 
 ### Monitor
 
