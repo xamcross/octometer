@@ -15,6 +15,13 @@ npm install https://github.com/xamcross/octometer/releases/download/X.Y.Z/octome
 Replace `X.Y.Z` with the tag of the release. Use the tag of the monitor
 you run.
 
+## The served script
+
+The hosted monitor also serves this package as one script tag, with no
+npm install (design decision D53, issue #298). Read
+`docs/add-octometer.md` for the script tag and its data attributes.
+This README covers the npm package only.
+
 ## The consent gate
 
 The tracker stays off until the app calls `start()`. Call `start()` only
