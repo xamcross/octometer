@@ -11,7 +11,7 @@
 #   OCTOMETER_CLUSTER_URI    the Atlas connection string
 #   OCTOMETER_MAIL_API_KEY   the Resend API key
 #   OCTOMETER_ADMIN_TOKEN    the temporary admin guard token (until #301)
-primary_region = "<region>"
+primary_region = "ams"
 # m7: the memory budget is tight on 512 MB; this swap gives a margin
 # under a poll spike.
 swap_size_mb = 512
