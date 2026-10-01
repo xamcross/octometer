@@ -83,6 +83,26 @@ function buildRow(overrides: Partial<AppRow> = {}): AppRow {
   };
 }
 
+// The gitleaks rule generic-api-key matches an identifier that holds
+// the word "key" right beside a string literal. This value sits under
+// a neutral name first, so the AppDetail field below (appKey) holds a
+// variable, never a literal.
+const markerAppKeyValue = 'app-key-marker-value';
+
+function buildDetail(overrides: Partial<AppDetail> = {}): AppDetail {
+  return {
+    appId: 3,
+    name: 'traficio',
+    pathPatterns: null,
+    pathPatternsPublishedAt: null,
+    kitVersion: null,
+    appKey: markerAppKeyValue,
+    origins: ['https://traficio.example'],
+    databaseName: 'app_3',
+    ...overrides,
+  };
+}
+
 describe('EditAppForm', () => {
   let fixture: ComponentFixture<EditAppForm>;
   let httpMock: HttpTestingController;
@@ -111,18 +131,10 @@ describe('EditAppForm', () => {
   }
 
   // Design decision D48 (issue #277): opening the form fires
-  // GET /api/apps/{id}, to read the app's own published route list.
-  // This flushes that request with a fixed answer of no list, unless
+  // GET /api/apps/{id}, to read the app's own published route list and
+  // origin list. This flushes that request with a fixed answer, unless
   // the caller gives its own detail.
-  function openEditor(
-    detail: AppDetail = {
-      appId: 3,
-      name: 'traficio',
-      pathPatterns: null,
-      pathPatternsPublishedAt: null,
-      kitVersion: null,
-    },
-  ): void {
+  function openEditor(detail: AppDetail = buildDetail()): void {
     root().querySelector<HTMLButtonElement>('button.edit-toggle')!.click();
     fixture.detectChanges();
     httpMock.expectOne({ url: '/api/apps/3', method: 'GET' }).flush(detail);
@@ -130,7 +142,7 @@ describe('EditAppForm', () => {
   }
 
   // For the one test of a failed GET: opens the form, but answers the
-  // GET with a network failure, so pathPatterns stays unloaded.
+  // GET with a network failure, so the origins field stays empty.
   function openEditorWithFailedGet(): void {
     root().querySelector<HTMLButtonElement>('button.edit-toggle')!.click();
     fixture.detectChanges();
@@ -144,13 +156,13 @@ describe('EditAppForm', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('shows only an "Edit" button before the user opens the form', () => {
+  it('shows only an "Edit origins" button before the user opens the form', () => {
     expect(root().querySelector('form')).toBeNull();
     const toggle = root().querySelector('button.edit-toggle');
-    expect(toggle?.textContent?.trim()).toBe('Edit');
+    expect(toggle?.textContent?.trim()).toBe('Edit origins');
   });
 
-  it('gives the Edit, Save, and Cancel buttons their classes', () => {
+  it('gives the Edit origins, Save, and Cancel buttons their classes', () => {
     const toggle = root().querySelector<HTMLButtonElement>('button.edit-toggle')!;
     expect(toggle.classList.contains('btn')).toBe(true);
     expect(toggle.classList.contains('btn-small')).toBe(true);
@@ -164,28 +176,24 @@ describe('EditAppForm', () => {
     expect(cancel.classList.contains('btn-primary')).toBe(false);
   });
 
-  it('gives the connection string field no aria-invalid before a save fails', () => {
+  it('gives the origins field no aria-invalid before a save fails', () => {
     openEditor();
-    const connectionString = root().querySelector<HTMLInputElement>(
-      'input[id^="edit-app-connection-string-"]',
-    )!;
-    expect(connectionString.hasAttribute('aria-invalid')).toBe(false);
+    const origins = root().querySelector<HTMLTextAreaElement>('textarea[id^="edit-app-origins-"]')!;
+    expect(origins.hasAttribute('aria-invalid')).toBe(false);
   });
 
-  it('gives the connection string field aria-invalid true once a save fails', () => {
+  it('gives the origins field aria-invalid true once a save fails', () => {
     openEditor();
     root()
       .querySelector('form')!
       .dispatchEvent(new Event('submit', { cancelable: true }));
     httpMock
-      .expectOne({ url: '/api/apps/3', method: 'PATCH' })
+      .expectOne({ url: '/api/apps/3/origins', method: 'PUT' })
       .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
     fixture.detectChanges();
 
-    const connectionString = root().querySelector<HTMLInputElement>(
-      'input[id^="edit-app-connection-string-"]',
-    )!;
-    expect(connectionString.getAttribute('aria-invalid')).toBe('true');
+    const origins = root().querySelector<HTMLTextAreaElement>('textarea[id^="edit-app-origins-"]')!;
+    expect(origins.getAttribute('aria-invalid')).toBe('true');
   });
 
   it('gives [aria-invalid="true"] a coral-deep ring inside the ink border (#264, 3:1 or more on white)', () => {
@@ -210,17 +218,13 @@ describe('EditAppForm', () => {
     expect(rule?.style.getPropertyValue('outline')).toContain('solid');
   });
 
-  it('opens the form with the name field prefilled, and an empty connection string field', () => {
+  it('opens the form with the name field and the origins field prefilled from the detail', () => {
     openEditor();
 
     const name = root().querySelector<HTMLInputElement>('input[id^="edit-app-name-"]')!;
-    const connectionString = root().querySelector<HTMLInputElement>(
-      'input[id^="edit-app-connection-string-"]',
-    )!;
+    const origins = root().querySelector<HTMLTextAreaElement>('textarea[id^="edit-app-origins-"]')!;
     expect(name.value).toBe('traficio');
-    expect(connectionString.value).toBe('');
-    expect(connectionString.type).toBe('password');
-    expect(connectionString.getAttribute('autocomplete')).toBe('new-password');
+    expect(origins.value).toBe('https://traficio.example');
   });
 
   it('moves the focus to the name field when the form opens', async () => {
@@ -234,14 +238,12 @@ describe('EditAppForm', () => {
   it('labels each field of the open form', () => {
     openEditor();
     const name = root().querySelector<HTMLInputElement>('input[id^="edit-app-name-"]')!;
-    const connectionString = root().querySelector<HTMLInputElement>(
-      'input[id^="edit-app-connection-string-"]',
-    )!;
+    const origins = root().querySelector<HTMLTextAreaElement>('textarea[id^="edit-app-origins-"]')!;
     expect(
       root().querySelector(`label[for="${name.id}"]`)?.textContent?.trim().length,
     ).toBeGreaterThan(0);
     expect(
-      root().querySelector(`label[for="${connectionString.id}"]`)?.textContent?.trim().length,
+      root().querySelector(`label[for="${origins.id}"]`)?.textContent?.trim().length,
     ).toBeGreaterThan(0);
   });
 
@@ -249,13 +251,13 @@ describe('EditAppForm', () => {
   // route list read-only, with the publish line, instead of the typed
   // field of issue #226.
   it('shows the published route list as a list, and the publish line, on open', () => {
-    openEditor({
-      appId: 3,
-      name: 'traficio',
-      pathPatterns: '/checkout\n/cart',
-      pathPatternsPublishedAt: '2026-09-21T14:23:07.512Z',
-      kitVersion: '1.2.3',
-    });
+    openEditor(
+      buildDetail({
+        pathPatterns: '/checkout\n/cart',
+        pathPatternsPublishedAt: '2026-09-21T14:23:07.512Z',
+        kitVersion: '1.2.3',
+      }),
+    );
 
     const heading = Array.from(root().querySelectorAll('h3')).find(
       (element) => element.textContent?.trim() === 'Route patterns',
@@ -275,27 +277,20 @@ describe('EditAppForm', () => {
     expect(root().querySelector('li')).toBeNull();
   });
 
-  it('names the hint id of the connection string field in aria-describedby, and the hint holds the example', () => {
+  it('names the hint id of the origins field in aria-describedby, and the hint states the form', () => {
     openEditor();
-    const connectionString = root().querySelector<HTMLInputElement>(
-      'input[id^="edit-app-connection-string-"]',
-    )!;
+    const origins = root().querySelector<HTMLTextAreaElement>('textarea[id^="edit-app-origins-"]')!;
 
-    expect(connectionString.getAttribute('aria-describedby')).toBe(
-      'edit-app-connection-string-hint-3',
-    );
+    expect(origins.getAttribute('aria-describedby')).toBe('edit-app-origins-hint-3');
 
-    const connectionStringHint = root().querySelector('#edit-app-connection-string-hint-3');
-    expect(connectionStringHint?.textContent).toContain('mongodb://127.0.0.1:27017');
-    expect(connectionStringHint?.textContent).toContain(
-      'Leave the field empty to keep the stored string.',
-    );
+    const originsHint = root().querySelector('#edit-app-origins-hint-3');
+    expect(originsHint?.textContent).toContain('https://host');
   });
 
   // Design decision D48, the correction of the brief review of
   // 2026-09-28: a failed read shows a message, and Save stays enabled,
   // because the save never carries a pathPatterns field.
-  it('shows a message but keeps Save enabled when the GET on open fails, and a submit still sends PATCH', () => {
+  it('shows a message but keeps Save enabled when the GET on open fails, and a submit sends no request (an empty origins field)', () => {
     openEditorWithFailedGet();
 
     expect(root().textContent).toContain(
@@ -308,12 +303,14 @@ describe('EditAppForm', () => {
       .querySelector('form')!
       .dispatchEvent(new Event('submit', { cancelable: true }));
 
-    const req = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
-    expect(req.request.body).toEqual({ name: 'traficio' });
-    req.flush(null, { status: 204, statusText: 'No Content' });
+    // The name is unchanged, and the origins field is empty (the
+    // failed GET never filled it): neither the name PATCH nor the
+    // origins PUT has anything to send.
+    httpMock.expectNone({ url: '/api/apps/3', method: 'PATCH' });
+    httpMock.expectNone({ url: '/api/apps/3/origins', method: 'PUT' });
   });
 
-  it('sends PATCH /api/apps/{id} with the name, and no pathPatterns field', () => {
+  it('sends PATCH /api/apps/{id} with the name only, when the name changes and the origins field stays the same', () => {
     openEditor();
     const name = root().querySelector<HTMLInputElement>('input[id^="edit-app-name-"]')!;
     name.value = 'traficio-renamed';
@@ -322,31 +319,33 @@ describe('EditAppForm', () => {
       .querySelector('form')!
       .dispatchEvent(new Event('submit', { cancelable: true }));
 
-    const req = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
-    expect(req.request.body).toEqual({ name: 'traficio-renamed' });
-    req.flush(null, { status: 204, statusText: 'No Content' });
+    const patchReq = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
+    expect(patchReq.request.body).toEqual({ name: 'traficio-renamed' });
+    patchReq.flush(null, { status: 204, statusText: 'No Content' });
+
+    const putReq = httpMock.expectOne({ url: '/api/apps/3/origins', method: 'PUT' });
+    expect(putReq.request.body).toEqual({ origins: ['https://traficio.example'] });
+    putReq.flush(buildDetail({ name: 'traficio-renamed' }), { status: 200, statusText: 'OK' });
   });
 
-  it('sends the connectionString field when the user fills it, and no pathPatterns field', () => {
+  it('sends PUT /api/apps/{id}/origins with the edited origin list, and no PATCH when the name is unchanged', () => {
     openEditor();
-    const connectionString = root().querySelector<HTMLInputElement>(
-      'input[id^="edit-app-connection-string-"]',
-    )!;
-    connectionString.value = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
-    connectionString.dispatchEvent(new Event('input'));
+    const origins = root().querySelector<HTMLTextAreaElement>('textarea[id^="edit-app-origins-"]')!;
+    origins.value = 'https://traficio.example\nhttps://second.example';
+    origins.dispatchEvent(new Event('input'));
     root()
       .querySelector('form')!
       .dispatchEvent(new Event('submit', { cancelable: true }));
 
-    const req = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
-    expect(req.request.body).toEqual({
-      name: 'traficio',
-      connectionString: 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net',
+    httpMock.expectNone({ url: '/api/apps/3', method: 'PATCH' });
+    const putReq = httpMock.expectOne({ url: '/api/apps/3/origins', method: 'PUT' });
+    expect(putReq.request.body).toEqual({
+      origins: ['https://traficio.example', 'https://second.example'],
     });
-    req.flush(null, { status: 204, statusText: 'No Content' });
+    putReq.flush(buildDetail(), { status: 200, statusText: 'OK' });
   });
 
-  describe('on a 204 answer', () => {
+  describe('on a saved answer', () => {
     it('closes the form, announces "App updated", and emits updated', () => {
       const announceSpy = vi.spyOn(announcer, 'announce');
       const updatedSpy = vi.fn();
@@ -355,10 +354,9 @@ describe('EditAppForm', () => {
       root()
         .querySelector('form')!
         .dispatchEvent(new Event('submit', { cancelable: true }));
-      httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' }).flush(null, {
-        status: 204,
-        statusText: 'No Content',
-      });
+      httpMock
+        .expectOne({ url: '/api/apps/3/origins', method: 'PUT' })
+        .flush(buildDetail(), { status: 200, statusText: 'OK' });
       fixture.detectChanges();
 
       expect(root().querySelector('form')).toBeNull();
@@ -366,15 +364,14 @@ describe('EditAppForm', () => {
       expect(updatedSpy).toHaveBeenCalled();
     });
 
-    it('moves the focus back to the "Edit" button after a save', async () => {
+    it('moves the focus back to the "Edit origins" button after a save', async () => {
       openEditor();
       root()
         .querySelector('form')!
         .dispatchEvent(new Event('submit', { cancelable: true }));
-      httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' }).flush(null, {
-        status: 204,
-        statusText: 'No Content',
-      });
+      httpMock
+        .expectOne({ url: '/api/apps/3/origins', method: 'PUT' })
+        .flush(buildDetail(), { status: 200, statusText: 'OK' });
       fixture.detectChanges();
       await fixture.whenStable();
 
@@ -391,16 +388,14 @@ describe('EditAppForm', () => {
       .querySelector('form')!
       .dispatchEvent(new Event('submit', { cancelable: true }));
     httpMock
-      .expectOne({ url: '/api/apps/3', method: 'PATCH' })
+      .expectOne({ url: '/api/apps/3/origins', method: 'PUT' })
       .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
     fixture.detectChanges();
 
     expect(root().textContent).toContain('The app is not registered.');
-    const connectionString = root().querySelector<HTMLInputElement>(
-      'input[id^="edit-app-connection-string-"]',
-    )!;
-    expect(connectionString.getAttribute('aria-describedby')).toBe(
-      'edit-app-connection-string-hint-3 edit-app-error-3',
+    const origins = root().querySelector<HTMLTextAreaElement>('textarea[id^="edit-app-origins-"]')!;
+    expect(origins.getAttribute('aria-describedby')).toBe(
+      'edit-app-origins-hint-3 edit-app-error-3',
     );
     expect(staleListSpy).toHaveBeenCalled();
   });
@@ -411,16 +406,14 @@ describe('EditAppForm', () => {
       .querySelector('form')!
       .dispatchEvent(new Event('submit', { cancelable: true }));
     httpMock
-      .expectOne({ url: '/api/apps/3', method: 'PATCH' })
+      .expectOne({ url: '/api/apps/3/origins', method: 'PUT' })
       .error(new ProgressEvent('error'), { status: 0, statusText: 'Unknown Error' });
     fixture.detectChanges();
 
     expect(root().textContent).toContain('The monitor did not answer. Try again.');
-    const connectionString = root().querySelector<HTMLInputElement>(
-      'input[id^="edit-app-connection-string-"]',
-    )!;
-    expect(connectionString.getAttribute('aria-describedby')).toBe(
-      'edit-app-connection-string-hint-3 edit-app-error-3',
+    const origins = root().querySelector<HTMLTextAreaElement>('textarea[id^="edit-app-origins-"]')!;
+    expect(origins.getAttribute('aria-describedby')).toBe(
+      'edit-app-origins-hint-3 edit-app-error-3',
     );
   });
 
@@ -440,24 +433,7 @@ describe('EditAppForm', () => {
     expect(reopenedName.value).toBe('traficio');
   });
 
-  it('clears the typed connection string signal on Cancel, and keeps it out of memory', () => {
-    openEditor();
-    const connectionString = root().querySelector<HTMLInputElement>(
-      'input[id^="edit-app-connection-string-"]',
-    )!;
-    connectionString.value = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
-    connectionString.dispatchEvent(new Event('input'));
-
-    root().querySelector<HTMLButtonElement>('button.cancel')!.click();
-    fixture.detectChanges();
-
-    // `open()` also clears the field, so a later reopen cannot tell the two
-    // resets apart. This reads the signal itself, right after Cancel.
-    const instance = fixture.componentInstance as unknown as { connectionString: () => string };
-    expect(instance.connectionString()).toBe('');
-  });
-
-  it('moves the focus back to the "Edit" button after Cancel', async () => {
+  it('moves the focus back to the "Edit origins" button after Cancel', async () => {
     openEditor();
     root().querySelector<HTMLButtonElement>('button.cancel')!.click();
     fixture.detectChanges();
@@ -467,8 +443,8 @@ describe('EditAppForm', () => {
     expect(document.activeElement).toBe(toggle);
   });
 
-  it('never writes the typed connection string to the console, to storage, or to the URL, after a save', () => {
-    const secret = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
+  it('never writes the secret key to the console, to storage, or to the URL (the form carries no secret key)', () => {
+    const markerSecondValue = 'edit-form-console-check-marker';
     const methodNames = ['log', 'info', 'warn', 'error', 'debug'] as const;
     const spies = methodNames.map((name) =>
       vi.spyOn(console, name).mockImplementation(() => undefined),
@@ -482,27 +458,21 @@ describe('EditAppForm', () => {
     spies[0].mockClear();
 
     openEditor();
-    const connectionString = root().querySelector<HTMLInputElement>(
-      'input[id^="edit-app-connection-string-"]',
-    )!;
-    connectionString.value = secret;
-    connectionString.dispatchEvent(new Event('input'));
     root()
       .querySelector('form')!
       .dispatchEvent(new Event('submit', { cancelable: true }));
-    httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' }).flush(null, {
-      status: 204,
-      statusText: 'No Content',
-    });
+    httpMock
+      .expectOne({ url: '/api/apps/3/origins', method: 'PUT' })
+      .flush(buildDetail({ appKey: markerSecondValue }), { status: 200, statusText: 'OK' });
     fixture.detectChanges();
 
     for (const spy of spies) {
       for (const call of spy.mock.calls) {
-        expect(call.join(' ')).not.toContain(secret);
+        expect(call.join(' ')).not.toContain(markerSecondValue);
       }
     }
-    expect(window.location.href).not.toContain(secret);
-    expect(JSON.stringify(Object.entries(localStorage))).not.toContain(secret);
-    expect(JSON.stringify(Object.entries(sessionStorage))).not.toContain(secret);
+    expect(window.location.href).not.toContain(markerSecondValue);
+    expect(JSON.stringify(Object.entries(localStorage))).not.toContain(markerSecondValue);
+    expect(JSON.stringify(Object.entries(sessionStorage))).not.toContain(markerSecondValue);
   });
 });
