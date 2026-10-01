@@ -42,6 +42,20 @@ class DailyEventCountStore(private val database: SqliteDatabase, private val clo
     /** The process-life drop count of [appId] (see the field comment above). */
     fun droppedToday(appId: Long): Long = droppedTodayCounters[appId]?.get() ?: 0L
 
+    // The dropped-body-user-id counter of GET /api/dev/collector-counters
+    // (MAJOR 1 of the review of pull request #333), beside
+    // [droppedTodayCounters] above: a process-life counter, not a
+    // persisted, day-scoped one, for the same simplification reason.
+    private val droppedBodyUserIdCounters = ConcurrentHashMap<Long, AtomicLong>()
+
+    /** Records one dropped body user id of [appId] (a value that `IngestBatch.userIdDropped` names). */
+    fun recordBodyUserIdDrop(appId: Long) {
+        droppedBodyUserIdCounters.computeIfAbsent(appId) { AtomicLong() }.incrementAndGet()
+    }
+
+    /** A snapshot of every counter that [recordBodyUserIdDrop] built, for `GET /api/dev/collector-counters`. */
+    fun bodyUserIdDropSnapshot(): Map<Long, Long> = droppedBodyUserIdCounters.mapValues { it.value.get() }
+
     /**
      * Adds [eventCount] to the counter of [appId] for today (UTC), when
      * the counter would stay at or under [DAILY_EVENT_CAP]. Returns

@@ -11,6 +11,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.server.routing.routing
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import java.io.File
@@ -20,11 +21,23 @@ import java.time.format.DateTimeFormatter
 import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
+import octometer.monitor.collect.AppKeyCache
+import octometer.monitor.collect.CollectorRateLimiting
+import octometer.monitor.collect.CollectorRuntime
+import octometer.monitor.collect.CollectorStore
+import octometer.monitor.collect.DAILY_EVENT_CAP
+import octometer.monitor.collect.DailyEventCountStore
+import octometer.monitor.collect.WriteStopGate
+import octometer.monitor.collect.collectRoute
+import octometer.monitor.store.SqliteDatabase
 
 /**
  * Correction round 1 of issue #38 (MINOR 4, security review): the
@@ -192,6 +205,101 @@ class ApiRoutesTest {
 
         val droppedIdResponse = oneCollectRequestWithUserId(this, appKey, origin, "someone@example.com")
         assertEquals(HttpStatusCode.NoContent, droppedIdResponse.status)
+    }
+
+    // MAJOR 3 of the review of pull request #333: the collector route
+    // carries the user id through CollectRoute.kt and CollectorStore.kt
+    // since issue #300. This class grows with the sentinel case,
+    // instead of a new class (the owner's rule of a correction round).
+    @Test
+    fun `no captured log line holds the user id of a collect request`() = testApplication {
+        val config = devConfig(clusterUri = "mongodb://127.0.0.1:1/octometer_service")
+        application { module(config) }
+        startApplication()
+        val (_, appKey, origin) = registerCollectorApp(this, config.dataDir)
+        val marker = "sentinel-collector-user-id-4d87"
+
+        val (response, events) = captureLogEvents {
+            oneCollectRequestWithUserId(this, appKey, origin, marker)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        for (event in events) {
+            assertFalse(event.formattedMessage.contains(marker), "a log line held the user id: ${event.formattedMessage}")
+        }
+    }
+
+    // MAJOR 1 of the review of pull request #333: a dropped body user
+    // id reaches the dev-only counter route, beside the request
+    // counters that MAJOR 4 of the review of pull request #327 added.
+    @Test
+    fun `GET dev collector-counters reports a dropped body user id`() = testApplication {
+        val config = devConfig(clusterUri = "mongodb://127.0.0.1:1/octometer_service")
+        application { module(config) }
+        startApplication()
+        val (appId, appKey, origin) = registerCollectorApp(this, config.dataDir)
+
+        oneCollectRequestWithUserId(this, appKey, origin, "someone@example.com")
+
+        val session = sessionCookieValue(config.dataDir)
+        val response = client.get("/api/dev/collector-counters") { allowedHost(); withSession(session) }
+        val drops = Json.parseToJsonElement(response.bodyAsText()).jsonObject["droppedBodyUserIds"]!!.jsonArray
+        val ownEntry = drops.first { it.jsonObject["appId"]!!.jsonPrimitive.long == appId }
+
+        assertEquals(1L, ownEntry.jsonObject["count"]!!.jsonPrimitive.long)
+    }
+
+    // MAJOR 5 of the review of pull request #333: CollectRoute must
+    // pick the limiter on the batch's own userId. This test builds its
+    // own CollectorRuntime, with a direct, one-call exhaustion of the
+    // anonymous global cap of design decision D43 (a real flood of
+    // anonymous requests cannot reach that cap inside one fast test,
+    // because the per-minute entry cap of D43 is lower, and always
+    // triggers first). An identified batch must still pass.
+    @Test
+    fun `an identified batch above the anonymous daily cap of D43 still answers 204 and stores`() {
+        val dataDir = testDataDir()
+        var appId = 0L
+        lateinit var appKey: String
+        lateinit var origin: String
+        testApplication {
+            val config = devConfig(dataDir = dataDir, clusterUri = "mongodb://127.0.0.1:1/octometer_service")
+            application { module(config) }
+            startApplication()
+            val (registeredAppId, registeredAppKey, registeredOrigin) = registerCollectorApp(this, dataDir)
+            appId = registeredAppId
+            appKey = registeredAppKey
+            origin = registeredOrigin
+        }
+
+        val database = SqliteDatabase.open(dataDir)
+        val dailyEventCountStore = DailyEventCountStore(database)
+        val rateLimiting = CollectorRateLimiting(Clock.systemUTC())
+        // One direct call, with a key no real request ever uses,
+        // exhausts the global counter of the anonymous cap for this
+        // app. An anonymous batch of this app would now always drop.
+        rateLimiting.dailyCapOf(appId).check("exhaust-the-global-cap-key", DAILY_EVENT_CAP.toInt())
+        val runtime = CollectorRuntime(
+            appKeyCache = AppKeyCache(database),
+            store = CollectorStore(clientFactory = { throw IllegalStateException("no real cluster in this test") }),
+            dailyEventCountStore = dailyEventCountStore,
+            writeStopGate = WriteStopGate(database, client = { null }),
+            rateLimiting = rateLimiting,
+            clientIpHeaderName = "",
+        )
+
+        lateinit var status: HttpStatusCode
+        testApplication {
+            application { routing { collectRoute(runtime) } }
+            status = oneCollectRequestWithUserId(this, appKey, origin, "user-above-the-anonymous-cap").status
+        }
+
+        assertEquals(HttpStatusCode.NoContent, status)
+        assertEquals(0L, dailyEventCountStore.droppedToday(appId), "the identified batch must never count as a D43 drop")
+        runBlocking {
+            assertEquals(1L, dailyEventCountStore.todayCount(appId), "the identified batch must reach the store step")
+        }
+        database.close()
     }
 
     // One origin list, one session, one app key: the shared registration

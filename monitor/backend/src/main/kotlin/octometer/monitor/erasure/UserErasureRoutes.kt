@@ -22,15 +22,21 @@ internal const val USER_ID_MAX_LENGTH = 254
 
 private const val APP_NOT_REGISTERED_MESSAGE = "The app is not registered."
 
+/** BLOCKER 1 of the review of pull request #333: the text of a failed cluster erasure. It names no detail. */
+private const val CLUSTER_ERASURE_FAILED_MESSAGE = "The erasure did not complete. Try again."
+
 private val log = LoggerFactory.getLogger("octometer.monitor.erasure.UserErasureRoutes")
 
 /**
  * The answer of the erasure route. It never holds the user id. [deleted]
- * is the row count. [checkpointed] is `true` when the WAL checkpoint
- * completed (BLOCKER 1, privacy review of #61).
+ * is the cache row count. [checkpointed] is `true` when the WAL
+ * checkpoint completed (BLOCKER 1, privacy review of #61).
+ * [clusterDeleted] is the cluster row count of [eraseUserEventsFromCluster]
+ * (BLOCKER 2 of the review of pull request #333); it stays `0` for an
+ * app of the kit path, which has no cluster erasure step.
  */
 @Serializable
-data class UserErasureResponse(val deleted: Int, val checkpointed: Boolean)
+data class UserErasureResponse(val deleted: Int, val checkpointed: Boolean, val clusterDeleted: Long)
 
 /**
  * The erasure route of issue #61: `DELETE /api/apps/{appId}/events?userId=<id>`
@@ -47,12 +53,13 @@ data class UserErasureResponse(val deleted: Int, val checkpointed: Boolean)
  * app with no secret key) and a wrong secret both give 404, the same
  * text as an unknown app, so a probe learns nothing. For an app of the
  * collector path (a non-`NULL` `app_key`), the cluster erasure of
- * [eraseUserEventsFromCluster] runs first, then the cache erasure of
- * [eraseUserEvents]; a failed cluster call never stops the cache step
- * (design decision D15, the same fail-open rule as a collector write
- * failure of `CollectRoute.kt`). For an app of the kit path (a `NULL`
- * `app_key`), the route keeps the cache erasure only: the app owns its
- * own store.
+ * [eraseUserEventsFromCluster] runs first. BLOCKER 1 of the review of
+ * pull request #333: a failed cluster call skips the cache erasure of
+ * [eraseUserEvents] and answers 503. A poll cycle between the two steps
+ * would restore the cluster rows into the cache, so a fail-open rule
+ * would make the owner trust a 200 answer that erased nothing of real
+ * weight. For an app of the kit path (a `NULL` `app_key`), the route
+ * keeps the cache erasure only: the app owns its own store.
  *
  * [clusterClientFactory] gives the shared Mongo client of
  * `MonitorServices.sharedWriteClient`; a call with no secret header
@@ -89,19 +96,26 @@ fun Route.userErasureRoutes(database: SqliteDatabase, clusterClientFactory: () -
                 call.respond(HttpStatusCode.NotFound, ErrorBody(APP_NOT_REGISTERED_MESSAGE))
                 return@delete
             }
+            var clusterDeleted = 0L
             if (appRow.appKey != null) {
                 try {
-                    eraseUserEventsFromCluster(clusterClientFactory(), appRow.databaseName, userId)
+                    clusterDeleted = eraseUserEventsFromCluster(clusterClientFactory(), appRow.databaseName, userId)
                 } catch (clusterFailure: RuntimeException) {
                     log.warn(
                         "The cluster erasure of design decision D55 failed for app {}. The exception class is {}.",
                         appId,
                         clusterFailure.javaClass.simpleName,
                     )
+                    // BLOCKER 1: skip the cache step. A poll cycle
+                    // between a cache erasure and a stuck cluster row
+                    // would restore that row, so the cache step must
+                    // never run while the cluster step is in doubt.
+                    call.respond(HttpStatusCode.ServiceUnavailable, ErrorBody(CLUSTER_ERASURE_FAILED_MESSAGE))
+                    return@delete
                 }
             }
             val result = eraseUserEvents(database, appId, userId)
-            call.respond(HttpStatusCode.OK, UserErasureResponse(result.total, result.checkpointed))
+            call.respond(HttpStatusCode.OK, UserErasureResponse(result.total, result.checkpointed, clusterDeleted))
             return@delete
         }
 
@@ -111,7 +125,7 @@ fun Route.userErasureRoutes(database: SqliteDatabase, clusterClientFactory: () -
             return@delete
         }
         val result = eraseUserEvents(database, appId, userId)
-        call.respond(HttpStatusCode.OK, UserErasureResponse(result.total, result.checkpointed))
+        call.respond(HttpStatusCode.OK, UserErasureResponse(result.total, result.checkpointed, 0L))
     }
 }
 

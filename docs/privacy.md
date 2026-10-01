@@ -101,10 +101,10 @@ Some apps send their clicks to the hosted collector of Octometer
 element name, and the page path pattern.
 
 Since issue #300, the app may also pass the collector a pseudonymous
-id of your signed-in account. This id is never your email address: the
-collector drops a value shaped like one, and it records the click as
-anonymous instead. A click with no id, or with a dropped id, is
-anonymous.
+id of your signed-in account. Your app decides which id it sends. The
+collector drops a value shaped like a mail address; that filter stops
+a mistake of the app, and it is no privacy control. A click with no
+id, or with a dropped id, is anonymous.
 
 The app owner can erase every one of your clicks from the collector
 with one call, through the app's own secret key. This call removes

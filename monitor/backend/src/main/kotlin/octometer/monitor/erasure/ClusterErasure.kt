@@ -27,19 +27,29 @@ private const val MAX_CLUSTER_DELETE_PASSES = 3
  * poll cycle between the two steps would restore the rows that this
  * call removes.
  *
+ * Returns the sum of each `deleteMany` call's own `deletedCount` (BLOCKER
+ * 2 of the review of pull request #333), so the caller can report the
+ * cluster row count beside the cache row count.
+ *
  * [userId] reaches no exception message and no log line (design
  * decision D15); a caller must keep it out of its own log line too.
  */
-suspend fun eraseUserEventsFromCluster(client: MongoClient, databaseName: String, userId: String) {
+suspend fun eraseUserEventsFromCluster(client: MongoClient, databaseName: String, userId: String): Long {
     val collection = client.getDatabase(databaseName).getCollection<Document>(COLLECTION_NAME)
     var sessionIds = sessionIdsOfUser(collection, userId)
     var pass = 0
+    var deletedCount = 0L
     while (sessionIds.isNotEmpty() && pass < MAX_CLUSTER_DELETE_PASSES) {
-        collection.deleteMany(Filters.and(Filters.eq("userId", null), Filters.`in`("sessionId", sessionIds.toList())))
-        collection.deleteMany(Filters.and(Filters.eq("userId", userId), Filters.`in`("sessionId", sessionIds.toList())))
+        deletedCount += collection.deleteMany(
+            Filters.and(Filters.eq("userId", null), Filters.`in`("sessionId", sessionIds.toList())),
+        ).deletedCount
+        deletedCount += collection.deleteMany(
+            Filters.and(Filters.eq("userId", userId), Filters.`in`("sessionId", sessionIds.toList())),
+        ).deletedCount
         sessionIds = sessionIdsOfUser(collection, userId)
         pass++
     }
+    return deletedCount
 }
 
 private suspend fun sessionIdsOfUser(collection: MongoCollection<Document>, userId: String): Set<String> {

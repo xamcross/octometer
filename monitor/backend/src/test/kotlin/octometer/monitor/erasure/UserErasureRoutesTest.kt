@@ -53,6 +53,10 @@ class UserErasureRoutesTest {
         assertEquals(1, response.deletedField())
         assertTrue(response.checkpointedField(), "expected checkpointed = true with no other reader")
         assertEquals(listOf("user-b"), remainingUserIds(dataDir, appId))
+        // BLOCKER 2 of the review of pull request #333: the kit path (no
+        // secret header, no app_key) runs no cluster erasure, so the
+        // answer's own clusterDeleted field stays 0.
+        assertEquals(0L, response.clusterDeletedField())
     }
 
     // MINOR 2 of the privacy review: contract rule C6 caps a userId at
@@ -133,11 +137,13 @@ class UserErasureRoutesTest {
     // 2026-10-01): the secret path. insertAppWithSecret gives a
     // non-NULL app_key, so each call below also runs the cluster
     // erasure; the test config's blank clusterUri makes that call fail
-    // and get caught (the same fail-open rule as a collector write
-    // failure), so these tests prove the cache result only.
+    // and get caught. BLOCKER 1 of the review of pull request #333:
+    // this failure now skips the cache step and answers 503, so each
+    // test below proves the fail-closed result, not a successful
+    // cache erasure (no real cluster exists in this test module).
 
     @Test
-    fun `DELETE with a valid secret header needs no session and erases the cache`() {
+    fun `DELETE with a valid secret header needs no session, and a failing cluster client gives 503 with the cache rows kept`() {
         val (dataDir, accountId) = prepareStore()
         val markerSecondValue = "a-fixture-secret-value"
         val appId = insertAppWithSecret(dataDir, accountId, "demo", markerSecondValue)
@@ -145,9 +151,9 @@ class UserErasureRoutesTest {
 
         val response = runEraseWithSecret(dataDir, appId, "user-a", markerSecondValue)
 
-        assertEquals(HttpStatusCode.OK, response.status)
-        assertEquals(1, response.deletedField())
-        assertEquals(emptyList<String>(), remainingUserIds(dataDir, appId))
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        assertEquals("The erasure did not complete. Try again.", response.errorField())
+        assertEquals(listOf("user-a"), remainingUserIds(dataDir, appId))
     }
 
     @Test
@@ -165,7 +171,7 @@ class UserErasureRoutesTest {
     }
 
     @Test
-    fun `DELETE with the secret header and a percent-encoded id erases the right user`() {
+    fun `DELETE with the secret header and a percent-encoded id reaches the handler, and a failing cluster client gives 503`() {
         val (dataDir, accountId) = prepareStore()
         val markerSecondValue = "a-fixture-secret-value"
         val appId = insertAppWithSecret(dataDir, accountId, "demo", markerSecondValue)
@@ -174,9 +180,8 @@ class UserErasureRoutesTest {
 
         val response = runEraseWithSecret(dataDir, appId, "team/42", markerSecondValue)
 
-        assertEquals(HttpStatusCode.OK, response.status)
-        assertEquals(1, response.deletedField())
-        assertEquals(listOf("team/43"), remainingUserIds(dataDir, appId))
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        assertEquals(listOf("team/42", "team/43"), remainingUserIds(dataDir, appId))
     }
 
     @Test
@@ -216,7 +221,7 @@ class UserErasureRoutesTest {
     // secret key. No log line of the secret path, valid or wrong, may
     // hold it.
     @Test
-    fun `no log line holds the secret key, on 200 with a valid secret`() {
+    fun `no log line holds the secret key, on 503 with a failing cluster client`() {
         val (dataDir, accountId) = prepareStore()
         val markerSecondValue = "sentinel-secret-value-7f21"
         val appId = insertAppWithSecret(dataDir, accountId, "demo", markerSecondValue)
@@ -224,7 +229,7 @@ class UserErasureRoutesTest {
 
         val (status, events) = deleteWithSecretAndCaptureLog(dataDir, appId, "user-a", markerSecondValue)
 
-        assertEquals(HttpStatusCode.OK, status)
+        assertEquals(HttpStatusCode.ServiceUnavailable, status)
         assertNoLogLineHoldsMarker(events, markerSecondValue)
     }
 
@@ -452,6 +457,9 @@ private data class CapturedResponse(val status: HttpStatusCode, val body: String
     fun deletedField(): Int = Json.parseToJsonElement(body).jsonObject["deleted"]!!.jsonPrimitive.content.toInt()
     fun checkpointedField(): Boolean =
         Json.parseToJsonElement(body).jsonObject["checkpointed"]!!.jsonPrimitive.content.toBoolean()
+
+    // BLOCKER 2 of the review of pull request #333: the cluster row count of eraseUserEventsFromCluster.
+    fun clusterDeletedField(): Long = Json.parseToJsonElement(body).jsonObject["clusterDeleted"]!!.jsonPrimitive.content.toLong()
     fun errorField(): String = Json.parseToJsonElement(body).jsonObject["error"]!!.jsonPrimitive.content
 }
 

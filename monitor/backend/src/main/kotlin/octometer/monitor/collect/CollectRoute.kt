@@ -24,6 +24,7 @@ import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestEvent
 import octometer.kit.core.ingest.IngestPipeline
 import octometer.kit.core.ingest.IngestSettings
+import octometer.kit.core.ingest.RateLimitResult
 import octometer.kit.core.path.DefaultRoutePattern
 import octometer.monitor.security.OriginCheck
 
@@ -212,9 +213,31 @@ fun Route.collectRoute(runtime: CollectorRuntime) {
         val events = batch.events()
         val userId = batch.userId()
 
-        if (events.isNotEmpty()) {
-            val (clickCount, sessionStartCount) = countEntries(events)
-            if (!runtime.rateLimiting.minuteLimiter.checkEntries(rateLimitKey, clickCount, sessionStartCount)) {
+        if (batch.userIdDropped()) {
+            // MAJOR 1 of the review of pull request #333: the app sent a
+            // body user id, and the server-side rule of design decision
+            // D54 dropped it. The owner then sees the drop, through the
+            // dev-only counter route, instead of a silent anonymous
+            // click.
+            runtime.dailyEventCountStore.recordBodyUserIdDrop(app.appId)
+        }
+
+        if (userId == null) {
+            if (events.isNotEmpty()) {
+                val (clickCount, sessionStartCount) = countEntries(events)
+                if (!runtime.rateLimiting.minuteLimiter.checkEntries(rateLimitKey, clickCount, sessionStartCount)) {
+                    call.respond(HttpStatusCode.TooManyRequests)
+                    return@post
+                }
+            }
+        } else {
+            // MAJOR 5 of the review of pull request #333: an identified
+            // batch skips the anonymous caps of design decision D43 and
+            // goes through the plain rate limiter of design decision
+            // D20 instead, keyed by the app id and the user id, so one
+            // signed-in user of one app never shares a counter with a
+            // signed-in user of a different app.
+            if (runtime.rateLimiting.userLimiter.check("${app.appId}:$userId", "") == RateLimitResult.LIMITED) {
                 call.respond(HttpStatusCode.TooManyRequests)
                 return@post
             }
@@ -226,10 +249,12 @@ fun Route.collectRoute(runtime: CollectorRuntime) {
             return@post
         }
 
-        if (!runtime.rateLimiting.dailyCapOf(app.appId).check(rateLimitKey, events.size)) {
-            runtime.dailyEventCountStore.recordDrop(app.appId)
-            call.respond(HttpStatusCode.NoContent)
-            return@post
+        if (userId == null) {
+            if (!runtime.rateLimiting.dailyCapOf(app.appId).check(rateLimitKey, events.size)) {
+                runtime.dailyEventCountStore.recordDrop(app.appId)
+                call.respond(HttpStatusCode.NoContent)
+                return@post
+            }
         }
         if (!runtime.dailyEventCountStore.tryIncrement(app.appId, events.size)) {
             runtime.dailyEventCountStore.recordDrop(app.appId)

@@ -198,8 +198,19 @@ test('a user id appears in the users view and one erasure removes it', async ({
       { method: 'DELETE', headers: { 'X-Octometer-Secret': secretKey } },
     );
     expect(eraseResponse.status()).toBe(200);
-    const eraseBody = (await eraseResponse.json()) as { deleted: number; checkpointed: boolean };
+    const eraseBody = (await eraseResponse.json()) as {
+      deleted: number;
+      checkpointed: boolean;
+      clusterDeleted: number;
+    };
     expect(eraseBody.deleted).toBeGreaterThan(0);
+    // BLOCKER 2 of the review of pull request #333: the cluster row
+    // count of eraseUserEventsFromCluster, beside the cache row count.
+    // The session holds three cluster documents of this user: the one
+    // octo:session-start document and the two click documents. The
+    // users view shows "clicks: 2" because that count excludes the
+    // session-start document; the cluster count does not.
+    expect(eraseBody.clusterDeleted).toBe(3);
   } finally {
     await secretContext.dispose();
   }

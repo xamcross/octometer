@@ -140,8 +140,16 @@ public final class IngestPipeline {
      * passes {@link #acceptableBodyUserId} (issue #300, design decision
      * D54). {@code userId} is {@code null} on every other call, the same
      * as before this issue.
+     *
+     * <p>{@link #userIdDropped} is {@code true} when the body carried a
+     * top-level {@code userId} value, {@link
+     * IngestSettings#acceptBodyUserId()} was {@code true}, and {@link
+     * #acceptableBodyUserId} dropped that value (MAJOR 1 of the review
+     * of pull request #333). It stays {@code false} for an absent value
+     * and for a kept value, so a caller can count only a real drop, and
+     * never an ordinary anonymous batch.
      */
-    public record IngestBatch(List<IngestEvent> events, String userId) {
+    public record IngestBatch(List<IngestEvent> events, String userId, boolean userIdDropped) {
     }
 
     /**
@@ -236,8 +244,10 @@ public final class IngestPipeline {
 
             events.add(new IngestEvent(parsed.sessionId(), click.element(), ts, path, referrerHost));
         }
-        String bodyUserId = settings.acceptBodyUserId() ? acceptableBodyUserId(parsed.userId()) : null;
-        return new IngestBatch(List.copyOf(events), bodyUserId);
+        String rawBodyUserId = parsed.userId();
+        String bodyUserId = settings.acceptBodyUserId() ? acceptableBodyUserId(rawBodyUserId) : null;
+        boolean userIdDropped = settings.acceptBodyUserId() && rawBodyUserId != null && bodyUserId == null;
+        return new IngestBatch(List.copyOf(events), bodyUserId, userIdDropped);
     }
 
     /**

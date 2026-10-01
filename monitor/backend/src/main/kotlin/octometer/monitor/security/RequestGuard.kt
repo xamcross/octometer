@@ -204,11 +204,24 @@ internal fun isErasureSecretRequest(request: ApplicationRequest, rawPath: String
         request.header(ERASURE_SECRET_HEADER) != null &&
         isErasureEventsPath(rawPath)
 
+// A percent escape of a slash inside one path segment (issue #300, MAJOR
+// 4 of the review of pull request #333). Ktor decodes each segment of
+// the route on its own, never the whole raw path at once, so a hidden
+// "%2f" never becomes a segment separator there. isErasureEventsPath
+// must reject it before it decodes the whole raw path as one text,
+// or a request such as "/api/apps/5%2Fevents" would match the pattern
+// below and skip the Origin check and the session check for a route
+// far wider than the erasure route.
+private val PERCENT_ENCODED_SLASH = Regex("(?i)%2f")
+
 // The same two steps as isHealthzPath (the decode step, the collapse
 // step), with a pattern match instead of an exact match: the path
-// carries the app id. A bad escape fails closed: it returns false, so
-// the caller keeps the Origin check.
+// carries the app id. A bad escape, and a percent-encoded slash, each
+// fail closed: both return false, so the caller keeps the Origin check.
 internal fun isErasureEventsPath(rawPath: String): Boolean {
+    if (PERCENT_ENCODED_SLASH.containsMatchIn(rawPath)) {
+        return false
+    }
     val decoded = try {
         rawPath.decodeURLPart()
     } catch (badEscape: URLDecodeException) {

@@ -6,6 +6,7 @@ import java.util.regex.Pattern
 import octometer.kit.core.ingest.AnonymousDailyCap
 import octometer.kit.core.ingest.AnonymousKey
 import octometer.kit.core.ingest.AnonymousMinuteLimiter
+import octometer.kit.core.ingest.IngestRateLimiter
 import octometer.kit.core.ingest.IngestSettings
 
 /**
@@ -85,12 +86,17 @@ private fun looksLikeAnIpAddress(value: String): Boolean =
  * for each app id, from an LRU-bounded map (the size of design decision
  * D20), so this map too can never grow without a bound.
  *
- * Design decision D19 is on by default for the hosted model (the
- * maintainer's note of 2026-10-01): every request of this story is
- * anonymous (no `userId`, B3), so the collector applies design decision
- * D43 to every request and never design decision D20's plain rate
- * limiter, the same rule as `IngestRequestProcessor.beforeBody` of
- * `kit/jvm-core` when `settings.recordAnonymousClicks()` is `true`.
+ * Design decision D19 is on by default for the hosted model. Issue #300
+ * (design decision D54) lets a batch carry a body user id, so this
+ * class no longer applies design decision D43 to every request (MAJOR 5
+ * of the review of pull request #333, corrected from the maintainer's
+ * note of 2026-10-01). [CollectRoute] now picks the limiter on the
+ * batch's own `userId`: an anonymous batch (`userId == null`) still
+ * gets design decision D43, through [minuteLimiter] and [dailyCapOf];
+ * an identified batch goes through [userLimiter] instead, the plain
+ * rate limiter of design decision D20, keyed by the app id and the user
+ * id. `IngestRequestProcessor.beforeBody` of `kit/jvm-core` picks the
+ * very same way, on `settings.recordAnonymousClicks()`.
  */
 class CollectorRateLimiting(private val clock: Clock) {
 
@@ -100,6 +106,15 @@ class CollectorRateLimiting(private val clock: Clock) {
         IngestSettings.DEFAULT_ANON_EVENTS_PER_MIN,
         IngestSettings.DEFAULT_ANON_SESSIONS_PER_MIN,
     )
+
+    /**
+     * The plain rate limiter of design decision D20 (MAJOR 5), for a
+     * batch with a body user id. [CollectRoute] keys each check on the
+     * app id and the user id together (`keyOf` keys [minuteLimiter] and
+     * [dailyCapOf] the same way for an anonymous batch), so two apps
+     * never share one counter.
+     */
+    val userLimiter: IngestRateLimiter = IngestRateLimiter(clock)
 
     private val dailyCapsByAppId = LruMap<AnonymousDailyCap>(MAX_RATE_LIMITING_ENTRIES)
 
