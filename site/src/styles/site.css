@@ -59,6 +59,7 @@ a:hover {
 }
 .page > *,
 .how > *,
+.wl > *,
 .frame > * {
   min-width: 0;
 }
@@ -349,6 +350,90 @@ a:hover {
   stroke: none;
 }
 
+/*
+ * 5. The waitlist form (issue #291, the mockup rules, minus the two demo
+ * state blocks that the real page never ships: one permanent status
+ * region replaces them, under the button).
+ */
+.wl {
+  display: grid;
+  gap: var(--space-5);
+  align-items: start;
+}
+.panel {
+  background: var(--paper);
+  border: var(--line-panel);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+}
+.panel-body {
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-4);
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+}
+label {
+  font-weight: 700;
+}
+.field input {
+  font: 400 var(--text-m) / 1.5 var(--body);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line-control);
+  border-radius: var(--radius-control);
+  scroll-margin-top: 6rem;
+}
+.hint {
+  font-size: var(--text-s);
+  color: var(--ink-soft);
+  max-width: 44ch;
+}
+/* The honeypot field (the maintainer's notes): hidden from a visitor and
+ * from a screen reader; "tabindex=-1" also keeps it out of the Tab
+ * order, so no real visitor ever reaches it. */
+.hp {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+/* The one answer region (the brief review correction M3): its text
+ * changes in place, so no pair of a shown block and a hidden block ever
+ * exists. The correction round of pull request #326, MAJOR 3: the
+ * region stays rendered at all times, with "display: flex" at every
+ * state, so a screen reader meets the region before the text changes,
+ * and so the change itself fires the "role=status" announcement. */
+.wl-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: var(--line-control);
+  border-color: var(--on-bright);
+  border-radius: var(--radius-control);
+  color: var(--on-bright);
+  font-weight: 700;
+  max-width: 40ch;
+}
+.wl-status:empty {
+  border: 0;
+  padding: 0;
+  background: none;
+}
+.wl-status-ok {
+  background: var(--seaweed);
+}
+.wl-status-bad {
+  background: var(--coral);
+}
+
 /* 6. The footer with the notice (issue #290, the mockup rules verbatim). */
 .foot {
   display: grid;
@@ -421,7 +506,9 @@ a:hover {
 }
 @media (forced-colors: active) {
   .btn,
-  .frame {
+  .frame,
+  .panel,
+  input {
     outline: 2px solid;
     outline-offset: 0;
   }
@@ -442,5 +529,8 @@ a:hover {
   }
   .levels > :first-child {
     grid-column: 1 / -1;
+  }
+  .wl .panel {
+    max-width: 26rem;
   }
 }

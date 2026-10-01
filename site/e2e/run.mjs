@@ -8,11 +8,22 @@
 // clash on one fixed port.
 
 import { execSync } from 'node:child_process';
+import { existsSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// Issue #291, the brief review correction M5: the local D1 state carries
+// over between runs; a cleared state gives each run an empty database,
+// so the order of the waitlist assertions holds.
+const localStateDir = join(here, '..', '.wrangler', 'state');
+
+function clearLocalState() {
+  if (existsSync(localStateDir)) {
+    rmSync(localStateDir, { recursive: true, force: true });
+  }
+}
 
 function pickFreePort() {
   return new Promise((pass, fail) => {
@@ -35,6 +46,7 @@ function pickFreePort() {
 }
 
 async function main() {
+  clearLocalState();
   const port = await pickFreePort();
   console.log(`site e2e: port=${port}`);
   // A single command string through the default shell, so the one call
