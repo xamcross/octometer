@@ -360,16 +360,25 @@ then answers 404, and the start log holds the line "The tracker bundle
 is absent." The manage view's keys panel shows "The script is not
 built on this instance." in that case.
 
-The route answers with a one-year, immutable cache header only when
-the request's query `v` equals the content hash of the current
-bundle. Each other request, for example a URL with no `v` value, gets
-a one-hour cache header.
+The manage view's keys panel shows the bare tag, with no `?v=`
+(design decision D53, the addendum of 2026-10-02, issue #331). The
+bare URL gets a one-hour cache header and an `ETag`. A request whose
+`If-None-Match` header matches the current `ETag` gets a `304 Not
+Modified` answer, with the same `ETag` and `Cache-Control` headers
+and no body, so a revalidation costs no transfer. The bare tag
+revalidates within one hour, so a bug fix of the tracker reaches
+each page without a change of its tag.
 
-A visitor with no cached copy of the script gets the new bundle at
-once, because the route always serves the current file. A visitor
-whose browser cached the hashed URL keeps the old bundle until that
-cache entry expires. The app owner must copy the new tag from the
-manage view after a deploy.
+The hashed form `?v=<hash>` still answers with a one-year, immutable
+cache header, when the query `v` equals the content hash of the
+current bundle; each other value of `v` gets the one-hour header. The
+hash is the `ETag` value of the bare answer. Use the hashed form only
+when a page wants the long cache on purpose.
+
+A page that already cached a hashed URL keeps the old bundle until
+that cache entry expires, or until the page's own tag changes. An old
+hashed tag needs a change of the tag; `docs/add-octometer.md` tells
+the app owner to replace it with the bare tag.
 
 ### The order for the owner
 
