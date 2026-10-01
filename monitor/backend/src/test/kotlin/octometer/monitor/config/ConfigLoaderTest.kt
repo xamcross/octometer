@@ -12,6 +12,7 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import java.io.File
 import java.sql.DriverManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -568,8 +569,7 @@ class ConfigLoaderTest {
                 }
                 assertEquals(HttpStatusCode.Accepted, signInResponse.status)
 
-                val mailFile = File(config.mailDir).listFiles()?.maxByOrNull { it.lastModified() }
-                    ?: error("The mail folder ${config.mailDir} holds no file.")
+                val mailFile = awaitMailFile(config.mailDir)
                 val mailText = mailFile.readText()
                 val token = Regex("token=([A-Za-z0-9_-]+)").find(mailText)?.groupValues?.get(1)
                     ?: error("The mail text carries no token:\n$mailText")
@@ -716,6 +716,25 @@ class ConfigLoaderTest {
     // wait loop covers the same lazy start of Ktor's testApplication
     // (the module, and so the migrations, run at the first request, not
     // at the `application { }` call).
+    // Issue #328: SignInService.sendSignInMail (brief review M6) answers
+    // the sign-in request first, then sends the mail on its own
+    // coroutine. The file reaches config.mailDir a short time after the
+    // 202 answer, so an immediate read can miss it. This poll waits for
+    // the newest file, with a bound of 5 seconds and a step of 50 ms, the
+    // same wait pattern as insertInviteRow below.
+    private suspend fun awaitMailFile(mailDir: String): File {
+        val dir = File(mailDir)
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (true) {
+            val newestFile = dir.listFiles()?.maxByOrNull { it.lastModified() }
+            if (newestFile != null) return newestFile
+            if (System.nanoTime() >= deadline) {
+                error("The mail folder $mailDir holds no file after 5 seconds.")
+            }
+            delay(50)
+        }
+    }
+
     private fun insertInviteRow(dataDir: String, email: String) {
         val dbFile = File(dataDir, "octometer.db")
         val deadline = System.nanoTime() + 5_000_000_000L

@@ -58,6 +58,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   `route_patterns`; the manage view edits it, with a "Patterns" column on the app list, and
   the collector's app key cache clears on each save. Remove the closed, published-list read
   of `octometer_config`. (#299)
+- Make the sign-in sentinel test of `ConfigLoaderTest` wait for the mail file: a bound
+  poll replaces the one immediate read of the mail folder. (#328)
 
 ### CI
 
