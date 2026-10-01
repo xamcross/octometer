@@ -72,11 +72,6 @@ private const val RECORD_FAILURE_SQL =
 // of the app whose own range touches the new range: an existing row
 // overlaps the new one when its from_ts sits at or before the new
 // to_ts, and its to_ts sits at or after the new from_ts.
-// Design decision D48 (issue #277): the reader is now the one writer of
-// the cached route list. The registry no longer writes these columns.
-private const val UPDATE_ROUTE_PATTERNS_SQL =
-    "UPDATE app SET path_patterns = ?, path_patterns_published_at = ?, kit_version = ? WHERE id = ?"
-
 private const val RECORD_GAP_SQL = """
     INSERT INTO gap (app_id, from_ts, to_ts)
     SELECT ?, ?, ?
@@ -222,30 +217,6 @@ class EventStore(private val database: SqliteDatabase) {
             writer.prepareStatement("UPDATE app SET privileges_checked_at = ? WHERE id = ?").use { update ->
                 update.setLong(1, nowMillis)
                 update.setLong(2, appId)
-                check(update.executeUpdate() == 1) { "No app row for id $appId." }
-            }
-        }
-    }
-
-    /**
-     * Stores the route list that the app published (design decision
-     * D48, issue #277). [MongoAppReader.pollOnce] calls this only when
-     * the published values differ from the stored ones, right after its
-     * own read of the config document, before [readBound]. This runs in
-     * its own `write {}`, never inside [commitPage]'s own transaction
-     * (lesson 3 of the database brief): the list is a fact of the app
-     * row, not of one page, so a failed page later still keeps it. The
-     * risk of a lone `write {}` here: two concurrent cycles of the same
-     * app never run (the scheduler's own `activePolls` guard), so this
-     * write never races another write of the same app id.
-     */
-    suspend fun updateRoutePatterns(appId: Long, patterns: String, publishedAt: Long, kitVersion: String?) {
-        database.write { writer ->
-            writer.prepareStatement(UPDATE_ROUTE_PATTERNS_SQL).use { update ->
-                update.setString(1, patterns)
-                update.setLong(2, publishedAt)
-                update.setString(3, kitVersion)
-                update.setLong(4, appId)
                 check(update.executeUpdate() == 1) { "No app row for id $appId." }
             }
         }

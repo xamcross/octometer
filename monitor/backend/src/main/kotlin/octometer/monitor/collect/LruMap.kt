@@ -33,4 +33,14 @@ class LruMap<V : Any>(private val maxEntries: Int) {
 
     /** The entry count of this map. A test uses this method to confirm the bound after an eviction. */
     fun size(): Int = synchronized(lock) { map.size }
+
+    /**
+     * Removes every entry (issue #299, the correction of the brief
+     * review of 2026-10-01). [AppKeyCache.clear] calls this after a
+     * `PUT /api/apps/{id}/routes`, so the next lookup of the app reads
+     * its fresh route pattern list, inside the same request.
+     */
+    fun clear() {
+        synchronized(lock) { map.clear() }
+    }
 }
