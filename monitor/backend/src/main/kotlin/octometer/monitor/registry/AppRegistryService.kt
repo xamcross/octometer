@@ -3,14 +3,15 @@ package octometer.monitor.registry
 import com.mongodb.ConnectionString
 import java.sql.Connection
 import java.sql.SQLException
-import java.time.Instant
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import octometer.monitor.accounts.newToken
 import octometer.monitor.accounts.sha256Hex as accountKeyHash
+import octometer.monitor.mongo.PathPatternList
+import octometer.monitor.mongo.PathPatternListResult
 import octometer.monitor.mongo.sha256Hex
 import octometer.monitor.store.SqliteDatabase
 import org.sqlite.SQLiteErrorCode
@@ -89,15 +90,13 @@ data class AppSummary(
 )
 
 /**
- * The response of `GET /api/apps/{id}` (design decision D48, issue
- * #277; formerly issue #226). It never holds a connection string, and
- * never the secret key or its hash (issue #296, M7). [pathPatterns] is
- * the route list that the app published, the reader's cached copy, or
- * `null` before the app's first published list.
- * [pathPatternsPublishedAt] is the UTC ISO 8601 text of the `publishedAt`
- * of that list, or `null` with [pathPatterns]. [kitVersion] is the
- * `kitVersion` of that same document, or `null` with [pathPatterns].
- * [appKey] and [databaseName] are `null` for an app of the legacy
+ * The response of `GET /api/apps/{id}` (issue #299, D5, D40; formerly
+ * design decision D48, issue #277). It never holds a connection
+ * string, and never the secret key or its hash (issue #296, M7).
+ * [routePatterns] is the typed route pattern list of the app (the
+ * column `route_patterns`), `[]` when the app gives no list; the
+ * collector then applies the default rule at write time (D50). [appKey]
+ * and [databaseName] are `null` for an app of the legacy
  * connection-string path that never registered keys. [origins] is `[]`
  * for such an app. [droppedToday] is the collector's own daily drop
  * count of issue #297 (design decision D50, the brief review of
@@ -110,13 +109,21 @@ data class AppSummary(
 data class AppDetail(
     val appId: Long,
     val name: String,
-    val pathPatterns: String?,
-    val pathPatternsPublishedAt: String?,
-    val kitVersion: String?,
+    val routePatterns: List<String>,
     val appKey: String?,
     val origins: List<String>,
     val databaseName: String?,
     val droppedToday: Long = 0,
+)
+
+/**
+ * The body of `PUT /api/apps/{id}/routes` (issue #299, D5, D40):
+ * `{"patterns": [...]}` replaces the typed route pattern list of one
+ * app, the same model as [UpdateOriginsRequest].
+ */
+@Serializable
+data class UpdateRoutesRequest(
+    val patterns: List<String>,
 )
 
 /**
@@ -175,6 +182,13 @@ sealed class UpdateOriginsResult {
     data class Updated(val detail: AppDetail) : UpdateOriginsResult()
     object NotFound : UpdateOriginsResult()
     data class InvalidRequest(val message: String) : UpdateOriginsResult()
+}
+
+/** The result of [AppRegistryService.updateRoutes] (issue #299). */
+sealed class UpdateRoutesResult {
+    data class Updated(val detail: AppDetail) : UpdateRoutesResult()
+    object NotFound : UpdateRoutesResult()
+    data class InvalidRequest(val message: String) : UpdateRoutesResult()
 }
 
 sealed class RotateSecretResult {
@@ -289,6 +303,35 @@ class AppRegistryService(
         val detail = database.read { reader -> readAppDetail(reader, accountId, appId) }
             ?: return UpdateOriginsResult.NotFound
         return UpdateOriginsResult.Updated(detail)
+    }
+
+    /**
+     * Replaces the typed route pattern list of one app (issue #299, D5,
+     * D40). An empty list clears the column to `NULL`, so the
+     * collector's default rule applies to every path (M3 of the
+     * correction round); a non-empty list joins with `"\n"` and goes
+     * through [PathPatternList.parse], the kit's own grammar (D17
+     * forbids a second grammar). The write stores the JSON list form
+     * that `CollectorApps.kt` decodes, never the newline text of the
+     * legacy `path_patterns` column: a newline text would make the
+     * collector drop the list in silence.
+     */
+    suspend fun updateRoutes(accountId: Long, appId: Long, rawPatterns: List<String>): UpdateRoutesResult {
+        val patterns = if (rawPatterns.isEmpty()) {
+            emptyList()
+        } else {
+            when (val parsed = PathPatternList.parse(rawPatterns.joinToString("\n"))) {
+                is PathPatternListResult.Accepted -> parsed.normalizedText.split("\n")
+                is PathPatternListResult.Rejected -> return UpdateRoutesResult.InvalidRequest(parsed.message)
+            }
+        }
+        val routePatternsJson = if (patterns.isEmpty()) null else encodeRoutePatternsJson(patterns)
+
+        val updated = database.write { writer -> updateAppRoutePatterns(writer, accountId, appId, routePatternsJson) }
+        if (!updated) return UpdateRoutesResult.NotFound
+        val detail = database.read { reader -> readAppDetail(reader, accountId, appId) }
+            ?: return UpdateRoutesResult.NotFound
+        return UpdateRoutesResult.Updated(detail)
     }
 
     /**
@@ -638,35 +681,54 @@ private fun updateAppDatabaseName(writer: Connection, appId: Long, databaseName:
     }
 }
 
-// The same UTC ISO 8601 with milliseconds form as AppTotalsRoute.kt and
-// ElementsRoute.kt (design decision D48, issue #277).
-private val PATH_PATTERNS_PUBLISHED_AT_FORMATTER: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC)
-
 private fun readAppDetail(reader: Connection, accountId: Long, appId: Long): AppDetail? =
     reader.prepareStatement(
-        "SELECT name, path_patterns, path_patterns_published_at, kit_version, app_key, origins, database_name " +
-            "FROM app WHERE id = ? AND account_id = ?",
+        "SELECT name, route_patterns, app_key, origins, database_name FROM app WHERE id = ? AND account_id = ?",
     ).use { select ->
         select.setLong(1, appId)
         select.setLong(2, accountId)
         select.executeQuery().use { result ->
             if (!result.next()) return@use null
-            val publishedAtMillis = result.getLong("path_patterns_published_at").takeUnless { result.wasNull() }
             AppDetail(
                 appId = appId,
                 name = result.getString("name"),
-                pathPatterns = result.getString("path_patterns"),
-                pathPatternsPublishedAt = publishedAtMillis?.let {
-                    PATH_PATTERNS_PUBLISHED_AT_FORMATTER.format(Instant.ofEpochMilli(it))
-                },
-                kitVersion = result.getString("kit_version"),
+                routePatterns = decodeRoutePatternsJson(result.getString("route_patterns")),
                 appKey = result.getString("app_key"),
                 origins = decodeOriginsJson(result.getString("origins")),
                 databaseName = result.getString("database_name"),
             )
         }
     }
+
+// Issue #299: the route pattern replace of PUT /api/apps/{id}/routes.
+// It never touches the keys, and it never touches the origin list.
+private fun updateAppRoutePatterns(writer: Connection, accountId: Long, appId: Long, routePatternsJson: String?): Boolean =
+    writer.prepareStatement("UPDATE app SET route_patterns = ? WHERE id = ? AND account_id = ?").use { update ->
+        update.setString(1, routePatternsJson)
+        update.setLong(2, appId)
+        update.setLong(3, accountId)
+        update.executeUpdate() == 1
+    }
+
+/**
+ * Encodes a route pattern list as the JSON text that the `app.route_patterns`
+ * column stores (issue #299, migration 008). `CollectorApps.kt` decodes
+ * this same JSON list form at write time (design decision D50); a
+ * newline text there would make the collector drop the list in
+ * silence, so this function never stores the newline form that the
+ * legacy `path_patterns` column once held.
+ */
+internal fun encodeRoutePatternsJson(patterns: List<String>): String = Json.encodeToString(patterns)
+
+/** Decodes the `app.route_patterns` column text back to a list. `null` or an unreadable value gives an empty list. */
+internal fun decodeRoutePatternsJson(text: String?): List<String> {
+    if (text.isNullOrBlank()) return emptyList()
+    return try {
+        Json.decodeFromString<List<String>>(text)
+    } catch (malformed: SerializationException) {
+        emptyList()
+    }
+}
 
 /** The database name of a new app of issue #296, D57: `app_<id>`. */
 private fun databaseNameOf(appId: Long): String = "app_$appId"

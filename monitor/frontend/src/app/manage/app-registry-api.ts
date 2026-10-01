@@ -45,26 +45,27 @@ export interface AppSummary {
 }
 
 /**
- * The answer of `GET /api/apps/{id}` (design decision D48, issue #277;
- * formerly issue #226). It never holds a connection string, or the
- * secret key, or its hash (issue #296, M7). `pathPatterns` is the
- * route list that the app published, one pattern per line, or `null`
- * before the app's first published list. `pathPatternsPublishedAt` is
- * the UTC ISO 8601 text of that publish time, or `null` with
- * `pathPatterns`. `kitVersion` is the kit version of that same
- * publish, or `null` with `pathPatterns`. `appKey` and `databaseName`
- * are `null` for an app of the legacy connection-string path. `origins`
- * is `[]` for such an app.
+ * The answer of `GET /api/apps/{id}` (issue #299, D5, D40; formerly
+ * design decision D48, issue #277). It never holds a connection
+ * string, or the secret key, or its hash (issue #296, M7).
+ * `routePatterns` is the typed route pattern list of the app, `[]`
+ * when the app has no list; the collector then applies the default
+ * rule to every path. `appKey` and `databaseName` are `null` for an
+ * app of the legacy connection-string path. `origins` is `[]` for such
+ * an app.
  */
 export interface AppDetail {
   readonly appId: number;
   readonly name: string;
-  readonly pathPatterns: string | null;
-  readonly pathPatternsPublishedAt: string | null;
-  readonly kitVersion: string | null;
+  readonly routePatterns: readonly string[];
   readonly appKey: string | null;
   readonly origins: readonly string[];
   readonly databaseName: string | null;
+}
+
+/** The body of `PUT /api/apps/{id}/routes` (issue #299, D5, D40). */
+export interface UpdateRoutesRequest {
+  readonly patterns: readonly string[];
 }
 
 /**

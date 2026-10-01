@@ -45,7 +45,7 @@ fun Route.apiRoutes(services: MonitorServices, trackerHash: String?) {
     // header and the cookie's Secure flag.
     signInRoutes(services.signInService, services.config)
     meRoute(services.signInService, services.config, trackerHash)
-    appRegistryRoutes(services.appRegistryService, services.dailyEventCountStore)
+    appRegistryRoutes(services.appRegistryService, services.dailyEventCountStore, services.collectorRuntime.appKeyCache)
     appTotals(services.database)
     userTotalsRoute(services.database)
     elementsRoute(services.database)

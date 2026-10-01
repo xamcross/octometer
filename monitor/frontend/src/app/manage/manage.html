@@ -17,6 +17,7 @@
               <th scope="col">App</th>
               <th scope="col">App key</th>
               <th scope="col">Origins</th>
+              <th scope="col">Patterns</th>
               <th scope="col">Status</th>
               <th scope="col">Actions</th>
             </tr>
@@ -31,6 +32,7 @@
                     <div>{{ origin }}</div>
                   }
                 </td>
+                <td class="patterns">{{ patternCountOf(row) }}</td>
                 <td class="status">
                   <span aria-hidden="true">{{ statusIcon(row.status) }}</span>
                   {{ statusLabel(row.status) }}

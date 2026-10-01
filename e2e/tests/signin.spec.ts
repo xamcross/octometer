@@ -1,51 +1,18 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 import { expect, test } from '../fixtures';
 import { AppsPage } from '../pages/apps-page';
 import { ManagePage } from '../pages/manage-page';
 import { runInviteCommand } from '../setup/invite';
+import {
+  SIGN_IN_WAIT_BOUND_MS as WAIT_BOUND_MS,
+  extractToken,
+  mailDir,
+  mailFileCount,
+  newestMailFile,
+  waitForNewMail,
+} from '../setup/mail';
 import { readState } from '../setup/state';
-
-/** The wait bound of the sign-in flow: the mail file, the link page, the confirm. */
-const WAIT_BOUND_MS = 20_000;
-
-function newestMailFile(mailDir: string): string {
-  const files = fs
-    .readdirSync(mailDir)
-    .map((name) => {
-      const fullPath = path.join(mailDir, name);
-      return { fullPath, mtime: fs.statSync(fullPath).mtimeMs };
-    })
-    .sort((a, b) => b.mtime - a.mtime);
-  if (files.length === 0) {
-    throw new Error(`The mail folder '${mailDir}' holds no file.`);
-  }
-  return files[0].fullPath;
-}
-
-function extractToken(mailText: string): string {
-  const match = /token=([A-Za-z0-9_-]+)/.exec(mailText);
-  if (!match) {
-    throw new Error(`The mail text carries no token:\n${mailText}`);
-  }
-  return match[1];
-}
-
-/** Waits, with the bound of [WAIT_BOUND_MS], for [mailDir] to hold one more file than [beforeCount]. */
-async function waitForNewMail(mailDir: string, beforeCount: number): Promise<void> {
-  await expect
-    .poll(() => (fs.existsSync(mailDir) ? fs.readdirSync(mailDir).length : 0), { timeout: WAIT_BOUND_MS })
-    .toBeGreaterThan(beforeCount);
-}
-
-function mailDir(): string {
-  const value = process.env.E2E_MONITOR_MAIL_DIR;
-  if (!value) {
-    throw new Error('E2E_MONITOR_MAIL_DIR is absent. The global setup did not run, or it failed.');
-  }
-  return value;
-}
 
 // Issue #301, D52: this file runs with no storage state of its own, so
 // each test signs in on its own, never as the shared owner account of
@@ -67,7 +34,7 @@ test.describe('Sign-in accounts (issue #301)', () => {
     runInviteCommand(state, emailB);
 
     // A requests a link.
-    const beforeA = fs.existsSync(dir) ? fs.readdirSync(dir).length : 0;
+    const beforeA = mailFileCount(dir);
     const signInResponse = await request.post('/api/signin', {
       headers: { Origin: monitorUrl },
       data: { email: emailA },
@@ -116,7 +83,7 @@ test.describe('Sign-in accounts (issue #301)', () => {
     const contextB = await newTrackedContext();
     const pageB = await contextB.newPage();
 
-    const beforeB = fs.existsSync(dir) ? fs.readdirSync(dir).length : 0;
+    const beforeB = mailFileCount(dir);
     const signInResponseB = await contextB.request.post('/api/signin', {
       headers: { Origin: monitorUrl },
       data: { email: emailB },
@@ -144,7 +111,7 @@ test.describe('Sign-in accounts (issue #301)', () => {
 
     // An unlisted address gets the same "Check your mail." text, and no
     // mail file.
-    const beforeNobody = fs.existsSync(dir) ? fs.readdirSync(dir).length : 0;
+    const beforeNobody = mailFileCount(dir);
     const signInResponseNobody = await request.post('/api/signin', {
       headers: { Origin: monitorUrl },
       data: { email: emailNobody },
@@ -153,7 +120,7 @@ test.describe('Sign-in accounts (issue #301)', () => {
     const bodyNobody = (await signInResponseNobody.json()) as { message: string };
     expect(bodyNobody.message).toBe('Check your mail.');
     await pageB.waitForTimeout(1_000);
-    const afterNobody = fs.existsSync(dir) ? fs.readdirSync(dir).length : 0;
+    const afterNobody = mailFileCount(dir);
     expect(afterNobody).toBe(beforeNobody);
 
     // A sign-out ends the session (the next /api/me answers 401).

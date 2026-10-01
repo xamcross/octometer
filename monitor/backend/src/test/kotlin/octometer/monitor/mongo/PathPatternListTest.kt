@@ -74,4 +74,15 @@ class PathPatternListTest {
         val accepted = assertIs<PathPatternListResult.Accepted>(result)
         assertEquals("/a,b", accepted.normalizedText)
     }
+
+    // Issue #299, the correction of the brief review of 2026-10-01: the
+    // duplicate rule of PUT /api/apps/{id}/routes.
+    @Test
+    fun `parse rejects a pattern that appears twice, and names the index of the second one`() {
+        val result = PathPatternList.parse("/orders/:id /checkout /orders/:id")
+
+        val rejected = assertIs<PathPatternListResult.Rejected>(result)
+        assertTrue(rejected.message.contains("index 2"), "the reason names the index of the duplicate pattern")
+        assertTrue(rejected.message.contains("twice"), "the reason names the duplicate rule")
+    }
 }

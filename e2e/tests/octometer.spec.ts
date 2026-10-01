@@ -349,7 +349,7 @@ test('an app is registered and its keys show one time (issue #296)', async ({ pa
   await expect(manage.appKeyCell(row)).toHaveText(firstAppKey.slice(0, 8));
   await expect(manage.originCells(row)).toHaveText(['https://a.example', 'https://b.example']);
 
-  // "Edit origins" adds a third origin, and the list shows three.
+  // "Edit app" adds a third origin, and the list shows three.
   await manage.openEditForm(row);
   await manage.addOriginAndSave(row, 'https://c.example');
   await expect(manage.originCells(row)).toHaveText([

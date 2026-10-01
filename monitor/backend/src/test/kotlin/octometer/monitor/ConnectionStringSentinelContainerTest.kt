@@ -444,4 +444,6 @@ private data class SentinelAppRow(
     val appKey: String?,
     val origins: List<String>,
     val databaseName: String?,
+    // Issue #299, M10: mirrors the "Patterns" column field that AppTotalsRow added.
+    val routePatternCount: Int,
 )

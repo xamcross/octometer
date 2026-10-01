@@ -48,4 +48,8 @@ export interface AppRow {
   readonly appKey?: string | null;
   readonly origins?: readonly string[];
   readonly databaseName?: string | null;
+  // Issue #299, M10: the count of the typed route pattern list, for
+  // the "Patterns" column of the manage list. Optional, so a fixture
+  // of a view that never shows it needs no update of its own.
+  readonly routePatternCount?: number;
 }

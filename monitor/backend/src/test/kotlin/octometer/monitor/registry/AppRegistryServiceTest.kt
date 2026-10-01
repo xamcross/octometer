@@ -219,41 +219,21 @@ class AppRegistryServiceTest {
         assertEquals(before, readPollState(created.summary.appId), "a name-only PATCH must keep the cursor")
     }
 
-    // Design decision D48 (issue #277) ends the typed route pattern list
-    // of issue #226: create and update take no pathPatterns field any
-    // more. MongoAppReader is now the one writer of path_patterns,
-    // path_patterns_published_at, and kit_version; the tests below seed
-    // those columns directly, the same rule as seedPollState.
+    // Issue #299, D5, D40: the typed route pattern list lives in
+    // app.route_patterns now (migration 008). createApp and
+    // createAppWithOrigins start a new app with no list; PUT
+    // /api/apps/{id}/routes (AppRegistryRoutes.kt) is the one writer.
 
     @Test
-    fun `createApp stores a NULL path_patterns value`() = runBlocking {
+    fun `createApp stores an empty route pattern list`() = runBlocking {
         val result = service.createApp(accountId,
             CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
         )
 
         val created = assertIs<CreateAppResult.Created>(result)
         val detail = service.getApp(accountId,created.summary.appId)
-        assertNull(detail?.pathPatterns)
-        assertNull(detail?.pathPatternsPublishedAt)
-        assertNull(detail?.kitVersion)
+        assertEquals(emptyList(), detail?.routePatterns)
     }
-
-    @Test
-    fun `getApp gives the id, the name, the published route list, its time, and the kit version, never a connection string`() =
-        runBlocking {
-            val created = service.createApp(accountId,
-                CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
-            ) as CreateAppResult.Created
-            seedRoutePatterns(created.summary.appId, "/checkout", publishedAt = 1_700_000_000_000L, kitVersion = "1.2.3")
-
-            val detail = service.getApp(accountId,created.summary.appId)
-
-            assertEquals(created.summary.appId, detail?.appId)
-            assertEquals("demo", detail?.name)
-            assertEquals("/checkout", detail?.pathPatterns)
-            assertEquals("2023-11-14T22:13:20.000Z", detail?.pathPatternsPublishedAt)
-            assertEquals("1.2.3", detail?.kitVersion)
-        }
 
     @Test
     fun `getApp on an unknown id gives null`() = runBlocking {
@@ -562,23 +542,6 @@ class AppRegistryServiceTest {
                 insert.setString(2, path)
                 insert.setLong(3, 1_700_000_000_000L)
                 insert.executeUpdate()
-            }
-        }
-    }
-
-    // Design decision D48 (issue #277): only MongoAppReader writes these
-    // three columns in production. This mimics that write, the same
-    // rule as seedPollState and seedAppPath above.
-    private suspend fun seedRoutePatterns(appId: Long, patterns: String, publishedAt: Long, kitVersion: String) {
-        database.write { writer ->
-            writer.prepareStatement(
-                "UPDATE app SET path_patterns = ?, path_patterns_published_at = ?, kit_version = ? WHERE id = ?",
-            ).use { update ->
-                update.setString(1, patterns)
-                update.setLong(2, publishedAt)
-                update.setString(3, kitVersion)
-                update.setLong(4, appId)
-                update.executeUpdate()
             }
         }
     }

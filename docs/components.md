@@ -376,9 +376,9 @@ separate guide.
   (`add-app-form.html:23`).
 - The connection-string hint text lives once in `field-hints.ts`, so the add form and the
   edit form show the same words for the field they share (`manage/field-hints.ts:1-17`).
-  Design decision D48 (issue #277) removes the route pattern hint of issue #226: the app
-  publishes its own list now, and the edit form shows it read-only (see "The published
-  route list" below).
+  Issue #299 (D5, D40) brings the route pattern hint back, under the editable field (see
+  "The route patterns field" below); it ends the read-only, published-list form of design
+  decision D48 (issue #277).
 
 **States.**
 
@@ -426,45 +426,47 @@ separate guide.
   `margin: 8px 0 0` in its own rule, because the base sheet resets no `<p>` margin (rule:
   "a paragraph inside a new rule sets its margin", `add-app-form.css:38`).
 
-## The published route list
+## The route patterns field
 
-**Purpose.** The edit form shows the route pattern list that the app itself publishes, and
-the time of the last publish, so the operator reads what the app tracks with no typed field
-(design decision D48, issue #277; it ends the typed field of issue #226).
+**Purpose.** The edit form lets the owner type the route pattern list of the app, so
+`/orders/1` and `/orders/2` count as one page with no kit (issue #299, D5, D40; it ends the
+read-only, published-list form of design decision D48, issue #277).
 
 **Anatomy.**
-- A `<div class="field">` under the origins field (issue #296 replaced the connection
-  string field with it): an `<h3>` heading "Route patterns", then either a `<ul>` of
-  `<code>` items (one per pattern) plus a
-  `<p class="form-hint">` with the publish line, or a `<p class="form-hint">` that reads "The
-  app has published no list yet." (`edit-app-form.html:33-45`).
-- The publish line reads "Published by the app on `<local time>` (kit `<version>`)", built
-  through `formatLocalDateTime` of `status-format.ts`, text interpolation only
-  (`edit-app-form.ts:83-94`).
-- The block reads `GET /api/apps/{id}` when the form opens, the same request that fills the
-  name field (`edit-app-form.ts:121-150`).
+- A `<div class="field">` under the origins field: a `<label>` "Route patterns (one per
+  line)", a `<textarea>`, and a `<p class="form-hint">` with the example and the default
+  rule (`edit-app-form.html:31-41`).
+- The hint text lives in `ROUTE_PATTERNS_HINT` (`manage/field-hints.ts`), the example text
+  of issue #248 (`/orders/:id`, `/users/:userId/settings`) and the sentence "A path outside
+  the list gets the default rule: a number, a UUID, or a hex segment becomes `:id`."
+- The field reads `GET /api/apps/{id}` when the form opens, the same request that fills the
+  name field and the origins field (`edit-app-form.ts`, `open()`).
+- The save order is the origins, then the route patterns, then the name (the correction of
+  the brief review of 2026-10-01, MAJOR 2 of #323): a rename never ships ahead of a
+  rejected list. `PUT /api/apps/{id}/routes` carries the typed list, `{"patterns": [...]}`.
+  An empty field clears the list; the collector's default rule then applies to every path.
 
 **States.**
 
 | State | Cue |
 | --- | --- |
-| A published list | A `<ul>` of `<code>` patterns, then the publish line |
-| A cached list with no publish record | A `<ul>` of `<code>` patterns, then "Typed before the app published a list." (a list typed before design decision D48, `docs/run-guide.md`, `docs/integration-ktor.md`; MAJOR 2 of the correction round of pull request #286) |
-| No list yet | "The app has published no list yet." |
-| A failed read | The list keeps its last value (or its empty state); a `.form-error`
-  message shows next to the form, and Save stays enabled (the correction of the brief
-  review of 2026-09-28: a failed read of this read-only block risks no wrong write) |
+| A stored list | The textarea holds one pattern per line |
+| No list yet | The textarea is empty |
+| A failed read | The field stays empty; a `.form-error` message shows next to the form,
+  and Save stays enabled (the save skips its own route pattern request, so an empty field
+  never clears the app's real list) |
+| A rejected list | The textarea keeps the typed text; a `.form-error` message names the
+  index and the rule, never the pattern text (issue #226) |
 
 **Accessibility.**
-- Role: none beyond the native `<h3>`, `<ul>`, `<li>`, and `<p>` roles.
-- Accessible name: not applicable; the heading and the list carry their own text.
-- Live region: none; the block re-renders with the rest of the form on open.
+- Role: none beyond the native `<textarea>` and `<p>` roles.
+- Accessible name: the `<label>` text, through `[for]`.
+- Live region: none; the field re-renders with the rest of the form on open.
 
 **Rules.**
-- Do keep `<code>` for each pattern, so a pattern with a `:name` or a `*` segment reads as
-  code, not as prose.
-- Do not let the publish line show while `pathPatterns` is empty; the two states are
-  mutually exclusive (`edit-app-form.html:35-44`).
+- Do send the typed list through text interpolation only, no `[innerHTML]`, no
+  `[attr.*]`, and no `DomSanitizer.bypass*` (design decision D40): a kept `*` segment can
+  hold an escaped markup text.
 
 ## The panel and the scroll region
 

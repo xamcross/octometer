@@ -21,7 +21,7 @@ The attribute `data-endpoint` is optional. Its default value is the origin
 of the script's own `src`, plus `/collect`. Set it only when your app
 proxies the collector behind a different host.
 
-The attribute `data-user-id` is optional. Read section 6, "Your users",
+The attribute `data-user-id` is optional. Read section 7, "Your users",
 for its rule.
 
 ## 2. The npm option
@@ -61,7 +61,20 @@ Keep each other directive of your own policy. Add the two values above to
 your own `script-src` and `connect-src` lists; do not replace the whole
 header.
 
-## 6. Your users
+## 6. The route patterns
+
+Octometer groups the paths of your app into pages. Type a route pattern list on
+`/manage`, in the edit form, one pattern per line. Example: `/orders/:id`,
+`/users/:userId/settings`.
+
+Two rules decide the page of each path:
+
+- A path that matches a typed pattern joins the pattern's own page. `/orders/:id`
+  groups `/orders/1` and `/orders/2` into one page.
+- A path outside the list gets the default rule. A number, a UUID, or a hex segment
+  of 8 characters or more becomes `:id`. Each other path stays as it is.
+
+## 7. Your users
 
 Set the attribute `data-user-id` to a pseudonymous id of your signed-in
 user, for example an account id. Never set it to an email address: the
