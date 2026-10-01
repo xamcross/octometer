@@ -15,6 +15,9 @@
  * - `data-app-key` (required): the app key of design decision D50.
  * - `data-endpoint` (optional): the ingest URL. The default is the
  *   origin of the script's own `src`, plus `/collect`.
+ * - `data-user-id` (optional): a pseudonymous id of the signed-in user
+ *   (issue #300, design decision D54), passed to the `userId` option of
+ *   `createTracker` unchanged.
  *
  * With no `data-app-key`, this entry writes one console warning and
  * starts nothing.
@@ -57,7 +60,12 @@ function startFromScriptTag(): void {
     console.warn(`${WARNING_PREFIX} the tracker script could not read its own src. It starts nothing.`);
     return;
   }
-  createTracker({ endpoint, appKey }).start();
+  const userIdAttribute = scriptElement.getAttribute('data-user-id');
+  const options: Parameters<typeof createTracker>[0] =
+    userIdAttribute !== null && userIdAttribute.length > 0
+      ? { endpoint, appKey, userId: userIdAttribute }
+      : { endpoint, appKey };
+  createTracker(options).start();
 }
 
 startFromScriptTag();
