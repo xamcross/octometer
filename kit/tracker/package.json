@@ -2,6 +2,7 @@
   "name": "octometer-tracker",
   "version": "0.3.0",
   "description": "The click tracker of Octometer. It sends a click on a data-octo element to the ingest route.",
+  "license": "UNLICENSED",
   "type": "module",
   "sideEffects": false,
   "types": "./dist/index.d.ts",

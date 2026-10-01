@@ -103,6 +103,13 @@ publishing {
                 description.set("The Spring MVC adapter of the Octometer JVM kit. The app gives Spring MVC and the Jakarta Servlet API.")
                 url.set("https://github.com/xamcross/octometer")
 
+                licenses {
+                    license {
+                        name.set("All rights reserved")
+                        comments.set("No licence is granted. Contact the copyright holder.")
+                    }
+                }
+
                 scm {
                     connection.set("scm:git:https://github.com/xamcross/octometer.git")
                     developerConnection.set("scm:git:https://github.com/xamcross/octometer.git")

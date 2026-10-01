@@ -4,6 +4,8 @@ Octometer is a monitoring tool. Each app sends click events to a monitor
 server. The monitor stores the events and shows the totals in a browser
 view.
 
+All rights reserved: the repository grants no licence; see `LICENSE`.
+
 Read `App Description.md` for the product description. Read
 `docs/superpowers/specs/2026-09-21-octometer-design.md` for the design
 decisions and the contract rules.
