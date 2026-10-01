@@ -174,6 +174,26 @@ class ApiRoutesTest {
     // rule: an existing test class grows, no new one), so neither case
     // has a test here; the pull request text states this gap.
 
+    // Issue #300 (design decision D54): the collector's own
+    // acceptBodyUserId exception. A dropped value (an email address)
+    // never answers 400; the batch is kept, the same status as a valid
+    // id. The bogus clusterUri of registerCollectorApp makes the actual
+    // Mongo write fail and get caught (D50: 204, never 500), so this
+    // test proves the response code only, not the stored document.
+    @Test
+    fun `POST collect with a userId in the body gives 204 for a valid id and for a dropped one`() = testApplication {
+        val config = devConfig(clusterUri = "mongodb://127.0.0.1:1/octometer_service")
+        application { module(config) }
+        startApplication()
+        val (_, appKey, origin) = registerCollectorApp(this, config.dataDir)
+
+        val validIdResponse = oneCollectRequestWithUserId(this, appKey, origin, "team/42")
+        assertEquals(HttpStatusCode.NoContent, validIdResponse.status)
+
+        val droppedIdResponse = oneCollectRequestWithUserId(this, appKey, origin, "someone@example.com")
+        assertEquals(HttpStatusCode.NoContent, droppedIdResponse.status)
+    }
+
     // One origin list, one session, one app key: the shared registration
     // of every test above.
     private suspend fun registerCollectorApp(builder: ApplicationTestBuilder, dataDir: String): Triple<Long, String, String> {
@@ -201,6 +221,24 @@ class ApiRoutesTest {
             setBody(
                 """{"sessionId":"00000000-0000-4000-8000-000000000000",""" +
                     """"clicks":[{"element":"a","ageMs":0}]}""",
+            )
+        }
+
+    /** The same request as [oneCollectRequest], with a top-level `userId` field (issue #300). */
+    private suspend fun oneCollectRequestWithUserId(
+        builder: ApplicationTestBuilder,
+        appKey: String,
+        origin: String,
+        userId: String,
+    ): HttpResponse =
+        builder.client.post("/collect") {
+            allowedHost()
+            header(HttpHeaders.Origin, origin)
+            header("X-Octometer-Key", appKey)
+            contentType(ContentType.Application.Json)
+            setBody(
+                """{"sessionId":"00000000-0000-4000-8000-000000000001",""" +
+                    """"clicks":[{"element":"a","ageMs":0}],"userId":"$userId"}""",
             )
         }
 }
