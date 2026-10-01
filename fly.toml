@@ -12,7 +12,7 @@
 #   OCTOMETER_MAIL_API_KEY   the Resend API key
 # Issue #301 removes the admin guard token of issue #295; the session
 # rule of D52 protects the service now.
-primary_region = "<region>"
+primary_region = "ams"
 # m7: the memory budget is tight on 512 MB; this swap gives a margin
 # under a poll spike.
 swap_size_mb = 512
