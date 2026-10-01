@@ -10,8 +10,8 @@ project dependency of this build.
 `./gradlew build` needs Node 24 and npm on the PATH for the demo app
 (Ktor review MAJOR 3). The file `kit/tracker/.nvmrc` names the exact
 Node version. Install Node 24. Add npm to the PATH. The task
-`npmCiTracker` checks the PATH, and it fails with a clear message when
-npm is absent.
+`:kit:tracker:npmBuild` checks the PATH, and it fails with a clear
+message when npm is absent.
 
 ## Start the database
 
@@ -53,11 +53,11 @@ its authentication context (contract rule C16). A client sets a cookie
 itself, thus a client can claim any user id.
 
 The page loads the built tracker of `kit/tracker` from `/tracker/`. The
-build task `copyTrackerDist` copies the built files there; see
-`build.gradle.kts` for the three build steps (`npmCiTracker`,
-`buildTracker`, `copyTrackerDist`). The tracker option `routes` holds
-the one path of this page, `/`, so each click carries a `path` field.
-The tracker option `flushIntervalMs` is `1000`.
+Gradle module `kit/tracker` builds it with its own task `npmBuild`
+(issue #298); this module's own task `copyTrackerDist` then copies the
+built files there. The tracker option `routes` holds the one path of
+this page, `/`, so each click carries a `path` field. The tracker
+option `flushIntervalMs` is `1000`.
 
 This page sends no `Content-Security-Policy` header. The page serves a
 loopback address only, and it holds one inline module script. A real

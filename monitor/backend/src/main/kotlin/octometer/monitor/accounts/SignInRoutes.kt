@@ -39,9 +39,15 @@ private data class SignInAcceptedBody(val message: String)
  * second route. A blank value (the local run, or before #295 sets the
  * Fly host) tells the view to build the tag from `location.origin`
  * instead (the correction of the brief review, m16).
+ *
+ * [trackerHash] is the hash of the served tracker bundle (design
+ * decision D53, issue #298), or `null` when this instance holds no
+ * built bundle (a developer run with no `installDist`, the brief
+ * review of 2026-10-01, B5). The keys panel then shows a plain
+ * sentence in place of the script tag.
  */
 @Serializable
-private data class MeResponse(val email: String, val publicUrl: String)
+private data class MeResponse(val email: String, val publicUrl: String, val trackerHash: String? = null)
 
 /**
  * The sign-in routes of D52, issue #301: `POST /api/signin`, `POST
@@ -97,15 +103,17 @@ fun Route.signInRoutes(signInService: SignInService, config: MonitorConfig) {
 /**
  * `GET /api/me` sits in its own route block: the session check needs no
  * route name of its own, so this stays a plain `get`, added beside
- * [signInRoutes] in `ApiRoutes.kt`.
+ * [signInRoutes] in `ApiRoutes.kt`. [trackerHash] is the hash of the
+ * served tracker bundle (design decision D53, issue #298), or `null`
+ * with no built bundle.
  */
-fun Route.meRoute(signInService: SignInService, config: MonitorConfig) {
+fun Route.meRoute(signInService: SignInService, config: MonitorConfig, trackerHash: String? = null) {
     get("/api/me") {
         val email = signInService.accountEmail(call.accountId())
         if (email == null) {
             call.respond(HttpStatusCode.Unauthorized, ErrorBody("Sign in first."))
         } else {
-            call.respond(MeResponse(email, config.publicUrl))
+            call.respond(MeResponse(email, config.publicUrl, trackerHash))
         }
     }
 }

@@ -68,10 +68,17 @@ export class AddAppForm {
     });
   }
 
-  /** The tracker script tag of the keys panel (issue #296). A blank publicUrl falls back to the page's own origin. */
-  protected scriptTag(appKey: string): string {
+  /** The hash of the served tracker bundle (issue #298), for the keys panel template. */
+  protected readonly trackerHash = this.me.trackerHash;
+
+  /**
+   * The hashed tracker script tag of the keys panel (issue #296, #298).
+   * A blank publicUrl falls back to the page's own origin. The caller
+   * reads this only when [trackerHash] holds a value.
+   */
+  protected scriptTag(appKey: string, trackerHash: string): string {
     const base = this.me.publicUrl() || location.origin;
-    return `<script src="${base}/tracker.js" data-app-key="${appKey}"></script>`;
+    return `<script src="${base}/tracker.js?v=${trackerHash}" data-app-key="${appKey}"></script>`;
   }
 
   protected copyAppKey(): void {
