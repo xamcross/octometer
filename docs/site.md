@@ -8,6 +8,10 @@ the page text and the page look. A copy change goes through the mockup first, th
 The page sets no cookie and loads no third-party script. Each font ships inside the
 bundle; the page makes no request to an outside font host.
 
+The arms of the mark wave one time on load (600 ms); `prefers-reduced-motion: reduce`
+turns the wave off. `src/main.ts` moves the focus into the waitlist email field on a
+click of "Join the waitlist", with no scroll of its own.
+
 ## The local commands
 
 Run each command from `site/`.

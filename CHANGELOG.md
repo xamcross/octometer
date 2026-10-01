@@ -13,6 +13,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   Playwright harness, the CI job `site`, and the host document. (#287)
 - Deploy the site as a Cloudflare Worker with static assets, not as a Pages project;
   Pages is now the legacy path. (#287)
+- Add the wave animation of the mark and the focus move into the waitlist email field
+  on a click of "Join the waitlist"; enable the Worker preview URL. (#288)
 
 ### Monitor
 
