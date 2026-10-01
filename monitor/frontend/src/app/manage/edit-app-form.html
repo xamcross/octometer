@@ -1,6 +1,6 @@
 @if (!editing()) {
   <button type="button" class="btn btn-small edit-toggle" #editToggle (click)="open()">
-    Edit origins
+    Edit app
   </button>
 } @else {
   <form (submit)="onSubmit($event)">
@@ -28,20 +28,18 @@
       <p [id]="originsHintId" class="form-hint">{{ originsHint }}</p>
     </div>
 
-    <div class="field route-patterns-block">
-      <h3>Route patterns</h3>
-      @if (pathPatterns().length > 0) {
-        <ul>
-          @for (pattern of pathPatterns(); track pattern) {
-            <li>
-              <code>{{ pattern }}</code>
-            </li>
-          }
-        </ul>
-        <p class="form-hint">{{ publishedLine() }}</p>
-      } @else {
-        <p class="form-hint">The app has published no list yet.</p>
-      }
+    <div class="field">
+      <label [for]="routePatternsId">Route patterns (one per line)</label>
+      <textarea
+        [id]="routePatternsId"
+        [value]="routePatterns()"
+        (input)="onRoutePatternsInput($event)"
+        [attr.aria-describedby]="
+          errorMessage() ? routePatternsHintId + ' ' + errorId : routePatternsHintId
+        "
+        [attr.aria-invalid]="errorMessage() ? 'true' : null"
+      ></textarea>
+      <p [id]="routePatternsHintId" class="form-hint">{{ routePatternsHint }}</p>
     </div>
 
     @if (errorMessage(); as message) {

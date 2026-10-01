@@ -26,3 +26,13 @@ export const EDIT_CONNECTION_STRING_HINT =
 
 /** The hint of "Origins (one per line)" on the add form (issue #296, D52, M11). */
 export const ORIGINS_HINT = 'The form is https://host, without a path.';
+
+/**
+ * The hint of "Route patterns (one per line)" on the edit form (issue
+ * #299, D5, D40, the example text of #248). A path outside the list
+ * gets the default rule of the collector (D50): a number, a UUID, or a
+ * hex segment of 8 characters or more becomes `:id`.
+ */
+export const ROUTE_PATTERNS_HINT =
+  'Example: /orders/:id, /users/:userId/settings. ' +
+  'A path outside the list gets the default rule: a number, a UUID, or a hex segment becomes :id.';

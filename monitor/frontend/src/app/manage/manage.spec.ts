@@ -204,6 +204,17 @@ describe('Manage', () => {
       expect(document.getElementById(labelledBy ?? '')?.tagName).toBe('CAPTION');
     });
 
+    // Issue #299, M10: the "Patterns" column shows the count of the
+    // typed route pattern list, 0 for an app with no list.
+    it('shows the count of the typed route pattern list in the Patterns column', () => {
+      flushList([buildRow({ routePatternCount: 2 }), buildRow({ appId: 8, routePatternCount: 0 })]);
+
+      const cells = Array.from(root().querySelectorAll('td.patterns')).map((cell) =>
+        cell.textContent?.trim(),
+      );
+      expect(cells).toEqual(['2', '0']);
+    });
+
     it('shows the status as an icon plus text, never colour alone', () => {
       flushList([buildRow({ status: 'UNREACHABLE', lastError: 'The server did not answer.' })]);
 
@@ -306,9 +317,7 @@ describe('Manage', () => {
       return {
         appId: 4,
         name: 'traficio',
-        pathPatterns: null,
-        pathPatternsPublishedAt: null,
-        kitVersion: null,
+        routePatterns: [],
         appKey: markerAppKeyValue,
         origins: ['https://traficio.example'],
         databaseName: 'app_4',
@@ -316,10 +325,11 @@ describe('Manage', () => {
       };
     }
 
-    // MAJOR 2 of the review of pull request #323: the origins PUT now
-    // runs first, and each successful call (the PUT, then the PATCH)
-    // emits its own list reload, so the two flushList calls below each
-    // answer one of the two reloads.
+    // Issue #299, the correction of the brief review of 2026-10-01
+    // (M6): the routes PUT now runs between the origins PUT and the
+    // name PATCH, and each successful call emits its own list reload,
+    // so the three flushList calls below each answer one of the three
+    // reloads.
     it('reloads the list after the edit form renames the app', () => {
       flushList([buildRow({ appId: 4, name: 'traficio' })]);
 
@@ -336,6 +346,12 @@ describe('Manage', () => {
         .dispatchEvent(new Event('submit', { cancelable: true }));
       httpMock
         .expectOne({ url: '/api/apps/4/origins', method: 'PUT' })
+        .flush(detailOf(), { status: 200, statusText: 'OK' });
+      fixture.detectChanges();
+      flushList([buildRow({ appId: 4, name: 'traficio' })]);
+
+      httpMock
+        .expectOne({ url: '/api/apps/4/routes', method: 'PUT' })
         .flush(detailOf(), { status: 200, statusText: 'OK' });
       fixture.detectChanges();
       flushList([buildRow({ appId: 4, name: 'traficio' })]);
@@ -365,6 +381,12 @@ describe('Manage', () => {
         .dispatchEvent(new Event('submit', { cancelable: true }));
       httpMock
         .expectOne({ url: '/api/apps/4/origins', method: 'PUT' })
+        .flush(detailOf(), { status: 200, statusText: 'OK' });
+      fixture.detectChanges();
+      flushList([buildRow({ appId: 4, name: 'traficio' })]);
+
+      httpMock
+        .expectOne({ url: '/api/apps/4/routes', method: 'PUT' })
         .flush(detailOf(), { status: 200, statusText: 'OK' });
       fixture.detectChanges();
       flushList([buildRow({ appId: 4, name: 'traficio' })]);

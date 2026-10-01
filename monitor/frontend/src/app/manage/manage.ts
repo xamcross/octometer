@@ -92,6 +92,11 @@ export class Manage {
     return row.origins ?? [];
   }
 
+  /** The "Patterns" column of issue #299, 0 for an app with no list. */
+  protected patternCountOf(row: AppRow): number {
+    return row.routePatternCount ?? 0;
+  }
+
   protected onAppAdded(): void {
     this.reload();
   }

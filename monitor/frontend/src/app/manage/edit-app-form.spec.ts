@@ -93,9 +93,7 @@ function buildDetail(overrides: Partial<AppDetail> = {}): AppDetail {
   return {
     appId: 3,
     name: 'traficio',
-    pathPatterns: null,
-    pathPatternsPublishedAt: null,
-    kitVersion: null,
+    routePatterns: [],
     appKey: markerAppKeyValue,
     origins: ['https://traficio.example'],
     databaseName: 'app_3',
@@ -152,17 +150,26 @@ describe('EditAppForm', () => {
     fixture.detectChanges();
   }
 
+  // Issue #299, D5, D40: the save order is the origins, then the route
+  // patterns, then the name. A test of a successful origins PUT must
+  // answer this request too, else httpMock.verify() in afterEach fails
+  // on a pending request.
+  function flushRoutesPut(detail: AppDetail = buildDetail()): void {
+    httpMock.expectOne({ url: '/api/apps/3/routes', method: 'PUT' }).flush(detail);
+    fixture.detectChanges();
+  }
+
   it('creates the component', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('shows only an "Edit origins" button before the user opens the form', () => {
+  it('shows only an "Edit app" button before the user opens the form', () => {
     expect(root().querySelector('form')).toBeNull();
     const toggle = root().querySelector('button.edit-toggle');
-    expect(toggle?.textContent?.trim()).toBe('Edit origins');
+    expect(toggle?.textContent?.trim()).toBe('Edit app');
   });
 
-  it('gives the Edit origins, Save, and Cancel buttons their classes', () => {
+  it('gives the Edit app, Save, and Cancel buttons their classes', () => {
     const toggle = root().querySelector<HTMLButtonElement>('button.edit-toggle')!;
     expect(toggle.classList.contains('btn')).toBe(true);
     expect(toggle.classList.contains('btn-small')).toBe(true);
@@ -247,34 +254,25 @@ describe('EditAppForm', () => {
     ).toBeGreaterThan(0);
   });
 
-  // Design decision D48 (issue #277): the form shows the published
-  // route list read-only, with the publish line, instead of the typed
-  // field of issue #226.
-  it('shows the published route list as a list, and the publish line, on open', () => {
-    openEditor(
-      buildDetail({
-        pathPatterns: '/checkout\n/cart',
-        pathPatternsPublishedAt: '2026-09-21T14:23:07.512Z',
-        kitVersion: '1.2.3',
-      }),
-    );
+  // Issue #299, D5, D40: the form shows the typed route pattern list in
+  // an editable field, in place of the read-only published list of
+  // design decision D48 (issue #277; that story closes here).
+  it('opens the form with the route patterns field prefilled from the detail', () => {
+    openEditor(buildDetail({ routePatterns: ['/checkout', '/cart'] }));
 
-    const heading = Array.from(root().querySelectorAll('h3')).find(
-      (element) => element.textContent?.trim() === 'Route patterns',
-    );
-    expect(heading).toBeTruthy();
-    const items = Array.from(root().querySelectorAll('li code')).map((element) =>
-      element.textContent?.trim(),
-    );
-    expect(items).toEqual(['/checkout', '/cart']);
-    expect(root().textContent).toContain('kit 1.2.3');
+    const routePatterns = root().querySelector<HTMLTextAreaElement>(
+      'textarea[id^="edit-app-route-patterns-"]',
+    )!;
+    expect(routePatterns.value).toBe('/checkout\n/cart');
   });
 
-  it('shows "The app has published no list yet." when the app gives no list', () => {
+  it('leaves the route patterns field empty when the app has no list', () => {
     openEditor();
 
-    expect(root().textContent).toContain('The app has published no list yet.');
-    expect(root().querySelector('li')).toBeNull();
+    const routePatterns = root().querySelector<HTMLTextAreaElement>(
+      'textarea[id^="edit-app-route-patterns-"]',
+    )!;
+    expect(routePatterns.value).toBe('');
   });
 
   it('names the hint id of the origins field in aria-describedby, and the hint states the form', () => {
@@ -287,9 +285,23 @@ describe('EditAppForm', () => {
     expect(originsHint?.textContent).toContain('https://host');
   });
 
-  // Design decision D48, the correction of the brief review of
-  // 2026-09-28: a failed read shows a message, and Save stays enabled,
-  // because the save never carries a pathPatterns field.
+  it('names the hint id of the route patterns field in aria-describedby, and the hint gives the example and the default rule', () => {
+    openEditor();
+    const routePatterns = root().querySelector<HTMLTextAreaElement>(
+      'textarea[id^="edit-app-route-patterns-"]',
+    )!;
+
+    expect(routePatterns.getAttribute('aria-describedby')).toBe('edit-app-route-patterns-hint-3');
+
+    const routePatternsHint = root().querySelector('#edit-app-route-patterns-hint-3');
+    expect(routePatternsHint?.textContent).toContain('/orders/:id');
+    expect(routePatternsHint?.textContent).toContain('default rule');
+  });
+
+  // Issue #299, the same rule as design decision D48's own read
+  // failure: a failed read shows a message, and Save stays enabled,
+  // because saveRoutes skips its own request while routePatternsReadFailed
+  // is set (no wrong overwrite with an empty field).
   it('shows a message but keeps Save enabled when the GET on open fails, and a submit sends no request (an empty origins field)', () => {
     openEditorWithFailedGet();
 
@@ -304,10 +316,11 @@ describe('EditAppForm', () => {
       .dispatchEvent(new Event('submit', { cancelable: true }));
 
     // The name is unchanged, and the origins field is empty (the
-    // failed GET never filled it): neither the name PATCH nor the
-    // origins PUT has anything to send.
+    // failed GET never filled it): no request of the three has
+    // anything to send.
     httpMock.expectNone({ url: '/api/apps/3', method: 'PATCH' });
     httpMock.expectNone({ url: '/api/apps/3/origins', method: 'PUT' });
+    httpMock.expectNone({ url: '/api/apps/3/routes', method: 'PUT' });
   });
 
   it('sends PATCH /api/apps/{id} with the name only, when the name changes and the origins field stays the same', () => {
@@ -322,6 +335,10 @@ describe('EditAppForm', () => {
     const putReq = httpMock.expectOne({ url: '/api/apps/3/origins', method: 'PUT' });
     expect(putReq.request.body).toEqual({ origins: ['https://traficio.example'] });
     putReq.flush(buildDetail({ name: 'traficio-renamed' }), { status: 200, statusText: 'OK' });
+
+    const routesReq = httpMock.expectOne({ url: '/api/apps/3/routes', method: 'PUT' });
+    expect(routesReq.request.body).toEqual({ patterns: [] });
+    routesReq.flush(buildDetail({ name: 'traficio-renamed' }), { status: 200, statusText: 'OK' });
 
     const patchReq = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
     expect(patchReq.request.body).toEqual({ name: 'traficio-renamed' });
@@ -343,6 +360,30 @@ describe('EditAppForm', () => {
       origins: ['https://traficio.example', 'https://second.example'],
     });
     putReq.flush(buildDetail(), { status: 200, statusText: 'OK' });
+    flushRoutesPut();
+    httpMock.expectNone({ url: '/api/apps/3', method: 'PATCH' });
+  });
+
+  it('sends PUT /api/apps/{id}/routes with the edited route pattern list, after the origins save', () => {
+    openEditor();
+    const routePatterns = root().querySelector<HTMLTextAreaElement>(
+      'textarea[id^="edit-app-route-patterns-"]',
+    )!;
+    routePatterns.value = '/orders/:id\n/checkout';
+    routePatterns.dispatchEvent(new Event('input'));
+    root()
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { cancelable: true }));
+
+    httpMock
+      .expectOne({ url: '/api/apps/3/origins', method: 'PUT' })
+      .flush(buildDetail(), { status: 200, statusText: 'OK' });
+    const routesReq = httpMock.expectOne({ url: '/api/apps/3/routes', method: 'PUT' });
+    expect(routesReq.request.body).toEqual({ patterns: ['/orders/:id', '/checkout'] });
+    routesReq.flush(buildDetail({ routePatterns: ['/orders/:id', '/checkout'] }), {
+      status: 200,
+      statusText: 'OK',
+    });
   });
 
   describe('on a saved answer', () => {
@@ -357,14 +398,14 @@ describe('EditAppForm', () => {
       httpMock
         .expectOne({ url: '/api/apps/3/origins', method: 'PUT' })
         .flush(buildDetail(), { status: 200, statusText: 'OK' });
-      fixture.detectChanges();
+      flushRoutesPut();
 
       expect(root().querySelector('form')).toBeNull();
       expect(announceSpy).toHaveBeenCalledWith('App updated');
       expect(updatedSpy).toHaveBeenCalled();
     });
 
-    it('moves the focus back to the "Edit origins" button after a save', async () => {
+    it('moves the focus back to the "Edit app" button after a save', async () => {
       openEditor();
       root()
         .querySelector('form')!
@@ -372,7 +413,7 @@ describe('EditAppForm', () => {
       httpMock
         .expectOne({ url: '/api/apps/3/origins', method: 'PUT' })
         .flush(buildDetail(), { status: 200, statusText: 'OK' });
-      fixture.detectChanges();
+      flushRoutesPut();
       await fixture.whenStable();
 
       const toggle = root().querySelector<HTMLButtonElement>('button.edit-toggle')!;
@@ -433,7 +474,7 @@ describe('EditAppForm', () => {
     expect(reopenedName.value).toBe('traficio');
   });
 
-  it('moves the focus back to the "Edit origins" button after Cancel', async () => {
+  it('moves the focus back to the "Edit app" button after Cancel', async () => {
     openEditor();
     root().querySelector<HTMLButtonElement>('button.cancel')!.click();
     fixture.detectChanges();
@@ -464,7 +505,7 @@ describe('EditAppForm', () => {
     httpMock
       .expectOne({ url: '/api/apps/3/origins', method: 'PUT' })
       .flush(buildDetail({ appKey: markerSecondValue }), { status: 200, statusText: 'OK' });
-    fixture.detectChanges();
+    flushRoutesPut(buildDetail({ appKey: markerSecondValue }));
 
     for (const spy of spies) {
       for (const call of spy.mock.calls) {

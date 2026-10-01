@@ -4,7 +4,6 @@ import {
   ElementRef,
   Injector,
   afterNextRender,
-  computed,
   inject,
   input,
   output,
@@ -14,30 +13,38 @@ import {
 
 import { Announcer } from '../announcer';
 import type { AppRow } from '../apps/app-row';
-import { formatLocalDateTime } from '../status-format';
-import { AppDetail, UpdateOriginsRequest, readApiErrorMessage } from './app-registry-api';
-import { ORIGINS_HINT } from './field-hints';
+import {
+  AppDetail,
+  UpdateOriginsRequest,
+  UpdateRoutesRequest,
+  readApiErrorMessage,
+} from './app-registry-api';
+import { ORIGINS_HINT, ROUTE_PATTERNS_HINT } from './field-hints';
 
 /**
- * The control of issue #296 (D52): `PUT /api/apps/{id}/origins` for
- * the origin list, then `PATCH /api/apps/{id}` for a changed name
- * (the order of the correction of pull request #323, MAJOR 2). Each
- * row of the list gets its own instance. The trigger button
- * reads "Edit origins" (the correction of the brief review): it opens
- * the one form below, with the name and the origin list of the app.
+ * The control of issue #296 (D52) and issue #299 (D5, D40): the save
+ * order is the origins, then the route patterns, then a changed name
+ * (the correction of the brief review of 2026-10-01, MAJOR 2 of #323:
+ * a rename must never ship ahead of a rejected list). Each row of the
+ * list gets its own instance. The trigger button reads "Edit app"
+ * (the correction of the brief review of 2026-10-01): it opens the one
+ * form below, with the name, the origin list, and the route pattern
+ * list of the app.
  *
  * The connection string field of D13 is gone (issue #296): the keys
  * panel of the add form and the "New secret key" action cover the
- * hosted path; this form edits the name and the origins of any app.
+ * hosted path; this form edits the name, the origins, and the route
+ * patterns of any app.
  *
  * The focus moves back to the trigger button after a cancel and after
  * a successful save, so a keyboard user stays near the row (the
  * pattern of `DeleteAppDialog.onDialogClose`).
  *
- * Design decision D48 (issue #277) ends the typed route pattern list of
- * issue #226: the form shows the published list read-only. It reads
- * `GET /api/apps/{id}` on open, so it shows the app's own published list
- * and the "Published by the app on" line.
+ * Issue #299, D5, D40: the typed route pattern list returns to this
+ * form, one pattern per line, in place of the read-only published list
+ * of design decision D48 (issue #277; that story closes here). It
+ * reads `GET /api/apps/{id}` on open, so it shows the app's own stored
+ * list, ready to edit.
  *
  * A 404 on the save means a second window already removed the app. The
  * form emits `staleList` in that case, so the parent reads the list again
@@ -66,6 +73,7 @@ export class EditAppForm {
   private readonly editToggle = viewChild<ElementRef<HTMLButtonElement>>('editToggle');
 
   protected readonly originsHint = ORIGINS_HINT;
+  protected readonly routePatternsHint = ROUTE_PATTERNS_HINT;
 
   protected readonly editing = signal(false);
   protected readonly name = signal('');
@@ -73,40 +81,18 @@ export class EditAppForm {
   protected readonly pending = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
 
-  /** The published route list, split into one entry per line, or an empty array before the first publish. */
-  protected readonly pathPatterns = signal<string[]>([]);
-
-  private readonly pathPatternsPublishedAt = signal<string | null>(null);
-  private readonly kitVersion = signal<string | null>(null);
+  /** The typed route pattern list, one pattern per line (issue #299, D5, D40). */
+  protected readonly routePatterns = signal('');
 
   /**
-   * The line under the list, for the read-only block. A cached list
-   * with no `publishedAt` is the third state of the block (MAJOR 2 of
-   * the correction round of pull request #286): a list that an
-   * operator typed before this change, with no publish record yet
-   * (`docs/run-guide.md`, `docs/integration-ktor.md`). That state gets
-   * its own sentence, never an empty line.
+   * True after a failed `GET /api/apps/{id}` (issue #299, the same
+   * rule as design decision D48's own read failure). The field stays
+   * empty; Save stays enabled, so a rename or an origin change still
+   * works, with no wrong overwrite of the route pattern list: the
+   * empty field never ships, because [saveRoutes] skips its own
+   * request while this flag is set.
    */
-  protected readonly publishedLine = computed(() => {
-    const publishedAt = this.pathPatternsPublishedAt();
-    const kitVersion = this.kitVersion();
-    if (publishedAt === null) {
-      return 'Typed before the app published a list.';
-    }
-    const time = formatLocalDateTime(publishedAt);
-    return kitVersion === null
-      ? `Published by the app on ${time}`
-      : `Published by the app on ${time} (kit ${kitVersion})`;
-  });
-
-  /**
-   * True after a failed `GET /api/apps/{id}` (design decision D48, the
-   * correction of the brief review of 2026-09-28). The block shows a
-   * message; Save stays enabled, because the save never carries a
-   * `pathPatterns` field any more, so a failed read of this read-only
-   * block risks no wrong write.
-   */
-  protected readonly pathPatternsReadFailed = signal(false);
+  protected readonly routePatternsReadFailed = signal(false);
 
   protected get nameId(): string {
     return `edit-app-name-${this.app().appId}`;
@@ -120,35 +106,38 @@ export class EditAppForm {
     return `edit-app-origins-hint-${this.app().appId}`;
   }
 
+  protected get routePatternsId(): string {
+    return `edit-app-route-patterns-${this.app().appId}`;
+  }
+
+  protected get routePatternsHintId(): string {
+    return `edit-app-route-patterns-hint-${this.app().appId}`;
+  }
+
   protected get errorId(): string {
     return `edit-app-error-${this.app().appId}`;
   }
 
-  /** Opens the form with the current name, the current origin list, and the published route list. */
+  /** Opens the form with the current name, the current origin list, and the current route pattern list. */
   protected open(): void {
     this.name.set(this.app().name);
     this.origins.set('');
-    this.pathPatterns.set([]);
-    this.pathPatternsPublishedAt.set(null);
-    this.kitVersion.set(null);
-    this.pathPatternsReadFailed.set(false);
+    this.routePatterns.set('');
+    this.routePatternsReadFailed.set(false);
     this.errorMessage.set(null);
     this.editing.set(true);
     afterNextRender(() => this.nameField()?.nativeElement.focus(), { injector: this.injector });
     this.http.get<AppDetail>(`/api/apps/${this.app().appId}`).subscribe({
       next: (detail) => {
         this.origins.set(detail.origins.join('\n'));
-        this.pathPatterns.set(detail.pathPatterns === null ? [] : detail.pathPatterns.split('\n'));
-        this.pathPatternsPublishedAt.set(detail.pathPatternsPublishedAt);
-        this.kitVersion.set(detail.kitVersion);
+        this.routePatterns.set(detail.routePatterns.join('\n'));
       },
-      // Design decision D48 (the correction of the brief review of
-      // 2026-09-28): a failed read must not stay silent. It shows a
-      // message next to the read-only block. Save stays enabled: the
-      // save never carries a pathPatterns field, so this failure risks
-      // no wrong write.
+      // Issue #299: a failed read must not stay silent. It shows a
+      // message next to the route pattern field. Save stays enabled:
+      // routePatternsReadFailed keeps saveRoutes from sending an empty
+      // list that would clear the app's real list.
       error: () => {
-        this.pathPatternsReadFailed.set(true);
+        this.routePatternsReadFailed.set(true);
         this.errorMessage.set(
           'Octometer cannot read the route pattern list. Close this form, then open it again.',
         );
@@ -170,6 +159,10 @@ export class EditAppForm {
     this.origins.set((event.target as HTMLTextAreaElement).value);
   }
 
+  protected onRoutePatternsInput(event: Event): void {
+    this.routePatterns.set((event.target as HTMLTextAreaElement).value);
+  }
+
   protected onSubmit(event: Event): void {
     event.preventDefault();
     if (this.pending()) {
@@ -180,23 +173,45 @@ export class EditAppForm {
     this.saveOrigins();
   }
 
-  // The origins save now runs first, then the name save (MAJOR 2 of
-  // the review of pull request #323): the origins PUT alone can fail
-  // on a rule the name PATCH never checks (a bad origin, a duplicate,
-  // more than 20 origins), so a rename never ships ahead of a
-  // rejected origin list. The API rejects an empty origin list (one
-  // to 20 origins, M11). An app of the legacy connection-string path
-  // (D32) starts with an empty list and an empty textarea here; a
-  // save with no typed origin then skips this request, so a plain
-  // rename of such an app still works, the same as before this story.
+  // The origins save now runs first, then the routes save, then the
+  // name save (the correction of the brief review of 2026-10-01, M6;
+  // MAJOR 2 of the review of pull request #323): each PUT alone can
+  // fail on a rule the name PATCH never checks, so a rename never
+  // ships ahead of a rejected origin list or a rejected route pattern
+  // list. The API rejects an empty origin list (one to 20 origins,
+  // M11). An app of the legacy connection-string path (D32) starts
+  // with an empty list and an empty textarea here; a save with no
+  // typed origin then skips this request, so a plain rename of such an
+  // app still works, the same as before this story.
   private saveOrigins(): void {
     const lines = linesOf(this.origins());
     if (lines.length === 0) {
-      this.saveName();
+      this.saveRoutes();
       return;
     }
     const request: UpdateOriginsRequest = { origins: lines };
     this.http.put<AppDetail>(`/api/apps/${this.app().appId}/origins`, request).subscribe({
+      next: () => {
+        this.updated.emit();
+        this.saveRoutes();
+      },
+      error: (error: unknown) => this.onFailed(error),
+    });
+  }
+
+  // Issue #299, D5, D40: an empty route pattern field clears the list
+  // (the default rule then applies to every path), so this save sends
+  // its request even for an empty field, unlike saveOrigins above. A
+  // failed GET of the stored list (routePatternsReadFailed) skips this
+  // request instead: an empty field must never clear the app's real
+  // list by accident.
+  private saveRoutes(): void {
+    if (this.routePatternsReadFailed()) {
+      this.saveName();
+      return;
+    }
+    const request: UpdateRoutesRequest = { patterns: linesOf(this.routePatterns()) };
+    this.http.put<AppDetail>(`/api/apps/${this.app().appId}/routes`, request).subscribe({
       next: () => {
         this.updated.emit();
         this.saveName();
