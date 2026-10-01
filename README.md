@@ -30,6 +30,9 @@ confirmation of a fix by the same reviewer stay.
 Read `docs/demo.md` for the full demo. It gives the start commands and
 one real run, from a click on the demo page to a number on level 1.
 
+`site/` holds the public landing page of Octometer. Read `docs/site.md`
+for its build, its tests, and its host.
+
 ## The build cache and the changed-only test runs
 
 The root `gradle.properties` turns on the Gradle build cache. A `test`
@@ -57,6 +60,8 @@ run one module or one changed file, not the whole suite.
   against `origin/main` by default.
 - The end-to-end suite has no changed-only script. Run `cd e2e && npm
   test`. It always runs the whole suite.
+- The site suite has no changed-only script. Run `cd site && npm test`.
+  It always runs the one suite.
 
 CI still runs the whole suite of each changed module.
 
@@ -84,6 +89,9 @@ the measured numbers, the run commands, and the table of the design
 decisions that the browser suite reaches.
 
 ## End-to-end tests
+
+Two suites exist now: `cd e2e && npm test` for the monitor, and
+`cd site && npm test` for the public site.
 
 The folder `e2e/` holds one Playwright suite. It drives a real Chromium
 browser against the built distribution of the monitor and the demo app,

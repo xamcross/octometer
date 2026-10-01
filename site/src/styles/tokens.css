@@ -1,0 +1,50 @@
+/*
+ * The design tokens of the cartoon look (docs/design.md, design decision
+ * D45). Each name matches the mockup (site/design/mockup.html). A rule of
+ * site.css reads a token here; it holds no color literal of its own.
+ *
+ * The dark mode blocks of the mockup stay out of this file (issue #287,
+ * correction M4). Issue #288 adds them, with their own contrast proof.
+ */
+:root {
+  --ink: #241f3d;
+  --ink-soft: #4b4763;
+  --paper: #ffffff;
+  --paper-raised: #ffffff;
+  --shallows: #e6f3ff;
+  --shallows-deep: #bfdfff;
+  --coral: #ff6b6b;
+  --sunny: #ffd93d;
+  --seaweed: #6ee7b7;
+  --octo: #a78bfa;
+  --on-bright: #241f3d;
+
+  --radius-panel: 20px;
+  --radius-control: 12px;
+  --radius-pill: 999px;
+  --line-panel: 3px solid var(--ink);
+  --line-control: 2px solid var(--ink);
+  --shadow-panel: 6px 6px 0 var(--ink);
+  --shadow-control: 3px 3px 0 var(--ink);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --display: 'Fredoka', 'Trebuchet MS', sans-serif;
+  --body: 'Nunito', 'Segoe UI', sans-serif;
+
+  --text-s: 0.8rem;
+  --text-m: 1rem;
+  --text-l: 1.25rem;
+  --text-xl: 1.5625rem;
+  --text-2xl: 1.953rem;
+  --text-3xl: 2.441rem;
+  --text-4xl: 3.0518rem;
+
+  color-scheme: light;
+}

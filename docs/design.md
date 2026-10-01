@@ -61,6 +61,7 @@ own column width.
 | `--text-xl` | `1.5625rem` (25px) |
 | `--text-2xl` | `1.953rem` (31.25px) |
 | `--text-3xl` | `2.441rem` (39.06px) |
+| `--text-4xl` | `3.0518rem` (48.83px) |
 
 The scale keeps a ratio of 1.25 on a 16px base. Body text keeps a line height of 1.5; a
 heading keeps a line height of 1.15.

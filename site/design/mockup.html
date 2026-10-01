@@ -1,0 +1,386 @@
+<title>Octometer landing page</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600&family=Nunito:wght@400;700&display=swap">
+<style>
+:root{
+  --ink:#241F3D; --ink-soft:#4B4763; --paper:#FFFFFF; --paper-raised:#FFFFFF;
+  --shallows:#E6F3FF; --shallows-deep:#BFDFFF;
+  --coral:#FF6B6B; --sunny:#FFD93D; --seaweed:#6EE7B7; --octo:#A78BFA; --on-bright:#241F3D;
+  --radius-panel:20px; --radius-control:12px; --radius-pill:999px;
+  --line-panel:3px solid var(--ink); --line-control:2px solid var(--ink);
+  --shadow-panel:6px 6px 0 var(--ink); --shadow-control:3px 3px 0 var(--ink);
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px;
+  --space-6:32px; --space-7:48px;
+  --display:"Fredoka","Trebuchet MS",sans-serif; --body:"Nunito","Segoe UI",sans-serif;
+  --text-s:.8rem; --text-m:1rem; --text-l:1.25rem; --text-xl:1.5625rem;
+  --text-2xl:1.953rem; --text-3xl:2.441rem; --text-4xl:3.0518rem;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ink:#F2EFFF; --ink-soft:#B3ADD4; --paper:#241F3D; --paper-raised:#312B57;
+    --shallows:#141A2E; --shallows-deep:#232B45;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ink:#F2EFFF; --ink-soft:#B3ADD4; --paper:#241F3D; --paper-raised:#312B57;
+  --shallows:#141A2E; --shallows-deep:#232B45;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--shallows);color:var(--ink);font:400 var(--text-m)/1.5 var(--body)}
+h1,h2,h3{font-family:var(--display);font-weight:600;line-height:1.15;margin:0;text-wrap:balance}
+p{margin:0}
+ul,ol{margin:0;padding:0;list-style:none}
+a{color:var(--ink);text-decoration:underline;text-decoration-color:var(--coral);text-decoration-thickness:2px;text-underline-offset:3px}
+a:hover{text-decoration-thickness:3px}
+.page{max-width:76rem;margin-inline:auto;padding-inline:var(--space-4);padding-block:var(--space-5) var(--space-7);display:grid;gap:var(--space-7)}
+.page>*,.how>*,.wl>*,.frame>*{min-width:0}
+.small{font-size:var(--text-s)}
+.soft{color:var(--ink-soft)}
+.sec{display:grid;gap:var(--space-5)}
+.sec>h2{font-size:var(--text-2xl)}
+.sec-lead{max-width:60ch}
+
+/* 1. the hero: the one bold place of the page */
+.hero{display:flex;gap:var(--space-4) var(--space-6);align-items:flex-start;flex-wrap:wrap}
+.hero-text{flex:1 1 18rem;display:grid;gap:var(--space-4);justify-items:start}
+.word{font:600 var(--text-xl)/1.15 var(--display)}
+.hero h1{font-size:clamp(var(--text-2xl),7vw,var(--text-4xl));max-width:22ch}
+.lead{max-width:44ch;font-size:var(--text-l)}
+.mark{fill:none;stroke:var(--ink);stroke-width:2.5;stroke-linecap:round;flex:none}
+.mark .head{fill:var(--octo)}
+.mark .eye{fill:var(--on-bright);stroke:none}
+.mark .smile{stroke:var(--on-bright);stroke-width:2}
+@keyframes wave{0%{transform:rotate(0)}30%{transform:rotate(-7deg)}65%{transform:rotate(6deg)}100%{transform:rotate(0)}}
+.arms{transform-box:view-box;transform-origin:16px 13px;animation:wave 600ms ease-in-out both}
+
+/* controls */
+.btn{display:inline-block;font:600 var(--text-m)/1.2 var(--display);padding:var(--space-3) var(--space-5);background:var(--paper);color:var(--ink);border:var(--line-control);border-radius:var(--radius-control);box-shadow:var(--shadow-control);cursor:pointer;text-decoration:none;transition:transform 80ms,box-shadow 80ms}
+.btn:active{transform:translate(3px,3px);box-shadow:none}
+.btn-primary{background:var(--sunny);color:var(--on-bright);border-color:var(--on-bright)}
+.btn:hover{text-decoration:none}
+
+/* 2. how it works */
+.how{display:grid;gap:var(--space-6);align-items:start}
+.steps{display:grid;gap:var(--space-4);counter-reset:step}
+.steps li{display:grid;grid-template-columns:auto 1fr;gap:var(--space-2) var(--space-4);align-items:baseline;counter-increment:step}
+.steps li::before{content:counter(step);grid-row:span 2;display:grid;place-items:center;width:2.25rem;height:2.25rem;background:var(--sunny);color:var(--on-bright);border:var(--line-control);border-color:var(--on-bright);border-radius:var(--radius-pill);font:600 var(--text-m)/1 var(--display)}
+.steps h3{font-size:var(--text-l)}
+.steps p{max-width:48ch}
+.flow{margin:0;display:grid;gap:var(--space-3);justify-items:start}
+.flow svg{width:100%;max-width:19rem;height:auto}
+.flow-in{fill:var(--paper);stroke:var(--ink)}
+.flow-sunny{fill:var(--sunny)}
+.flow-octo{fill:var(--octo)}
+.flow-sea{fill:var(--seaweed)}
+.flow-sunny,.flow-octo,.flow-sea{stroke:var(--on-bright)}
+.flow rect{stroke-width:2.5}
+.flow .arrow,.flow .glyph *{fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.flow .arrow{stroke:var(--ink)}
+.flow text{stroke:none}
+.flow .nt{font:600 15px/1 var(--display)}
+.flow .ns{font:400 11.5px/1 var(--body)}
+.on,.on text{fill:var(--on-bright)}
+.on .glyph *{stroke:var(--on-bright)}
+.in-ink text{fill:var(--ink)}
+.in-ink .glyph *{stroke:var(--ink)}
+
+/* 3. the three levels */
+.levels{display:grid;gap:var(--space-5)}
+.frame{display:grid;gap:var(--space-3);padding:var(--space-4);background:var(--paper);border:var(--line-panel);border-radius:var(--radius-panel);box-shadow:var(--shadow-panel);margin:0}
+.frame h3{font-size:var(--text-l)}
+.frame figcaption{max-width:50ch}
+.ph{font-size:var(--text-s);color:var(--ink-soft)}
+.tbl{overflow-x:auto;background:var(--shallows);border:var(--line-control);border-radius:var(--radius-control)}
+.tbl table{border-collapse:collapse;width:100%;min-width:19rem;font-size:var(--text-s)}
+.tbl th,.tbl td{padding:var(--space-2) var(--space-3);text-align:left;white-space:nowrap}
+.tbl thead th{background:var(--shallows-deep);border-bottom:var(--line-control);font-family:var(--display);font-weight:600}
+.tbl .num{text-align:right}
+.tbl tbody tr:nth-child(even) td{background:var(--paper)}
+.bar{display:block;height:10px;width:100%;background:var(--shallows-deep);border-radius:var(--radius-pill)}
+.num .bar{width:2.5rem;margin-left:auto}
+#level-apps .tbl table{min-width:40rem}
+
+/* 4. your data stays yours */
+.points{display:grid;gap:var(--space-4);grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))}
+.points li{display:grid;grid-template-columns:auto 1fr;gap:var(--space-3);align-items:start}
+.points p{max-width:40ch}
+.ic{width:28px;height:28px;flex:none;fill:none;stroke:var(--ink);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ic .f-sea{fill:var(--seaweed)}
+.ic .f-shal{fill:var(--shallows-deep)}
+.ic .f-octo{fill:var(--octo)}
+.ic .f-coral{fill:var(--coral)}
+.ic .pupil{fill:var(--on-bright);stroke:none}
+
+/* 5. the waitlist form */
+.wl{display:grid;gap:var(--space-5);align-items:start}
+.panel{background:var(--paper);border:var(--line-panel);border-radius:var(--radius-panel);box-shadow:var(--shadow-panel)}
+.panel-body{padding:var(--space-4);display:grid;gap:var(--space-4)}
+.field{display:grid;gap:var(--space-1)}
+label{font-weight:700}
+.field input{font:400 var(--text-m)/1.5 var(--body);width:100%;padding:var(--space-2) var(--space-3);background:var(--paper);color:var(--ink);border:var(--line-control);border-radius:var(--radius-control);scroll-margin-top:6rem}
+.hint{font-size:var(--text-s);color:var(--ink-soft);max-width:44ch}
+.states{display:grid;gap:var(--space-3);justify-items:start}
+.states h3{font-size:var(--text-l)}
+.state{display:flex;gap:var(--space-2);padding:var(--space-2) var(--space-3);border:var(--line-control);border-color:var(--on-bright);border-radius:var(--radius-control);color:var(--on-bright);font-weight:700;max-width:40ch}
+.state-ok{background:var(--seaweed)}
+.state-bad{background:var(--coral)}
+
+/* 6. the footer with the notice */
+.foot{display:grid;gap:var(--space-4);padding-top:var(--space-5);border-top:var(--line-control)}
+.foot h2{font-size:var(--text-xl)}
+.notice{display:grid;gap:var(--space-2)}
+.notice li{max-width:60ch}
+.foot-meta{display:grid;gap:var(--space-2);font-size:var(--text-s)}
+
+/* the quality floor */
+:focus-visible{outline:3px solid var(--sunny);outline-offset:2px;box-shadow:0 0 0 7px var(--ink)}
+.btn:focus-visible{box-shadow:var(--shadow-control),0 0 0 7px var(--ink)}
+.js .node{opacity:0;transform:translateY(10px);transition:opacity 300ms ease-out,transform 300ms ease-out;transition-delay:calc(var(--i)*90ms)}
+.js .node-in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .arms{animation:none}
+  .btn{transition:none}
+  .js .node{opacity:1;transform:none;transition:none}
+}
+@media (forced-colors:active){
+  .btn,input,.panel,.frame,.tbl{outline:2px solid;outline-offset:0}
+  :focus-visible{outline:3px solid Highlight;outline-offset:2px}
+}
+@media (min-width:48rem){
+  .page{padding-inline:var(--space-6)}
+  .how{grid-template-columns:1fr 20rem}
+  .wl{grid-template-columns:minmax(0,26rem) 1fr;gap:var(--space-6)}
+  .levels{grid-template-columns:1fr 1fr}
+  .levels>:first-child{grid-column:1/-1}
+}
+</style>
+<div class="page">
+
+  <header class="hero">
+    <svg class="mark" width="96" height="96" viewBox="0 0 32 32" aria-hidden="true">
+      <g class="arms"><path d="M22.8 17.8 27.6 21.1M21.3 19.4 25 24M19.3 20.9 21.7 26M17.1 21.5 18 27.1M14.9 21.5 14 27.1M12.7 20.9 10.3 26M10.7 19.4 7 24M9.2 17.8 4.4 21.1"/></g>
+      <circle class="head" cx="16" cy="13" r="9"/>
+      <circle class="eye" cx="12.6" cy="11.5" r="1.6"/><circle class="eye" cx="19.4" cy="11.5" r="1.6"/>
+      <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2"/>
+    </svg>
+    <div class="hero-text">
+      <p class="word">Octometer</p>
+      <h1>Every click in your app, counted.</h1>
+      <p class="lead">Octometer counts each click in your web app. One script tag, one dashboard, no cookie banner.</p>
+      <a class="btn btn-primary" href="#waitlist-email">Join the waitlist</a>
+      <p class="small soft">Octometer is in a pilot. Join the waitlist, and we invite you.</p>
+    </div>
+  </header>
+
+  <section class="sec" aria-labelledby="how-title">
+    <h2 id="how-title">How it works</h2>
+    <div class="how">
+      <ol class="steps">
+        <li>
+          <h3>Register your app</h3>
+          <p>You sign in with a mail link, you register your app, and you get a key.</p>
+        </li>
+        <li>
+          <h3>Add one script tag</h3>
+          <p>You paste one script tag into your pages. Nothing else changes in your app.</p>
+        </li>
+        <li>
+          <h3>Open your dashboard</h3>
+          <p>The dashboard shows the clicks, the users, and the elements of your app within a minute.</p>
+        </li>
+      </ol>
+      <figure class="flow">
+        <svg viewBox="0 0 300 356" role="img" aria-label="One click travels from your page to Octometer and to your dashboard. Nothing else travels.">
+          <g class="node on" style="--i:0"><g transform="translate(0,0)">
+            <rect class="flow-sunny" x="20" y="0" width="260" height="68" rx="16"/>
+            <g class="glyph" transform="translate(38,14)">
+              <path d="M8 4 8 30 14 24 19 34 24 32 19 22 27 21Z"/><path d="M28 7 33 3M30 14 36 13"/>
+            </g>
+            <text class="nt" x="96" y="30">A click</text><text class="ns" x="96" y="48">on your page</text>
+          </g></g>
+          <path class="arrow" d="M150 74 150 84M144 79 150 86 156 79"/>
+          <g class="node in-ink" style="--i:1"><g transform="translate(0,96)">
+            <rect class="flow-in" x="20" y="0" width="260" height="68" rx="16"/>
+            <g class="glyph" transform="translate(38,14)">
+              <path d="M13 9 5 20 13 31M27 9 35 20 27 31M23 6 17 34"/>
+            </g>
+            <text class="nt" x="96" y="30">The tracker</text><text class="ns" x="96" y="48">in the browser</text>
+          </g></g>
+          <path class="arrow" d="M150 170 150 180M144 175 150 182 156 175"/>
+          <g class="node on" style="--i:2"><g transform="translate(0,192)">
+            <rect class="flow-octo" x="20" y="0" width="260" height="68" rx="16"/>
+            <g class="glyph" transform="translate(38,14)">
+              <circle cx="20" cy="16" r="12"/>
+              <circle cx="15" cy="13" r="2" style="fill:var(--on-bright);stroke:none"/>
+              <circle cx="25" cy="13" r="2" style="fill:var(--on-bright);stroke:none"/>
+            </g>
+            <text class="nt" x="96" y="30">Octometer</text><text class="ns" x="96" y="48">counts the click</text>
+          </g></g>
+          <path class="arrow" d="M150 266 150 276M144 271 150 278 156 271"/>
+          <g class="node on" style="--i:3"><g transform="translate(0,288)">
+            <rect class="flow-sea" x="20" y="0" width="260" height="68" rx="16"/>
+            <g class="glyph" transform="translate(38,14)">
+              <rect x="6" y="6" width="28" height="21" rx="3"/><path d="M2 32 38 32M13 22 13 16M20 22 20 11M27 22 27 18"/>
+            </g>
+            <text class="nt" x="96" y="30">Your dashboard</text><text class="ns" x="96" y="48">app.0ct0meter.com</text>
+          </g></g>
+        </svg>
+        <figcaption class="small soft">One click travels from your page to Octometer and to your dashboard. Nothing else travels.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="levels-title">
+    <h2 id="levels-title">Three levels in your dashboard</h2>
+    <p class="sec-lead">The dashboard opens on the apps. A click on a row opens the next level.</p>
+    <div class="levels">
+      <figure class="frame" id="level-apps">
+        <h3>The apps view</h3>
+        <p class="ph" id="cap-apps">A placeholder frame with the real columns. The screenshot comes later.</p>
+        <div class="tbl" tabindex="0" role="region" aria-labelledby="cap-apps">
+          <table aria-labelledby="cap-apps">
+            <thead><tr>
+              <th scope="col">App</th><th scope="col" class="num">Clicks</th>
+              <th scope="col" class="num">Unique users</th><th scope="col" class="num">Unique sessions</th>
+              <th scope="col">First pages</th><th scope="col">Status</th><th scope="col">Data time (UTC)</th>
+            </tr></thead>
+            <tbody>
+              <tr><td><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td><span class="bar"></span></td><td><span class="bar"></span></td><td><span class="bar"></span></td></tr>
+              <tr><td><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td><span class="bar"></span></td><td><span class="bar"></span></td><td><span class="bar"></span></td></tr>
+              <tr><td><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td><span class="bar"></span></td><td><span class="bar"></span></td><td><span class="bar"></span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figcaption>Each app gives its totals: the clicks, the unique users, the unique sessions.</figcaption>
+      </figure>
+      <figure class="frame">
+        <h3>The users view</h3>
+        <p class="ph" id="cap-users">A placeholder frame with the real columns. The screenshot comes later.</p>
+        <div class="tbl" tabindex="0" role="region" aria-labelledby="cap-users">
+          <table aria-labelledby="cap-users">
+            <thead><tr>
+              <th scope="col">User</th><th scope="col" class="num">Clicks</th>
+              <th scope="col" class="num">Sessions</th><th scope="col" class="num">Unique elements</th>
+            </tr></thead>
+            <tbody>
+              <tr><td><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td></tr>
+              <tr><td><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td></tr>
+              <tr><td><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figcaption>One app row opens its users. A user id is pseudonymous, never an email address.</figcaption>
+      </figure>
+      <figure class="frame">
+        <h3>The elements view</h3>
+        <p class="ph" id="cap-elements">A placeholder frame with the real columns. The screenshot comes later.</p>
+        <div class="tbl" tabindex="0" role="region" aria-labelledby="cap-elements">
+          <table aria-labelledby="cap-elements">
+            <thead><tr>
+              <th scope="col">Element</th><th scope="col" class="num">Clicks</th>
+              <th scope="col" class="num">Sessions</th><th scope="col">Last interaction (UTC)</th>
+            </tr></thead>
+            <tbody>
+              <tr><td><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td><span class="bar"></span></td></tr>
+              <tr><td><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td><span class="bar"></span></td></tr>
+              <tr><td><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td class="num"><span class="bar"></span></td><td><span class="bar"></span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figcaption>One user row opens each element that this user touched, with the newest click time.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="privacy-title">
+    <h2 id="privacy-title">What we keep</h2>
+    <ul class="points">
+      <li>
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+          <rect class="f-sea" x="2.5" y="2.5" width="19" height="19" rx="4"/><path d="M6.5 8h11M6.5 12h11M6.5 16h7"/>
+        </svg>
+        <p>We keep the click, the page pattern, and the time. Nothing else.</p>
+      </li>
+      <li>
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+          <rect class="f-shal" x="2.5" y="4.5" width="19" height="15" rx="3"/><path d="M2.5 9.5h19M6 7h4"/>
+        </svg>
+        <p>Your users get a pseudonymous id and a session id. We set no cookie in your page.</p>
+      </li>
+      <li>
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+          <path class="f-octo" d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6Z"/><circle class="pupil" cx="12" cy="12" r="2.6"/><path d="M4 4 20 20"/>
+        </svg>
+        <p>We never store an IP address.</p>
+      </li>
+      <li>
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+          <path class="f-coral" d="M6.5 7h11l-1 13h-9Z"/><path d="M4.5 7h15M9.5 7V4.2h5V7"/>
+        </svg>
+        <p>One call erases one user. Each click goes after 12 months.</p>
+      </li>
+    </ul>
+  </section>
+
+  <section class="sec" id="waitlist" aria-labelledby="waitlist-title">
+    <h2 id="waitlist-title">Join the waitlist</h2>
+    <p class="sec-lead">Octometer is in a pilot. Give us your address, and we write to you at the start.</p>
+    <div class="wl">
+      <form class="panel" novalidate>
+        <div class="panel-body">
+          <div class="field">
+            <label for="waitlist-email">Your email address</label>
+            <input id="waitlist-email" name="email" type="email" autocomplete="email" aria-describedby="email-hint consent">
+            <p class="hint" id="email-hint">We send one mail with a confirmation link. Open that link to join the list.</p>
+          </div>
+          <p class="hint" id="consent">We use your address for this waitlist only. Read the <a href="#notice">notice</a>.</p>
+          <p><button class="btn btn-primary" type="submit">Join the waitlist</button></p>
+        </div>
+      </form>
+      <div class="states">
+        <h3>The two answers</h3>
+        <p class="state state-ok"><span aria-hidden="true">&#10003;</span> Check your mail. Open the confirmation link, and your address joins the list.</p>
+        <p class="state state-bad"><span aria-hidden="true">&#9888;</span> We need a full address, such as you@example.com. Correct the address, then send it again.</p>
+        <p class="hint">The real page shows one answer at a time, under the button.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot" id="notice">
+    <h2>The notice of the waitlist</h2>
+    <ul class="notice">
+      <li><strong>The purpose.</strong> We use your address for the news of Octometer. We send no other mail.</li>
+      <li><strong>The data.</strong> We store your address, the day you join, and the day you confirm.</li>
+      <li><strong>The retention.</strong> We remove an address that stays unconfirmed for 7 days.</li>
+      <li><strong>The removal.</strong> Each mail holds a removal link. You can also write to the contact address.</li>
+    </ul>
+    <div class="foot-meta">
+      <p>The privacy policy of the service: app.0ct0meter.com/privacy (the page comes with the service).</p>
+      <p>Contact: &lt;the contact address at 0ct0meter.com&gt;</p>
+      <p>This page sets no cookie and loads no third-party script.</p>
+      <p class="soft">This mockup loads the two fonts from Google. The real page ships them in the bundle.</p>
+    </div>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  if (!('IntersectionObserver' in window)) return;
+  var nodes = document.querySelectorAll('.node');
+  if (!nodes.length) return;
+  document.documentElement.classList.add('js');
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (!entry.isIntersecting) return;
+      entry.target.classList.add('node-in');
+      io.unobserve(entry.target);
+    });
+  }, { rootMargin: '0px 0px -8% 0px' });
+  nodes.forEach(function (node) { io.observe(node); });
+})();
+</script>

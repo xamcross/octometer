@@ -7,6 +7,13 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ## Unreleased
 
+### Site
+
+- Scaffold the public site: the Vite build, the hero section of the mockup, the
+  Playwright harness, the CI job `site`, and the host document. (#287)
+- Deploy the site as a Cloudflare Worker with static assets, not as a Pages project;
+  Pages is now the legacy path. (#287)
+
 ### Monitor
 
 - Scaffold the hosted service: the Docker image, `fly.toml`, the `/healthz` route, the D56
