@@ -4,6 +4,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -12,12 +13,17 @@ import io.ktor.server.testing.testApplication
 import java.io.File
 import java.sql.DriverManager
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import octometer.monitor.accounts.insertInvite
 import octometer.monitor.allowedHost
 import octometer.monitor.captureLogEvents
 import octometer.monitor.devConfig
 import octometer.monitor.logStart
 import octometer.monitor.module
+import octometer.monitor.sessionCookieValue
+import octometer.monitor.withSession
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -596,6 +602,36 @@ class ConfigLoaderTest {
             assertFalse(lines.contains(token), "the log must never hold the sign-in token: $lines")
             assertFalse(lines.contains(sessionValue), "the log must never hold the session id: $lines")
         }
+
+    // Issue #296, D51, D58, the correction of the brief review (m13):
+    // the sentinel of the new key, through the same precedent as the
+    // test above. clusterUri must be non-blank, else the create gives
+    // 503 before it ever makes a key. This reads the plain secret key
+    // from the 201 answer, then asserts the captured log holds none of
+    // it: the secret key is random at each run, so no fixed marker
+    // name is possible here.
+    @Test
+    fun `a real app registration with origins never writes the secret key to the log`() = testApplication {
+        val config = devConfig(clusterUri = "mongodb://127.0.0.1:1/octometer_service")
+        application { module(config) }
+        startApplication()
+        val cookie = sessionCookieValue(config.dataDir)
+
+        val (secretKey, events) = captureLogEvents {
+            val response = client.post("/api/apps") {
+                allowedHost()
+                withSession(cookie)
+                header("Origin", "http://localhost:7431")
+                contentType(ContentType.Application.Json)
+                setBody("""{"name":"sentinel-app","origins":["https://example.com"]}""")
+            }
+            assertEquals(HttpStatusCode.Created, response.status)
+            Json.parseToJsonElement(response.bodyAsText()).jsonObject["secretKey"]!!.jsonPrimitive.content
+        }
+
+        val lines = events.joinToString("\n") { it.formattedMessage }
+        assertFalse(lines.contains(secretKey), "the log must never hold the secret key: $lines")
+    }
 
     // Issue #301, brief review M8: the default of mailSender is "file"
     // when publicUrl is blank or a loopback host, else "resend".

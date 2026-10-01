@@ -594,4 +594,26 @@ class RequestGuardTest {
 
         assertNull(response.headers[HttpHeaders.CacheControl])
     }
+
+    // -- OriginCheck (issue #296, D52) -------------------------------------
+    //
+    // No route of this story calls OriginCheck.matches (#297's collector
+    // is the caller); the brief review of 2026-10-01 (m15) asks for the
+    // case list here, so the function has its proof before that caller
+    // exists.
+
+    @Test
+    fun `OriginCheck matches the scheme, the host, and the port, each after lower-casing`() {
+        val origins = listOf("https://Example.com", "http://localhost:4200")
+
+        assertEquals(true, OriginCheck.matches("https://example.com", origins), "a lower-case match of a stored upper-case host")
+        assertEquals(true, OriginCheck.matches("https://EXAMPLE.COM", origins), "an upper-case header still matches")
+        assertEquals(true, OriginCheck.matches("http://localhost:4200", origins), "an explicit port matches the same explicit port")
+        assertEquals(true, OriginCheck.matches("https://example.com:443", origins), "the implicit port 443 matches an explicit :443")
+        assertEquals(false, OriginCheck.matches("http://example.com", origins), "the scheme must match too")
+        assertEquals(false, OriginCheck.matches("https://example.com:8443", origins), "a different port never matches")
+        assertEquals(false, OriginCheck.matches("https://other.example.com", origins), "a different host never matches")
+        assertEquals(false, OriginCheck.matches(null, origins), "an absent header is false")
+        assertEquals(false, OriginCheck.matches("not-an-origin", origins), "an unreadable header is false")
+    }
 }

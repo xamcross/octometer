@@ -497,40 +497,48 @@ class PollSchedulerTest {
     }
 
     // Issue #17, decision 1, second path: an app with no stored secret
-    // gets one WARN, with no app id, and next_poll_at still moves. An
-    // earlier form returned in silence. The loop then read the secret
-    // store once each second, for ever, with no line at any level
-    // (MAJOR 2 of the two reviews).
+    // and no cluster URI gets one WARN, with no app id, and
+    // next_poll_at still moves. An earlier form returned in silence.
+    // The loop then read the secret store once each second, for ever,
+    // with no line at any level (MAJOR 2 of the two reviews).
+    //
+    // Issue #296, M5 (the correction of the brief review of
+    // 2026-10-01): a null secret now takes the cluster URI as its
+    // fallback connection string; this test gives no clusterUri
+    // either, so the app still gets no real cycle, now with the
+    // last_error text "The service has no cluster."
     @Test
-    fun `an app with no stored secret gets one WARN with no app id, and next_poll_at still moves`() = runTest {
-        val store = FakePollStore()
-        val secretStore = SecretStore(dataDir)
-        val appId = store.addApp(nextPollAt = 0L)
-        // No secretStore.put call: the app has no stored secret.
-        val cycle = RecordingPollCycle()
+    fun `an app with no stored secret and no cluster gets one WARN with no app id, and next_poll_at still moves`() =
+        runTest {
+            val store = FakePollStore()
+            val secretStore = SecretStore(dataDir)
+            val appId = store.addApp(nextPollAt = 0L)
+            // No secretStore.put call: the app has no stored secret.
+            val cycle = RecordingPollCycle()
 
-        val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5)
+            val scheduler = pollScheduler(store, secretStore, cycle, testScheduler = testScheduler, pollIntervalSeconds = 5)
 
-        val (_, events) = captureLogEvents {
-            scheduler.start()
-            try {
-                testScheduler.runCurrent()
-                awaitCondition(testScheduler) { store.nextPollAtOf(appId) == 5_000L }
-            } finally {
-                // A finally block: MAJOR 2 of the second Kotlin review.
-                scheduler.stop()
+            val (_, events) = captureLogEvents {
+                scheduler.start()
+                try {
+                    testScheduler.runCurrent()
+                    awaitCondition(testScheduler) { store.nextPollAtOf(appId) == 5_000L }
+                } finally {
+                    // A finally block: MAJOR 2 of the second Kotlin review.
+                    scheduler.stop()
+                }
             }
-        }
 
-        assertTrue(cycle.calls.isEmpty(), "the cycle never runs with no stored secret")
-        val warnings = events.filter { it.level == Level.WARN }
-        assertEquals(1, warnings.size, "one WARN line for the missing secret")
-        assertEquals(
-            "The poll skipped one app with no stored secret.",
-            warnings.single().formattedMessage,
-            "the WARN line names no app id",
-        )
-    }
+            assertTrue(cycle.calls.isEmpty(), "the cycle never runs with no stored secret and no cluster")
+            assertEquals("The service has no cluster.", store.lastErrorOf(appId))
+            val warnings = events.filter { it.level == Level.WARN }
+            assertEquals(1, warnings.size, "one WARN line for the missing cluster")
+            assertEquals(
+                "The poll skipped one app with no cluster.",
+                warnings.single().formattedMessage,
+                "the WARN line names no app id",
+            )
+        }
 
     // Issue #17, decision 1, third path: a failed read of the app list
     // logs one WARN, and the loop ticks again after the normal delay.
@@ -1187,6 +1195,10 @@ private fun pollScheduler(
     closeClient: (Long) -> Unit = {},
     random: Random = FixedJitterRandom(),
     clock: Clock = VirtualClock(testScheduler),
+    // Issue #296, M5: a blank default keeps each existing test on the
+    // present "no stored secret" path blank too (a test of the new
+    // cluster fallback gives its own non-blank value).
+    clusterUri: String = "",
 ): PollScheduler =
     PollScheduler(
         pollStore = pollStore,
@@ -1200,6 +1212,7 @@ private fun pollScheduler(
         stopGraceMillis = stopGraceMillis,
         wakeDelayMillis = wakeDelayMillis,
         random = random,
+        clusterUri = clusterUri,
     )
 
 /** A Clock that reads the virtual time of [scheduler] (issue #17, decision 2). */

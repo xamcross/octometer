@@ -440,4 +440,8 @@ private data class SentinelAppRow(
     val lastError: String?,
     val nextPollAt: String?,
     val gaps: List<SentinelGap>,
+    // Issue #296, M7: mirrors the three fields that AppTotalsRow added.
+    val appKey: String?,
+    val origins: List<String>,
+    val databaseName: String?,
 )
