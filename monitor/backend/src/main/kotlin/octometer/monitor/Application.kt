@@ -43,6 +43,8 @@ import octometer.monitor.mail.requireLocalMailSender
 import octometer.monitor.security.installRequestGuard
 import octometer.monitor.security.requireLoopbackBindAddress
 import octometer.monitor.store.CorruptDatabaseException
+import octometer.monitor.tracker.TrackerAssets
+import octometer.monitor.tracker.trackerRoute
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.Files
@@ -272,6 +274,14 @@ fun Application.module(
     // guard block of RequestGuard.kt. It puts the account id into a
     // call attribute that each route handler below reads.
     installSessionCheck(services.database)
+    // Issue #298, D53: the served tracker bundle. A missing bundle (a
+    // developer run with no installDist) logs one start line (the
+    // brief review of 2026-10-01, B5); the route itself then answers
+    // 404 for each request.
+    val trackerBundle = TrackerAssets.load(staticDir)
+    if (trackerBundle == null) {
+        log.warn("The tracker bundle is absent.")
+    }
     routing {
         // D56: the process-and-store check. It skips the Host check
         // (RequestGuard.isHealthzPath) and the admin guard (it sits
@@ -306,7 +316,10 @@ fun Application.module(
         // session). installRequestGuard already skips the Host check's
         // one exception and the Origin check for these two paths.
         collectRoute(services.collectorRuntime)
-        apiRoutes(services)
+        // Issue #298, D53: GET /tracker.js, outside /api/ (no session,
+        // the brief review of 2026-10-01, B5).
+        trackerRoute(trackerBundle)
+        apiRoutes(services, trackerBundle?.hash)
         // Issue #38, step 4: the Angular build, when the distribution
         // has one. A dev-mode run through Gradle has none; ng serve
         // then serves the UI on its own port (D27).

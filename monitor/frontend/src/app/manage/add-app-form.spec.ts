@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
+import { Me } from '../account/me';
 import { Announcer } from '../announcer';
 import { AddAppForm } from './add-app-form';
 import type { AppKeys } from './app-registry-api';
@@ -94,6 +95,19 @@ describe('AddAppForm', () => {
 
   function root(): HTMLElement {
     return fixture.nativeElement as HTMLElement;
+  }
+
+  /**
+   * Loads `Me.trackerHash` with [trackerHash] (issue #298), through a
+   * real `GET /api/me` and a flush, the same path as `app.spec.ts`
+   * drives `Me.load()`. A test calls this before it submits the form,
+   * so the keys panel reads the hash the first time it renders.
+   */
+  function loadMeWithTrackerHash(trackerHash: string | null): void {
+    const me = TestBed.inject(Me);
+    me.load();
+    httpMock.expectOne('/api/me').flush({ email: 'owner@example.com', publicUrl: '', trackerHash });
+    fixture.detectChanges();
   }
 
   function fillAndSubmit(
@@ -289,13 +303,23 @@ describe('AddAppForm', () => {
       expect(root().textContent).toContain('Copy the secret key now. It shows one time.');
     });
 
-    it('builds the script tag from the app key, with the "arrives with the next release" sentence', () => {
+    it('builds the hashed script tag from the app key and the tracker hash, with no "arrives with the next release" sentence', () => {
+      loadMeWithTrackerHash('abc123');
       submitAndFlushCreated(keysOf());
 
       const scriptTag = root().querySelector('#add-app-script-tag')!;
       expect(scriptTag.textContent).toContain(`data-app-key="${markerAppKeyValue}"`);
-      expect(scriptTag.textContent).toContain('tracker.js');
-      expect(root().textContent).toContain('The script arrives with the next release.');
+      expect(scriptTag.textContent).toContain('tracker.js?v=abc123');
+      expect(root().textContent).not.toContain('The script arrives with the next release.');
+    });
+
+    it('shows "The script is not built on this instance." in place of the tag with no tracker hash', () => {
+      loadMeWithTrackerHash(null);
+      submitAndFlushCreated(keysOf());
+
+      expect(root().querySelector('#add-app-script-tag')?.tagName).toBe('P');
+      expect(root().textContent).toContain('The script is not built on this instance.');
+      expect(root().textContent).not.toContain('tracker.js');
     });
 
     // Issue #299: the registration takes no route pattern field; the

@@ -16,6 +16,7 @@
   "files": [
     "dist",
     "src/index.ts",
+    "src/iife.ts",
     "src/path-match.ts",
     "src/batch.ts",
     "src/referrer-source.ts",
@@ -23,7 +24,8 @@
   ],
   "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.types.json",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build.types.json && npm run build:iife && node scripts/print-iife-size.mjs",
+    "build:iife": "esbuild src/iife.ts --bundle --minify --format=iife --target=es2020 --outfile=dist/tracker.iife.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -34,6 +36,7 @@
   },
   "dependencies": {},
   "devDependencies": {
+    "esbuild": "0.28.2",
     "jsdom": "^30.1.1",
     "typescript": "~7.0.2",
     "vitest": "^5.0.2"
