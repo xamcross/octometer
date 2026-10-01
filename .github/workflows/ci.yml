@@ -277,7 +277,7 @@ jobs:
         with:
           persist-credentials: false
       # Issue #287, correction M5: the Node version comes from
-      # site/.nvmrc, the same file that the Cloudflare Pages project
+      # site/.nvmrc, the same file that the Cloudflare Worker project
       # reads.
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

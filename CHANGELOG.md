@@ -10,7 +10,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 ### Site
 
 - Scaffold the public site: the Vite build, the hero section of the mockup, the
-  Playwright harness, the CI job `site`, and the Cloudflare Pages host document. (#287)
+  Playwright harness, the CI job `site`, and the host document. (#287)
+- Deploy the site as a Cloudflare Worker with static assets, not as a Pages project;
+  Pages is now the legacy path. (#287)
 
 ### Monitor
 

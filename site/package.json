@@ -17,6 +17,7 @@
   "devDependencies": {
     "@playwright/test": "1.63.0",
     "typescript": "~7.0.2",
-    "vite": "^7.1.12"
+    "vite": "^7.1.12",
+    "wrangler": "4.145.0"
   }
 }

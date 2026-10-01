@@ -16,3 +16,4 @@ e2e/test-results/
 e2e/.run/
 site/e2e/playwright-report/
 site/e2e/test-results/
+site/.wrangler/

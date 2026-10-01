@@ -26,20 +26,35 @@ The job `site` of `.github/workflows/ci.yml` runs on a change under `site/**`, o
 change to the workflow file. It installs the dependencies, builds the page, and runs the
 Playwright suite. It keeps the Playwright report as an artifact on each run.
 
-## The host: Cloudflare Pages
+## The host: Cloudflare Workers, static assets
 
-Cloudflare Pages builds and deploys the page from the repository. The maintainer records
-each step here, so the owner can repeat it.
+Cloudflare Pages is the legacy path now; the project deploys as a Worker with static
+assets, through `site/wrangler.jsonc`. Cloudflare Workers Builds builds and deploys the
+page from the repository. The maintainer records each step here, so the owner can
+repeat it.
 
-1. **Install the Cloudflare Pages GitHub app, and grant it this one repository.** A
-   private repository then shows in the "Connect to Git" list of the Pages project.
-2. **Set the build watch path to `site/*`, and exclude the branch `dependabot/*`.** The
-   Free plan gives 500 builds each month, and one build at a time. The watch path keeps a
-   build for a real change to the site only.
+### Create the project
+
+1. In the Cloudflare dashboard: **Create an app** → **Continue with GitHub** → pick the
+   repository.
+2. **Project name**: `octometer`.
+3. **Build command**: `npm run build`.
+4. **Deploy command**: `npx wrangler deploy`.
+5. **Preview command**: the dashboard proposes `npx wrangler versions upload`; keep it.
+6. **Preview builds**: on. **Cloudflare Access**: off.
+7. **Advanced settings** → **Root directory**: `site`.
+
+### The four host rules
+
+1. **Install the Cloudflare Workers Builds GitHub app, and grant it this one
+   repository.** A private repository then shows in the "Continue with GitHub" list.
+2. **Set the build watch path to `site/*` under Settings → Builds.** Workers Builds
+   gives 3 000 build minutes each month on the free plan. The watch path keeps a build
+   for a real change to the site only.
 3. **A pull request from a fork gets no preview build.** The CI job `site` is the check
    for that pull request.
-4. **Pages deploys a push to `main` on its own.** The maintainer merges a pull request
-   with a green `site` job only; no separate deploy step runs in CI.
+4. **The Worker deploys a push to `main` on its own.** The maintainer merges a pull
+   request with a green `site` job only; no separate deploy step runs in CI.
 
 ### The project settings
 
@@ -48,19 +63,16 @@ each step here, so the owner can repeat it.
 | Production branch | `main` |
 | Root directory | `site` |
 | Build command | `npm run build` |
-| Output directory | `dist` |
+| Deploy command | `npx wrangler deploy` |
+| Preview command | `npx wrangler versions upload` |
 | Node version | The environment variable `NODE_VERSION`, from `site/.nvmrc` |
 
 ### The preview URL
 
-Each pull request, and each branch, gets its own preview URL:
-
-- `https://<8 hex of the commit>.<project>.pages.dev`
-- `https://<branch>.<project>.pages.dev`
+Each branch gets its own preview URL: `https://<branch>-octometer.<account>.workers.dev`.
 
 ### The domain
 
 The production domain is the apex `0ct0meter.com`. The owner bought the domain on
-Cloudflare on 2026-10-01; the zone and the Pages project sit in the same Cloudflare
-account, so the Pages dashboard adds the apex record on its own. The site has no `www`
-record for now.
+Cloudflare on 2026-10-01. The owner adds it under the Worker's **Settings** → **Domains
+& Routes**. The site has no `www` record for now.
