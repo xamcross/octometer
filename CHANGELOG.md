@@ -32,6 +32,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add sign-in with a mail link: the accounts, the invite list, the session cookie, the
   Resend and the file mail senders, the account filter of every API route, and the
   launcher command `--invite`. Remove the temporary admin guard of #295. (#301)
+- Register an app with a name and an origin list; it gets an app key and a secret key,
+  shown one time, and the poll loop reads the hosted cluster URI when no secret is
+  stored, with one shared MongoDB client for every such app. (#296)
 
 ### CI
 

@@ -5,6 +5,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -21,6 +22,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import octometer.monitor.allowedHost
 import octometer.monitor.captureErrorLogEvents
+import octometer.monitor.devConfig
 import octometer.monitor.module
 import octometer.monitor.prodConfig
 import octometer.monitor.sessionCookieValue
@@ -603,6 +605,108 @@ class AppRegistryRoutesTest {
         val response = client.get("/api/apps/not-a-number") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    // MAJOR 3 of the review of pull request #323: the account filter
+    // of D52 had no test of the three new routes of issue #296. Each
+    // case below registers an app as account A, with the hosted path
+    // (an origin list, no connection string), then calls the route as
+    // account B. The account helper of issue #301 (sessionCookieValue
+    // with a second email) gives the second account; it reuses the
+    // existing row on a second call with the same email, the same
+    // rule as every other test of this class.
+
+    @Test
+    fun `GET apps id of an app of account A gives 404 to account B`() = testApplication {
+        val dataDir = testDataDir()
+        application { module(devConfig(dataDir = dataDir, clusterUri = "mongodb://127.0.0.1:1/octometer_service")) }
+        startApplication()
+        val ownerSession = sessionCookieValue(dataDir, "owner-a@example.com")
+        val otherSession = sessionCookieValue(dataDir, "owner-b@example.com")
+        val created = createAppWithOrigins(ownerSession, name = "demo", origins = listOf("https://demo.example"))
+        val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
+
+        val response = client.get("/api/apps/$appId") { allowedHost(); withSession(otherSession) }
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    @Test
+    fun `PUT apps id origins of an app of account A gives 404 to account B`() = testApplication {
+        val dataDir = testDataDir()
+        application { module(devConfig(dataDir = dataDir, clusterUri = "mongodb://127.0.0.1:1/octometer_service")) }
+        startApplication()
+        val ownerSession = sessionCookieValue(dataDir, "owner-a@example.com")
+        val otherSession = sessionCookieValue(dataDir, "owner-b@example.com")
+        val created = createAppWithOrigins(ownerSession, name = "demo", origins = listOf("https://demo.example"))
+        val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
+
+        val response = client.put("/api/apps/$appId/origins") {
+            allowedHost()
+            header(HttpHeaders.Origin, "http://localhost:7431")
+            contentType(ContentType.Application.Json)
+            withSession(otherSession)
+            setBody("""{"origins":["https://second.example"]}""")
+        }
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    @Test
+    fun `POST apps id secret of an app of account A gives 404 to account B`() = testApplication {
+        val dataDir = testDataDir()
+        application { module(devConfig(dataDir = dataDir, clusterUri = "mongodb://127.0.0.1:1/octometer_service")) }
+        startApplication()
+        val ownerSession = sessionCookieValue(dataDir, "owner-a@example.com")
+        val otherSession = sessionCookieValue(dataDir, "owner-b@example.com")
+        val created = createAppWithOrigins(ownerSession, name = "demo", origins = listOf("https://demo.example"))
+        val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
+
+        val response = client.post("/api/apps/$appId/secret") {
+            allowedHost()
+            header(HttpHeaders.Origin, "http://localhost:7431")
+            withSession(otherSession)
+        }
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    @Test
+    fun `POST with a connectionString field and an origins field gets 400 with the dispatch text`() = testApplication {
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
+
+        val response = client.post("/api/apps") {
+            allowedHost()
+            header(HttpHeaders.Origin, "http://localhost:7431")
+            contentType(ContentType.Application.Json)
+            withSession(session)
+            setBody(
+                """{"name":"demo","connectionString":"${allowlistedSrvUri()}",""" +
+                    """"origins":["https://demo.example"]}""",
+            )
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("Send a connection string or an origin list, not both.", body["error"]!!.jsonPrimitive.content)
+    }
+
+    // Issue #296, D51, D52, D57: the hosted path of POST /api/apps, for
+    // the four account-filter and dispatch tests above.
+    private suspend fun ApplicationTestBuilder.createAppWithOrigins(
+        session: String,
+        name: String,
+        origins: List<String>,
+    ) = client.post("/api/apps") {
+        allowedHost()
+        header(HttpHeaders.Origin, "http://localhost:7431")
+        contentType(ContentType.Application.Json)
+        withSession(session)
+        val originsJson = origins.joinToString(",") { "\"$it\"" }
+        setBody("""{"name":"$name","origins":[$originsJson]}""")
     }
 }
 

@@ -10,6 +10,7 @@ import { AddAppForm } from './add-app-form';
 import { readApiErrorMessage } from './app-registry-api';
 import { DeleteAppDialog } from './delete-app-dialog';
 import { EditAppForm } from './edit-app-form';
+import { NewSecretKeyDialog } from './new-secret-key-dialog';
 
 /**
  * The route "/manage" (D28, D32). The owner adds an app, replaces the
@@ -27,7 +28,7 @@ import { EditAppForm } from './edit-app-form';
  */
 @Component({
   selector: 'app-manage',
-  imports: [AddAppForm, DeleteAppDialog, EditAppForm, EmptyState],
+  imports: [AddAppForm, DeleteAppDialog, EditAppForm, EmptyState, NewSecretKeyDialog],
   styleUrl: './manage.css',
   templateUrl: './manage.html',
 })
@@ -78,6 +79,17 @@ export class Manage {
   /** True for each status other than `OK` and `NEVER_POLLED` (D30). */
   protected isFailed(status: AppStatus): boolean {
     return status !== 'OK' && status !== 'NEVER_POLLED';
+  }
+
+  /** The "App key" column of issue #296: the first 8 characters, or an em dash for an app with no key (D32). */
+  protected shortAppKey(row: AppRow): string {
+    const key = row.appKey;
+    return key ? key.slice(0, 8) : '—';
+  }
+
+  /** The "Origins" column of issue #296, `[]` for an app with none (D32). */
+  protected originsOf(row: AppRow): readonly string[] {
+    return row.origins ?? [];
   }
 
   protected onAppAdded(): void {

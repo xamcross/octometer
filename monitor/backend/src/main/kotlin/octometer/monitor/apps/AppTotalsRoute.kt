@@ -10,6 +10,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlinx.serialization.Serializable
 import octometer.monitor.accounts.accountId
+import octometer.monitor.registry.decodeOriginsJson
 import octometer.monitor.store.SqliteDatabase
 
 /**
@@ -37,6 +38,12 @@ data class AppTotalsRow(
     val lastError: String?,
     val nextPollAt: String?,
     val gaps: List<GapPeriod>,
+    // Issue #296, M7: never the secret key or its hash. appKey and
+    // databaseName are null for an app of the legacy connection-string
+    // path (D32) that never registered keys; origins is [] for it.
+    val appKey: String?,
+    val origins: List<String>,
+    val databaseName: String?,
 )
 
 // Rule M4 of the design change (#109, #18): the literal `kind = 0` keeps
@@ -74,7 +81,8 @@ internal const val UNIQUE_SESSIONS_SQL =
 // pre-existing rows) never matches a bound account id, thus it stays
 // out of every account's list.
 private const val APPS_SQL =
-    "SELECT id, name, status, last_poll_at, last_success_at, last_error, next_poll_at " +
+    "SELECT id, name, status, last_poll_at, last_success_at, last_error, next_poll_at, " +
+        "app_key, origins, database_name " +
         "FROM app WHERE account_id = ? ORDER BY id"
 
 // The maintainer's correction of the brief review of 2026-09-27 (issue
@@ -124,6 +132,9 @@ private data class AppRecord(
     val lastSuccessAt: Long?,
     val lastError: String?,
     val nextPollAt: Long?,
+    val appKey: String?,
+    val origins: List<String>,
+    val databaseName: String?,
 ) {
     // D8: the derived status NEVER_POLLED replaces the stored status when
     // the app has no poll cycle yet. MINOR 3 of correction round 1: a
@@ -145,6 +156,9 @@ private data class AppRecord(
         lastError = lastError,
         nextPollAt = formatInstant(nextPollAt),
         gaps = gaps,
+        appKey = appKey,
+        origins = origins,
+        databaseName = databaseName,
     )
 }
 
@@ -161,6 +175,9 @@ private fun readApps(connection: Connection, accountId: Long): List<AppRecord> {
                     lastSuccessAt = result.getLong("last_success_at").takeUnless { result.wasNull() },
                     lastError = result.getString("last_error"),
                     nextPollAt = result.getLong("next_poll_at").takeUnless { result.wasNull() },
+                    appKey = result.getString("app_key"),
+                    origins = decodeOriginsJson(result.getString("origins")),
+                    databaseName = result.getString("database_name"),
                 )
             }
         }

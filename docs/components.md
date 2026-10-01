@@ -31,6 +31,8 @@ repeats a hex value.
 | The dialog | `dialog` | `monitor/frontend/src/app/manage/delete-app-dialog.*` | #248 |
 | The empty state | `app-empty-state` | `monitor/frontend/src/app/empty-state/` | #250 |
 | The first-load row | `.first-load-row` | `monitor/frontend/src/app/app.css` | #250 |
+| The keys panel | `.keys-panel`, `.key-row` | `monitor/frontend/src/app/manage/add-app-form.*` | #296 |
+| The new-secret-key confirmation | `app-new-secret-key-dialog` | `monitor/frontend/src/app/manage/new-secret-key-dialog.*` | #296 |
 
 ## The band
 
@@ -431,8 +433,9 @@ the time of the last publish, so the operator reads what the app tracks with no 
 (design decision D48, issue #277; it ends the typed field of issue #226).
 
 **Anatomy.**
-- A `<div class="field">` under the connection string field: an `<h3>` heading "Route
-  patterns", then either a `<ul>` of `<code>` items (one per pattern) plus a
+- A `<div class="field">` under the origins field (issue #296 replaced the connection
+  string field with it): an `<h3>` heading "Route patterns", then either a `<ul>` of
+  `<code>` items (one per pattern) plus a
   `<p class="form-hint">` with the publish line, or a `<p class="form-hint">` that reads "The
   app has published no list yet." (`edit-app-form.html:33-45`).
 - The publish line reads "Published by the app on `<local time>` (kit `<version>`)", built
@@ -662,6 +665,77 @@ the last success, or the last error text.
   confirm action. A status badge and a row action then never share the same color for
   two different meanings (fixed MAJOR of the #258 design review,
   `delete-app-dialog.html:1-3`).
+
+## The keys panel
+
+**Purpose.** The panel shows the app key and the secret key one time, right after a
+create or a rotation, so the owner can copy the secret key before it stops showing
+(issue #296, design decision D51).
+
+**Anatomy.**
+- `<section class="panel keys-panel">` with two `<div class="field">` blocks (the app
+  key, the secret key), each a `<div class="key-row">` of a readonly `<input>` plus a
+  "Copy" button, then the sentence "Copy the secret key now. It shows one time.", then
+  the tracker script tag in a `<pre><code>` block (`add-app-form.html:33-62`).
+- The "Copy" button calls the Clipboard API (`navigator.clipboard.writeText`); the
+  readonly, selectable `<input>` is the fallback when the API is absent or denied
+  (`add-app-form.ts`).
+- The script tag reads `octometer.publicUrl` through `Me.publicUrl` (`GET /api/me`),
+  or `location.origin` when that value is blank (`add-app-form.ts`).
+
+**States.**
+
+| State | Cue |
+| --- | --- |
+| Before a create | The panel is absent |
+| After a create or a rotation | The panel shows the app key and the secret key |
+| After a copy | The button text reads "Copied" in place of "Copy" |
+
+**Accessibility.**
+- Role: none beyond the native `<input>`, `<button>`, and `<pre>` roles.
+- Live region: `aria-live="polite"` on the panel, so a screen reader announces the new
+  keys once they render (`add-app-form.html:33`).
+- Target size: `min-height: 44px` on each "Copy" button, through the global `.btn`
+  rule.
+
+**Rules.**
+- Do keep the secret key out of every log line and every error text (design decision
+  D15, D58); the sentinel test of `ConfigLoaderTest.kt` proves it for one real
+  registration.
+- Do not add a second route or a second request to read the secret key again; the
+  create and the rotation answers are the one and only time it exists in a response
+  body.
+
+## The new-secret-key confirmation
+
+**Purpose.** The confirmation asks before it replaces the secret key of one app,
+because the old key stops working at once (issue #296, design decision D51); the
+dialog pattern is the one of "The dialog" above, with a yes/no question in place of a
+typed name.
+
+**Anatomy.**
+- `<dialog #dialogEl [attr.aria-labelledby]="headingId">`, with the confirm question
+  and its actions, or, after a confirm, the new secret key in the same `.key-row` form
+  as the keys panel, plus a "Done" button (`new-secret-key-dialog.html`).
+
+**States.**
+
+| State | Cue |
+| --- | --- |
+| The confirm question | The heading "Replace the secret key of `<app>`?" with a warning sentence and the Cancel and "Replace the secret key" actions |
+| The new key | The heading "New secret key for `<app>`", the key-row field, and "Done" |
+
+**Accessibility.**
+- Role: `dialog`, the same as "The dialog" above.
+- Accessible name: the heading text of the active state, through `aria-labelledby`.
+- Target size: `min-height: 44px` on the trigger (`new-secret-key-dialog.css`).
+
+**Rules.**
+- Do default the dialog's focus to Cancel on open, never to the confirm action (the
+  same destructive-action rule as "The dialog" above).
+- Do not reuse the trigger's accessible name ("New secret key") for the confirm
+  button inside the dialog; "Replace the secret key" keeps the two controls distinct
+  for an assistive technology and for a test.
 
 ## The empty state
 

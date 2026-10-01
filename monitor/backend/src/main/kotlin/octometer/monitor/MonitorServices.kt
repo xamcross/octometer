@@ -44,7 +44,10 @@ class MonitorServices private constructor(
     private val mongoAppReader: MongoAppReader,
 ) : AutoCloseable {
 
-    val appRegistryService: AppRegistryService = AppRegistryService(database, secretStore)
+    // Issue #296, brief review m12: the cluster URI of the hosted
+    // service (D57) comes from config, so a new app with no connection
+    // string of its own can still get a database.
+    val appRegistryService: AppRegistryService = AppRegistryService(database, secretStore, config.clusterUri)
 
     // Issue #301, D52: the mail sender follows config.mailSender
     // (resend in the hosted service, file in the local run and in the
@@ -154,6 +157,9 @@ class MonitorServices private constructor(
                     clock = clock,
                     dispatcher = Dispatchers.Default,
                     pollIntervalSeconds = config.pollIntervalSeconds.toLong(),
+                    // Issue #296, M5: an app with no stored secret polls
+                    // through the cluster URI of the hosted service.
+                    clusterUri = config.clusterUri,
                 ).also { it.start() }
                 return MonitorServices(
                     config,

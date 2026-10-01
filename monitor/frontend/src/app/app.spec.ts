@@ -430,7 +430,7 @@ describe('App', () => {
       // Issue #301: the App constructor also sends GET /api/me, at
       // once, through Me.load(). This block flushes a good answer, so
       // it never overlaps a test's own GET /api/health assertions.
-      httpMock.expectOne('/api/me').flush({ email: 'owner@example.com' });
+      httpMock.expectOne('/api/me').flush({ email: 'owner@example.com', publicUrl: '' });
     });
 
     afterEach(() => {

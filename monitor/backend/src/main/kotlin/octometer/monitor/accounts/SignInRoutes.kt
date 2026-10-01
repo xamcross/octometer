@@ -33,8 +33,15 @@ private data class SignInConfirmRequestBody(val token: String)
 @Serializable
 private data class SignInAcceptedBody(val message: String)
 
+/**
+ * Issue #296: [publicUrl] is `config.publicUrl` (D57), so the manage
+ * view can build the tracker script tag of the keys panel without a
+ * second route. A blank value (the local run, or before #295 sets the
+ * Fly host) tells the view to build the tag from `location.origin`
+ * instead (the correction of the brief review, m16).
+ */
 @Serializable
-private data class MeResponse(val email: String)
+private data class MeResponse(val email: String, val publicUrl: String)
 
 /**
  * The sign-in routes of D52, issue #301: `POST /api/signin`, `POST
@@ -92,13 +99,13 @@ fun Route.signInRoutes(signInService: SignInService, config: MonitorConfig) {
  * route name of its own, so this stays a plain `get`, added beside
  * [signInRoutes] in `ApiRoutes.kt`.
  */
-fun Route.meRoute(signInService: SignInService) {
+fun Route.meRoute(signInService: SignInService, config: MonitorConfig) {
     get("/api/me") {
         val email = signInService.accountEmail(call.accountId())
         if (email == null) {
             call.respond(HttpStatusCode.Unauthorized, ErrorBody("Sign in first."))
         } else {
-            call.respond(MeResponse(email))
+            call.respond(MeResponse(email, config.publicUrl))
         }
     }
 }

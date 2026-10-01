@@ -9,10 +9,18 @@ import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import octometer.monitor.accounts.newToken
+import octometer.monitor.accounts.sha256Hex as accountKeyHash
 import octometer.monitor.mongo.sha256Hex
 import octometer.monitor.store.SqliteDatabase
 import org.sqlite.SQLiteErrorCode
 import org.sqlite.SQLiteException
+
+/** The fixed 503 text of issue #296 (D57): the registry has no cluster to build a database URI against. */
+internal const val CLUSTER_MISSING_MESSAGE = "The service has no cluster."
+
+/** The fixed collection name of a new app of issue #296 (the present default of [CreateAppRequest.collection]). */
+private const val NEW_APP_COLLECTION_NAME = "octometer_events"
 
 /** The default chunk size of step 5 (the delete of the events). */
 const val EVENT_DELETE_CHUNK_SIZE = 10_000
@@ -82,12 +90,16 @@ data class AppSummary(
 
 /**
  * The response of `GET /api/apps/{id}` (design decision D48, issue
- * #277; formerly issue #226). It never holds a connection string.
- * [pathPatterns] is the route list that the app published, the reader's
- * cached copy, or `null` before the app's first published list.
+ * #277; formerly issue #226). It never holds a connection string, and
+ * never the secret key or its hash (issue #296, M7). [pathPatterns] is
+ * the route list that the app published, the reader's cached copy, or
+ * `null` before the app's first published list.
  * [pathPatternsPublishedAt] is the UTC ISO 8601 text of the `publishedAt`
  * of that list, or `null` with [pathPatterns]. [kitVersion] is the
  * `kitVersion` of that same document, or `null` with [pathPatterns].
+ * [appKey] and [databaseName] are `null` for an app of the legacy
+ * connection-string path that never registered keys. [origins] is `[]`
+ * for such an app.
  */
 @Serializable
 data class AppDetail(
@@ -96,7 +108,73 @@ data class AppDetail(
     val pathPatterns: String?,
     val pathPatternsPublishedAt: String?,
     val kitVersion: String?,
+    val appKey: String?,
+    val origins: List<String>,
+    val databaseName: String?,
 )
+
+/**
+ * The body of `POST /api/apps` with an origin list (issue #296, D51,
+ * D52, D57), in place of a connection string. [AppRegistryRoutes.kt]
+ * dispatches on the body's own keys: a body with `connectionString`
+ * takes the legacy path of [CreateAppRequest]; a body with `origins`
+ * takes this path.
+ */
+@Serializable
+data class CreateAppWithOriginsRequest(
+    val name: String,
+    val origins: List<String>,
+)
+
+/**
+ * The body of `PUT /api/apps/{id}/origins` (issue #296).
+ */
+@Serializable
+data class UpdateOriginsRequest(
+    val origins: List<String>,
+)
+
+/**
+ * The one-time answer of a key creation or a key rotation (issue #296,
+ * D51). The plain [appKey] and [secretKey] appear here only: the store
+ * keeps the key as it is, and the secret key as a SHA-256 hash (D51).
+ */
+@Serializable
+data class AppKeys(
+    val appId: Long,
+    val name: String,
+    val origins: List<String>,
+    val databaseName: String,
+    val appKey: String,
+    val secretKey: String,
+)
+
+/** The one-time answer of `POST /api/apps/{id}/secret` (issue #296, D51). */
+@Serializable
+data class SecretRotation(
+    val appId: Long,
+    val secretKey: String,
+)
+
+sealed class CreateAppKeysResult {
+    data class Created(val keys: AppKeys) : CreateAppKeysResult()
+    data class InvalidRequest(val message: String) : CreateAppKeysResult()
+    data class NameTaken(val name: String) : CreateAppKeysResult()
+
+    /** Issue #296, D57: the registration needs `octometer.clusterUri`, and the config holds none. */
+    object ClusterMissing : CreateAppKeysResult()
+}
+
+sealed class UpdateOriginsResult {
+    data class Updated(val detail: AppDetail) : UpdateOriginsResult()
+    object NotFound : UpdateOriginsResult()
+    data class InvalidRequest(val message: String) : UpdateOriginsResult()
+}
+
+sealed class RotateSecretResult {
+    data class Rotated(val rotation: SecretRotation) : RotateSecretResult()
+    object NotFound : RotateSecretResult()
+}
 
 sealed class CreateAppResult {
     data class Created(val summary: AppSummary) : CreateAppResult()
@@ -131,8 +209,94 @@ sealed class UpdateAppResult {
 class AppRegistryService(
     private val database: SqliteDatabase,
     private val secretStore: SecretStore,
+    // Issue #296, brief review m12: the registry builds the database
+    // name of a new app from the id alone; the cluster URI itself
+    // comes from config, not from this class's own callers.
+    private val clusterUri: String = "",
     private val eventDeleteChunkSize: Int = EVENT_DELETE_CHUNK_SIZE,
 ) {
+
+    /**
+     * Registers an app with an origin list, in place of a connection
+     * string (issue #296, D51, D52, D57). A new app gets no connection
+     * string: the poll loop builds the URI from `octometer.clusterUri`
+     * and the stored database name. The insert, and the rename of the
+     * placeholder database name to `app_<id>`, run inside one
+     * `database.write` transaction (the correction of the brief review,
+     * B2): a reader of the app table never sees a row with a
+     * placeholder name. [clusterUri] must be non-blank, else this gives
+     * [CreateAppKeysResult.ClusterMissing] (the registration's own 503,
+     * before any row exists).
+     */
+    suspend fun createAppWithOrigins(accountId: Long, request: CreateAppWithOriginsRequest): CreateAppKeysResult {
+        val name = request.name.trim()
+        if (name.isEmpty()) return CreateAppKeysResult.InvalidRequest("Give a non-empty name.")
+        if (name.length > MAX_SHORT_FIELD_LENGTH) return CreateAppKeysResult.InvalidRequest("Give a shorter name.")
+
+        val origins = when (val originsCheck = OriginListValidator.check(request.origins)) {
+            is OriginsCheck.Valid -> originsCheck.origins
+            is OriginsCheck.Invalid -> return CreateAppKeysResult.InvalidRequest(originsCheck.message)
+        }
+
+        if (clusterUri.isBlank()) return CreateAppKeysResult.ClusterMissing
+
+        val appKey = newToken()
+        val secretKey = newToken()
+        val secretKeyHash = accountKeyHash(secretKey)
+        val originsJson = encodeOriginsJson(origins)
+
+        val appId = try {
+            database.write { writer ->
+                val insertedId = insertAppWithKeys(writer, accountId, name, appKey, secretKeyHash, originsJson)
+                updateAppDatabaseName(writer, insertedId, databaseNameOf(insertedId))
+                insertedId
+            }
+        } catch (constraintFailure: SQLException) {
+            if (isUniqueNameViolation(constraintFailure)) {
+                return CreateAppKeysResult.NameTaken(name)
+            }
+            throw constraintFailure
+        }
+
+        return CreateAppKeysResult.Created(
+            AppKeys(
+                appId = appId,
+                name = name,
+                origins = origins,
+                databaseName = databaseNameOf(appId),
+                appKey = appKey,
+                secretKey = secretKey,
+            ),
+        )
+    }
+
+    /** Replaces the origin list of one app (issue #296, D52). It never changes the keys. */
+    suspend fun updateOrigins(accountId: Long, appId: Long, rawOrigins: List<String>): UpdateOriginsResult {
+        val origins = when (val originsCheck = OriginListValidator.check(rawOrigins)) {
+            is OriginsCheck.Valid -> originsCheck.origins
+            is OriginsCheck.Invalid -> return UpdateOriginsResult.InvalidRequest(originsCheck.message)
+        }
+        val originsJson = encodeOriginsJson(origins)
+
+        val updated = database.write { writer -> updateAppOrigins(writer, accountId, appId, originsJson) }
+        if (!updated) return UpdateOriginsResult.NotFound
+        val detail = database.read { reader -> readAppDetail(reader, accountId, appId) }
+            ?: return UpdateOriginsResult.NotFound
+        return UpdateOriginsResult.Updated(detail)
+    }
+
+    /**
+     * Rotates the secret key of one app (issue #296, D51). The app key
+     * and the origin list never change. The plain secret key appears in
+     * this one answer only; the store keeps its SHA-256 hash.
+     */
+    suspend fun rotateSecret(accountId: Long, appId: Long): RotateSecretResult {
+        val secretKey = newToken()
+        val secretKeyHash = accountKeyHash(secretKey)
+        val updated = database.write { writer -> updateSecretKeyHash(writer, accountId, appId, secretKeyHash) }
+        if (!updated) return RotateSecretResult.NotFound
+        return RotateSecretResult.Rotated(SecretRotation(appId, secretKey))
+    }
 
     suspend fun createApp(accountId: Long, request: CreateAppRequest): CreateAppResult {
         val name = request.name.trim()
@@ -475,7 +639,8 @@ private val PATH_PATTERNS_PUBLISHED_AT_FORMATTER: DateTimeFormatter =
 
 private fun readAppDetail(reader: Connection, accountId: Long, appId: Long): AppDetail? =
     reader.prepareStatement(
-        "SELECT name, path_patterns, path_patterns_published_at, kit_version FROM app WHERE id = ? AND account_id = ?",
+        "SELECT name, path_patterns, path_patterns_published_at, kit_version, app_key, origins, database_name " +
+            "FROM app WHERE id = ? AND account_id = ?",
     ).use { select ->
         select.setLong(1, appId)
         select.setLong(2, accountId)
@@ -490,8 +655,67 @@ private fun readAppDetail(reader: Connection, accountId: Long, appId: Long): App
                     PATH_PATTERNS_PUBLISHED_AT_FORMATTER.format(Instant.ofEpochMilli(it))
                 },
                 kitVersion = result.getString("kit_version"),
+                appKey = result.getString("app_key"),
+                origins = decodeOriginsJson(result.getString("origins")),
+                databaseName = result.getString("database_name"),
             )
         }
+    }
+
+/** The database name of a new app of issue #296, D57: `app_<id>`. */
+private fun databaseNameOf(appId: Long): String = "app_$appId"
+
+// Issue #296, B2 of the brief review: database_name and collection_name
+// are NOT NULL, so the insert gives the placeholder database name of
+// databaseNameOf(appId) its final value only after the id is known; the
+// caller runs this and the rename inside one database.write transaction.
+private fun insertAppWithKeys(
+    writer: Connection,
+    accountId: Long,
+    name: String,
+    appKey: String,
+    secretKeyHash: String,
+    originsJson: String,
+): Long {
+    writer.prepareStatement(
+        "INSERT INTO app (name, database_name, collection_name, created_at, account_id, app_key, secret_key_hash, origins) " +
+            "VALUES (?, '', ?, ?, ?, ?, ?, ?)",
+    ).use { insert ->
+        insert.setString(1, name)
+        insert.setString(2, NEW_APP_COLLECTION_NAME)
+        insert.setLong(3, System.currentTimeMillis())
+        insert.setLong(4, accountId)
+        insert.setString(5, appKey)
+        insert.setString(6, secretKeyHash)
+        insert.setString(7, originsJson)
+        insert.executeUpdate()
+    }
+    return writer.createStatement().use { statement ->
+        statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+            check(result.next()) { "No id after the insert." }
+            result.getLong(1)
+        }
+    }
+}
+
+// Issue #296: the origins replace of PUT /api/apps/{id}/origins. It
+// never touches the keys.
+private fun updateAppOrigins(writer: Connection, accountId: Long, appId: Long, originsJson: String): Boolean =
+    writer.prepareStatement("UPDATE app SET origins = ? WHERE id = ? AND account_id = ?").use { update ->
+        update.setString(1, originsJson)
+        update.setLong(2, appId)
+        update.setLong(3, accountId)
+        update.executeUpdate() == 1
+    }
+
+// Issue #296: the secret rotation of POST /api/apps/{id}/secret. It
+// never touches the app key or the origin list.
+private fun updateSecretKeyHash(writer: Connection, accountId: Long, appId: Long, secretKeyHash: String): Boolean =
+    writer.prepareStatement("UPDATE app SET secret_key_hash = ? WHERE id = ? AND account_id = ?").use { update ->
+        update.setString(1, secretKeyHash)
+        update.setLong(2, appId)
+        update.setLong(3, accountId)
+        update.executeUpdate() == 1
     }
 
 // Issue #187: a missing old string counts as a change, because the
