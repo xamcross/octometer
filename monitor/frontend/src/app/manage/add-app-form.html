@@ -55,7 +55,7 @@
     <div class="field">
       <label for="add-app-script-tag">Tracker script</label>
       @if (trackerHash(); as hash) {
-        <pre id="add-app-script-tag"><code>{{ scriptTag(created.appKey, hash) }}</code></pre>
+        <pre id="add-app-script-tag"><code>{{ scriptTag(created.appKey) }}</code></pre>
       } @else {
         <p id="add-app-script-tag" class="form-hint">The script is not built on this instance.</p>
       }

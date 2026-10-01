@@ -7,12 +7,14 @@ value in angle brackets with your own value.
 ## 1. Add the script tag
 
 Register your app in the manage view first. The manage view then shows your
-app key and the script tag of this step, with its own content hash. Put the
-tag before the closing `</body>` tag of each page you track.
+app key and the script tag of this step. Put the tag before the closing
+`</body>` tag of each page you track.
 
 ```html
-<script src="https://app.0ct0meter.com/tracker.js?v=<hash>" data-app-key="<your app key>"></script>
+<script src="https://app.0ct0meter.com/tracker.js" data-app-key="<your app key>"></script>
 ```
+
+Replace an older tag that holds `?v=<hash>` with the bare tag of this step.
 
 The attribute `data-app-key` is required. The script logs one console
 warning and starts nothing without it.

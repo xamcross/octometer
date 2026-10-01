@@ -57,15 +57,15 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add the collector route `POST /collect`: the app key and Origin checks, the body limit,
   the rate limit and the daily caps, the cluster-wide write stop, the CORS preflight of
   `/collect` and `/tracker.js`, and the `writeStopped` field of `GET /api/health`. (#297)
-- Add the route `GET /tracker.js`: the served IIFE bundle, the ETag, and the two cache
-  rules; the manage view's keys panel shows the hashed script tag, from the new field
-  `trackerHash` of `GET /api/me`. (#298)
+- Add the route `GET /tracker.js`: the served IIFE bundle, the `ETag`, and the cache rules. (#298)
 - Make the sign-in sentinel test of `ConfigLoaderTest` wait for the mail file: a bound
   poll replaces the one immediate read of the mail folder. (#328)
 - Add `PUT /api/apps/{id}/routes`: the typed route pattern list of an app, in the column
   `route_patterns`; the manage view edits it, with a "Patterns" column on the app list, and
   the collector's app key cache clears on each save. Remove the closed, published-list read
   of `octometer_config`. (#299)
+- Give the bare `GET /tracker.js` a `304 Not Modified` answer for a matching `If-None-Match`
+  header; the keys panel shows the bare script tag, with no `?v=`. (#331)
 
 ### CI
 

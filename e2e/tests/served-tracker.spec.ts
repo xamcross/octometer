@@ -110,6 +110,17 @@ test('a page with the served script tag sends a click', async ({ page, request, 
   expect(wrongHashResponse.status()).toBe(200);
   expect(wrongHashResponse.headers()['cache-control']).toBe('public, max-age=3600');
 
+  // The addendum of 2026-10-02 (#331, M5): a second request with
+  // If-None-Match set to the ETag of the bare answer gets a 304, with
+  // no body and the same two headers.
+  const etag = unhashedResponse.headers()['etag'];
+  expect(etag).toMatch(/^"[0-9a-f]{64}"$/);
+  const revalidated = await request.get(`${monitorUrl}/tracker.js`, { headers: { 'If-None-Match': etag } });
+  expect(revalidated.status()).toBe(304);
+  expect(revalidated.headers()['etag']).toBe(etag);
+  expect(revalidated.headers()['cache-control']).toBe('public, max-age=3600');
+  expect((await revalidated.body()).length).toBe(0);
+
   // Acceptance criterion 1's own guard: a page with no data-app-key
   // sends no request to /collect, and it starts no session either.
   // page.on('request') starts before the navigation, so this reads
