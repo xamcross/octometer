@@ -6,10 +6,15 @@ import { Injectable, Signal, inject, signal } from '@angular/core';
  * `octometer.publicUrl` (D57, issue #296): the keys panel of the
  * manage view reads it from [Me.publicUrl], and builds the tracker
  * script tag from `location.origin` instead when it is blank.
+ *
+ * `trackerHash` is the hash of the served tracker bundle (design
+ * decision D53, issue #298), or `null` with no built bundle on this
+ * instance (a developer run with no `installDist`).
  */
 interface MeResponse {
   readonly email: string;
   readonly publicUrl: string;
+  readonly trackerHash?: string | null;
 }
 
 /**
@@ -26,6 +31,7 @@ export class Me {
   private readonly emailState = signal<string | null>(null);
   private readonly readyState = signal(false);
   private readonly publicUrlState = signal('');
+  private readonly trackerHashState = signal<string | null>(null);
 
   /** The email address of the signed-in account, or null before the first good answer. */
   readonly email: Signal<string | null> = this.emailState.asReadonly();
@@ -36,12 +42,16 @@ export class Me {
   /** `octometer.publicUrl` (issue #296), or '' before the first good answer, or with a blank config value. */
   readonly publicUrl: Signal<string> = this.publicUrlState.asReadonly();
 
+  /** The hash of the served tracker bundle (issue #298), or null with no built bundle on this instance. */
+  readonly trackerHash: Signal<string | null> = this.trackerHashState.asReadonly();
+
   /** Sends `GET /api/me` once. The root `App` component calls this at the start. */
   load(): void {
     this.http.get<MeResponse>('/api/me').subscribe({
       next: (response) => {
         this.emailState.set(response.email);
         this.publicUrlState.set(response.publicUrl);
+        this.trackerHashState.set(response.trackerHash ?? null);
         this.readyState.set(true);
       },
       error: () => {
