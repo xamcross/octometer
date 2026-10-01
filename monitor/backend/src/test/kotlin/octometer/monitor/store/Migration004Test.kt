@@ -25,10 +25,10 @@ class Migration004Test {
     }
 
     @Test
-    fun `a new database gets user_version 6 and the column path_patterns`() = runBlocking {
+    fun `a new database gets user_version 7 and the column path_patterns`() = runBlocking {
         val database = SqliteDatabase.open(dataDir.absolutePath)
         try {
-            assertEquals(6, database.write { userVersion(it) })
+            assertEquals(7, database.write { userVersion(it) })
             assertTrue(database.write { appColumns(it) }.contains("path_patterns"), "the column path_patterns exists")
         } finally {
             database.close()
@@ -46,7 +46,7 @@ class Migration004Test {
 
         val database = SqliteDatabase.open(dataDir.absolutePath)
         try {
-            assertEquals(6, database.write { userVersion(it) })
+            assertEquals(7, database.write { userVersion(it) })
             assertNull(database.read { pathPatternsOf(it, "demo") })
         } finally {
             database.close()

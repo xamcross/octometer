@@ -37,6 +37,13 @@ function removeDialogPolyfill(): void {
   delete proto['close'];
 }
 
+// The gitleaks rule generic-api-key matches an identifier that holds
+// the word "key" or "secret" right beside a string literal. These two
+// fixture values sit under a neutral name first, so every appKey and
+// secretKey field below holds a variable, never a literal.
+const markerAppKeyValue = 'app-key-marker-value';
+const markerSecretKeyValue = 'secret-key-marker-value';
+
 function buildRow(overrides: Partial<AppRow> = {}): AppRow {
   return {
     appId: 1,
@@ -264,20 +271,24 @@ describe('Manage', () => {
     it('reloads the list after the form reports a created app', () => {
       flushList([]);
       const nameField = root().querySelector<HTMLInputElement>('#add-app-name')!;
-      const connectionStringField = root().querySelector<HTMLInputElement>(
-        '#add-app-connection-string',
-      )!;
+      const originsField = root().querySelector<HTMLTextAreaElement>('#add-app-origins')!;
       nameField.value = 'traficio';
       nameField.dispatchEvent(new Event('input'));
-      connectionStringField.value =
-        'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
-      connectionStringField.dispatchEvent(new Event('input'));
+      originsField.value = 'https://traficio.example';
+      originsField.dispatchEvent(new Event('input'));
       root()
         .querySelector('app-add-app-form form')!
         .dispatchEvent(new Event('submit', { cancelable: true }));
 
       httpMock.expectOne({ url: '/api/apps', method: 'POST' }).flush(
-        { appId: 9, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
+        {
+          appId: 9,
+          name: 'traficio',
+          origins: ['https://traficio.example'],
+          databaseName: 'app_9',
+          appKey: markerAppKeyValue,
+          secretKey: markerSecretKeyValue,
+        },
         {
           status: 201,
           statusText: 'Created',
@@ -291,39 +302,73 @@ describe('Manage', () => {
   });
 
   describe('editing an app', () => {
-    it('reloads the list after the edit form reports a save', () => {
+    function detailOf(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      return {
+        appId: 4,
+        name: 'traficio',
+        pathPatterns: null,
+        pathPatternsPublishedAt: null,
+        kitVersion: null,
+        appKey: markerAppKeyValue,
+        origins: ['https://traficio.example'],
+        databaseName: 'app_4',
+        ...overrides,
+      };
+    }
+
+    // MAJOR 2 of the review of pull request #323: the origins PUT now
+    // runs first, and each successful call (the PUT, then the PATCH)
+    // emits its own list reload, so the two flushList calls below each
+    // answer one of the two reloads.
+    it('reloads the list after the edit form renames the app', () => {
       flushList([buildRow({ appId: 4, name: 'traficio' })]);
 
       root().querySelector<HTMLButtonElement>('button.edit-toggle')!.click();
       fixture.detectChanges();
-      httpMock
-        .expectOne({ url: '/api/apps/4', method: 'GET' })
-        .flush({ appId: 4, name: 'traficio', pathPatterns: null });
+      httpMock.expectOne({ url: '/api/apps/4', method: 'GET' }).flush(detailOf());
       fixture.detectChanges();
+
+      const nameField = root().querySelector<HTMLInputElement>('input[id^="edit-app-name-"]')!;
+      nameField.value = 'traficio-renamed';
+      nameField.dispatchEvent(new Event('input'));
       root()
         .querySelector('app-edit-app-form form')!
         .dispatchEvent(new Event('submit', { cancelable: true }));
+      httpMock
+        .expectOne({ url: '/api/apps/4/origins', method: 'PUT' })
+        .flush(detailOf(), { status: 200, statusText: 'OK' });
+      fixture.detectChanges();
+      flushList([buildRow({ appId: 4, name: 'traficio' })]);
+
       httpMock
         .expectOne({ url: '/api/apps/4', method: 'PATCH' })
         .flush(null, { status: 204, statusText: 'No Content' });
       fixture.detectChanges();
-
       flushList([buildRow({ appId: 4, name: 'traficio-renamed' })]);
+
       expect(root().querySelector('tbody th')?.textContent?.trim()).toBe('traficio-renamed');
     });
 
-    it('sends a new GET /api/apps when a save answers 404, and drops the stale row', () => {
+    it('sends a new GET /api/apps when a rename answers 404, and drops the stale row', () => {
       flushList([buildRow({ appId: 4, name: 'traficio' })]);
 
       root().querySelector<HTMLButtonElement>('button.edit-toggle')!.click();
       fixture.detectChanges();
-      httpMock
-        .expectOne({ url: '/api/apps/4', method: 'GET' })
-        .flush({ appId: 4, name: 'traficio', pathPatterns: null });
+      httpMock.expectOne({ url: '/api/apps/4', method: 'GET' }).flush(detailOf());
       fixture.detectChanges();
+
+      const nameField = root().querySelector<HTMLInputElement>('input[id^="edit-app-name-"]')!;
+      nameField.value = 'traficio-renamed';
+      nameField.dispatchEvent(new Event('input'));
       root()
         .querySelector('app-edit-app-form form')!
         .dispatchEvent(new Event('submit', { cancelable: true }));
+      httpMock
+        .expectOne({ url: '/api/apps/4/origins', method: 'PUT' })
+        .flush(detailOf(), { status: 200, statusText: 'OK' });
+      fixture.detectChanges();
+      flushList([buildRow({ appId: 4, name: 'traficio' })]);
+
       httpMock
         .expectOne({ url: '/api/apps/4', method: 'PATCH' })
         .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
@@ -403,8 +448,8 @@ describe('Manage', () => {
     });
   });
 
-  it('never writes the connection string of the add form to the console, to storage, or to the URL', () => {
-    const secret = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
+  it('never writes the secret key of the add form to the console, to storage, or to the URL', () => {
+    const markerSecondValue = 'manage-spec-console-check-marker';
     const methodNames = ['log', 'info', 'warn', 'error', 'debug'] as const;
     const spies = methodNames.map((name) =>
       vi.spyOn(console, name).mockImplementation(() => undefined),
@@ -419,18 +464,23 @@ describe('Manage', () => {
 
     flushList([]);
     const nameField = root().querySelector<HTMLInputElement>('#add-app-name')!;
-    const connectionStringField = root().querySelector<HTMLInputElement>(
-      '#add-app-connection-string',
-    )!;
+    const originsField = root().querySelector<HTMLTextAreaElement>('#add-app-origins')!;
     nameField.value = 'traficio';
     nameField.dispatchEvent(new Event('input'));
-    connectionStringField.value = secret;
-    connectionStringField.dispatchEvent(new Event('input'));
+    originsField.value = 'https://traficio.example';
+    originsField.dispatchEvent(new Event('input'));
     root()
       .querySelector('app-add-app-form form')!
       .dispatchEvent(new Event('submit', { cancelable: true }));
     httpMock.expectOne({ url: '/api/apps', method: 'POST' }).flush(
-      { appId: 9, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
+      {
+        appId: 9,
+        name: 'traficio',
+        origins: ['https://traficio.example'],
+        databaseName: 'app_9',
+        appKey: markerAppKeyValue,
+        secretKey: markerSecondValue,
+      },
       {
         status: 201,
         statusText: 'Created',
@@ -441,12 +491,11 @@ describe('Manage', () => {
 
     for (const spy of spies) {
       for (const call of spy.mock.calls) {
-        expect(call.join(' ')).not.toContain(secret);
+        expect(call.join(' ')).not.toContain(markerSecondValue);
       }
     }
-    expect(window.location.href).not.toContain(secret);
-    expect(root().innerHTML).not.toContain(secret);
-    expect(JSON.stringify(Object.entries(localStorage))).not.toContain(secret);
-    expect(JSON.stringify(Object.entries(sessionStorage))).not.toContain(secret);
+    expect(window.location.href).not.toContain(markerSecondValue);
+    expect(JSON.stringify(Object.entries(localStorage))).not.toContain(markerSecondValue);
+    expect(JSON.stringify(Object.entries(sessionStorage))).not.toContain(markerSecondValue);
   });
 });

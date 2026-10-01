@@ -107,6 +107,10 @@ It expires 30 days after each sign-in.
 
 We store no other cookie of the dashboard.
 
+Each app that a dashboard user registers gets an app key and a secret key
+(issue #296). The app key is public; the secret key is a secret of the
+app owner.
+
 ## 11. The waitlist notice of the public site
 
 The public site and this app are two products, each with its own notice.
@@ -154,6 +158,8 @@ Issue #279 added the raw-path sentence of section 2, design decision D49: the ra
   path of the page travels to the app's own server only, and the event record
   holds the pattern, never the raw path. Section 2 already named the pattern; the
   new sentence adds the raw-path fact only.
+Issue #296 added the app key and secret key sentence of section 10, design
+  decisions D51 and D52.
 Issue #290 added section 11, the pointer to the waitlist notice of the public site
   (`site/index.html`, `footer#notice`). The site and this app are two products, each
   with its own notice.

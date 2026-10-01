@@ -63,3 +63,34 @@ label {
   font-size: var(--text-s);
   overflow-wrap: anywhere;
 }
+
+.keys-panel {
+  max-width: 32rem;
+  margin-top: 1rem;
+  padding: 16px;
+}
+
+.key-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.key-row input {
+  font-family: monospace;
+}
+
+.key-warning {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+#add-app-script-tag {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  background: var(--paper);
+  border: var(--line-control);
+  border-radius: var(--radius-control);
+  padding: 8px 12px;
+  margin: 0;
+}

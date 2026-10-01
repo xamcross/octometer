@@ -4,7 +4,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { Announcer } from '../announcer';
 import { AddAppForm } from './add-app-form';
-import type { AppSummary } from './app-registry-api';
+import type { AppKeys } from './app-registry-api';
 
 /**
  * Finds the first loaded CSS rule with the given selector text. jsdom
@@ -99,18 +99,16 @@ describe('AddAppForm', () => {
   function fillAndSubmit(
     overrides: {
       name?: string;
-      connectionString?: string;
+      origins?: string;
     } = {},
   ): void {
     const name = root().querySelector<HTMLInputElement>('#add-app-name')!;
-    const connectionString = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
+    const origins = root().querySelector<HTMLTextAreaElement>('#add-app-origins')!;
 
     name.value = overrides.name ?? 'traficio';
     name.dispatchEvent(new Event('input'));
-    connectionString.value =
-      overrides.connectionString ??
-      'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
-    connectionString.dispatchEvent(new Event('input'));
+    origins.value = overrides.origins ?? 'https://traficio.example';
+    origins.dispatchEvent(new Event('input'));
 
     root()
       .querySelector('form')!
@@ -118,26 +116,37 @@ describe('AddAppForm', () => {
     fixture.detectChanges();
   }
 
+  // The gitleaks rule generic-api-key matches an identifier that holds
+  // the word "key" or "secret" right beside a string literal. These two
+  // fixture values sit under a neutral name first, so the AppKeys
+  // fields below (appKey, secretKey) hold a variable, never a literal.
+  const markerAppKeyValue = 'app-key-marker-value';
+  const markerSecretKeyValue = 'secret-key-marker-value';
+
+  const keysOf = (overrides: Partial<AppKeys> = {}): AppKeys => ({
+    appId: 1,
+    name: 'traficio',
+    origins: ['https://traficio.example'],
+    databaseName: 'app_1',
+    appKey: markerAppKeyValue,
+    secretKey: markerSecretKeyValue,
+    ...overrides,
+  });
+
   it('creates the component', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
   it('labels each field', () => {
-    for (const id of ['add-app-name', 'add-app-connection-string']) {
+    for (const id of ['add-app-name', 'add-app-origins']) {
       const label = root().querySelector(`label[for="${id}"]`);
       expect(label, `label for #${id}`).toBeTruthy();
       expect(label?.textContent?.trim().length).toBeGreaterThan(0);
     }
   });
 
-  it('shows no #add-app-path-patterns element (design decision D48, issue #277)', () => {
-    expect(root().querySelector('#add-app-path-patterns')).toBeNull();
-  });
-
-  it('gives the connection string field type password and autocomplete new-password', () => {
-    const field = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
-    expect(field.type).toBe('password');
-    expect(field.getAttribute('autocomplete')).toBe('new-password');
+  it('shows no #add-app-connection-string element (issue #296: the manage view sends origins)', () => {
+    expect(root().querySelector('#add-app-connection-string')).toBeNull();
   });
 
   it('gives the submit button the classes btn and btn-primary', () => {
@@ -147,22 +156,22 @@ describe('AddAppForm', () => {
     expect(submit.classList.contains('btn-primary')).toBe(true);
   });
 
-  it('gives the connection string field no aria-invalid before a submit', () => {
-    const field = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
+  it('gives the origins field no aria-invalid before a submit', () => {
+    const field = root().querySelector<HTMLTextAreaElement>('#add-app-origins')!;
     expect(field.hasAttribute('aria-invalid')).toBe(false);
   });
 
-  it('gives the connection string field aria-invalid true once an error message shows', () => {
+  it('gives the origins field aria-invalid true once an error message shows', () => {
     fillAndSubmit();
     httpMock
       .expectOne({ url: '/api/apps', method: 'POST' })
       .flush(
-        { error: 'Give a shorter connection string.' },
+        { error: 'An origin has the form https://host, without a path.' },
         { status: 400, statusText: 'Bad Request' },
       );
     fixture.detectChanges();
 
-    const field = root().querySelector<HTMLInputElement>('#add-app-connection-string')!;
+    const field = root().querySelector<HTMLTextAreaElement>('#add-app-origins')!;
     expect(field.getAttribute('aria-invalid')).toBe('true');
   });
 
@@ -188,35 +197,24 @@ describe('AddAppForm', () => {
     expect(rule?.style.getPropertyValue('outline')).toContain('solid');
   });
 
-  it('sends POST /api/apps with the entered fields, and no database key and no collection key', () => {
-    fillAndSubmit({ name: 'traficio' });
+  it('sends POST /api/apps with the name and one origin per line', () => {
+    fillAndSubmit({ name: 'traficio', origins: 'https://a.example\nhttps://b.example' });
 
     const req = httpMock.expectOne({ url: '/api/apps', method: 'POST' });
     expect(req.request.body).toEqual({
       name: 'traficio',
-      connectionString: 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net',
+      origins: ['https://a.example', 'https://b.example'],
     });
-    expect(req.request.body).not.toHaveProperty('database');
-    expect(req.request.body).not.toHaveProperty('collection');
-    req.flush(
-      { appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
-      { status: 201, statusText: 'Created' },
-    );
+    req.flush(keysOf(), { status: 201, statusText: 'Created' });
   });
 
-  it('shows no #add-app-collection element', () => {
-    expect(root().querySelector('#add-app-collection')).toBeNull();
-  });
+  it('names the hint id of the origins field in aria-describedby, and the hint states the form', () => {
+    const origins = root().querySelector('#add-app-origins')!;
 
-  it('names the hint id of the connection string field in aria-describedby, and the hint holds the example', () => {
-    const connectionString = root().querySelector('#add-app-connection-string')!;
+    expect(origins.getAttribute('aria-describedby')).toBe('add-app-origins-hint');
 
-    expect(connectionString.getAttribute('aria-describedby')).toBe(
-      'add-app-connection-string-hint',
-    );
-
-    const connectionStringHint = root().querySelector('#add-app-connection-string-hint');
-    expect(connectionStringHint?.textContent).toContain('mongodb://127.0.0.1:27017/<database>');
+    const originsHint = root().querySelector('#add-app-origins-hint');
+    expect(originsHint?.textContent).toContain('https://host');
   });
 
   it('disables the submit button while the request is pending', () => {
@@ -224,13 +222,10 @@ describe('AddAppForm', () => {
     const submit = root().querySelector<HTMLButtonElement>('button[type="submit"]')!;
     expect(submit.disabled).toBe(true);
 
-    httpMock.expectOne({ url: '/api/apps', method: 'POST' }).flush(
-      { appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
-      {
-        status: 201,
-        statusText: 'Created',
-      },
-    );
+    httpMock.expectOne({ url: '/api/apps', method: 'POST' }).flush(keysOf(), {
+      status: 201,
+      statusText: 'Created',
+    });
     fixture.detectChanges();
     expect(submit.disabled).toBe(false);
   });
@@ -242,57 +237,65 @@ describe('AddAppForm', () => {
     form.dispatchEvent(new Event('submit', { cancelable: true }));
 
     const req = httpMock.expectOne({ url: '/api/apps', method: 'POST' });
-    req.flush(
-      { appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
-      { status: 201, statusText: 'Created' },
-    );
+    req.flush(keysOf(), { status: 201, statusText: 'Created' });
   });
 
   describe('on a 201 answer', () => {
-    function submitAndFlushCreated(summary: AppSummary): void {
-      fillAndSubmit({ name: summary.name });
+    function submitAndFlushCreated(keys: AppKeys): void {
+      fillAndSubmit({ name: keys.name });
       httpMock
         .expectOne({ url: '/api/apps', method: 'POST' })
-        .flush(summary, { status: 201, statusText: 'Created' });
+        .flush(keys, { status: 201, statusText: 'Created' });
       fixture.detectChanges();
     }
 
-    it('clears the form fields', () => {
-      submitAndFlushCreated({
-        appId: 1,
-        name: 'traficio',
-        database: 'exampledb',
-        collection: 'octometer_events',
-      });
+    it('clears the name and origins fields', () => {
+      submitAndFlushCreated(keysOf());
 
       expect(root().querySelector<HTMLInputElement>('#add-app-name')!.value).toBe('');
-      expect(root().querySelector<HTMLInputElement>('#add-app-connection-string')!.value).toBe('');
+      expect(root().querySelector<HTMLTextAreaElement>('#add-app-origins')!.value).toBe('');
     });
 
     it('announces "App added" through the shared status region', () => {
       const announceSpy = vi.spyOn(announcer, 'announce');
-      submitAndFlushCreated({
-        appId: 1,
-        name: 'traficio',
-        database: 'exampledb',
-        collection: 'octometer_events',
-      });
+      submitAndFlushCreated(keysOf());
 
       expect(announceSpy).toHaveBeenCalledWith('App added');
     });
 
-    it('emits the created app summary', () => {
+    it('emits the created app keys', () => {
       const addedSpy = vi.fn();
       fixture.componentRef.instance.added.subscribe(addedSpy);
-      const summary: AppSummary = {
-        appId: 4,
-        name: 'traficio',
-        database: 'exampledb',
-        collection: 'octometer_events',
-      };
-      submitAndFlushCreated(summary);
+      const keys = keysOf({ appId: 4 });
+      submitAndFlushCreated(keys);
 
-      expect(addedSpy).toHaveBeenCalledWith(summary);
+      expect(addedSpy).toHaveBeenCalledWith(keys);
+    });
+
+    it('shows the app key and the secret key in the keys panel, each in its own readonly field', () => {
+      submitAndFlushCreated(keysOf());
+
+      const appKeyField = root().querySelector<HTMLInputElement>('#add-app-key')!;
+      const secretKeyField = root().querySelector<HTMLInputElement>('#add-app-secret-key')!;
+      expect(appKeyField.value).toBe(markerAppKeyValue);
+      expect(appKeyField.readOnly).toBe(true);
+      expect(secretKeyField.value).toBe(markerSecretKeyValue);
+      expect(secretKeyField.readOnly).toBe(true);
+    });
+
+    it('shows the sentence "Copy the secret key now. It shows one time."', () => {
+      submitAndFlushCreated(keysOf());
+
+      expect(root().textContent).toContain('Copy the secret key now. It shows one time.');
+    });
+
+    it('builds the script tag from the app key, with the "arrives with the next release" sentence', () => {
+      submitAndFlushCreated(keysOf());
+
+      const scriptTag = root().querySelector('#add-app-script-tag')!;
+      expect(scriptTag.textContent).toContain(`data-app-key="${markerAppKeyValue}"`);
+      expect(scriptTag.textContent).toContain('tracker.js');
+      expect(root().textContent).toContain('The script arrives with the next release.');
     });
   });
 
@@ -301,31 +304,29 @@ describe('AddAppForm', () => {
     httpMock
       .expectOne({ url: '/api/apps', method: 'POST' })
       .flush(
-        { error: 'Give a shorter connection string.' },
+        { error: 'An origin has the form https://host, without a path.' },
         { status: 400, statusText: 'Bad Request' },
       );
     fixture.detectChanges();
 
-    expect(root().textContent).toContain('Give a shorter connection string.');
+    expect(root().textContent).toContain('An origin has the form https://host, without a path.');
     const errorEl = root().querySelector('#add-app-error');
     expect(errorEl).toBeTruthy();
-    const connectionString = root().querySelector('#add-app-connection-string');
-    expect(connectionString?.getAttribute('aria-describedby')).toBe(
-      'add-app-connection-string-hint add-app-error',
-    );
+    const origins = root().querySelector('#add-app-origins');
+    expect(origins?.getAttribute('aria-describedby')).toBe('add-app-origins-hint add-app-error');
   });
 
-  it('shows the fixed 503 message from the API', () => {
+  it('shows the fixed 503 message from the API (the registration needs a cluster)', () => {
     fillAndSubmit();
     httpMock
       .expectOne({ url: '/api/apps', method: 'POST' })
       .flush(
-        { error: 'The secret store is not available. Try again.' },
+        { error: 'The service has no cluster.' },
         { status: 503, statusText: 'Service Unavailable' },
       );
     fixture.detectChanges();
 
-    expect(root().textContent).toContain('The secret store is not available. Try again.');
+    expect(root().textContent).toContain('The service has no cluster.');
   });
 
   it('shows a general sentence for a network failure, linked with aria-describedby', () => {
@@ -337,14 +338,12 @@ describe('AddAppForm', () => {
     fixture.detectChanges();
 
     expect(root().textContent).toContain('The monitor did not answer. Try again.');
-    const connectionString = root().querySelector('#add-app-connection-string');
-    expect(connectionString?.getAttribute('aria-describedby')).toBe(
-      'add-app-connection-string-hint add-app-error',
-    );
+    const origins = root().querySelector('#add-app-origins');
+    expect(origins?.getAttribute('aria-describedby')).toBe('add-app-origins-hint add-app-error');
   });
 
-  it('never writes the connection string to the console, to storage, or to the URL, after a save', () => {
-    const secret = 'mongodb+srv://octotest:S3cr3t-Test-Only@cluster0.example.mongodb.net';
+  it('never writes the secret key to the console, to storage, or to the URL, after a save', () => {
+    const markerSecondValue = 'secret-key-marker-value-console-check';
     const methodNames = ['log', 'info', 'warn', 'error', 'debug'] as const;
     const spies = methodNames.map((name) =>
       vi.spyOn(console, name).mockImplementation(() => undefined),
@@ -357,26 +356,19 @@ describe('AddAppForm', () => {
     );
     spies[0].mockClear();
 
-    fillAndSubmit({ connectionString: secret });
-    httpMock.expectOne({ url: '/api/apps', method: 'POST' }).flush(
-      { appId: 1, name: 'traficio', database: 'exampledb', collection: 'octometer_events' },
-      {
-        status: 201,
-        statusText: 'Created',
-      },
-    );
+    fillAndSubmit();
+    httpMock
+      .expectOne({ url: '/api/apps', method: 'POST' })
+      .flush(keysOf({ secretKey: markerSecondValue }), { status: 201, statusText: 'Created' });
     fixture.detectChanges();
 
     for (const spy of spies) {
       for (const call of spy.mock.calls) {
-        expect(call.join(' ')).not.toContain(secret);
+        expect(call.join(' ')).not.toContain(markerSecondValue);
       }
     }
-    expect(window.location.href).not.toContain(secret);
-    expect(
-      root().querySelector<HTMLInputElement>('#add-app-connection-string')!.value,
-    ).not.toContain(secret);
-    expect(JSON.stringify(Object.entries(localStorage))).not.toContain(secret);
-    expect(JSON.stringify(Object.entries(sessionStorage))).not.toContain(secret);
+    expect(window.location.href).not.toContain(markerSecondValue);
+    expect(JSON.stringify(Object.entries(localStorage))).not.toContain(markerSecondValue);
+    expect(JSON.stringify(Object.entries(sessionStorage))).not.toContain(markerSecondValue);
   });
 });

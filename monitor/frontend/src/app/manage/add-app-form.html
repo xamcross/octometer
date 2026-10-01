@@ -5,22 +5,18 @@
   </div>
 
   <div class="field">
-    <label for="add-app-connection-string">Connection string</label>
-    <input
-      id="add-app-connection-string"
-      type="password"
-      autocomplete="new-password"
+    <label for="add-app-origins">Origins (one per line)</label>
+    <textarea
+      id="add-app-origins"
       required
-      [value]="connectionString()"
-      (input)="onConnectionStringInput($event)"
+      [value]="origins()"
+      (input)="onOriginsInput($event)"
       [attr.aria-describedby]="
-        errorMessage()
-          ? 'add-app-connection-string-hint add-app-error'
-          : 'add-app-connection-string-hint'
+        errorMessage() ? 'add-app-origins-hint add-app-error' : 'add-app-origins-hint'
       "
       [attr.aria-invalid]="errorMessage() ? 'true' : null"
-    />
-    <p id="add-app-connection-string-hint" class="form-hint">{{ connectionStringHint }}</p>
+    ></textarea>
+    <p id="add-app-origins-hint" class="form-hint">{{ originsHint }}</p>
   </div>
 
   @if (errorMessage(); as message) {
@@ -29,3 +25,37 @@
 
   <button type="submit" class="btn btn-primary" [disabled]="pending()">Add app</button>
 </form>
+
+@if (keys(); as created) {
+  <section class="panel keys-panel" aria-live="polite">
+    <h3>App key and secret key</h3>
+
+    <div class="field">
+      <label for="add-app-key">App key</label>
+      <div class="key-row">
+        <input id="add-app-key" type="text" readonly [value]="created.appKey" />
+        <button type="button" class="btn btn-small" (click)="copyAppKey()">
+          {{ copyAppKeyDone() ? 'Copied' : 'Copy' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="add-app-secret-key">Secret key</label>
+      <div class="key-row">
+        <input id="add-app-secret-key" type="text" readonly [value]="created.secretKey" />
+        <button type="button" class="btn btn-small" (click)="copySecretKey()">
+          {{ copySecretKeyDone() ? 'Copied' : 'Copy' }}
+        </button>
+      </div>
+    </div>
+
+    <p class="form-hint key-warning">Copy the secret key now. It shows one time.</p>
+
+    <div class="field">
+      <label for="add-app-script-tag">Tracker script</label>
+      <pre id="add-app-script-tag"><code>{{ scriptTag(created.appKey) }}</code></pre>
+      <p class="form-hint">The script arrives with the next release.</p>
+    </div>
+  </section>
+}

@@ -15,30 +15,29 @@ import {
 import { Announcer } from '../announcer';
 import type { AppRow } from '../apps/app-row';
 import { formatLocalDateTime } from '../status-format';
-import { AppDetail, UpdateAppRequest, readApiErrorMessage } from './app-registry-api';
-import { EDIT_CONNECTION_STRING_HINT } from './field-hints';
+import { AppDetail, UpdateOriginsRequest, readApiErrorMessage } from './app-registry-api';
+import { ORIGINS_HINT } from './field-hints';
 
 /**
- * The control of step 3: `PATCH /api/apps/{id}` with the name and the
- * connection string of D13. Each row of the list gets its own instance.
+ * The control of issue #296 (D52): `PUT /api/apps/{id}/origins` for
+ * the origin list, then `PATCH /api/apps/{id}` for a changed name
+ * (the order of the correction of pull request #323, MAJOR 2). Each
+ * row of the list gets its own instance. The trigger button
+ * reads "Edit origins" (the correction of the brief review): it opens
+ * the one form below, with the name and the origin list of the app.
  *
- * The "Edit" button opens the form. The name field starts with the current
- * name, and the focus moves to it. The connection string field starts
- * empty, because the API never returns the stored value (D11, D15): a
- * blank field then means "keep the old connection string", and the
- * request omits the field.
+ * The connection string field of D13 is gone (issue #296): the keys
+ * panel of the add form and the "New secret key" action cover the
+ * hosted path; this form edits the name and the origins of any app.
  *
- * The focus moves back to the "Edit" button after a cancel and after a
- * successful save, so a keyboard user stays near the row (the pattern of
- * `DeleteAppDialog.onDialogClose`).
+ * The focus moves back to the trigger button after a cancel and after
+ * a successful save, so a keyboard user stays near the row (the
+ * pattern of `DeleteAppDialog.onDialogClose`).
  *
  * Design decision D48 (issue #277) ends the typed route pattern list of
  * issue #226: the form shows the published list read-only. It reads
  * `GET /api/apps/{id}` on open, so it shows the app's own published list
- * and the "Published by the app on" line. A failed read shows a message
- * next to the block; Save stays enabled, because the save never carries
- * a `pathPatterns` field any more (the correction of the brief review of
- * 2026-09-28).
+ * and the "Published by the app on" line.
  *
  * A 404 on the save means a second window already removed the app. The
  * form emits `staleList` in that case, so the parent reads the list again
@@ -66,11 +65,11 @@ export class EditAppForm {
   private readonly nameField = viewChild<ElementRef<HTMLInputElement>>('nameField');
   private readonly editToggle = viewChild<ElementRef<HTMLButtonElement>>('editToggle');
 
-  protected readonly connectionStringHint = EDIT_CONNECTION_STRING_HINT;
+  protected readonly originsHint = ORIGINS_HINT;
 
   protected readonly editing = signal(false);
   protected readonly name = signal('');
-  protected readonly connectionString = signal('');
+  protected readonly origins = signal('');
   protected readonly pending = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
 
@@ -103,7 +102,7 @@ export class EditAppForm {
   /**
    * True after a failed `GET /api/apps/{id}` (design decision D48, the
    * correction of the brief review of 2026-09-28). The block shows a
-   * message; Save stays enabled, because the save carries no
+   * message; Save stays enabled, because the save never carries a
    * `pathPatterns` field any more, so a failed read of this read-only
    * block risks no wrong write.
    */
@@ -113,22 +112,22 @@ export class EditAppForm {
     return `edit-app-name-${this.app().appId}`;
   }
 
-  protected get connectionStringId(): string {
-    return `edit-app-connection-string-${this.app().appId}`;
+  protected get originsId(): string {
+    return `edit-app-origins-${this.app().appId}`;
   }
 
-  protected get connectionStringHintId(): string {
-    return `edit-app-connection-string-hint-${this.app().appId}`;
+  protected get originsHintId(): string {
+    return `edit-app-origins-hint-${this.app().appId}`;
   }
 
   protected get errorId(): string {
     return `edit-app-error-${this.app().appId}`;
   }
 
-  /** Opens the form with the current name, an empty connection string field, and the published route list. */
+  /** Opens the form with the current name, the current origin list, and the published route list. */
   protected open(): void {
     this.name.set(this.app().name);
-    this.connectionString.set('');
+    this.origins.set('');
     this.pathPatterns.set([]);
     this.pathPatternsPublishedAt.set(null);
     this.kitVersion.set(null);
@@ -138,6 +137,7 @@ export class EditAppForm {
     afterNextRender(() => this.nameField()?.nativeElement.focus(), { injector: this.injector });
     this.http.get<AppDetail>(`/api/apps/${this.app().appId}`).subscribe({
       next: (detail) => {
+        this.origins.set(detail.origins.join('\n'));
         this.pathPatterns.set(detail.pathPatterns === null ? [] : detail.pathPatterns.split('\n'));
         this.pathPatternsPublishedAt.set(detail.pathPatternsPublishedAt);
         this.kitVersion.set(detail.kitVersion);
@@ -156,10 +156,9 @@ export class EditAppForm {
     });
   }
 
-  /** Closes the form. It discards each typed value, and moves the focus back to "Edit". */
+  /** Closes the form. It discards each typed value, and moves the focus back to "Edit origins". */
   protected cancel(): void {
     this.editing.set(false);
-    this.connectionString.set('');
     afterNextRender(() => this.editToggle()?.nativeElement.focus(), { injector: this.injector });
   }
 
@@ -167,8 +166,8 @@ export class EditAppForm {
     this.name.set((event.target as HTMLInputElement).value);
   }
 
-  protected onConnectionStringInput(event: Event): void {
-    this.connectionString.set((event.target as HTMLInputElement).value);
+  protected onOriginsInput(event: Event): void {
+    this.origins.set((event.target as HTMLTextAreaElement).value);
   }
 
   protected onSubmit(event: Event): void {
@@ -176,28 +175,59 @@ export class EditAppForm {
     if (this.pending()) {
       return;
     }
-    // Design decision D48 (the correction of the brief review of
-    // 2026-09-28): the save never carries a pathPatterns field any
-    // more, so a failed read of the read-only block no longer disables
-    // this submit.
-    const request: UpdateAppRequest = {
-      name: this.name(),
-      ...(this.connectionString() ? { connectionString: this.connectionString() } : {}),
-    };
     this.pending.set(true);
     this.errorMessage.set(null);
-    this.http.patch<void>(`/api/apps/${this.app().appId}`, request).subscribe({
-      next: () => this.onUpdated(),
+    this.saveOrigins();
+  }
+
+  // The origins save now runs first, then the name save (MAJOR 2 of
+  // the review of pull request #323): the origins PUT alone can fail
+  // on a rule the name PATCH never checks (a bad origin, a duplicate,
+  // more than 20 origins), so a rename never ships ahead of a
+  // rejected origin list. The API rejects an empty origin list (one
+  // to 20 origins, M11). An app of the legacy connection-string path
+  // (D32) starts with an empty list and an empty textarea here; a
+  // save with no typed origin then skips this request, so a plain
+  // rename of such an app still works, the same as before this story.
+  private saveOrigins(): void {
+    const lines = linesOf(this.origins());
+    if (lines.length === 0) {
+      this.saveName();
+      return;
+    }
+    const request: UpdateOriginsRequest = { origins: lines };
+    this.http.put<AppDetail>(`/api/apps/${this.app().appId}/origins`, request).subscribe({
+      next: () => {
+        this.updated.emit();
+        this.saveName();
+      },
       error: (error: unknown) => this.onFailed(error),
     });
   }
 
-  private onUpdated(): void {
+  // Each successful call emits `updated` right away (MAJOR 2), so the
+  // list shows the saved part even when the other call then fails;
+  // `onFailed` shows the failed call's error, with the saved part
+  // already visible in the list.
+  private saveName(): void {
+    const newName = this.name().trim();
+    if (newName === this.app().name) {
+      this.onSaved();
+      return;
+    }
+    this.http.patch<void>(`/api/apps/${this.app().appId}`, { name: newName }).subscribe({
+      next: () => {
+        this.updated.emit();
+        this.onSaved();
+      },
+      error: (error: unknown) => this.onFailed(error),
+    });
+  }
+
+  private onSaved(): void {
     this.pending.set(false);
     this.editing.set(false);
-    this.connectionString.set('');
     this.announcer.announce('App updated');
-    this.updated.emit();
     afterNextRender(() => this.editToggle()?.nativeElement.focus(), { injector: this.injector });
   }
 
@@ -212,4 +242,12 @@ export class EditAppForm {
       this.staleList.emit();
     }
   }
+}
+
+/** Splits a textarea value into one origin per non-blank line (issue #296). */
+function linesOf(value: string): string[] {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 }

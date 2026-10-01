@@ -23,6 +23,7 @@ import octometer.monitor.mongo.STATUS_ERROR
 import octometer.monitor.mongo.STATUS_INVALID_DATA
 import octometer.monitor.mongo.STATUS_OK
 import octometer.monitor.mongo.STATUS_OVERPRIVILEGED
+import octometer.monitor.registry.CLUSTER_MISSING_MESSAGE
 import octometer.monitor.registry.SecretStore
 import org.slf4j.LoggerFactory
 import org.sqlite.SQLiteErrorCode
@@ -108,6 +109,11 @@ class PollScheduler(
     private val stopGraceMillis: Long = DEFAULT_STOP_GRACE_MILLIS,
     private val wakeDelayMillis: Long = DEFAULT_WAKE_DELAY_MILLIS,
     private val random: Random = Random,
+    // Issue #296, M5: an app with no stored secret (the hosted path of
+    // D51, D57) polls through this cluster URI instead. A blank value
+    // (the local run, or a run before #295 sets the Fly secret) gives
+    // each such app the status ERROR of CLUSTER_MISSING_MESSAGE.
+    private val clusterUri: String = "",
 ) {
 
     private val supervisor = SupervisorJob()
@@ -335,13 +341,21 @@ class PollScheduler(
     private suspend fun runPollCycle(row: AppRow, target: PollTarget) {
         val appId = row.appId
         try {
-            val connectionString = secretStore.get(appId)
-            if (connectionString == null) {
-                log.warn("The poll skipped one app with no stored secret.")
-                recordFailure(row, STATUS_ERROR, "no stored secret")
+            // Issue #296, M5: a null secret (the hosted path, D51, D57)
+            // takes the cluster URI as the connection string, never
+            // concatenated with the database name: MongoAppReader.openDatabase
+            // keeps the database name as its own argument. A blank
+            // cluster URI (the local run, or before #295 sets the Fly
+            // secret) gives one ERROR cycle, with no cycle attempt.
+            val storedSecret = secretStore.get(appId)
+            val connectionString = storedSecret ?: clusterUri
+            if (connectionString.isBlank()) {
+                log.warn("The poll skipped one app with no cluster.")
+                recordFailure(row, STATUS_ERROR, CLUSTER_MISSING_MESSAGE)
                 return
             }
-            val outcome = pollCycle.run(target, connectionString)
+            val effectiveTarget = if (storedSecret == null) target.copy(useSharedClient = true) else target
+            val outcome = pollCycle.run(effectiveTarget, connectionString)
             recordSuccess(row, outcome)
         } catch (timeout: TimeoutCancellationException) {
             log.warn("The poll cycle failed. {}", timeout.javaClass.simpleName)
