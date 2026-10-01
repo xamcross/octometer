@@ -310,6 +310,77 @@ class StaticFrontendTest {
         assertEquals("public, max-age=3600", response.headers[HttpHeaders.CacheControl])
     }
 
+    // The addendum of 2026-10-02 (#331, M6): the 304 path. Each case
+    // sends a different form of If-None-Match against the bare URL.
+
+    @Test
+    fun `GET tracker js with a matching If-None-Match gives 304 with the ETag and Cache-Control and no body`() =
+        testApplication {
+            application { module(prodConfig(), staticDirWithTracker()) }
+            val hash = trackerHashOf(trackerBody)
+
+            val response = client.get("/tracker.js") {
+                allowedHost()
+                header(HttpHeaders.IfNoneMatch, "\"$hash\"")
+            }
+
+            assertEquals(HttpStatusCode.NotModified, response.status)
+            assertEquals("\"$hash\"", response.headers[HttpHeaders.ETag])
+            assertEquals("public, max-age=3600", response.headers[HttpHeaders.CacheControl])
+            assertEquals("", response.bodyAsText())
+        }
+
+    @Test
+    fun `GET tracker js with a weak If-None-Match gives 304`() = testApplication {
+        application { module(prodConfig(), staticDirWithTracker()) }
+        val hash = trackerHashOf(trackerBody)
+
+        val response = client.get("/tracker.js") {
+            allowedHost()
+            header(HttpHeaders.IfNoneMatch, "W/\"$hash\"")
+        }
+
+        assertEquals(HttpStatusCode.NotModified, response.status)
+    }
+
+    @Test
+    fun `GET tracker js with a list of If-None-Match values that holds the hash gives 304`() = testApplication {
+        application { module(prodConfig(), staticDirWithTracker()) }
+        val hash = trackerHashOf(trackerBody)
+
+        val response = client.get("/tracker.js") {
+            allowedHost()
+            header(HttpHeaders.IfNoneMatch, "\"other-value\", \"$hash\"")
+        }
+
+        assertEquals(HttpStatusCode.NotModified, response.status)
+    }
+
+    @Test
+    fun `GET tracker js with If-None-Match star gives 304`() = testApplication {
+        application { module(prodConfig(), staticDirWithTracker()) }
+
+        val response = client.get("/tracker.js") {
+            allowedHost()
+            header(HttpHeaders.IfNoneMatch, "*")
+        }
+
+        assertEquals(HttpStatusCode.NotModified, response.status)
+    }
+
+    @Test
+    fun `GET tracker js with a non-matching If-None-Match gives 200 with the body`() = testApplication {
+        application { module(prodConfig(), staticDirWithTracker()) }
+
+        val response = client.get("/tracker.js") {
+            allowedHost()
+            header(HttpHeaders.IfNoneMatch, "\"other-value\"")
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(trackerBody, response.bodyAsText())
+    }
+
     @Test
     fun `GET tracker js gives 404 when the static folder holds no tracker bundle`() = testApplication {
         val root = Files.createTempDirectory("octometer-tracker-test-").toFile().also { registerTempRoot(it) }

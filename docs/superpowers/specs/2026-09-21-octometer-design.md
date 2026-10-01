@@ -838,6 +838,22 @@ Fly.io, the events live in one MongoDB Atlas cluster, and the kit goes. The doma
   a one-year cache header and a content hash in the query. One script tag starts it:
   `<script src="https://app.0ct0meter.com/tracker.js" data-app-key="..."
   data-user-id="..."></script>`. The npm package stays for a bundler.
+
+  Addendum of 2026-10-02, #331: a page that holds an old hashed tag kept the old bundle for
+  one year, so a bug fix of the tracker never reached it. The keys panel now shows the bare
+  tag `<script src="<public URL>/tracker.js" data-app-key="<key>"></script>`, with no `?v=`;
+  the run guide and `docs/add-octometer.md` show the same tag. The bare URL keeps
+  `Cache-Control: public, max-age=3600` and the `ETag`. The route answers `304 Not Modified`
+  for a request whose `If-None-Match` matches the current `ETag`, with the same `ETag` and
+  `Cache-Control` headers and no body, so a page gets a new bundle within one hour at no
+  transfer cost. The hashed form `?v=<hash>` stays as it is, for a page that wants the
+  one-year cache on purpose; the hash is the `ETag` value of the bare answer. A page that
+  already cached a hashed URL keeps the old bundle until that cache entry expires, or until
+  the page's own tag changes to the bare form. The answer of `GET /tracker.js` holds no
+  header that depends on a request header other than `If-None-Match` itself; a later header
+  that depends on `Origin` needs a `Vary: Origin` beside the `public` cache. The route reads
+  `v` for one compare only and writes it into no header and no body; a random `v` makes a new
+  key in a shared cache, and the bundle sits in memory, so the origin cost stays small.
 - **D54. The user id.** The tracker option `userId` takes a pseudonymous id from the app. It
   must never be an email address; a value with `@` is dropped. Without `userId` the click is
   anonymous (D19 on by default, D43).

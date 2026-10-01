@@ -303,13 +303,14 @@ describe('AddAppForm', () => {
       expect(root().textContent).toContain('Copy the secret key now. It shows one time.');
     });
 
-    it('builds the hashed script tag from the app key and the tracker hash, with no "arrives with the next release" sentence', () => {
+    it('builds the bare script tag from the app key, with no ?v= and no "arrives with the next release" sentence', () => {
       loadMeWithTrackerHash('abc123');
       submitAndFlushCreated(keysOf());
 
       const scriptTag = root().querySelector('#add-app-script-tag')!;
       expect(scriptTag.textContent).toContain(`data-app-key="${markerAppKeyValue}"`);
-      expect(scriptTag.textContent).toContain('tracker.js?v=abc123');
+      expect(scriptTag.textContent).toContain('tracker.js"');
+      expect(scriptTag.textContent).not.toContain('?v=');
       expect(root().textContent).not.toContain('The script arrives with the next release.');
     });
 

@@ -72,13 +72,15 @@ export class AddAppForm {
   protected readonly trackerHash = this.me.trackerHash;
 
   /**
-   * The hashed tracker script tag of the keys panel (issue #296, #298).
-   * A blank publicUrl falls back to the page's own origin. The caller
-   * reads this only when [trackerHash] holds a value.
+   * The bare tracker script tag of the keys panel (issue #296, #298,
+   * the addendum of 2026-10-02, #331). A blank publicUrl falls back to
+   * the page's own origin. The caller reads this only when
+   * [trackerHash] holds a value, the signal that this instance holds a
+   * built bundle.
    */
-  protected scriptTag(appKey: string, trackerHash: string): string {
+  protected scriptTag(appKey: string): string {
     const base = this.me.publicUrl() || location.origin;
-    return `<script src="${base}/tracker.js?v=${trackerHash}" data-app-key="${appKey}"></script>`;
+    return `<script src="${base}/tracker.js" data-app-key="${appKey}"></script>`;
   }
 
   protected copyAppKey(): void {
