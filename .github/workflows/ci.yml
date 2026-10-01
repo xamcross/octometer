@@ -29,6 +29,7 @@ jobs:
       tracker: ${{ steps.filter.outputs.tracker }}
       smoke: ${{ steps.filter.outputs.smoke }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      site: ${{ steps.filter.outputs.site }}
       ci: ${{ steps.filter.outputs.ci }}
       deploy: ${{ steps.filter.outputs.deploy }}
     steps:
@@ -93,6 +94,10 @@ jobs:
               - 'gradlew*'
               - 'monitor/backend/Dockerfile'
               - 'fly.toml'
+            # Issue #287. The public site is its own module, apart from
+            # the monitor and the tracker.
+            site:
+              - 'site/**'
             ci:
               - '.github/**'
             # Issue #295, brief review m1, m2: the deploy job's own
@@ -254,6 +259,58 @@ jobs:
         run: npm test
       - name: Build the tracker
         run: npm run build
+
+  site:
+    name: Site
+    needs: changes
+    if: needs.changes.outputs.site == 'true' || needs.changes.outputs.ci == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Issue #287, correction M5: the Node version comes from
+      # site/.nvmrc, the same file that the Cloudflare Worker project
+      # reads.
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: site/.nvmrc
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Install the site dependencies
+        run: npm ci
+      # Issue #287, correction m3, m4: the cache key and the step copy
+      # the "e2e" job above (ci.yml:310-314 before this change).
+      - name: Cache the Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-site-${{ hashFiles('site/package-lock.json') }}
+      - name: Install the Playwright browser
+        run: npx playwright install --with-deps chromium
+      # Issue #287, correction m8: the build step stays apart from the
+      # test step, so a green build step alone proves criterion 1.
+      - name: Build the site
+        run: npm run build
+      - name: Test the site
+        run: npm test
+      # Issue #287, correction m2: if: always(), as the "e2e" job does.
+      - name: Keep the Playwright report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: site-e2e-report
+          path: |
+            site/e2e/playwright-report
+            site/e2e/test-results
 
   e2e:
     name: End-to-end (Playwright)

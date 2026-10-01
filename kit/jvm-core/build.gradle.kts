@@ -91,10 +91,8 @@ tasks.named<JacocoReport>("jacocoTestReport") {
 // The publication for JitPack (design decision D25, issue #37). The
 // artifact id "octometer-kit-core" comes from D25.
 //
-// Note: the repository has no LICENSE file and no license field on
-// GitHub (confirmed with `gh api repos/xamcross/octometer` on
-// 2026-09-22). The POM thus states no license. The owner adds a
-// license, and then a later change adds it to the POM.
+// The owner chose "keep all rights" on 2026-10-01 (issue #203). The
+// licenses block below states this in the POM.
 publishing {
     publications {
         create<MavenPublication>("maven") {
@@ -105,6 +103,13 @@ publishing {
                 name.set("Octometer Kit Core")
                 description.set("The ingest core of the Octometer JVM kit. It stores an event and reads it back, with no run-time dependency.")
                 url.set("https://github.com/xamcross/octometer")
+
+                licenses {
+                    license {
+                        name.set("All rights reserved")
+                        comments.set("No licence is granted. Contact the copyright holder.")
+                    }
+                }
 
                 scm {
                     connection.set("scm:git:https://github.com/xamcross/octometer.git")
