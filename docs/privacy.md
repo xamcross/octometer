@@ -98,8 +98,19 @@ erasure step, after one poll cycle of the monitor.
 Some apps send their clicks to the hosted collector of Octometer
 (`https://app.0ct0meter.com/collect`), in place of a route of their own
 (issue #297). The request holds the app key, the session id, the
-element name, and the page path pattern. It holds no user id in this
-release; a later release can add that field.
+element name, and the page path pattern.
+
+Since issue #300, the app may also pass the collector a pseudonymous
+id of your signed-in account. This id is never your email address: the
+collector drops a value shaped like one, and it records the click as
+anonymous instead. A click with no id, or with a dropped id, is
+anonymous.
+
+The app owner can erase every one of your clicks from the collector
+with one call, through the app's own secret key. This call removes
+each record of your id, and each anonymous record of a session of
+your id (the same width as section 9), from the collector and from
+the owner's own monitor, in one step.
 
 The collector keeps your client address in memory only, for one minute
 at a time, to limit abuse. It never stores your client address.
@@ -179,4 +190,6 @@ Issue #290 added section 11 (then section 12), the pointer to the waitlist notic
 Issue #297 added section 10, the hosted collector, design decision D50. It moved the
   former section 10 (the dashboard account) to section 11, and the former section 11
   (the waitlist notice) to section 12.
+Issue #300 (2026-10-01) amended section 10: the collector's own pseudonymous id, design
+  decision D54, and its one-call erasure, design decision D55.
 -->

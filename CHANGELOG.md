@@ -28,12 +28,16 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 - State the hosted collector's header `X-Octometer-Key` in section 2, beside the ingest
   request it shares the body form and the answer codes with. (#297)
+- Amend rule C16 and rule C32: the hosted collector takes the body's `userId` field when
+  the request carries a valid app key; the kit's own ingest route keeps the rule. (#300)
 
 ### Kit JVM
 
 - Add the default route pattern rule (a whole number, a UUID, or a hex string of 8
   characters or more becomes `:id`), and a fallback parameter of `IngestPipeline.process`
   that applies it after the typed route pattern list. (#297)
+- Add the `IngestSettings` option `acceptBodyUserId`, and `IngestPipeline.processBatch`,
+  so the collector route alone can take a user id from the ingest body. (#300)
 
 ### Tracker
 
@@ -42,6 +46,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add the IIFE bundle `dist/tracker.iife.js`, under 6 KB gzipped, built with `esbuild`; it
   reads `data-app-key` and `data-endpoint` from its own script tag and starts the tracker.
   Move the npm build into its own Gradle module, `kit/tracker`. (#298)
+- Add the option `userId` and the data attribute `data-user-id`: a pseudonymous id of the
+  signed-in user, dropped with one warning for an email address or a space. (#300)
 
 ### Monitor
 
@@ -62,6 +68,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   `trackerHash` of `GET /api/me`. (#298)
 - Make the sign-in sentinel test of `ConfigLoaderTest` wait for the mail file: a bound
   poll replaces the one immediate read of the mail folder. (#328)
+- Add the secret-key path of the erasure route: a server of the app calls it with no
+  session, erases the cluster copy first, then the cache, and stores the body's own user
+  id on the collector path. (#300)
 
 ### CI
 
@@ -83,6 +92,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add `docs/add-octometer.md`: the served script tag, the npm option, the origins rule,
   the app key and the secret key, and the Content-Security-Policy paragraph. Add the
   served-tracker section to `docs/run-guide.md`. (#298)
+- Add the "Your users" section to `docs/add-octometer.md`, and the pseudonymous id and
+  erasure paragraph to `docs/privacy.md`. (#300)
 
 ## 0.3.0 - 2026-09-28
 
