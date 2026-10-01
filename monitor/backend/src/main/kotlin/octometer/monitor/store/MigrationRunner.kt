@@ -18,6 +18,7 @@ private val MIGRATIONS = listOf(
     Migration(4, "/db/004_app_path_patterns.sql"),
     Migration(5, "/db/005_app_path_patterns_published_at.sql"),
     Migration(6, "/db/006_accounts.sql"),
+    Migration(7, "/db/007_app_keys.sql"),
 )
 
 private val log = LoggerFactory.getLogger("octometer.monitor.store.MigrationRunner")

@@ -157,11 +157,34 @@ copy until the app publishes its own list. The manage view shows the
 published list read-only, with the publish time and the kit version;
 section 6 states the full detail.
 
-## 4. The secrets
+## 4. Register an app
+
+Sign in, then open `/manage`. Fill the name, and fill one origin per
+line in "Origins (one per line)". An origin has the form
+`https://host`, with no path (issue #296, design decisions D51, D52).
+
+After the save, a panel shows the app key and the secret key, each
+with a copy button. Copy the secret key now: it shows one time, and
+the monitor never shows it again. The app key is public (it names the
+app to a visitor's browser); keep the secret key private.
+
+The app list shows the app key in its short form, and the origin
+list. "Edit origins" changes the origin list. "New secret key" asks
+for a confirmation, then shows a new secret key one time; the old
+secret key stops working at once.
+
+The present path with a connection string stays for a local MongoDB
+database of your own: fill `connectionString` through the API
+directly (`POST /api/apps`) in place of the manage form, which sends
+an origin list only.
+
+### The secrets file of the connection-string path
 
 The monitor stores each connection string in `secrets\apps.json`, outside
 `dataDir`. The application applies no encryption to this file (design
-decision D11).
+decision D11). An app with an origin list keeps no entry here: the
+service builds its MongoDB URI from `octometer.clusterUri` and the
+stored database name.
 
 Check that BitLocker protects the drive:
 

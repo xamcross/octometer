@@ -90,6 +90,10 @@ fun devConfig(
     publicUrl: String = "",
     mailSender: String = "file",
     mailDir: String = defaultMailDir(dataDir).absolutePath,
+    // Issue #296, D57: a blank default keeps each existing test free of
+    // the hosted cluster. A test of the registration's own keys path
+    // gives its own non-blank value (the precedent of ConfigLoaderTest.kt).
+    clusterUri: String = "",
 ) = MonitorConfig(
     mode = "dev",
     port = 7431,
@@ -101,6 +105,7 @@ fun devConfig(
     publicUrl = publicUrl,
     mailSender = mailSender,
     mailDir = mailDir,
+    clusterUri = clusterUri,
 )
 
 /** The prod mode config of the tests, with the configured port 7431. */

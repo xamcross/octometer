@@ -1,19 +1,20 @@
-import type { Page } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 
-/**
- * Issue #272: the form has no "Database" field any more. The path of
- * the connection string names the database.
- */
+/** The fields of the real manage form (issue #296, D51, D52, D57): a name and one origin per line. */
 export interface AddAppFields {
   readonly name: string;
-  readonly connectionString: string;
+  readonly origins: readonly string[];
 }
 
 /**
  * The manage view (`monitor/frontend/src/app/manage`). `addApp` uses the
  * real form and the real "Add app" button, never a direct API call
- * (decision 4).
+ * (decision 4). `addAppWithConnectionString` drives the legacy,
+ * local-developer path of the API directly (design decision D32, issue
+ * #296): the manage view sends no connection string any more, so no
+ * form field exists for it; the suite still proves that path through
+ * the API itself.
  */
 export class ManagePage {
   constructor(private readonly page: Page) {}
@@ -31,8 +32,8 @@ export class ManagePage {
    * body; a test that needs the app id reads `GET /api/apps` instead.
    */
   async addApp(fields: AddAppFields): Promise<void> {
-    await this.page.getByLabel('Name').fill(fields.name);
-    await this.page.getByLabel('Connection string').fill(fields.connectionString);
+    await this.page.getByLabel('Name', { exact: true }).fill(fields.name);
+    await this.page.getByLabel('Origins (one per line)').fill(fields.origins.join('\n'));
     await this.page.getByRole('button', { name: 'Add app' }).click();
     const row = this.page.getByRole('row', { name: new RegExp(`\\b${escapeRegExp(fields.name)}\\b`) });
     await expect(row).toBeVisible();
@@ -40,11 +41,11 @@ export class ManagePage {
 
   /**
    * Fills the add-app form and submits it, for a create that the
-   * registry rejects (issue #272, design decision D13). It waits for
-   * the error area of `add-app-form.html` to hold `expectedMessage`,
-   * never for a row. The name lookup is exact: once one row exists,
-   * its delete dialog gives a second control whose label text ("Type
-   * the app name to confirm") also holds the word "Name".
+   * registry rejects (issue #296). It waits for the error area of
+   * `add-app-form.html` to hold `expectedMessage`, never for a row.
+   * The name lookup is exact: once one row exists, its delete dialog
+   * gives a second control whose label text ("Type the app name to
+   * confirm") also holds the word "Name".
    *
    * A wait on `toBeVisible()` alone is not enough: the error area of a
    * former rejected submit can still sit in the DOM the instant after
@@ -55,15 +56,56 @@ export class ManagePage {
    */
   async addAppExpectingError(fields: AddAppFields, expectedMessage: string): Promise<void> {
     await this.page.getByLabel('Name', { exact: true }).fill(fields.name);
-    await this.page.getByLabel('Connection string').fill(fields.connectionString);
+    await this.page.getByLabel('Origins (one per line)').fill(fields.origins.join('\n'));
     await this.page.getByRole('button', { name: 'Add app' }).click();
     await expect(this.page.locator('#add-app-error')).toContainText(expectedMessage);
   }
 
-  /** Waits for the status cell of one row to hold one of the given words (decision 5a). */
+  /**
+   * Registers an app with a connection string, through the API's own
+   * legacy path (design decision D32, issue #296), never through the
+   * manage form (it carries no connection string field any more). The
+   * `Origin` header is the monitor's own origin (the dashboard origin
+   * of D52), the rule that every API write of this suite follows.
+   */
+  async addAppWithConnectionString(
+    request: APIRequestContext,
+    monitorUrl: string,
+    name: string,
+    connectionString: string,
+  ): Promise<void> {
+    const response = await request.post('/api/apps', {
+      headers: { Origin: monitorUrl },
+      data: { name, connectionString },
+    });
+    expect(response.status(), await response.text()).toBe(201);
+  }
+
+  /**
+   * The same create as [addAppWithConnectionString], for a create that
+   * the registry rejects. It returns the response, so a test can read
+   * the status and the fixed error text.
+   */
+  async addAppWithConnectionStringExpectingError(
+    request: APIRequestContext,
+    monitorUrl: string,
+    name: string,
+    connectionString: string,
+  ) {
+    return request.post('/api/apps', {
+      headers: { Origin: monitorUrl },
+      data: { name, connectionString },
+    });
+  }
+
+  /**
+   * Waits for the status cell of one row to hold one of the given
+   * words (decision 5a). `td.status`, never the first cell (issue
+   * #296 inserted the "App key" and "Origins" columns before it).
+   */
   async expectStatusOneOf(name: string, words: readonly string[], timeoutMs: number): Promise<void> {
     const row = this.page.getByRole('row', { name: new RegExp(`\\b${escapeRegExp(name)}\\b`) });
-    const status = row.getByRole('cell').first();
+    const status = row.locator('td.status');
     await expect(status).toContainText(new RegExp(words.map(escapeRegExp).join('|')), {
       timeout: timeoutMs,
     });
@@ -81,7 +123,7 @@ export class ManagePage {
   }
 
   async openEditForm(row: ReturnType<ManagePage['row']>): Promise<void> {
-    await row.getByRole('button', { name: 'Edit' }).click();
+    await row.getByRole('button', { name: 'Edit origins' }).click();
   }
 
   /** The `<code>` items of the published route list of the open edit form (design decision D48). */
@@ -98,6 +140,55 @@ export class ManagePage {
   async renameAndSave(row: ReturnType<ManagePage['row']>, newName: string): Promise<void> {
     await row.getByLabel('Name', { exact: true }).fill(newName);
     await row.getByRole('button', { name: 'Save' }).click();
+  }
+
+  /**
+   * Adds one more origin, one per line, to the open edit form, and
+   * saves it (issue #296). `open()` fetches `GET /api/apps/{id}`
+   * asynchronously, so this waits for the field to hold the fetched
+   * origins before it reads the current value, else a fast read here
+   * can race that fetch and keep the typed origin alone.
+   */
+  async addOriginAndSave(row: ReturnType<ManagePage['row']>, origin: string): Promise<void> {
+    const field = row.getByLabel('Origins (one per line)');
+    await expect(field).not.toHaveValue('');
+    const current = await field.inputValue();
+    await field.fill(current.length > 0 ? `${current}\n${origin}` : origin);
+    await row.getByRole('button', { name: 'Save' }).click();
+  }
+
+  /** The "App key" and "Origins" cells of one row of the list (issue #296). */
+  appKeyCell(row: ReturnType<ManagePage['row']>) {
+    return row.locator('td.app-key');
+  }
+
+  originCells(row: ReturnType<ManagePage['row']>) {
+    return row.locator('td.origins div');
+  }
+
+  /** The app key panel of the add-app form, after a successful create (issue #296, D51). */
+  appKeyField() {
+    return this.page.locator('#add-app-key');
+  }
+
+  secretKeyField() {
+    return this.page.locator('#add-app-secret-key');
+  }
+
+  scriptTag() {
+    return this.page.locator('#add-app-script-tag');
+  }
+
+  /**
+   * Clicks "New secret key" on the row, confirms the rotation, and
+   * gives the dialog's own secret key field back (issue #296, D51).
+   */
+  async rotateSecretKey(row: ReturnType<ManagePage['row']>) {
+    await row.getByRole('button', { name: 'New secret key' }).click();
+    await row.getByRole('button', { name: 'Replace the secret key' }).click();
+    const field = row.locator('#new-secret-key-value');
+    await expect(field).toBeVisible();
+    return field;
   }
 }
 

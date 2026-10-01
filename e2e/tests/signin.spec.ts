@@ -87,16 +87,21 @@ test.describe('Sign-in accounts (issue #301)', () => {
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page).toHaveURL(/\/apps$/, { timeout: WAIT_BOUND_MS });
 
-    // A adds an app through the present manage form.
-    const manage = new ManagePage(page);
-    await manage.goto();
-    const appName = `signin-a-${Date.now()}`;
-    await manage.addApp({ name: appName, connectionString: 'mongodb://127.0.0.1:1/exampledb' });
-
+    // A adds an app through the legacy connection-string path of the
+    // API (design decision D32, issue #296, the brief review B3): the
+    // manage form carries no connection string field any more.
     // page.request, not the bare request fixture: page.request shares
     // the cookie jar of the page's own browser context, so it carries
     // the session cookie that A's sign-in click just set. The bare
     // request fixture is its own, separate context.
+    const manage = new ManagePage(page);
+    const appName = `signin-a-${Date.now()}`;
+    await manage.addAppWithConnectionString(
+      page.request,
+      monitorUrl,
+      appName,
+      'mongodb://127.0.0.1:1/exampledb',
+    );
     const appsResponse = await page.request.get('/api/apps');
     expect(appsResponse.status()).toBe(200);
     const appRows = (await appsResponse.json()) as ReadonlyArray<{ appId: number; name: string }>;

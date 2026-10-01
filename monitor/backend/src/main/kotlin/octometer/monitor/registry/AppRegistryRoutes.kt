@@ -15,6 +15,7 @@ import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
+import io.ktor.server.routing.put
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -24,6 +25,10 @@ import octometer.monitor.ErrorBody
 import octometer.monitor.accounts.accountId
 
 private const val SECRET_STORE_UNAVAILABLE_MESSAGE = "The secret store is not available. Try again."
+
+/** Issue #296, M8: a `POST /api/apps` body with both fields, or with neither one. */
+private const val BOTH_FIELDS_MESSAGE = "Send a connection string or an origin list, not both."
+private const val NEITHER_FIELD_MESSAGE = "Send a connection string or an origin list."
 
 /**
  * The fixed 400 text of design decision D48 (issue #277): the app
@@ -40,28 +45,82 @@ private const val PATH_PATTERNS_REJECTED_MESSAGE = "The app publishes its route 
  * connection string can sit in that part (D11, D15).
  */
 fun Route.appRegistryRoutes(registry: AppRegistryService) {
+    // Issue #296, M8: the body's own keys pick the path. A body with
+    // `connectionString` takes the present, local-developer path
+    // (D32); a body with `origins` takes the hosted path of D51, D52,
+    // and D57. A body with both, or with neither, gives a fixed 400.
     post("/api/apps") {
-        val request = when (val outcome = receiveAppRequest<CreateAppRequest>(call)) {
-            is AppRequestOutcome.Ok -> outcome.request
-            AppRequestOutcome.Invalid -> {
+        val rawJson = when (val outcome = receiveRawAppJson(call)) {
+            is RawAppJsonOutcome.Ok -> outcome.json
+            RawAppJsonOutcome.Invalid -> {
                 call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
                 return@post
             }
-            AppRequestOutcome.PathPatternsRejected -> {
+            RawAppJsonOutcome.PathPatternsRejected -> {
                 call.respond(HttpStatusCode.BadRequest, ErrorBody(PATH_PATTERNS_REJECTED_MESSAGE))
                 return@post
             }
         }
-        when (val result = registry.createApp(call.accountId(), request)) {
-            is CreateAppResult.Created -> {
-                call.response.header(HttpHeaders.Location, "/api/apps/${result.summary.appId}")
-                call.respond(HttpStatusCode.Created, result.summary)
+        val hasConnectionString = "connectionString" in rawJson
+        val hasOrigins = "origins" in rawJson
+        when {
+            hasConnectionString && hasOrigins -> {
+                call.respond(HttpStatusCode.BadRequest, ErrorBody(BOTH_FIELDS_MESSAGE))
+                return@post
             }
-            is CreateAppResult.InvalidRequest -> call.respond(HttpStatusCode.BadRequest, ErrorBody(result.message))
-            is CreateAppResult.NameTaken ->
-                call.respond(HttpStatusCode.Conflict, ErrorBody("The name is already registered."))
-            CreateAppResult.SecretStoreUnavailable ->
-                call.respond(HttpStatusCode.ServiceUnavailable, ErrorBody(SECRET_STORE_UNAVAILABLE_MESSAGE))
+            hasConnectionString -> createAppWithConnectionString(call, registry, rawJson)
+            hasOrigins -> createAppWithOrigins(call, registry, rawJson)
+            else -> call.respond(HttpStatusCode.BadRequest, ErrorBody(NEITHER_FIELD_MESSAGE))
+        }
+    }
+
+    // Issue #296, D52: replaces the origin list of one app. The app of
+    // another account, or an unknown id, gives the same 404 as the
+    // other routes of this file.
+    put("/api/apps/{id}/origins") {
+        val appId = call.parameters["id"]?.toLongOrNull()
+        if (appId == null) {
+            call.respond(HttpStatusCode.BadRequest, ErrorBody("The app id must be a whole number."))
+            return@put
+        }
+        val rawJson = when (val outcome = receiveRawAppJson(call)) {
+            is RawAppJsonOutcome.Ok -> outcome.json
+            RawAppJsonOutcome.Invalid -> {
+                call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
+                return@put
+            }
+            RawAppJsonOutcome.PathPatternsRejected -> {
+                call.respond(HttpStatusCode.BadRequest, ErrorBody(PATH_PATTERNS_REJECTED_MESSAGE))
+                return@put
+            }
+        }
+        val request = try {
+            Json.decodeFromJsonElement<UpdateOriginsRequest>(rawJson)
+        } catch (malformed: SerializationException) {
+            call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
+            return@put
+        } catch (malformed: IllegalArgumentException) {
+            call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
+            return@put
+        }
+        when (val result = registry.updateOrigins(call.accountId(), appId, request.origins)) {
+            is UpdateOriginsResult.Updated -> call.respond(HttpStatusCode.OK, result.detail)
+            UpdateOriginsResult.NotFound -> call.respond(HttpStatusCode.NotFound, ErrorBody("The app is not registered."))
+            is UpdateOriginsResult.InvalidRequest -> call.respond(HttpStatusCode.BadRequest, ErrorBody(result.message))
+        }
+    }
+
+    // Issue #296, D51: rotates the secret key of one app. The plain
+    // secret key shows in this one answer only.
+    post("/api/apps/{id}/secret") {
+        val appId = call.parameters["id"]?.toLongOrNull()
+        if (appId == null) {
+            call.respond(HttpStatusCode.BadRequest, ErrorBody("The app id must be a whole number."))
+            return@post
+        }
+        when (val result = registry.rotateSecret(call.accountId(), appId)) {
+            is RotateSecretResult.Rotated -> call.respond(HttpStatusCode.OK, result.rotation)
+            RotateSecretResult.NotFound -> call.respond(HttpStatusCode.NotFound, ErrorBody("The app is not registered."))
         }
     }
 
@@ -182,5 +241,82 @@ private suspend inline fun <reified T : Any> receiveAppRequest(call: Application
         AppRequestOutcome.Invalid
     } catch (malformed: IllegalArgumentException) {
         AppRequestOutcome.Invalid
+    }
+}
+
+/**
+ * The result of [receiveRawAppJson]: the raw body of [Ok], so a caller
+ * can dispatch on the body's own keys (issue #296, M8), or the one
+ * reason the body carries no usable JSON object at all.
+ */
+private sealed class RawAppJsonOutcome {
+    data class Ok(val json: JsonObject) : RawAppJsonOutcome()
+    object Invalid : RawAppJsonOutcome()
+    object PathPatternsRejected : RawAppJsonOutcome()
+}
+
+// Issue #296: the same three catches as receiveAppRequest, with no
+// decode of a typed request: the caller of this function picks the
+// type from the body's own keys, after this function gives the raw
+// JsonObject back.
+private suspend fun receiveRawAppJson(call: ApplicationCall): RawAppJsonOutcome {
+    val rawJson = try {
+        call.receive<JsonObject>()
+    } catch (malformedBody: BadRequestException) {
+        return RawAppJsonOutcome.Invalid
+    } catch (wrongShape: ContentConvertException) {
+        return RawAppJsonOutcome.Invalid
+    } catch (noUsableBody: ContentTransformationException) {
+        return RawAppJsonOutcome.Invalid
+    }
+    if ("pathPatterns" in rawJson) return RawAppJsonOutcome.PathPatternsRejected
+    return RawAppJsonOutcome.Ok(rawJson)
+}
+
+/** The legacy, local-developer path of `POST /api/apps` (design decision D32, issue #296). */
+private suspend fun createAppWithConnectionString(call: ApplicationCall, registry: AppRegistryService, rawJson: JsonObject) {
+    val request = try {
+        Json.decodeFromJsonElement<CreateAppRequest>(rawJson)
+    } catch (malformed: SerializationException) {
+        call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
+        return
+    } catch (malformed: IllegalArgumentException) {
+        call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
+        return
+    }
+    when (val result = registry.createApp(call.accountId(), request)) {
+        is CreateAppResult.Created -> {
+            call.response.header(HttpHeaders.Location, "/api/apps/${result.summary.appId}")
+            call.respond(HttpStatusCode.Created, result.summary)
+        }
+        is CreateAppResult.InvalidRequest -> call.respond(HttpStatusCode.BadRequest, ErrorBody(result.message))
+        is CreateAppResult.NameTaken ->
+            call.respond(HttpStatusCode.Conflict, ErrorBody("The name is already registered."))
+        CreateAppResult.SecretStoreUnavailable ->
+            call.respond(HttpStatusCode.ServiceUnavailable, ErrorBody(SECRET_STORE_UNAVAILABLE_MESSAGE))
+    }
+}
+
+/** The hosted path of `POST /api/apps` (design decisions D51, D52, D57, issue #296). */
+private suspend fun createAppWithOrigins(call: ApplicationCall, registry: AppRegistryService, rawJson: JsonObject) {
+    val request = try {
+        Json.decodeFromJsonElement<CreateAppWithOriginsRequest>(rawJson)
+    } catch (malformed: SerializationException) {
+        call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
+        return
+    } catch (malformed: IllegalArgumentException) {
+        call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
+        return
+    }
+    when (val result = registry.createAppWithOrigins(call.accountId(), request)) {
+        is CreateAppKeysResult.Created -> {
+            call.response.header(HttpHeaders.Location, "/api/apps/${result.keys.appId}")
+            call.respond(HttpStatusCode.Created, result.keys)
+        }
+        is CreateAppKeysResult.InvalidRequest -> call.respond(HttpStatusCode.BadRequest, ErrorBody(result.message))
+        is CreateAppKeysResult.NameTaken ->
+            call.respond(HttpStatusCode.Conflict, ErrorBody("The name is already registered."))
+        CreateAppKeysResult.ClusterMissing ->
+            call.respond(HttpStatusCode.ServiceUnavailable, ErrorBody(CLUSTER_MISSING_MESSAGE))
     }
 }

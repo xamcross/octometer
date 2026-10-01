@@ -1,9 +1,15 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, Signal, inject, signal } from '@angular/core';
 
-/** The answer of `GET /api/me` (D52, issue #301). */
+/**
+ * The answer of `GET /api/me` (D52, issue #301). `publicUrl` is
+ * `octometer.publicUrl` (D57, issue #296): the keys panel of the
+ * manage view reads it from [Me.publicUrl], and builds the tracker
+ * script tag from `location.origin` instead when it is blank.
+ */
 interface MeResponse {
   readonly email: string;
+  readonly publicUrl: string;
 }
 
 /**
@@ -19,6 +25,7 @@ export class Me {
   private readonly http = inject(HttpClient);
   private readonly emailState = signal<string | null>(null);
   private readonly readyState = signal(false);
+  private readonly publicUrlState = signal('');
 
   /** The email address of the signed-in account, or null before the first good answer. */
   readonly email: Signal<string | null> = this.emailState.asReadonly();
@@ -26,11 +33,15 @@ export class Me {
   /** True once `GET /api/me` gave one good answer. The health poll waits for this. */
   readonly ready: Signal<boolean> = this.readyState.asReadonly();
 
+  /** `octometer.publicUrl` (issue #296), or '' before the first good answer, or with a blank config value. */
+  readonly publicUrl: Signal<string> = this.publicUrlState.asReadonly();
+
   /** Sends `GET /api/me` once. The root `App` component calls this at the start. */
   load(): void {
     this.http.get<MeResponse>('/api/me').subscribe({
       next: (response) => {
         this.emailState.set(response.email);
+        this.publicUrlState.set(response.publicUrl);
         this.readyState.set(true);
       },
       error: () => {
