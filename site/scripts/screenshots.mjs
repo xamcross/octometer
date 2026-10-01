@@ -1,12 +1,18 @@
 // The screenshot script of the "Three levels" section (issue #289). It
 // opens the three read-only views of the local monitor (never "/manage"),
 // and writes six PNG files into "site/public/screens/": one pair per view,
-// at 1200 px width for the desktop source and at 600 px for the phone
-// source of the "<picture>" element.
+// for the two sources of the "<picture>" element.
 //
 // Run from "site/": node scripts/screenshots.mjs [baseURL]
 // The default base URL is the local monitor of the owner's machine. The
 // script never changes the monitor; it only reads its pages and its API.
+//
+// Fix of BLOCKER 1, the review of pull request #324: the two files of one
+// view come from the one viewport 1200 by 800 px, with the device scale
+// factor as the only difference (2 for the large file, 1 for the phone
+// file). A shorter viewport for the phone file cut the data table off; the
+// one viewport keeps the full page, at two pixel densities of the one
+// picture.
 import { chromium } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -15,10 +21,11 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, '..', 'public', 'screens');
 
-// The issue names the limit of one file: 150 kB (correction B3 of the
-// brief review; the mockup names a different number, and the issue wins).
-const SIZE_LIMIT_BYTES = 150 * 1024;
-const SCALE_FACTORS_BY_SIZE = [2, 1.5, 1];
+const VIEWPORT = { width: 1200, height: 800 };
+const FILE_VARIANTS = [
+  { suffix: '1200', deviceScaleFactor: 2 },
+  { suffix: '600', deviceScaleFactor: 1 },
+];
 
 /** Reads the first app row of the demo monitor. */
 async function readFirstAppId(baseURL) {
@@ -46,30 +53,29 @@ async function readFirstUserId(baseURL, appId) {
   return body.rows[0].userId;
 }
 
-/** Opens one view, waits for its title and its table rows, and takes the shot. */
-async function captureAtScale(browser, baseURL, view, viewport, deviceScaleFactor) {
-  const context = await browser.newContext({ viewport, deviceScaleFactor });
+/** Opens one view, waits for its title and its first table row, and takes the shot. */
+async function captureAtScale(browser, baseURL, view, deviceScaleFactor) {
+  const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor });
   const page = await context.newPage();
   try {
     await page.goto(`${baseURL}${view.path}`);
     await page.waitForFunction((text) => document.title === text, view.title);
-    await page.locator('.table-scroll table tbody tr').first().waitFor();
+    const row = page.locator('.table-scroll table tbody tr').first();
+    await row.waitFor();
+    // The guard of BLOCKER 1: a row that sits below the viewport height
+    // would print a shot with no table row inside it. The run fails
+    // instead of writing that cut shot.
+    const rowBox = await row.boundingBox();
+    if (!rowBox || rowBox.y + rowBox.height > VIEWPORT.height) {
+      throw new Error(
+        `The first table row of ${view.path} does not fit the viewport of ` +
+          `${VIEWPORT.width} by ${VIEWPORT.height} px; the shot would cut the table off.`,
+      );
+    }
     return await page.screenshot({ fullPage: false });
   } finally {
     await context.close();
   }
-}
-
-/** Repeats the shot at a lower scale factor until the file fits the limit. */
-async function captureUnderLimit(browser, baseURL, view, viewport) {
-  let buffer = null;
-  for (const deviceScaleFactor of SCALE_FACTORS_BY_SIZE) {
-    buffer = await captureAtScale(browser, baseURL, view, viewport, deviceScaleFactor);
-    if (buffer.byteLength <= SIZE_LIMIT_BYTES) {
-      return buffer;
-    }
-  }
-  return buffer;
 }
 
 async function main() {
@@ -92,19 +98,13 @@ async function main() {
       title: `User ${userId} of App ${appId} - Octometer`,
     },
   ];
-  // The two viewports keep one aspect ratio (3:2), so the phone source
-  // halves the download with no crop (correction B3 of the brief review).
-  const sizes = [
-    { suffix: '1200', viewport: { width: 1200, height: 800 } },
-    { suffix: '600', viewport: { width: 600, height: 400 } },
-  ];
 
   const browser = await chromium.launch();
   try {
     for (const view of views) {
-      for (const size of sizes) {
-        const buffer = await captureUnderLimit(browser, baseURL, view, size.viewport);
-        const file = join(outDir, `${view.name}-${size.suffix}.png`);
+      for (const variant of FILE_VARIANTS) {
+        const buffer = await captureAtScale(browser, baseURL, view, variant.deviceScaleFactor);
+        const file = join(outDir, `${view.name}-${variant.suffix}.png`);
         await writeFile(file, buffer);
         console.log(`site screenshots: wrote ${file} (${buffer.byteLength} bytes)`);
       }
