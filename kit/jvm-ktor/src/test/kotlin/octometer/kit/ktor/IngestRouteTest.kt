@@ -121,6 +121,32 @@ class IngestRouteTest {
         assertEquals("user-1", stored[0].userId())
     }
 
+    // Issue #300 (design decision D54): IngestSettings(true) carries
+    // acceptBodyUserId = false, the default. The kit ingest route then
+    // keeps contract rules C16 and C32: the body's own userId field has
+    // no effect, and the stored user id stays the resolver's value.
+    @Test
+    fun `a body userId has no effect on the kit ingest route`() = testApplication {
+        val store = InMemoryEventLogStore()
+        application {
+            routing {
+                octometerIngestRoute(store = store, settings = IngestSettings(true)) { "user-1" }
+            }
+        }
+        val bodyWithUserId = """{"sessionId":"0b0e4e0e-6a55-4c1e-9a53-0c1f6f7a2d11",""" +
+            """"clicks":[{"element":"checkout.save","ageMs":1200}],"userId":"someone-else"}"""
+
+        val response = client.post(DEFAULT_INGEST_PATH) {
+            contentType(ContentType.Application.Json)
+            setBody(bodyWithUserId)
+        }
+
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        val stored = store.events()
+        assertEquals(1, stored.size)
+        assertEquals("user-1", stored[0].userId())
+    }
+
     @Test
     fun `a batch that the store drops above the event cap still gives 204 and an empty body`() = testApplication {
         // Issue #34: the store of design decision D21 drops a batch above
