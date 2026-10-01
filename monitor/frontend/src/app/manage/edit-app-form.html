@@ -1,5 +1,7 @@
 @if (!editing()) {
-  <button type="button" class="btn btn-small edit-toggle" #editToggle (click)="open()">Edit</button>
+  <button type="button" class="btn btn-small edit-toggle" #editToggle (click)="open()">
+    Edit origins
+  </button>
 } @else {
   <form (submit)="onSubmit($event)">
     <div class="field">
@@ -15,19 +17,15 @@
     </div>
 
     <div class="field">
-      <label [for]="connectionStringId">New connection string</label>
-      <input
-        [id]="connectionStringId"
-        type="password"
-        autocomplete="new-password"
-        [value]="connectionString()"
-        (input)="onConnectionStringInput($event)"
-        [attr.aria-describedby]="
-          errorMessage() ? connectionStringHintId + ' ' + errorId : connectionStringHintId
-        "
+      <label [for]="originsId">Origins (one per line)</label>
+      <textarea
+        [id]="originsId"
+        [value]="origins()"
+        (input)="onOriginsInput($event)"
+        [attr.aria-describedby]="errorMessage() ? originsHintId + ' ' + errorId : originsHintId"
         [attr.aria-invalid]="errorMessage() ? 'true' : null"
-      />
-      <p [id]="connectionStringHintId" class="form-hint">{{ connectionStringHint }}</p>
+      ></textarea>
+      <p [id]="originsHintId" class="form-hint">{{ originsHint }}</p>
     </div>
 
     <div class="field route-patterns-block">

@@ -23,3 +23,6 @@ export const CONNECTION_STRING_HINT =
  */
 export const EDIT_CONNECTION_STRING_HINT =
   CONNECTION_STRING_HINT + ' Leave the field empty to keep the stored string.';
+
+/** The hint of "Origins (one per line)" on the add form (issue #296, D52, M11). */
+export const ORIGINS_HINT = 'The form is https://host, without a path.';

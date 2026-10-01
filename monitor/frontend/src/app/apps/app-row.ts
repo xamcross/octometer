@@ -40,4 +40,12 @@ export interface AppRow {
   readonly lastError: string | null;
   readonly nextPollAt: string | null;
   readonly gaps: Gap[];
+  // Issue #296, M7: optional, so a fixture of a view that never shows
+  // them (the level 1 dashboard of apps.ts) needs no update of its
+  // own. The manage view reads them with a fallback: `?? null` and
+  // `?? []`. null or [] for an app of the legacy connection-string
+  // path (D32) that never registered keys.
+  readonly appKey?: string | null;
+  readonly origins?: readonly string[];
+  readonly databaseName?: string | null;
 }
