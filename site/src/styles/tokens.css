@@ -4,7 +4,8 @@
  * site.css reads a token here; it holds no color literal of its own.
  *
  * The dark mode blocks of the mockup stay out of this file (issue #287,
- * correction M4). Issue #288 adds them, with their own contrast proof.
+ * correction M4; the owner's scope note of 2026-10-01). A later story adds
+ * the dark values, with its own contrast proof.
  */
 :root {
   --ink: #241f3d;
