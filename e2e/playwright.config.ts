@@ -46,6 +46,24 @@ export default defineConfig({
     // The new scenario of this issue overrides this with
     // `test.use({ storageState: undefined })`.
     storageState: STORAGE_STATE_FILE,
+    // Issue #297: the demo app and the monitor each bind to a
+    // different loopback port of this one machine. Chromium's Local
+    // Network Access / Private Network Access check treats one
+    // loopback port as a different network than another, the same
+    // rule it applies to a public page that calls a private server,
+    // and it blocks the request with no answer, also with the
+    // collector's own CORS headers in place (`CollectRoute.kt` answers
+    // the one header this check still reads,
+    // Access-Control-Allow-Private-Network). In production, the
+    // dashboard and the hosted collector each have a public address,
+    // so this flag matters for this suite only.
+    launchOptions: {
+      args: [
+        '--disable-features=PrivateNetworkAccessSendPreflights,' +
+          'PrivateNetworkAccessRespectPreflightResults,' +
+          'LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests',
+      ],
+    },
   },
   // Chromium only (decision 1). This project sets no device descriptor:
   // a descriptor such as "Desktop Chrome" carries its own `userAgent`

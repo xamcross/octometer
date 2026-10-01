@@ -1,5 +1,3 @@
-import { MongoClient } from 'mongodb';
-
 import { expect, test } from '../fixtures';
 import { AppsPage } from '../pages/apps-page';
 import { BreadcrumbPart } from '../pages/breadcrumb-part';
@@ -19,14 +17,6 @@ import { UsersPage } from '../pages/users-page';
  * bound, never a fixed sleep (acceptance criterion 3 of issue #175).
  */
 const CHAIN_WAIT_MS = 30_000;
-
-/** The config document of contract rule C44 (design decision D47, issue #276). */
-interface RoutePatternsDocument {
-  readonly _id: string;
-  readonly patterns: ReadonlyArray<string>;
-  readonly kitVersion: string;
-  readonly publishedAt: Date;
-}
 
 /**
  * One serial file, one shared app (decision 5). The scenarios run in
@@ -321,83 +311,14 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     },
   );
 
-  // Issue #276, design decision D47: the kit publishes its derived route
-  // pattern list into octometer_config, on the app's own database user.
-  // This scenario reads the document with the mongodb Node driver
-  // directly (a pinned dev dependency of e2e/), never through the
-  // monitor, because the monitor's own read of this document is a later
-  // story.
-  test('the app publishes its route list (design decision D47)', async () => {
-    const mongoPort = process.env.E2E_MONGO_PORT;
-    if (!mongoPort) {
-      throw new Error('E2E_MONGO_PORT is absent. The global setup did not run, or it failed.');
-    }
-
-    const client = new MongoClient(`mongodb://127.0.0.1:${mongoPort}`);
-    try {
-      await client.connect();
-      const collection = client.db('exampledb').collection<RoutePatternsDocument>('octometer_config');
-      const configDoc = await collection.findOne({ _id: 'route-patterns' });
-      if (!configDoc) {
-        throw new Error('The document "route-patterns" is absent from octometer_config.');
-      }
-
-      // Design decision D46: the demo app serves three GET routes, "/",
-      // "/items/{id}", and "/tracker/{fileName}" (Application.kt,
-      // demoModule). The kit's sort puts a literal segment before a
-      // ":name" segment, then orders by text, so "/items/:id" comes
-      // before "/tracker/:fileName".
-      expect(configDoc.patterns).toEqual(['/', '/items/:id', '/tracker/:fileName']);
-
-      expect(typeof configDoc.kitVersion).toBe('string');
-      expect(configDoc.kitVersion.length).toBeGreaterThan(0);
-
-      expect(configDoc.publishedAt).toBeInstanceOf(Date);
-      const ageMs = Date.now() - configDoc.publishedAt.getTime();
-      expect(ageMs).toBeGreaterThanOrEqual(0);
-      expect(ageMs).toBeLessThan(10 * 60 * 1000);
-    } finally {
-      await client.close();
-    }
-  });
-
-  // Design decision D48 (issue #277): the monitor reads the published
-  // config document at each poll cycle, and caches it in the app row;
-  // the manage view shows it read-only. This scenario is the last of
-  // the file (the correction of the brief review of 2026-09-28): it
-  // renames the app, so a name change here never breaks a later
-  // scenario.
-  test('the manage view shows the list the app published', async ({ page }) => {
-    const manage = new ManagePage(page);
-    await manage.goto();
-    const demoRow = manage.row('demo');
-    await manage.openEditForm(demoRow);
-
-    // The three patterns of design decision D46 (the same list that
-    // "the app publishes its route list" above reads straight from
-    // MongoDB): a literal segment before a ":name" segment, then text
-    // order.
-    await expect(manage.routePatternItems(demoRow)).toHaveText(
-      ['/', '/items/:id', '/tracker/:fileName'],
-      { timeout: CHAIN_WAIT_MS },
-    );
-    await expect(manage.publishedLine(demoRow)).toContainText('Published by the app on', {
-      timeout: CHAIN_WAIT_MS,
-    });
-
-    // A submit of the form with a new name changes the name and not
-    // the list (the third acceptance criterion of issue #277).
-    await manage.renameAndSave(demoRow, 'demo-renamed');
-    const renamedRow = manage.row('demo-renamed');
-    await expect(renamedRow).toBeVisible();
-
-    await manage.openEditForm(renamedRow);
-    await expect(manage.routePatternItems(renamedRow)).toHaveText([
-      '/',
-      '/items/:id',
-      '/tracker/:fileName',
-    ]);
-  });
+  // Issue #277, issue #297: the two scenarios of design decision D47
+  // ("the app publishes its route list" and "the manage view shows the
+  // list the app published") lived here. The hosted model closes D46 to
+  // D48 (the owner's decision of 2026-09-28, the maintainer's note on
+  // issue #297 of 2026-10-01): the kit's route pattern publication, and
+  // the manage view's read of it, have no caller left in the hosted
+  // model. This removes the two scenarios; #277 and #304 record the
+  // closure.
 });
 
 // Issue #296 (D51, D52, D57): the hosted registration path. This
