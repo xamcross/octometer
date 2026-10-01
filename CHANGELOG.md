@@ -21,6 +21,22 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add the "What we keep" section and the footer notice of the waitlist, with a link
   from the section into the notice. (#290)
 
+### Contract
+
+- State the hosted collector's header `X-Octometer-Key` in section 2, beside the ingest
+  request it shares the body form and the answer codes with. (#297)
+
+### Kit JVM
+
+- Add the default route pattern rule (a whole number, a UUID, or a hex string of 8
+  characters or more becomes `:id`), and a fallback parameter of `IngestPipeline.process`
+  that applies it after the typed route pattern list. (#297)
+
+### Tracker
+
+- Add the option `appKey`, for the header `X-Octometer-Key` of the hosted collector; send
+  each request with `mode: 'cors'`. (#297)
+
 ### Monitor
 
 - Scaffold the hosted service: the Docker image, `fly.toml`, the `/healthz` route, the D56
@@ -32,6 +48,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Register an app with a name and an origin list; it gets an app key and a secret key,
   shown one time, and the poll loop reads the hosted cluster URI when no secret is
   stored, with one shared MongoDB client for every such app. (#296)
+- Add the collector route `POST /collect`: the app key and Origin checks, the body limit,
+  the rate limit and the daily caps, the cluster-wide write stop, the CORS preflight of
+  `/collect` and `/tracker.js`, and the `writeStopped` field of `GET /api/health`. (#297)
 
 ### CI
 
@@ -39,6 +58,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   private repository. (#308)
 - Remove the Windows job and the weekly run, so the private repository stays inside the
   Free plan minutes. (#306)
+- Give the deploy job the e2e job's own built distribution, as a one-day artifact, in
+  place of a second Gradle build; add `jitpack.yml` to the e2e path filter. (#297)
 
 ### Documentation
 
@@ -46,6 +67,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   change notes, and the milestone I backlog. (#294)
 - State that the repository keeps all rights: the `LICENSE` file, the `license` field of
   `kit/tracker/package.json`, and the licence block of each kit module POM. (#203)
+- Add the collector paragraph to `docs/privacy.md`, and the collector section to
+  `docs/run-guide.md`: the config keys, the write stop, and the daily cap. (#297)
 
 ## 0.3.0 - 2026-09-28
 

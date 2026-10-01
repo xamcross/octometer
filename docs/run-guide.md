@@ -321,6 +321,30 @@ secret (the app name is not sensitive). The deploy job passes it to
 secrets folder, the log folder, and the backup folder land under
 `/data` too, so each one survives a deploy (design decision D56).
 
+### The collector
+
+`POST /collect` (design decision D50, issue #297) takes a click of an
+app that registered with an origin list. The tracker's `appKey` option
+sets the header `X-Octometer-Key`. The route needs no session.
+
+The route answers 204 for a success, an unknown app key, and an
+unlisted origin. It answers 400 for an invalid body or a body over 16
+KB, 415 for a wrong content type, and 429 for the rate limit.
+
+Two abuse controls protect the one shared cluster:
+
+- A write stop at 450 MB of `app_*` storage (`storageSize` plus
+  `indexSize` of each app's own database, summed once a minute). Above
+  the bound, the collector drops each write; `GET /api/health` reports
+  `writeStopped: true`.
+- A daily cap of 20 000 events for one app. Above the cap, the
+  collector drops each write for the rest of that UTC day; `GET
+  /api/apps/{id}` reports the drop count in `droppedToday`.
+
+The event cap of design decision D21 is 50 000 events for one app, the
+hosted model's own default (design decision D57); this cap never
+resets.
+
 ### The order for the owner
 
 1. Create the Fly app and the volume first (`flyctl apps create`, then
@@ -475,6 +499,8 @@ The route list case of section 3: added for issue #279 and design decisions D26,
   of section 6 in the context of the upgrade order, for a reader of section 3 alone.
 Section 7 (the hosted service): issue #295, design decisions D52 and D56, and the
   brief review corrections B2, B5, M1, M2, M7, M8, m4, m13.
+Section 7, "The collector": issue #297, design decisions D21, D40, D50, D57, and the
+  brief review of 2026-10-01 (B4, B5, M2, M5).
   monitor/backend/Dockerfile, fly.toml, docker-entrypoint.sh,
   tools/local-service/README.md, .github/workflows/ci.yml (the "deploy" job).
 -->
