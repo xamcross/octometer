@@ -27,6 +27,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 - Record the hosted model (D50 to D58) in the design document, with the closure notes, the
   change notes, and the milestone I backlog. (#294)
+- State that the repository keeps all rights: the `LICENSE` file, the `license` field of
+  `kit/tracker/package.json`, and the licence block of each kit module POM. (#203)
 
 ## 0.3.0 - 2026-09-28
 

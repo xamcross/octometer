@@ -90,8 +90,6 @@ tasks.named<JacocoReport>("jacocoTestReport") {
 // jakarta.servlet:jakarta.servlet-api. The app gives Spring MVC itself
 // (see the file header of this module).
 //
-// See kit/jvm-core/build.gradle.kts for the note on the missing
-// license.
 publishing {
     publications {
         create<MavenPublication>("maven") {
@@ -102,6 +100,13 @@ publishing {
                 name.set("Octometer Kit Spring")
                 description.set("The Spring MVC adapter of the Octometer JVM kit. The app gives Spring MVC and the Jakarta Servlet API.")
                 url.set("https://github.com/xamcross/octometer")
+
+                licenses {
+                    license {
+                        name.set("All rights reserved")
+                        comments.set("No licence is granted. Contact the copyright holder.")
+                    }
+                }
 
                 scm {
                     connection.set("scm:git:https://github.com/xamcross/octometer.git")

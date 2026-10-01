@@ -195,8 +195,6 @@ tasks.named<JacocoReport>("jacocoTestReport") {
 // org.mongodb:mongodb-driver-sync. The app gives the driver itself
 // (see the file header of this module).
 //
-// See kit/jvm-core/build.gradle.kts for the note on the missing
-// license.
 publishing {
     publications {
         create<MavenPublication>("maven") {
@@ -207,6 +205,13 @@ publishing {
                 name.set("Octometer Kit Mongo")
                 description.set("The MongoDB event store of the Octometer JVM kit. The app gives the MongoDatabase and the mongodb-driver-sync jar.")
                 url.set("https://github.com/xamcross/octometer")
+
+                licenses {
+                    license {
+                        name.set("All rights reserved")
+                        comments.set("No licence is granted. Contact the copyright holder.")
+                    }
+                }
 
                 scm {
                     connection.set("scm:git:https://github.com/xamcross/octometer.git")

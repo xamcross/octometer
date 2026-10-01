@@ -99,8 +99,6 @@ tasks.named<JacocoReport>("jacocoTestReport") {
 // org.jetbrains.kotlinx:kotlinx-coroutines-core. The app gives Ktor
 // itself (see the file header of this module).
 //
-// See kit/jvm-core/build.gradle.kts for the note on the missing
-// license.
 publishing {
     publications {
         create<MavenPublication>("maven") {
@@ -111,6 +109,13 @@ publishing {
                 name.set("Octometer Kit Ktor")
                 description.set("The Ktor adapter of the Octometer JVM kit. The app gives Ktor and the Kotlin coroutines library.")
                 url.set("https://github.com/xamcross/octometer")
+
+                licenses {
+                    license {
+                        name.set("All rights reserved")
+                        comments.set("No licence is granted. Contact the copyright holder.")
+                    }
+                }
 
                 scm {
                     connection.set("scm:git:https://github.com/xamcross/octometer.git")
