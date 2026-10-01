@@ -19,8 +19,11 @@ import octometer.monitor.captureLogEvents
 import octometer.monitor.devConfig
 import octometer.monitor.module
 import octometer.monitor.registerTempRoot
+import octometer.monitor.sessionCookieValue
+import octometer.monitor.sessionCookieValueForAccount
 import octometer.monitor.store.SqliteDatabase
 import octometer.monitor.testDataDir
+import octometer.monitor.withSession
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -32,16 +35,21 @@ import kotlin.test.assertTrue
 // Issue #112: the first-pages table of GET /api/apps/{appId}/first-pages.
 // Source: docs/superpowers/specs/2026-09-21-octometer-design.md, D44,
 // section 6, D12, D13.
+//
+// Issue #301, D52: every route below now needs a session, and every app
+// row needs the account_id of that session.
 class FirstPagesRouteTest {
 
     private val tempDir = Files.createTempDirectory("octometer-first-pages-test-").toFile().also {
         registerTempRoot(it)
     }
     private lateinit var database: SqliteDatabase
+    private var accountId: Long = 0
 
     @BeforeTest
     fun setUp() = runBlocking {
         database = SqliteDatabase.open(testDataDir(tempDir))
+        accountId = insertAccount(database, "first-pages-test@example.com")
     }
 
     @AfterTest
@@ -54,16 +62,19 @@ class FirstPagesRouteTest {
 
     @Test
     fun `an unknown app id gives 404 with a fixed sentence`() = runBlocking {
-        val result = loadFirstPages(database, appId = 999L, requestedPage = 1)
+        val result = loadFirstPages(database, accountId, appId = 999L, requestedPage = 1)
 
         assertEquals(FirstPagesResult.AppNotFound, result)
     }
 
     @Test
     fun `GET of an unknown app id gives 404 over HTTP`() = testApplication {
-        application { module(devConfig()) }
+        val config = devConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/apps/999/first-pages") { allowedHost() }
+        val response = client.get("/api/apps/999/first-pages") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.NotFound, response.status)
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
@@ -72,9 +83,12 @@ class FirstPagesRouteTest {
 
     @Test
     fun `a non-numeric app id gives 400, not 500`() = testApplication {
-        application { module(devConfig()) }
+        val config = devConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/apps/not-a-number/first-pages") { allowedHost() }
+        val response = client.get("/api/apps/not-a-number/first-pages") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
@@ -83,12 +97,12 @@ class FirstPagesRouteTest {
 
     @Test
     fun `each row holds path and sessions, counted with COUNT DISTINCT session_id`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         insertEvent(database, appId, "e1", "s1", path = "/pricing", kind = 1)
         insertEvent(database, appId, "e2", "s2", path = "/pricing", kind = 1)
         insertEvent(database, appId, "e3", "s3", path = "/docs", kind = 1)
 
-        val rows = (loadFirstPages(database, appId, 1) as FirstPagesResult.Success).rows
+        val rows = (loadFirstPages(database, accountId, appId, 1) as FirstPagesResult.Success).rows
 
         val pricing = rows.single { it.path == "/pricing" }
         assertEquals(2L, pricing.sessions)
@@ -101,11 +115,11 @@ class FirstPagesRouteTest {
     // count, because the statement counts COUNT(DISTINCT session_id).
     @Test
     fun `a second session-start row of one session raises no session count`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         insertEvent(database, appId, "e1", "s1", path = "/pricing", kind = 1)
         insertEvent(database, appId, "e2", "s1", path = "/pricing", kind = 1)
 
-        val rows = (loadFirstPages(database, appId, 1) as FirstPagesResult.Success).rows
+        val rows = (loadFirstPages(database, accountId, appId, 1) as FirstPagesResult.Success).rows
 
         assertEquals(1L, rows.single { it.path == "/pricing" }.sessions)
     }
@@ -114,11 +128,11 @@ class FirstPagesRouteTest {
     // no session count, because the filter is the literal kind = 1.
     @Test
     fun `a click row raises no session count`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         insertEvent(database, appId, "e1", "s1", path = "/pricing", kind = 1)
         insertEvent(database, appId, "e2", "s2", path = "/pricing", kind = 0)
 
-        val rows = (loadFirstPages(database, appId, 1) as FirstPagesResult.Success).rows
+        val rows = (loadFirstPages(database, accountId, appId, 1) as FirstPagesResult.Success).rows
 
         assertEquals(1L, rows.single { it.path == "/pricing" }.sessions, "the click row must not count")
     }
@@ -128,10 +142,10 @@ class FirstPagesRouteTest {
     // maps no value for the missing path.
     @Test
     fun `a NULL path gives a null row`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         insertEvent(database, appId, "e1", "s1", path = null, kind = 1)
 
-        val rows = (loadFirstPages(database, appId, 1) as FirstPagesResult.Success).rows
+        val rows = (loadFirstPages(database, accountId, appId, 1) as FirstPagesResult.Success).rows
 
         assertEquals(listOf<String?>(null), rows.map { it.path })
     }
@@ -140,12 +154,14 @@ class FirstPagesRouteTest {
     // null, not an absent field or a text, for a missing path.
     @Test
     fun `GET answers with the JSON value null for a NULL path`() = testApplication {
-        val (dataDir, appId) = seedApp("app-one") { db, id ->
+        val (dataDir, appId, ownerAccountId) = seedApp("app-one") { db, id ->
             insertEvent(db, id, "e1", "s1", path = null, kind = 1)
         }
         application { module(devConfig(dataDir = dataDir)) }
+        startApplication()
+        val session = sessionCookieValueForAccount(dataDir, ownerAccountId)
 
-        val response = client.get("/api/apps/$appId/first-pages") { allowedHost() }
+        val response = client.get("/api/apps/$appId/first-pages") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.OK, response.status)
         val body = response.bodyAsText()
@@ -162,10 +178,10 @@ class FirstPagesRouteTest {
     // path as plain text, so that row needs no special case here.
     @Test
     fun `a path that the pattern list does not hold gives the row (other)`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         insertEvent(database, appId, "e1", "s1", path = "/other", kind = 1)
 
-        val rows = (loadFirstPages(database, appId, 1) as FirstPagesResult.Success).rows
+        val rows = (loadFirstPages(database, accountId, appId, 1) as FirstPagesResult.Success).rows
 
         assertEquals(listOf("/other"), rows.map { it.path })
     }
@@ -175,12 +191,12 @@ class FirstPagesRouteTest {
     // session count must break the tie on path ASC.
     @Test
     fun `the order is sessions DESC then path ASC`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         insertEvent(database, appId, "e1", "s1", path = "/zeta", kind = 1)
         insertEvent(database, appId, "e2", "s2", path = "/alpha", kind = 1)
         insertEvent(database, appId, "e3", "s3", path = "/alpha", kind = 1)
 
-        val rows = (loadFirstPages(database, appId, 1) as FirstPagesResult.Success).rows
+        val rows = (loadFirstPages(database, accountId, appId, 1) as FirstPagesResult.Success).rows
 
         // "/alpha" holds 2 sessions, above the 1 session of "/zeta", thus
         // sessions DESC alone already orders this pair; a tie is proven
@@ -190,12 +206,12 @@ class FirstPagesRouteTest {
 
     @Test
     fun `two paths with the same session count break the tie on path ASC`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         insertEvent(database, appId, "e1", "s1", path = "/zeta", kind = 1)
         insertEvent(database, appId, "e2", "s2", path = "/alpha", kind = 1)
         insertEvent(database, appId, "e3", "s3", path = "/mid", kind = 1)
 
-        val rows = (loadFirstPages(database, appId, 1) as FirstPagesResult.Success).rows
+        val rows = (loadFirstPages(database, accountId, appId, 1) as FirstPagesResult.Success).rows
 
         assertEquals(listOf("/alpha", "/mid", "/zeta"), rows.map { it.path })
     }
@@ -204,12 +220,12 @@ class FirstPagesRouteTest {
 
     @Test
     fun `more than one page gives page 1 with 50 rows and the right pageCount`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         repeat(60) { index ->
             insertEvent(database, appId, "e$index", "s$index", path = "/path-%02d".format(index), kind = 1)
         }
 
-        val result = loadFirstPages(database, appId, 1) as FirstPagesResult.Success
+        val result = loadFirstPages(database, accountId, appId, 1) as FirstPagesResult.Success
 
         assertEquals(1, result.page)
         assertEquals(2, result.pageCount)
@@ -218,12 +234,12 @@ class FirstPagesRouteTest {
 
     @Test
     fun `a page above the last page is clamped to the last page`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         repeat(60) { index ->
             insertEvent(database, appId, "e$index", "s$index", path = "/path-%02d".format(index), kind = 1)
         }
 
-        val result = loadFirstPages(database, appId, 999) as FirstPagesResult.Success
+        val result = loadFirstPages(database, accountId, appId, 999) as FirstPagesResult.Success
 
         assertEquals(2, result.page)
         assertEquals(10, result.rows.size)
@@ -231,9 +247,9 @@ class FirstPagesRouteTest {
 
     @Test
     fun `an empty result still gives pageCount 1 and page 1`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
 
-        val result = loadFirstPages(database, appId, 1) as FirstPagesResult.Success
+        val result = loadFirstPages(database, accountId, appId, 1) as FirstPagesResult.Success
 
         assertEquals(1, result.page)
         assertEquals(1, result.pageCount)
@@ -242,11 +258,14 @@ class FirstPagesRouteTest {
 
     @Test
     fun `a page of 0 or a negative page gives 400`() = testApplication {
-        application { module(devConfig()) }
+        val config = devConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val zero = client.get("/api/apps/1/first-pages?page=0") { allowedHost() }
-        val negative = client.get("/api/apps/1/first-pages?page=-1") { allowedHost() }
-        val notANumber = client.get("/api/apps/1/first-pages?page=abc") { allowedHost() }
+        val zero = client.get("/api/apps/1/first-pages?page=0") { allowedHost(); withSession(session) }
+        val negative = client.get("/api/apps/1/first-pages?page=-1") { allowedHost(); withSession(session) }
+        val notANumber = client.get("/api/apps/1/first-pages?page=abc") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.BadRequest, zero.status)
         assertEquals(HttpStatusCode.BadRequest, negative.status)
@@ -255,12 +274,14 @@ class FirstPagesRouteTest {
 
     @Test
     fun `an empty page gives page 1`() = testApplication {
-        val (dataDir, appId) = seedApp("app-one") { db, id ->
+        val (dataDir, appId, ownerAccountId) = seedApp("app-one") { db, id ->
             insertEvent(db, id, "e1", "s1", path = "/pricing", kind = 1)
         }
         application { module(devConfig(dataDir = dataDir)) }
+        startApplication()
+        val session = sessionCookieValueForAccount(dataDir, ownerAccountId)
 
-        val response = client.get("/api/apps/$appId/first-pages?page=") { allowedHost() }
+        val response = client.get("/api/apps/$appId/first-pages?page=") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.OK, response.status)
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
@@ -275,27 +296,29 @@ class FirstPagesRouteTest {
     @Test
     fun `a hostile appId or page value is a bound parameter, thus the rows stay unchanged and the answer is 400`() =
         testApplication {
-            val (dataDir, appId) = seedApp("app-one") { db, id ->
+            val (dataDir, appId, ownerAccountId) = seedApp("app-one") { db, id ->
                 insertEvent(db, id, "e1", "s1", path = "/pricing", kind = 1)
             }
             application { module(devConfig(dataDir = dataDir)) }
+            startApplication()
+            val session = sessionCookieValueForAccount(dataDir, ownerAccountId)
 
             val quoteAppId = client.get(
                 "/api/apps/" + "'".encodeURLQueryComponent() + "/first-pages",
-            ) { allowedHost() }
+            ) { allowedHost(); withSession(session) }
             val dropTableAppId = client.get(
                 "/api/apps/" + "'; DROP TABLE event; --".encodeURLQueryComponent() + "/first-pages",
-            ) { allowedHost() }
+            ) { allowedHost(); withSession(session) }
             val dropTablePage = client.get(
                 "/api/apps/$appId/first-pages?page=" + "'; DROP TABLE event; --".encodeURLQueryComponent(),
-            ) { allowedHost() }
+            ) { allowedHost(); withSession(session) }
 
             assertEquals(HttpStatusCode.BadRequest, quoteAppId.status)
             assertEquals(HttpStatusCode.BadRequest, dropTableAppId.status)
             assertEquals(HttpStatusCode.BadRequest, dropTablePage.status)
 
             // The event table, and thus the seeded row, must still exist.
-            val after = client.get("/api/apps/$appId/first-pages") { allowedHost() }
+            val after = client.get("/api/apps/$appId/first-pages") { allowedHost(); withSession(session) }
             assertEquals(HttpStatusCode.OK, after.status)
             val body = Json.parseToJsonElement(after.bodyAsText()).jsonObject
             assertEquals(
@@ -309,12 +332,14 @@ class FirstPagesRouteTest {
     @Test
     fun `GET answers with page, pageCount, rows, and Cache-Control no-store, and no CORS header`() =
         testApplication {
-            val (dataDir, appId) = seedApp("app-one") { db, id ->
+            val (dataDir, appId, ownerAccountId) = seedApp("app-one") { db, id ->
                 insertEvent(db, id, "e1", "s1", path = "/pricing", kind = 1)
             }
             application { module(devConfig(dataDir = dataDir)) }
+            startApplication()
+            val session = sessionCookieValueForAccount(dataDir, ownerAccountId)
 
-            val response = client.get("/api/apps/$appId/first-pages") { allowedHost() }
+            val response = client.get("/api/apps/$appId/first-pages") { allowedHost(); withSession(session) }
 
             assertEquals(HttpStatusCode.OK, response.status)
             assertEquals("no-store", response.headers[HttpHeaders.CacheControl])
@@ -345,18 +370,20 @@ class FirstPagesRouteTest {
     // format.
     @Test
     fun `the captured log holds no line with the query string or the row path`() = testApplication {
-        val (dataDir, appId) = seedApp("app-one") { db, id ->
+        val (dataDir, appId, ownerAccountId) = seedApp("app-one") { db, id ->
             insertEvent(db, id, "e1", "s1", path = "/leaked-row-path-marker-789", kind = 1)
         }
         application { module(devConfig(dataDir = dataDir)) }
+        startApplication()
+        val session = sessionCookieValueForAccount(dataDir, ownerAccountId)
 
         val (queryResponse, queryEvents) = captureLogEvents {
             client.get(
                 "/api/apps/$appId/first-pages?page=leaked-query-marker-321",
-            ) { allowedHost() }
+            ) { allowedHost(); withSession(session) }
         }
         val (rowResponse, rowEvents) = captureLogEvents {
-            client.get("/api/apps/$appId/first-pages") { allowedHost() }
+            client.get("/api/apps/$appId/first-pages") { allowedHost(); withSession(session) }
         }
 
         assertEquals(HttpStatusCode.BadRequest, queryResponse.status)
@@ -372,7 +399,7 @@ class FirstPagesRouteTest {
     @Test
     fun `EXPLAIN QUERY PLAN shows the index event_first_page for the count and the page statement`() =
         runBlocking {
-            val appId = insertApp(database, "app-one")
+            val appId = insertApp(database, accountId, "app-one")
             insertEvent(database, appId, "e1", "s1", path = "/pricing", kind = 1)
             insertEvent(database, appId, "e2", "s2", path = "/pricing", kind = 0)
 
@@ -392,7 +419,7 @@ class FirstPagesRouteTest {
     @Test
     fun `a committed insert between the count statement and the page statement changes neither result`() =
         runBlocking {
-            val appId = insertApp(database, "app-one")
+            val appId = insertApp(database, accountId, "app-one")
             repeat(60) { index ->
                 insertEvent(database, appId, "e$index", "s$index", path = "/path-%02d".format(index), kind = 1)
             }
@@ -423,33 +450,52 @@ class FirstPagesRouteTest {
         }
 }
 
+/** Inserts one account row, and gives its id (issue #301). */
+private suspend fun insertAccount(database: SqliteDatabase, email: String): Long =
+    database.write { writer ->
+        writer.prepareStatement("INSERT INTO account (email, created_at) VALUES (?, ?)").use { insert ->
+            insert.setString(1, email)
+            insert.setLong(2, 1_700_000_000_000L)
+            insert.executeUpdate()
+        }
+        writer.createStatement().use { statement ->
+            statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+                result.next()
+                result.getLong(1)
+            }
+        }
+    }
+
 // A route test needs the same store that module() opens from
 // config.dataDir. This helper opens its own database on a fresh data
-// folder, the same pattern as UserTotalsRouteTest.
-private fun seedApp(name: String, seed: suspend (SqliteDatabase, Long) -> Unit): Pair<String, Long> {
+// folder, with its own account row (issue #301), the same pattern as
+// UserTotalsRouteTest.
+private fun seedApp(name: String, seed: suspend (SqliteDatabase, Long) -> Unit): Triple<String, Long, Long> {
     val dataDir = testDataDir()
     val db = SqliteDatabase.open(dataDir)
-    val appId = try {
+    val (appId, ownerAccountId) = try {
         runBlocking {
-            val id = insertApp(db, name)
+            val ownerId = insertAccount(db, "seed-app-test@example.com")
+            val id = insertApp(db, ownerId, name)
             seed(db, id)
-            id
+            id to ownerId
         }
     } finally {
         db.close()
     }
-    return dataDir to appId
+    return Triple(dataDir, appId, ownerAccountId)
 }
 
-private suspend fun insertApp(database: SqliteDatabase, name: String): Long =
+private suspend fun insertApp(database: SqliteDatabase, accountId: Long, name: String): Long =
     database.write { writer ->
         writer.prepareStatement(
-            "INSERT INTO app (name, database_name, collection_name, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO app (name, database_name, collection_name, created_at, account_id) VALUES (?, ?, ?, ?, ?)",
         ).use { insert ->
             insert.setString(1, name)
             insert.setString(2, "db")
             insert.setString(3, "octometer_events")
             insert.setLong(4, 1_700_000_000_000L)
+            insert.setLong(5, accountId)
             insert.executeUpdate()
         }
         writer.createStatement().use { statement ->

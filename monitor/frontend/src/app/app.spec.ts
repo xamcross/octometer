@@ -427,6 +427,10 @@ describe('App', () => {
       fixture = TestBed.createComponent(App);
       httpMock = TestBed.inject(HttpTestingController);
       router = TestBed.inject(Router);
+      // Issue #301: the App constructor also sends GET /api/me, at
+      // once, through Me.load(). This block flushes a good answer, so
+      // it never overlaps a test's own GET /api/health assertions.
+      httpMock.expectOne('/api/me').flush({ email: 'owner@example.com' });
     });
 
     afterEach(() => {

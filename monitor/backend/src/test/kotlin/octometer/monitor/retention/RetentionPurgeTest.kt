@@ -113,9 +113,15 @@ class RetentionPurgeTest {
     // fails when that value changes, because the row count and the
     // expected write count each name 10 000 in a literal, not a shared
     // constant. Two batches of 10 000 and 1 rows delete 10 001 old rows,
-    // plus one write call for the checkpoint, for 3 calls in total.
+    // plus one write call for the checkpoint, for 3 calls.
+    //
+    // Issue #301: purgeOnce now also runs the sign-in token purge and
+    // the session purge, one write call each, at every run, with no
+    // gap for an empty table (D52, D58). The empty gap table and the
+    // empty app_path table of this fixture add no write call of their
+    // own, so the total is 3 + 2 = 5.
     @Test
-    fun `purgeOnce writes exactly 3 times for 10 001 old rows, with a batch size of 10 000`() = runBlocking {
+    fun `purgeOnce writes exactly 5 times for 10 001 old rows, with a batch size of 10 000`() = runBlocking {
         val cutoff = NOW - RETENTION_DAYS * DAY_MILLIS
         val oldCount = 10_001
         repeat(oldCount) { index -> insertEvent("old-$index", cutoff - DAY_MILLIS, kind = index % 2) }
@@ -124,7 +130,11 @@ class RetentionPurgeTest {
         RetentionPurge(database, fixedClock(NOW), onWrite = { writeCount.incrementAndGet() })
             .purgeOnce(RETENTION_DAYS)
 
-        assertEquals(3, writeCount.get(), "two delete batches, plus one checkpoint call")
+        assertEquals(
+            5,
+            writeCount.get(),
+            "two delete batches, the sign-in token purge, the session purge, and the checkpoint call",
+        )
         assertTrue(remainingEventIds().isEmpty())
     }
 

@@ -17,6 +17,7 @@ private val MIGRATIONS = listOf(
     Migration(3, "/db/003_app_path.sql"),
     Migration(4, "/db/004_app_path_patterns.sql"),
     Migration(5, "/db/005_app_path_patterns_published_at.sql"),
+    Migration(6, "/db/006_accounts.sql"),
 )
 
 private val log = LoggerFactory.getLogger("octometer.monitor.store.MigrationRunner")
@@ -67,8 +68,18 @@ object MigrationRunner {
         }
     }
 
+    // Issue #301: migration 006 rebuilds the app table (a STRICT table
+    // takes no ALTER of a constraint), through SQLite's own documented
+    // procedure for that kind of change. DROP TABLE runs an implicit
+    // DELETE FROM first; with foreign_keys=ON that delete fires the
+    // FOREIGN KEY check of each event row that still names the app id,
+    // and the migration fails. The pragma toggles off before the
+    // transaction starts (the pragma refuses a change inside one), and
+    // it toggles back on once the transaction ends, so every other
+    // migration keeps the same enforcement as before and after this call.
     private fun applyMigration(connection: Connection, migration: Migration) {
         val sql = readResource(migration.resource)
+        connection.createStatement().use { it.execute("PRAGMA foreign_keys=OFF") }
         connection.autoCommit = false
         try {
             connection.createStatement().use { it.executeUpdate(sql) }
@@ -79,6 +90,7 @@ object MigrationRunner {
             throw error
         } finally {
             connection.autoCommit = true
+            connection.createStatement().use { it.execute("PRAGMA foreign_keys=ON") }
         }
     }
 

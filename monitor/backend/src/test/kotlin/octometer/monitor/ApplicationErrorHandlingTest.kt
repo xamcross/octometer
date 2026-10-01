@@ -30,16 +30,19 @@ class ApplicationErrorHandlingTest {
     @Test
     fun `an unhandled exception gives a fixed JSON 500, with the security headers of issue 5`() = testApplication {
         val marker = "fake-failure-4b7e21"
+        val dataDir = testDataDir()
         application {
-            module(prodConfig(dataDir = testDataDir()))
+            module(prodConfig(dataDir = dataDir))
             routing {
                 get("/api/probe/failure") {
                     throw IllegalStateException(marker)
                 }
             }
         }
+        startApplication()
+        val session = sessionCookieValue(dataDir)
 
-        val response = client.get("/api/probe/failure") { allowedHost() }
+        val response = client.get("/api/probe/failure") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.InternalServerError, response.status)
         val bodyText = response.bodyAsText()

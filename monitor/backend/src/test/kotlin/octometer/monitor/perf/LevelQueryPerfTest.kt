@@ -61,10 +61,11 @@ class LevelQueryPerfTest {
         dataDir.deleteRecursively()
         val database = SqliteDatabase.open(dataDir.absolutePath)
         try {
-            val appIds = EventDataGenerator(database).generate(size)
+            val generator = EventDataGenerator(database)
+            val appIds = generator.generate(size)
             assertRowCount(database, size)
             val appId = appIds.first()
-            val rows = measureLevels(database, appId)
+            val rows = measureLevels(database, generator.accountId, appId)
             val fileSizeBytes = checkpointAndMeasureFileSize(database, dataDir)
             return rows.map { it.copy(fileSizeBytes = fileSizeBytes) }
         } finally {
@@ -90,9 +91,9 @@ class LevelQueryPerfTest {
         assertEquals(expected, actual, "The generator wrote $actual event rows, not the requested $expected.")
     }
 
-    private suspend fun measureLevels(database: SqliteDatabase, appId: Long): List<MeasuredRow> {
+    private suspend fun measureLevels(database: SqliteDatabase, accountId: Long, appId: Long): List<MeasuredRow> {
         val rows = mutableListOf<MeasuredRow>()
-        rows += measureRow("Level 1 (app totals)", database) { loadAppTotals(database) }
+        rows += measureRow("Level 1 (app totals)", database) { loadAppTotals(database, accountId) }
         rows += measureConnectionRow("Level 2 count (users)", database) { reader ->
             countUserGroups(reader, appId, null)
         }
@@ -100,7 +101,7 @@ class LevelQueryPerfTest {
             readUserTotalsPage(reader, appId, null, 1)
         }
         rows += measureRow("Level 3 (elements)", database) {
-            loadElementTotals(database, appId, ElementsFilter.Anonymous)
+            loadElementTotals(database, accountId, appId, ElementsFilter.Anonymous)
         }
         rows += measureConnectionRow("First pages count", database) { reader ->
             countFirstPages(reader, appId)

@@ -24,11 +24,32 @@ class AppRegistryServiceTest {
     private lateinit var secretStore: SecretStore
     private lateinit var service: AppRegistryService
 
+    // Issue #301: every app now belongs to an account. Each test of
+    // this file runs as this one account; a cross-account 404 is the
+    // subject of the end-to-end scenario, not a new unit test (the
+    // owner's rule of 2026-09-27).
+    private var accountId: Long = 0
+
     @BeforeTest
     fun setUp() {
         database = SqliteDatabase.open(dataDir)
         secretStore = SecretStore(dataDir)
         service = AppRegistryService(database, secretStore)
+        accountId = runBlocking {
+            database.write { writer ->
+                writer.prepareStatement("INSERT INTO account (email, created_at) VALUES (?, ?)").use { insert ->
+                    insert.setString(1, "registry-test@example.com")
+                    insert.setLong(2, 1_700_000_000_000L)
+                    insert.executeUpdate()
+                }
+                writer.createStatement().use { statement ->
+                    statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+                        result.next()
+                        result.getLong(1)
+                    }
+                }
+            }
+        }
     }
 
     @AfterTest
@@ -39,7 +60,7 @@ class AppRegistryServiceTest {
 
     @Test
     fun `createApp inserts the app row and writes the secret, never the connection string`() = runBlocking {
-        val result = service.createApp(
+        val result = service.createApp(accountId,
             CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
         )
 
@@ -50,7 +71,7 @@ class AppRegistryServiceTest {
 
     @Test
     fun `createApp rejects a connection string that fails the D11 check`() = runBlocking {
-        val result = service.createApp(
+        val result = service.createApp(accountId,
             CreateAppRequest("demo", publicHostUri(), "db", "octometer_events"),
         )
 
@@ -60,9 +81,9 @@ class AppRegistryServiceTest {
 
     @Test
     fun `createApp with a duplicate name gives NameTaken and writes no second secret`() = runBlocking {
-        service.createApp(CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"))
+        service.createApp(accountId,CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"))
 
-        val result = service.createApp(
+        val result = service.createApp(accountId,
             CreateAppRequest("demo", allowlistedSrvUriWithoutCredential(), "db2", "octometer_events"),
         )
 
@@ -72,11 +93,11 @@ class AppRegistryServiceTest {
 
     @Test
     fun `updateApp changes the name`() = runBlocking {
-        val created = service.createApp(
+        val created = service.createApp(accountId,
             CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
         ) as CreateAppResult.Created
 
-        val result = service.updateApp(created.summary.appId, UpdateAppRequest(name = "demo2"))
+        val result = service.updateApp(accountId,created.summary.appId, UpdateAppRequest(name = "demo2"))
 
         assertEquals(UpdateAppResult.Updated, result)
         assertEquals("demo2", readAppName(created.summary.appId))
@@ -84,11 +105,11 @@ class AppRegistryServiceTest {
 
     @Test
     fun `updateApp replaces the secret and keeps the old app row`() = runBlocking {
-        val created = service.createApp(
+        val created = service.createApp(accountId,
             CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
         ) as CreateAppResult.Created
 
-        val result = service.updateApp(
+        val result = service.updateApp(accountId,
             created.summary.appId,
             UpdateAppRequest(connectionString = withDatabasePath(allowlistedSrvUriWithoutCredential())),
         )
@@ -105,12 +126,12 @@ class AppRegistryServiceTest {
 
     @Test
     fun `updateApp with a different connection string resets the poll state`() = runBlocking {
-        val created = service.createApp(
+        val created = service.createApp(accountId,
             CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
         ) as CreateAppResult.Created
         seedPollState(created.summary.appId)
 
-        val result = service.updateApp(
+        val result = service.updateApp(accountId,
             created.summary.appId,
             UpdateAppRequest(connectionString = withDatabasePath(allowlistedSrvUriWithoutCredential())),
         )
@@ -132,12 +153,12 @@ class AppRegistryServiceTest {
     // distinct path values of the old source.
     @Test
     fun `updateApp with a different connection string clears app_path`() = runBlocking {
-        val created = service.createApp(
+        val created = service.createApp(accountId,
             CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
         ) as CreateAppResult.Created
         seedAppPath(created.summary.appId, "/checkout")
 
-        val result = service.updateApp(
+        val result = service.updateApp(accountId,
             created.summary.appId,
             UpdateAppRequest(connectionString = withDatabasePath(allowlistedSrvUriWithoutCredential())),
         )
@@ -152,12 +173,12 @@ class AppRegistryServiceTest {
         // gives 400 with no path. This test names one path, the same one
         // on both calls, so the two connection strings stay byte-identical.
         val connectionString = withDatabasePath(allowlistedSrvUri())
-        val created = service.createApp(
+        val created = service.createApp(accountId,
             CreateAppRequest("demo", connectionString, "db", "octometer_events"),
         ) as CreateAppResult.Created
         seedAppPath(created.summary.appId, "/checkout")
 
-        val result = service.updateApp(
+        val result = service.updateApp(accountId,
             created.summary.appId,
             UpdateAppRequest(connectionString = connectionString),
         )
@@ -169,13 +190,13 @@ class AppRegistryServiceTest {
     @Test
     fun `updateApp with the same connection string keeps the poll state`() = runBlocking {
         val connectionString = withDatabasePath(allowlistedSrvUri())
-        val created = service.createApp(
+        val created = service.createApp(accountId,
             CreateAppRequest("demo", connectionString, "db", "octometer_events"),
         ) as CreateAppResult.Created
         seedPollState(created.summary.appId)
         val before = readPollState(created.summary.appId)
 
-        val result = service.updateApp(
+        val result = service.updateApp(accountId,
             created.summary.appId,
             UpdateAppRequest(connectionString = connectionString),
         )
@@ -186,13 +207,13 @@ class AppRegistryServiceTest {
 
     @Test
     fun `updateApp of the name alone keeps the poll state`() = runBlocking {
-        val created = service.createApp(
+        val created = service.createApp(accountId,
             CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
         ) as CreateAppResult.Created
         seedPollState(created.summary.appId)
         val before = readPollState(created.summary.appId)
 
-        val result = service.updateApp(created.summary.appId, UpdateAppRequest(name = "demo2"))
+        val result = service.updateApp(accountId,created.summary.appId, UpdateAppRequest(name = "demo2"))
 
         assertEquals(UpdateAppResult.Updated, result)
         assertEquals(before, readPollState(created.summary.appId), "a name-only PATCH must keep the cursor")
@@ -206,12 +227,12 @@ class AppRegistryServiceTest {
 
     @Test
     fun `createApp stores a NULL path_patterns value`() = runBlocking {
-        val result = service.createApp(
+        val result = service.createApp(accountId,
             CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
         )
 
         val created = assertIs<CreateAppResult.Created>(result)
-        val detail = service.getApp(created.summary.appId)
+        val detail = service.getApp(accountId,created.summary.appId)
         assertNull(detail?.pathPatterns)
         assertNull(detail?.pathPatternsPublishedAt)
         assertNull(detail?.kitVersion)
@@ -220,12 +241,12 @@ class AppRegistryServiceTest {
     @Test
     fun `getApp gives the id, the name, the published route list, its time, and the kit version, never a connection string`() =
         runBlocking {
-            val created = service.createApp(
+            val created = service.createApp(accountId,
                 CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
             ) as CreateAppResult.Created
             seedRoutePatterns(created.summary.appId, "/checkout", publishedAt = 1_700_000_000_000L, kitVersion = "1.2.3")
 
-            val detail = service.getApp(created.summary.appId)
+            val detail = service.getApp(accountId,created.summary.appId)
 
             assertEquals(created.summary.appId, detail?.appId)
             assertEquals("demo", detail?.name)
@@ -236,34 +257,34 @@ class AppRegistryServiceTest {
 
     @Test
     fun `getApp on an unknown id gives null`() = runBlocking {
-        assertNull(service.getApp(999L))
+        assertNull(service.getApp(accountId,999L))
     }
 
     @Test
     fun `updateApp with no name and no connectionString gives InvalidRequest`() = runBlocking {
-        val created = service.createApp(
+        val created = service.createApp(accountId,
             CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
         ) as CreateAppResult.Created
 
-        val result = service.updateApp(created.summary.appId, UpdateAppRequest())
+        val result = service.updateApp(accountId,created.summary.appId, UpdateAppRequest())
 
         assertIs<UpdateAppResult.InvalidRequest>(result)
     }
 
     @Test
     fun `updateApp on an unknown id gives NotFound`() = runBlocking {
-        val result = service.updateApp(999L, UpdateAppRequest(name = "demo2"))
+        val result = service.updateApp(accountId,999L, UpdateAppRequest(name = "demo2"))
 
         assertEquals(UpdateAppResult.NotFound, result)
     }
 
     @Test
     fun `updateApp rejects a connection string that fails the D11 check, and keeps the old secret`() = runBlocking {
-        val created = service.createApp(
+        val created = service.createApp(accountId,
             CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
         ) as CreateAppResult.Created
 
-        val result = service.updateApp(created.summary.appId, UpdateAppRequest(connectionString = publicHostUri()))
+        val result = service.updateApp(accountId,created.summary.appId, UpdateAppRequest(connectionString = publicHostUri()))
 
         assertIs<UpdateAppResult.InvalidRequest>(result)
         assertTrue(secretStore.remove(created.summary.appId), "the old secret must stay after a rejected update")
@@ -272,7 +293,7 @@ class AppRegistryServiceTest {
     @Test
     fun `deleteApp removes the app row, its events, its skipped_event rows, its gap rows, and its secret`() =
         runBlocking {
-            val created = service.createApp(
+            val created = service.createApp(accountId,
                 CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
             ) as CreateAppResult.Created
             val appId = created.summary.appId
@@ -280,7 +301,7 @@ class AppRegistryServiceTest {
             seedSkippedEvent(appId, "bad-1")
             seedGap(appId)
 
-            val found = service.deleteApp(appId)
+            val found = service.deleteApp(accountId,appId)
 
             assertTrue(found)
             assertEquals(0, countAppRows())
@@ -293,42 +314,49 @@ class AppRegistryServiceTest {
     @Test
     fun `deleteApp removes more events than one chunk, with a small chunk size`() = runBlocking {
         val smallChunkService = AppRegistryService(database, secretStore, eventDeleteChunkSize = 3)
-        val created = service.createApp(
+        val created = service.createApp(accountId,
             CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
         ) as CreateAppResult.Created
         val appId = created.summary.appId
         for (index in 1..7) seedEvent(appId, "e$index")
 
-        smallChunkService.deleteApp(appId)
+        smallChunkService.deleteApp(accountId,appId)
 
         assertEquals(0, countEventRows(appId))
     }
 
     @Test
     fun `deleteApp on an unknown id and no secret returns false`() = runBlocking {
-        val found = service.deleteApp(999L)
+        val found = service.deleteApp(accountId,999L)
 
         assertFalse(found)
     }
 
     @Test
-    fun `a second deleteApp call finishes the work when the secret alone remains`() = runBlocking {
-        val created = service.createApp(
-            CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
-        ) as CreateAppResult.Created
-        val appId = created.summary.appId
-        // Simulates a process stop after the app row deletes but before the
-        // secret deletes: the app row is gone, the secret is still there.
-        database.write { writer -> writer.prepareStatement("DELETE FROM app WHERE id = ?").use {
-            it.setLong(1, appId)
-            it.executeUpdate()
-        } }
+    fun `deleteApp on an app row that a stop already removed gives false, and leaves the orphan secret for the sweep`() =
+        runBlocking {
+            // Issue #301: deleteApp now requires an app row of this
+            // account. Simulates a process stop after the app row
+            // deletes but before the secret deletes: the app row is
+            // gone, the secret is still there. The route can no longer
+            // tell which account owned that secret, so it answers 404,
+            // the same as an unknown id; MonitorServices.open's own
+            // orphan-secret sweep removes the secret at the next start.
+            val created = service.createApp(
+                accountId,
+                CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
+            ) as CreateAppResult.Created
+            val appId = created.summary.appId
+            database.write { writer -> writer.prepareStatement("DELETE FROM app WHERE id = ?").use {
+                it.setLong(1, appId)
+                it.executeUpdate()
+            } }
 
-        val found = service.deleteApp(appId)
+            val found = service.deleteApp(accountId, appId)
 
-        assertTrue(found, "the second call must still report a change, and clear the secret")
-        assertFalse(secretStore.remove(appId))
-    }
+            assertFalse(found, "no app row of this account remains, so the route answers 404")
+            assertTrue(secretStore.remove(appId), "the orphan secret stays for the start sweep to remove")
+        }
 
     @Test
     fun `a second deleteApp call finishes the work when the app row and its events still remain, but the secret is already gone`() =
@@ -336,14 +364,14 @@ class AppRegistryServiceTest {
             // MAJOR 4 (security review): deleteApp now removes the secret
             // FIRST. This simulates a process stop right after that step:
             // the secret is gone, the app row and its event still remain.
-            val created = service.createApp(
+            val created = service.createApp(accountId,
                 CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
             ) as CreateAppResult.Created
             val appId = created.summary.appId
             seedEvent(appId, "e1")
             secretStore.remove(appId)
 
-            val found = service.deleteApp(appId)
+            val found = service.deleteApp(accountId,appId)
 
             assertTrue(found, "the second call must still report a change, and clear the app row")
             assertEquals(0, countAppRows())
@@ -352,7 +380,7 @@ class AppRegistryServiceTest {
 
     @Test
     fun `deleteApp on an id with neither an app row nor a secret changes nothing and returns false`() = runBlocking {
-        val found = service.deleteApp(424_242L)
+        val found = service.deleteApp(accountId,424_242L)
 
         assertFalse(found)
         assertEquals(0, countAppRows())
@@ -362,7 +390,7 @@ class AppRegistryServiceTest {
     fun `createApp rejects a connection string above the 2048 character limit`() = runBlocking {
         val tooLong = allowlistedSrvUriWithoutCredential("appName=" + "a".repeat(2048))
 
-        val result = service.createApp(CreateAppRequest("demo", tooLong, "db", "octometer_events"))
+        val result = service.createApp(accountId,CreateAppRequest("demo", tooLong, "db", "octometer_events"))
 
         assertIs<CreateAppResult.InvalidRequest>(result)
         assertEquals(0, countAppRows())
@@ -370,7 +398,7 @@ class AppRegistryServiceTest {
 
     @Test
     fun `createApp rejects a name above the 200 character limit`() = runBlocking {
-        val result = service.createApp(
+        val result = service.createApp(accountId,
             CreateAppRequest("a".repeat(201), allowlistedSrvUri(), "db", "octometer_events"),
         )
 
@@ -380,9 +408,9 @@ class AppRegistryServiceTest {
 
     @Test
     fun `createApp accepts the two contract collection names`() = runBlocking {
-        val first = service.createApp(CreateAppRequest("demo1", allowlistedSrvUri(), "db", "octometer_events"))
+        val first = service.createApp(accountId,CreateAppRequest("demo1", allowlistedSrvUri(), "db", "octometer_events"))
         val second =
-            service.createApp(CreateAppRequest("demo2", allowlistedSrvUriWithoutCredential(), "db", "octometer_events_v2"))
+            service.createApp(accountId,CreateAppRequest("demo2", allowlistedSrvUriWithoutCredential(), "db", "octometer_events_v2"))
 
         assertIs<CreateAppResult.Created>(first)
         assertIs<CreateAppResult.Created>(second)
@@ -390,7 +418,7 @@ class AppRegistryServiceTest {
 
     @Test
     fun `createApp rejects a collection name outside the contract`() = runBlocking {
-        val result = service.createApp(CreateAppRequest("demo", allowlistedSrvUri(), "db", "system.users"))
+        val result = service.createApp(accountId,CreateAppRequest("demo", allowlistedSrvUri(), "db", "system.users"))
 
         assertIs<CreateAppResult.InvalidRequest>(result)
         assertEquals(0, countAppRows())
@@ -421,7 +449,7 @@ class AppRegistryServiceTest {
         val failingService = AppRegistryService(database, ThrowingSecretStore(dataDir, marker))
 
         val failure = assertFailsWith<IllegalStateException> {
-            failingService.createApp(CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"))
+            failingService.createApp(accountId,CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"))
         }
 
         assertEquals(marker, failure.message)
@@ -435,7 +463,7 @@ class AppRegistryServiceTest {
             secretsDir.mkdirs()
             File(secretsDir, "apps.json").mkdirs()
 
-            val result = service.createApp(CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"))
+            val result = service.createApp(accountId,CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"))
 
             assertIs<CreateAppResult.SecretStoreUnavailable>(result)
             assertEquals(0, countAppRows())
@@ -457,7 +485,7 @@ class AppRegistryServiceTest {
             val cancellingService = AppRegistryService(database, CancellingSecretStore(dataDir, marker))
 
             val thrown = assertFailsWith<java.util.concurrent.CancellationException> {
-                cancellingService.createApp(CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"))
+                cancellingService.createApp(accountId,CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"))
             }
 
             assertEquals(marker, thrown.message)
@@ -467,14 +495,14 @@ class AppRegistryServiceTest {
     @Test
     fun `updateApp propagates a Java cancellation from the secret store, instead of a SecretStoreUnavailable result`() =
         runBlocking {
-            val created = service.createApp(
+            val created = service.createApp(accountId,
                 CreateAppRequest("demo", allowlistedSrvUri(), "db", "octometer_events"),
             ) as CreateAppResult.Created
             val marker = "fake-cancellation-updateApp"
             val cancellingService = AppRegistryService(database, CancellingSecretStore(dataDir, marker))
 
             val thrown = assertFailsWith<java.util.concurrent.CancellationException> {
-                cancellingService.updateApp(
+                cancellingService.updateApp(accountId,
                     created.summary.appId,
                     UpdateAppRequest(connectionString = withDatabasePath(allowlistedSrvUriWithoutCredential())),
                 )

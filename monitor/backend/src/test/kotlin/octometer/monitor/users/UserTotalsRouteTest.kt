@@ -19,8 +19,11 @@ import octometer.monitor.captureLogEvents
 import octometer.monitor.devConfig
 import octometer.monitor.module
 import octometer.monitor.registerTempRoot
+import octometer.monitor.sessionCookieValue
+import octometer.monitor.sessionCookieValueForAccount
 import octometer.monitor.store.SqliteDatabase
 import octometer.monitor.testDataDir
+import octometer.monitor.withSession
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -32,16 +35,24 @@ import kotlin.test.assertTrue
 // Issue #50: the level 2 totals of GET /api/apps/{appId}/users. Source:
 // docs/superpowers/specs/2026-09-21-octometer-design.md, D13, D15, and
 // section 6.
+//
+// Issue #301, D52: every route below now needs a session, and every
+// app row needs the account_id of that session. Each test either reads
+// [accountId] (the class field, seeded in setUp against [database]), or
+// reads the account id that [seedApp] returns for its own, fresh data
+// folder.
 class UserTotalsRouteTest {
 
     private val tempDir = Files.createTempDirectory("octometer-user-totals-test-").toFile().also {
         registerTempRoot(it)
     }
     private lateinit var database: SqliteDatabase
+    private var accountId: Long = 0
 
     @BeforeTest
     fun setUp() = runBlocking {
         database = SqliteDatabase.open(testDataDir(tempDir))
+        accountId = insertAccount(database, "user-totals-test@example.com")
     }
 
     @AfterTest
@@ -54,16 +65,19 @@ class UserTotalsRouteTest {
 
     @Test
     fun `an unknown app id gives 404 with a fixed sentence`() = runBlocking {
-        val result = loadUserTotals(database, appId = 999L, requestedPage = 1, filter = null)
+        val result = loadUserTotals(database, accountId, appId = 999L, requestedPage = 1, filter = null)
 
         assertEquals(UserTotalsResult.AppNotFound, result)
     }
 
     @Test
     fun `GET of an unknown app id gives 404 over HTTP`() = testApplication {
-        application { module(devConfig()) }
+        val config = devConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/apps/999/users") { allowedHost() }
+        val response = client.get("/api/apps/999/users") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.NotFound, response.status)
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
@@ -72,9 +86,12 @@ class UserTotalsRouteTest {
 
     @Test
     fun `a non-numeric app id gives 400, not 500`() = testApplication {
-        application { module(devConfig()) }
+        val config = devConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/apps/not-a-number/users") { allowedHost() }
+        val response = client.get("/api/apps/not-a-number/users") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
@@ -84,7 +101,7 @@ class UserTotalsRouteTest {
     @Test
     fun `clicks, sessions, and uniqueElements count only kind = 0 rows, and a session start changes no click count`() =
         runBlocking {
-            val appId = insertApp(database, "app-one")
+            val appId = insertApp(database, accountId, "app-one")
             insertEvent(database, appId, "e1", "alice", "s1", "checkout.save", kind = 0)
             insertEvent(database, appId, "e2", "alice", "s1", "checkout.cancel", kind = 0)
             insertEvent(database, appId, "e3", "alice", "s2", "checkout.save", kind = 0)
@@ -93,7 +110,7 @@ class UserTotalsRouteTest {
             // whole statement holds the filter kind = 0 (section 6).
             insertEvent(database, appId, "e4", "alice", "s3", "octo:session-start", kind = 1)
 
-            val rows = (loadUserTotals(database, appId, 1, null) as UserTotalsResult.Success).rows
+            val rows = (loadUserTotals(database, accountId, appId, 1, null) as UserTotalsResult.Success).rows
 
             val alice = rows.single { it.userId == "alice" }
             assertEquals(3L, alice.clicks, "the session-start row must not count as a click")
@@ -103,24 +120,24 @@ class UserTotalsRouteTest {
 
     @Test
     fun `a user with only a session-start row gets no row at all`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         insertEvent(database, appId, "e1", "bob", "s1", "octo:session-start", kind = 1)
 
-        val rows = (loadUserTotals(database, appId, 1, null) as UserTotalsResult.Success).rows
+        val rows = (loadUserTotals(database, accountId, appId, 1, null) as UserTotalsResult.Success).rows
 
         assertTrue(rows.none { it.userId == "bob" }, "a user with zero clicks must not appear")
     }
 
     @Test
     fun `the NULL user is one row with userId null, and two apps do not mix their users`() = runBlocking {
-        val appOne = insertApp(database, "app-one")
-        val appTwo = insertApp(database, "app-two")
+        val appOne = insertApp(database, accountId, "app-one")
+        val appTwo = insertApp(database, accountId, "app-two")
         insertEvent(database, appOne, "e1", null, "s1", "checkout.save", kind = 0)
         insertEvent(database, appOne, "e2", "alice", "s2", "checkout.save", kind = 0)
         insertEvent(database, appTwo, "e3", "carol", "s3", "checkout.save", kind = 0)
 
-        val rowsOne = (loadUserTotals(database, appOne, 1, null) as UserTotalsResult.Success).rows
-        val rowsTwo = (loadUserTotals(database, appTwo, 1, null) as UserTotalsResult.Success).rows
+        val rowsOne = (loadUserTotals(database, accountId, appOne, 1, null) as UserTotalsResult.Success).rows
+        val rowsTwo = (loadUserTotals(database, accountId, appTwo, 1, null) as UserTotalsResult.Success).rows
 
         assertEquals(setOf(null, "alice"), rowsOne.map { it.userId }.toSet())
         assertEquals(listOf("carol"), rowsTwo.map { it.userId })
@@ -128,12 +145,12 @@ class UserTotalsRouteTest {
 
     @Test
     fun `the order is clicks DESC then user_id ASC`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         insertEvent(database, appId, "e1", "bob", "s1", "checkout.save", kind = 0)
         insertEvent(database, appId, "e2", "alice", "s2", "checkout.save", kind = 0)
         insertEvent(database, appId, "e3", "alice", "s2", "checkout.cancel", kind = 0)
 
-        val rows = (loadUserTotals(database, appId, 1, null) as UserTotalsResult.Success).rows
+        val rows = (loadUserTotals(database, accountId, appId, 1, null) as UserTotalsResult.Success).rows
 
         assertEquals(listOf("alice", "bob"), rows.map { it.userId })
     }
@@ -143,7 +160,7 @@ class UserTotalsRouteTest {
     // makes this test fail; see the comment below the assertion.
     @Test
     fun `two users with the same click count break the tie on user_id ASC`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         insertEvent(database, appId, "e1", "top", "s1", "checkout.save", kind = 0)
         insertEvent(database, appId, "e2", "top", "s1", "checkout.cancel", kind = 0)
         insertEvent(database, appId, "e3", "top", "s1", "checkout.confirm", kind = 0)
@@ -152,7 +169,7 @@ class UserTotalsRouteTest {
         insertEvent(database, appId, "e6", "alpha", "s3", "checkout.save", kind = 0)
         insertEvent(database, appId, "e7", "alpha", "s3", "checkout.cancel", kind = 0)
 
-        val rows = (loadUserTotals(database, appId, 1, null) as UserTotalsResult.Success).rows
+        val rows = (loadUserTotals(database, accountId, appId, 1, null) as UserTotalsResult.Success).rows
 
         // "top" holds 3 clicks. "alpha" and "zeta" each hold 2 clicks,
         // thus only user_id ASC can place "alpha" before "zeta".
@@ -169,23 +186,23 @@ class UserTotalsRouteTest {
     // such character.
     @Test
     fun `q treats the percent sign and the underscore as literal characters, not wildcards`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         insertEvent(database, appId, "e1", "50%_off", "s1", "checkout.save", kind = 0)
         // A decoy that a naive, unescaped LIKE would also match, because
         // % and _ would then act as wildcards.
         insertEvent(database, appId, "e2", "50Xoff", "s2", "checkout.save", kind = 0)
 
-        val rows = (loadUserTotals(database, appId, 1, "50%_off") as UserTotalsResult.Success).rows
+        val rows = (loadUserTotals(database, accountId, appId, 1, "50%_off") as UserTotalsResult.Success).rows
 
         assertEquals(listOf("50%_off"), rows.map { it.userId })
     }
 
     @Test
     fun `q matches no row when the user id holds no such substring`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         insertEvent(database, appId, "e1", "alice", "s1", "checkout.save", kind = 0)
 
-        val result = loadUserTotals(database, appId, 1, "zzz") as UserTotalsResult.Success
+        val result = loadUserTotals(database, accountId, appId, 1, "zzz") as UserTotalsResult.Success
 
         assertTrue(result.rows.isEmpty())
         assertEquals(1, result.pageCount)
@@ -195,12 +212,12 @@ class UserTotalsRouteTest {
     // userId: null, because NULL LIKE '%...%' gives NULL.
     @Test
     fun `a non-empty q drops the row with userId null`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         insertEvent(database, appId, "e1", null, "s1", "checkout.save", kind = 0)
         insertEvent(database, appId, "e2", "alice", "s2", "checkout.save", kind = 0)
 
-        val unfiltered = (loadUserTotals(database, appId, 1, null) as UserTotalsResult.Success).rows
-        val filtered = (loadUserTotals(database, appId, 1, "a") as UserTotalsResult.Success).rows
+        val unfiltered = (loadUserTotals(database, accountId, appId, 1, null) as UserTotalsResult.Success).rows
+        val filtered = (loadUserTotals(database, accountId, appId, 1, "a") as UserTotalsResult.Success).rows
 
         assertTrue(unfiltered.any { it.userId == null }, "the unfiltered page still shows the anonymous row")
         assertTrue(filtered.none { it.userId == null }, "a non-empty q must drop the anonymous row")
@@ -212,12 +229,13 @@ class UserTotalsRouteTest {
     @Test
     fun `q matches an ASCII letter of a different case, but not a Cyrillic letter of a different case`() =
         runBlocking {
-            val appId = insertApp(database, "app-one")
+            val appId = insertApp(database, accountId, "app-one")
             insertEvent(database, appId, "e1", "alice", "s1", "checkout.save", kind = 0)
             insertEvent(database, appId, "e2", "Алиса", "s2", "checkout.save", kind = 0)
 
-            val asciiMatch = (loadUserTotals(database, appId, 1, "ALICE") as UserTotalsResult.Success).rows
-            val cyrillicMiss = (loadUserTotals(database, appId, 1, "алиса") as UserTotalsResult.Success).rows
+            val asciiMatch = (loadUserTotals(database, accountId, appId, 1, "ALICE") as UserTotalsResult.Success).rows
+            val cyrillicMiss =
+                (loadUserTotals(database, accountId, appId, 1, "алиса") as UserTotalsResult.Success).rows
 
             assertEquals(listOf("alice"), asciiMatch.map { it.userId })
             assertTrue(cyrillicMiss.isEmpty(), "a Cyrillic letter of a different case must not match")
@@ -227,13 +245,13 @@ class UserTotalsRouteTest {
 
     @Test
     fun `more than one page gives page 1 with 50 rows and the right pageCount`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         repeat(60) { index ->
             val userId = "user-%02d".format(index)
             insertEvent(database, appId, "e$index", userId, "s$index", "checkout.save", kind = 0)
         }
 
-        val result = loadUserTotals(database, appId, 1, null) as UserTotalsResult.Success
+        val result = loadUserTotals(database, accountId, appId, 1, null) as UserTotalsResult.Success
 
         assertEquals(1, result.page)
         assertEquals(2, result.pageCount)
@@ -242,13 +260,13 @@ class UserTotalsRouteTest {
 
     @Test
     fun `page 2 gives the remaining 10 rows`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         repeat(60) { index ->
             val userId = "user-%02d".format(index)
             insertEvent(database, appId, "e$index", userId, "s$index", "checkout.save", kind = 0)
         }
 
-        val result = loadUserTotals(database, appId, 2, null) as UserTotalsResult.Success
+        val result = loadUserTotals(database, accountId, appId, 2, null) as UserTotalsResult.Success
 
         assertEquals(2, result.page)
         assertEquals(2, result.pageCount)
@@ -257,13 +275,13 @@ class UserTotalsRouteTest {
 
     @Test
     fun `a page above the last page is clamped to the last page`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         repeat(60) { index ->
             val userId = "user-%02d".format(index)
             insertEvent(database, appId, "e$index", userId, "s$index", "checkout.save", kind = 0)
         }
 
-        val result = loadUserTotals(database, appId, 999, null) as UserTotalsResult.Success
+        val result = loadUserTotals(database, accountId, appId, 999, null) as UserTotalsResult.Success
 
         assertEquals(2, result.page)
         assertEquals(10, result.rows.size)
@@ -271,9 +289,9 @@ class UserTotalsRouteTest {
 
     @Test
     fun `an empty result still gives pageCount 1 and page 1`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
 
-        val result = loadUserTotals(database, appId, 1, null) as UserTotalsResult.Success
+        val result = loadUserTotals(database, accountId, appId, 1, null) as UserTotalsResult.Success
 
         assertEquals(1, result.page)
         assertEquals(1, result.pageCount)
@@ -287,7 +305,7 @@ class UserTotalsRouteTest {
     // seen to fail this test (the code was then restored).
     @Test
     fun `the count statement applies q, thus pageCount reflects the filtered row count`() = runBlocking {
-        val appId = insertApp(database, "app-one")
+        val appId = insertApp(database, accountId, "app-one")
         repeat(55) { index ->
             val marker = if (index < 3) "onlythree" else "shared"
             val userId = "user-$marker-%02d".format(index)
@@ -298,9 +316,9 @@ class UserTotalsRouteTest {
             insertEvent(database, appId, "f$index", userId, "t$index", "checkout.save", kind = 0)
         }
 
-        val unfiltered = loadUserTotals(database, appId, 1, null) as UserTotalsResult.Success
-        val sharedFilter = loadUserTotals(database, appId, 1, "shared") as UserTotalsResult.Success
-        val narrowFilter = loadUserTotals(database, appId, 1, "onlythree") as UserTotalsResult.Success
+        val unfiltered = loadUserTotals(database, accountId, appId, 1, null) as UserTotalsResult.Success
+        val sharedFilter = loadUserTotals(database, accountId, appId, 1, "shared") as UserTotalsResult.Success
+        val narrowFilter = loadUserTotals(database, accountId, appId, 1, "onlythree") as UserTotalsResult.Success
 
         assertEquals(2, unfiltered.pageCount, "60 users need 2 pages")
         assertEquals(2, sharedFilter.pageCount, "55 matching users still need 2 pages")
@@ -312,11 +330,14 @@ class UserTotalsRouteTest {
     fun `a page of 0 or a negative page gives 400`() = testApplication {
         // The page check runs before the app id ever reaches the store
         // (route order), thus this app id needs no row of its own.
-        application { module(devConfig()) }
+        val config = devConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val zero = client.get("/api/apps/1/users?page=0") { allowedHost() }
-        val negative = client.get("/api/apps/1/users?page=-1") { allowedHost() }
-        val notANumber = client.get("/api/apps/1/users?page=abc") { allowedHost() }
+        val zero = client.get("/api/apps/1/users?page=0") { allowedHost(); withSession(session) }
+        val negative = client.get("/api/apps/1/users?page=-1") { allowedHost(); withSession(session) }
+        val notANumber = client.get("/api/apps/1/users?page=abc") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.BadRequest, zero.status)
         assertEquals(HttpStatusCode.BadRequest, negative.status)
@@ -328,13 +349,15 @@ class UserTotalsRouteTest {
     // filter.
     @Test
     fun `an empty page gives page 1, the same way an empty q gives no filter`() = testApplication {
-        val (dataDir, appId) = seedApp("app-one") { db, id ->
+        val (dataDir, appId, seededAccountId) = seedApp("app-one") { db, id ->
             insertEvent(db, id, "e1", "alice", "s1", "checkout.save", kind = 0)
         }
         application { module(devConfig(dataDir = dataDir)) }
+        startApplication()
+        val session = sessionCookieValueForAccount(dataDir, seededAccountId)
 
-        val emptyPage = client.get("/api/apps/$appId/users?page=") { allowedHost() }
-        val emptyFilter = client.get("/api/apps/$appId/users?q=") { allowedHost() }
+        val emptyPage = client.get("/api/apps/$appId/users?page=") { allowedHost(); withSession(session) }
+        val emptyFilter = client.get("/api/apps/$appId/users?q=") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.OK, emptyPage.status)
         assertEquals(HttpStatusCode.OK, emptyFilter.status)
@@ -352,14 +375,22 @@ class UserTotalsRouteTest {
     // character cuts the LIKE pattern and then matches every user.
     @Test
     fun `a control character in q gives 400 with a fixed sentence`() = testApplication {
-        val (dataDir, appId) = seedApp("app-one") { db, id ->
+        val (dataDir, appId, seededAccountId) = seedApp("app-one") { db, id ->
             insertEvent(db, id, "e1", "alice", "s1", "checkout.save", kind = 0)
         }
         application { module(devConfig(dataDir = dataDir)) }
+        startApplication()
+        val session = sessionCookieValueForAccount(dataDir, seededAccountId)
 
-        val nul = client.get("/api/apps/$appId/users?q=" + "a\u0000b".encodeURLQueryComponent()) { allowedHost() }
-        val lineBreak = client.get("/api/apps/$appId/users?q=" + "a\nb".encodeURLQueryComponent()) { allowedHost() }
-        val tab = client.get("/api/apps/$appId/users?q=" + "a\tb".encodeURLQueryComponent()) { allowedHost() }
+        val nul = client.get("/api/apps/$appId/users?q=" + "a\u0000b".encodeURLQueryComponent()) {
+            allowedHost(); withSession(session)
+        }
+        val lineBreak = client.get("/api/apps/$appId/users?q=" + "a\nb".encodeURLQueryComponent()) {
+            allowedHost(); withSession(session)
+        }
+        val tab = client.get("/api/apps/$appId/users?q=" + "a\tb".encodeURLQueryComponent()) {
+            allowedHost(); withSession(session)
+        }
 
         for (response in listOf(nul, lineBreak, tab)) {
             assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -372,12 +403,16 @@ class UserTotalsRouteTest {
     // the LIKE pattern. The route now rejects a long q by itself.
     @Test
     fun `a q above 200 characters gives 400 with a fixed sentence`() = testApplication {
-        val (dataDir, appId) = seedApp("app-one") { db, id ->
+        val (dataDir, appId, seededAccountId) = seedApp("app-one") { db, id ->
             insertEvent(db, id, "e1", "alice", "s1", "checkout.save", kind = 0)
         }
         application { module(devConfig(dataDir = dataDir)) }
+        startApplication()
+        val session = sessionCookieValueForAccount(dataDir, seededAccountId)
 
-        val tooLong = client.get("/api/apps/$appId/users?q=" + "a".repeat(201)) { allowedHost() }
+        val tooLong = client.get("/api/apps/$appId/users?q=" + "a".repeat(201)) {
+            allowedHost(); withSession(session)
+        }
 
         assertEquals(HttpStatusCode.BadRequest, tooLong.status)
         val body = Json.parseToJsonElement(tooLong.bodyAsText()).jsonObject
@@ -392,21 +427,25 @@ class UserTotalsRouteTest {
     @Test
     fun `a hostile q value is a bound parameter, thus the rows stay unchanged and the answer is 200`() =
         testApplication {
-            val (dataDir, appId) = seedApp("app-one") { db, id ->
+            val (dataDir, appId, seededAccountId) = seedApp("app-one") { db, id ->
                 insertEvent(db, id, "e1", "alice", "s1", "checkout.save", kind = 0)
             }
             application { module(devConfig(dataDir = dataDir)) }
+            startApplication()
+            val session = sessionCookieValueForAccount(dataDir, seededAccountId)
 
-            val quote = client.get("/api/apps/$appId/users?q=" + "'".encodeURLQueryComponent()) { allowedHost() }
+            val quote = client.get("/api/apps/$appId/users?q=" + "'".encodeURLQueryComponent()) {
+                allowedHost(); withSession(session)
+            }
             val dropTable = client.get(
                 "/api/apps/$appId/users?q=" + "'; DROP TABLE event; --".encodeURLQueryComponent(),
-            ) { allowedHost() }
+            ) { allowedHost(); withSession(session) }
 
             assertEquals(HttpStatusCode.OK, quote.status)
             assertEquals(HttpStatusCode.OK, dropTable.status)
 
             // The event table, and thus the user row, must still exist.
-            val after = client.get("/api/apps/$appId/users") { allowedHost() }
+            val after = client.get("/api/apps/$appId/users") { allowedHost(); withSession(session) }
             assertEquals(HttpStatusCode.OK, after.status)
             val body = Json.parseToJsonElement(after.bodyAsText()).jsonObject
             assertEquals(
@@ -420,12 +459,14 @@ class UserTotalsRouteTest {
     @Test
     fun `GET answers with page, pageCount, rows, and Cache-Control no-store, and no CORS header`() =
         testApplication {
-            val (dataDir, appId) = seedApp("app-one") { db, id ->
+            val (dataDir, appId, seededAccountId) = seedApp("app-one") { db, id ->
                 insertEvent(db, id, "e1", "alice", "s1", "checkout.save", kind = 0)
             }
             application { module(devConfig(dataDir = dataDir)) }
+            startApplication()
+            val session = sessionCookieValueForAccount(dataDir, seededAccountId)
 
-            val response = client.get("/api/apps/$appId/users") { allowedHost() }
+            val response = client.get("/api/apps/$appId/users") { allowedHost(); withSession(session) }
 
             assertEquals(HttpStatusCode.OK, response.status)
             assertEquals("no-store", response.headers[HttpHeaders.CacheControl])
@@ -440,7 +481,7 @@ class UserTotalsRouteTest {
     @Test
     fun `a wrong Host header gets 403 on this route too`() = testApplication {
         // The Host check runs before the route handler, thus this app id
-        // needs no row of its own.
+        // needs no row of its own, and no session either.
         application { module(devConfig()) }
 
         val response = client.get("/api/apps/1/users") { header(HttpHeaders.Host, "evil.example") }
@@ -455,13 +496,15 @@ class UserTotalsRouteTest {
     // to fail this test (the code was then restored).
     @Test
     fun `the captured log holds no line with the filter text, at every log level`() = testApplication {
-        val (dataDir, appId) = seedApp("app-one") { db, id ->
+        val (dataDir, appId, seededAccountId) = seedApp("app-one") { db, id ->
             insertEvent(db, id, "e1", "alice", "s1", "checkout.save", kind = 0)
         }
         application { module(devConfig(dataDir = dataDir)) }
+        startApplication()
+        val session = sessionCookieValueForAccount(dataDir, seededAccountId)
 
         val (response, events) = captureLogEvents {
-            client.get("/api/apps/$appId/users?q=alice-secret-id") { allowedHost() }
+            client.get("/api/apps/$appId/users?q=alice-secret-id") { allowedHost(); withSession(session) }
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
@@ -472,7 +515,7 @@ class UserTotalsRouteTest {
     @Test
     fun `EXPLAIN QUERY PLAN shows the covering index event_agg for the count and the page statement`() =
         runBlocking {
-            val appId = insertApp(database, "app-one")
+            val appId = insertApp(database, accountId, "app-one")
             insertEvent(database, appId, "e1", "alice", "s1", "checkout.save", kind = 0)
             insertEvent(database, appId, "e2", "bob", "s2", "checkout.save", kind = 1)
 
@@ -501,7 +544,7 @@ class UserTotalsRouteTest {
     @Test
     fun `a committed insert between the count statement and the page statement changes neither result`() =
         runBlocking {
-            val appId = insertApp(database, "app-one")
+            val appId = insertApp(database, accountId, "app-one")
             repeat(60) { index ->
                 val userId = "user-%02d".format(index)
                 insertEvent(database, appId, "e$index", userId, "s$index", "checkout.save", kind = 0)
@@ -533,34 +576,56 @@ class UserTotalsRouteTest {
         }
 }
 
-// A route test needs the same store that module() opens from
-// config.dataDir. This helper opens its own database on a fresh data
-// folder. It seeds the folder, then closes the database. module() can
-// then open that same folder, with only one connection open at a time.
-private fun seedApp(name: String, seed: suspend (SqliteDatabase, Long) -> Unit): Pair<String, Long> {
+/** Inserts one account row, and gives its id (issue #301). */
+private suspend fun insertAccount(database: SqliteDatabase, email: String): Long =
+    database.write { writer ->
+        writer.prepareStatement("INSERT INTO account (email, created_at) VALUES (?, ?)").use { insert ->
+            insert.setString(1, email)
+            insert.setLong(2, 1_700_000_000_000L)
+            insert.executeUpdate()
+        }
+        writer.createStatement().use { statement ->
+            statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+                result.next()
+                result.getLong(1)
+            }
+        }
+    }
+
+/**
+ * A route test needs the same store that module() opens from
+ * config.dataDir. This helper opens its own database on a fresh data
+ * folder, with its own account row (issue #301), then closes the
+ * database. module() can then open that same folder, with only one
+ * connection open at a time. The caller reads back the account id, to
+ * make a session of its own with [sessionCookieValueForAccount].
+ */
+private fun seedApp(name: String, seed: suspend (SqliteDatabase, Long) -> Unit): Triple<String, Long, Long> {
     val dataDir = testDataDir()
     val db = SqliteDatabase.open(dataDir)
-    val appId = try {
+    val (appId, seededAccountId) = try {
         runBlocking {
-            val id = insertApp(db, name)
+            val ownerAccountId = insertAccount(db, "seed-app-test@example.com")
+            val id = insertApp(db, ownerAccountId, name)
             seed(db, id)
-            id
+            id to ownerAccountId
         }
     } finally {
         db.close()
     }
-    return dataDir to appId
+    return Triple(dataDir, appId, seededAccountId)
 }
 
-private suspend fun insertApp(database: SqliteDatabase, name: String): Long =
+private suspend fun insertApp(database: SqliteDatabase, accountId: Long, name: String): Long =
     database.write { writer ->
         writer.prepareStatement(
-            "INSERT INTO app (name, database_name, collection_name, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO app (name, database_name, collection_name, created_at, account_id) VALUES (?, ?, ?, ?, ?)",
         ).use { insert ->
             insert.setString(1, name)
             insert.setString(2, "db")
             insert.setString(3, "octometer_events")
             insert.setLong(4, 1_700_000_000_000L)
+            insert.setLong(5, accountId)
             insert.executeUpdate()
         }
         writer.createStatement().use { statement ->

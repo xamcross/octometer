@@ -24,10 +24,13 @@ class StatusPagesTraceTest {
     fun `a 404 from an unregistered app writes no line with the userId marker, at any level`() {
         val marker = "trace-marker-a1b2c3"
         testApplication {
-            application { module(prodConfig()) }
+            val config = prodConfig()
+            application { module(config) }
+            startApplication()
+            val session = sessionCookieValue(config.dataDir)
 
             val (response, events) = captureLogEvents {
-                client.get("/api/apps/777777/users?userId=$marker") { allowedHost() }
+                client.get("/api/apps/777777/users?userId=$marker") { allowedHost(); withSession(session) }
             }
 
             assertEquals(HttpStatusCode.NotFound, response.status)
@@ -39,10 +42,13 @@ class StatusPagesTraceTest {
     fun `a 400 from a wrong page parameter writes no line with the userId marker, at any level`() {
         val marker = "trace-marker-d4e5f6"
         testApplication {
-            application { module(prodConfig()) }
+            val config = prodConfig()
+            application { module(config) }
+            startApplication()
+            val session = sessionCookieValue(config.dataDir)
 
             val (response, events) = captureLogEvents {
-                client.get("/api/apps/1/users?userId=$marker&page=not-a-number") { allowedHost() }
+                client.get("/api/apps/1/users?userId=$marker&page=not-a-number") { allowedHost(); withSession(session) }
             }
 
             assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -58,10 +64,13 @@ class StatusPagesTraceTest {
     fun `a 404 from an unmatched route writes no line with the userId marker, at any level`() {
         val marker = "trace-marker-g7h8i9"
         testApplication {
-            application { module(prodConfig()) }
+            val config = prodConfig()
+            application { module(config) }
+            startApplication()
+            val session = sessionCookieValue(config.dataDir)
 
             val (response, events) = captureLogEvents {
-                client.get("/api/no-such-route?userId=$marker") { allowedHost() }
+                client.get("/api/no-such-route?userId=$marker") { allowedHost(); withSession(session) }
             }
 
             assertEquals(HttpStatusCode.NotFound, response.status)

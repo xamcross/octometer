@@ -1,9 +1,23 @@
 package octometer.monitor.config
 
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.server.testing.testApplication
 import java.io.File
+import java.sql.DriverManager
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.accounts.insertInvite
+import octometer.monitor.allowedHost
 import octometer.monitor.captureLogEvents
+import octometer.monitor.devConfig
 import octometer.monitor.logStart
+import octometer.monitor.module
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -493,11 +507,11 @@ class ConfigLoaderTest {
         assertEquals(0, resolved.config.settleLagSeconds)
     }
 
-    // Issue #295, brief review B1: logStart prints "set" or "not set" for
-    // each of the three secret keys, never the real value. markerConfigValue,
-    // not clusterUri = "...": the implementer rule of the secret scan
-    // keeps a secret-shaped literal off a line beside a name that holds
-    // the word "key".
+    // Issue #295, brief review B1; issue #301 drops adminToken.
+    // logStart prints "set" or "not set" for each secret key, never the
+    // real value. markerConfigValue, not clusterUri = "...": the
+    // implementer rule of the secret scan keeps a secret-shaped literal
+    // off a line beside a name that holds the word "key".
     @Test
     fun `logStart prints set or not set for each secret key, never the value`() = runBlocking {
         val userFile = missingUserConfigFile()
@@ -517,56 +531,106 @@ class ConfigLoaderTest {
 
         assertTrue(lines.contains("clusterUri = set"), "clusterUri must print set: $lines")
         assertTrue(lines.contains("mailApiKey = set"), "mailApiKey must print set: $lines")
-        assertTrue(lines.contains("adminToken = not set"), "adminToken must print not set: $lines")
         assertFalse(lines.contains(markerConfigValue), "the log must never hold the real secret value")
     }
 
-    // Issue #295, brief review B2: the admin guard fails closed. A
-    // public bind in prod mode with no adminToken gives a clear start
-    // error.
+    // MAJOR 5 of the review of pull request #313 (issue #301, D58): D58
+    // extends the log rule of D15 to the sign-in token, the session id,
+    // and the mail address. ConnectionStringSentinelContainerTest.kt
+    // needs Docker for its own marker flow (the Mongo container); this
+    // guard needs none, so it sits here instead, the same choice as the
+    // config-value sentinel above. It drives one real sign-in (the
+    // file mail sender writes the link to a file, the same as the
+    // end-to-end suite), one real confirm, and one real API call, each
+    // with a marker value, then reads the whole captured log for each
+    // of the three.
     @Test
-    fun `requireHostedSecrets gives a clear error when adminToken is missing and the bind is public, in prod mode`() {
-        val config = MonitorConfig(
-            mode = "prod",
-            port = 7431,
-            dataDir = "build/test-hosted-secrets-data",
-            settleLagSeconds = 60,
-            retentionDays = 395,
-            pollIntervalSeconds = 60,
-            bind = "0.0.0.0",
+    fun `a real sign-in, confirm, and API call never write the address, the token, or the session id to the log`() =
+        testApplication {
+            val markerEmail = "octomarkersigninuser4f9c@example.com"
+            val config = devConfig()
+            application { module(config) }
+            startApplication()
+            insertInviteRow(config.dataDir, markerEmail)
+
+            val (marker, events) = captureLogEvents {
+                val signInResponse = client.post("/api/signin") {
+                    allowedHost()
+                    header("Origin", "http://localhost:7431")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"email":"$markerEmail"}""")
+                }
+                assertEquals(HttpStatusCode.Accepted, signInResponse.status)
+
+                val mailFile = File(config.mailDir).listFiles()?.maxByOrNull { it.lastModified() }
+                    ?: error("The mail folder ${config.mailDir} holds no file.")
+                val mailText = mailFile.readText()
+                val token = Regex("token=([A-Za-z0-9_-]+)").find(mailText)?.groupValues?.get(1)
+                    ?: error("The mail text carries no token:\n$mailText")
+
+                val confirmResponse = client.post("/api/signin/confirm") {
+                    allowedHost()
+                    header("Origin", "http://localhost:7431")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"token":"$token"}""")
+                }
+                assertEquals(HttpStatusCode.NoContent, confirmResponse.status)
+                val setCookie = confirmResponse.headers[HttpHeaders.SetCookie]
+                    ?: error("The confirm answer carries no Set-Cookie header.")
+                val sessionValue = Regex("octometer_session=([^;]+)").find(setCookie)?.groupValues?.get(1)
+                    ?: error("The Set-Cookie header carries no session value: $setCookie")
+
+                val meResponse = client.get("/api/me") {
+                    allowedHost()
+                    header(HttpHeaders.Cookie, "octometer_session=$sessionValue")
+                }
+                assertEquals(HttpStatusCode.OK, meResponse.status)
+
+                Triple(markerEmail, token, sessionValue)
+            }
+
+            val (address, token, sessionValue) = marker
+            val lines = events.joinToString("\n") { it.formattedMessage }
+
+            assertFalse(lines.contains(address), "the log must never hold the mail address: $lines")
+            assertFalse(lines.contains(token), "the log must never hold the sign-in token: $lines")
+            assertFalse(lines.contains(sessionValue), "the log must never hold the session id: $lines")
+        }
+
+    // Issue #301, brief review M8: the default of mailSender is "file"
+    // when publicUrl is blank or a loopback host, else "resend".
+    @Test
+    fun `the bundled default of mailSender is file with a blank publicUrl, and resend with a public host`() {
+        val userFile = missingUserConfigFile()
+
+        val blankPublicUrl = loadConfig(args = emptyArray(), env = emptyMap(), userConfigFile = userFile)
+        val loopbackPublicUrl = loadConfig(
+            args = arrayOf("-P:octometer.publicUrl=http://127.0.0.1:7431"),
+            env = emptyMap(),
+            userConfigFile = userFile,
+        )
+        val publicHost = loadConfig(
+            args = arrayOf("-P:octometer.publicUrl=https://app.0ct0meter.com"),
+            env = emptyMap(),
+            userConfigFile = userFile,
         )
 
-        val error = assertFailsWith<InvalidConfigException> { requireHostedSecrets(config) }
-        assertTrue(error.message!!.contains("adminToken"))
+        assertEquals("file", blankPublicUrl.config.mailSender)
+        assertEquals("file", loopbackPublicUrl.config.mailSender)
+        assertEquals("resend", publicHost.config.mailSender)
     }
 
     @Test
-    fun `requireHostedSecrets passes with a set adminToken, and with a loopback bind and no adminToken`() {
-        // markerConfigValue, not adminToken = "...": the implementer rule
-        // of the secret scan keeps a secret-shaped literal off a line
-        // beside a name that holds the word "token".
-        val markerConfigValue = "octoadminguardmarker7f3a"
-        val hostedConfig = MonitorConfig(
-            mode = "prod",
-            port = 7431,
-            dataDir = "build/test-hosted-secrets-data",
-            settleLagSeconds = 60,
-            retentionDays = 395,
-            pollIntervalSeconds = 60,
-            bind = "0.0.0.0",
-            adminToken = markerConfigValue,
-        )
-        val desktopConfig = MonitorConfig(
-            mode = "prod",
-            port = 7431,
-            dataDir = "build/test-hosted-secrets-data",
-            settleLagSeconds = 60,
-            retentionDays = 395,
-            pollIntervalSeconds = 60,
-        )
+    fun `an OCTOMETER_MAIL_SENDER value outside resend and file gives an InvalidConfigException`() {
+        val userFile = missingUserConfigFile()
 
-        requireHostedSecrets(hostedConfig)
-        requireHostedSecrets(desktopConfig)
+        assertFailsWith<InvalidConfigException> {
+            loadConfig(
+                args = emptyArray(),
+                env = mapOf("OCTOMETER_MAIL_SENDER" to "carrier-pigeon"),
+                userConfigFile = userFile,
+            )
+        }
     }
 
     private fun userConfigFile(content: String): File {
@@ -580,5 +644,23 @@ class ConfigLoaderTest {
         val file = File.createTempFile("octometer-test-missing-", ".conf")
         file.delete()
         return file
+    }
+
+    // MAJOR 5 of the review of pull request #313: a raw JDBC connection
+    // of its own, the same pattern as TestConfigs.kt's
+    // sessionCookieValue helpers (WAL mode admits a second writer). The
+    // wait loop covers the same lazy start of Ktor's testApplication
+    // (the module, and so the migrations, run at the first request, not
+    // at the `application { }` call).
+    private fun insertInviteRow(dataDir: String, email: String) {
+        val dbFile = File(dataDir, "octometer.db")
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (!dbFile.isFile && System.nanoTime() < deadline) {
+            Thread.sleep(20)
+        }
+        DriverManager.getConnection("jdbc:sqlite:" + dbFile.absolutePath).use { connection ->
+            connection.createStatement().use { it.execute("PRAGMA busy_timeout=5000") }
+            insertInvite(connection, email, System.currentTimeMillis())
+        }
     }
 }

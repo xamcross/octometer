@@ -24,10 +24,13 @@ import java.nio.charset.StandardCharsets
  *
  * [routes] adds one extra route for one test, for example a probe route
  * that throws. The default adds no route.
+ *
+ * [block] also receives [dataDir] (issue #301): a caller that needs a
+ * session for a `/api/` route reads it, through [sessionCookieValue].
  */
 fun withRawSocketServer(
     routes: Route.() -> Unit = {},
-    block: (port: Int, send: (String) -> String) -> Unit,
+    block: (port: Int, dataDir: String, send: (String) -> String) -> Unit,
 ) {
     val port = ServerSocket(0).use { it.localPort }
     val config = prodConfig(dataDir = testDataDir()).copy(port = port)
@@ -37,7 +40,7 @@ fun withRawSocketServer(
     }
     server.start(wait = false)
     try {
-        block(port) { rawRequest -> sendRawRequest(port, rawRequest) }
+        block(port, config.dataDir) { rawRequest -> sendRawRequest(port, rawRequest) }
     } finally {
         server.stop(gracePeriodMillis = 0, timeoutMillis = 1000)
     }

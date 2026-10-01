@@ -48,10 +48,20 @@ guide names no command of that script until it lands.
 Confirm the start with a health check:
 
 ```powershell
-curl.exe http://127.0.0.1:7431/api/health
+curl.exe http://127.0.0.1:7431/healthz
 ```
 
-Open the UI at `http://127.0.0.1:7431/`.
+Open the UI at `http://127.0.0.1:7431/`, and sign in (issue #301). A
+local run keeps `mailSender=file` by default (a blank `publicUrl`), so
+no address needs an invite yet: run
+
+```powershell
+bin\backend.bat --invite <your address>
+```
+
+then request a link on the sign-in page. Read the newest file of the
+mail folder (`%LOCALAPPDATA%\Octometer\..\mail` in prod mode, the
+sibling folder of `dataDir`), and open the link it holds.
 
 ## 2. The config
 
@@ -266,7 +276,9 @@ agent, a pull request, or a comment.
 | --- | --- | --- |
 | The Atlas cluster connection string | `OCTOMETER_CLUSTER_URI` | `flyctl secrets set` |
 | The Resend API key | `OCTOMETER_MAIL_API_KEY` | `flyctl secrets set` |
-| The admin guard token | `OCTOMETER_ADMIN_TOKEN` | `flyctl secrets set` |
+
+Issue #301 removes the admin guard token of issue #295. The session
+rule of the sign-in feature (below) protects the hosted service now.
 
 `FLY_API_TOKEN` is a fourth secret, a GitHub Actions secret, not a Fly
 secret. It lets the deploy job of `.github/workflows/ci.yml` run
@@ -341,16 +353,48 @@ Fly takes one snapshot of the volume `octometer_data` each day, and
 keeps 5 days of snapshots. Restore from a snapshot through the Fly
 dashboard or `flyctl volumes` when the running volume is lost.
 
-### The admin guard, a temporary measure
+### The sign-in feature (issue #301)
 
-Until issue #301 lands, every route under `/api/` needs the header
-`X-Octometer-Admin` with the value of `OCTOMETER_ADMIN_TOKEN`. A
-browser cannot send that header on its own, so the dashboard shows an
-error on the hosted service for now; `/healthz` alone stays open. Read
-the health of a deployed app with:
+Every route under `/api/` needs a session now, except `/api/signin`,
+`/api/signin/confirm`, and `/healthz`. A visitor signs in with a mail
+link; an account sees the apps of that account only.
+
+The invite list controls who can sign in. Add an address with the
+launcher: locally, `bin\backend.bat --invite <address>` (Linux:
+`bin/backend --invite <address>`). On the Fly machine:
 
 ```
-curl -H "X-Octometer-Admin: <token>" https://app.0ct0meter.com/api/health
+flyctl ssh console
+setpriv --reuid octometer --regid octometer --clear-groups /app/bin/backend --invite <address>
+```
+
+The ssh session starts as root; the service itself runs as the user
+`octometer` (`monitor/backend/docker-entrypoint.sh`), so the invite
+command drops to that user the same way.
+
+`--invite <address>` and `--uninvite <address>` open the store only.
+Neither command starts a server, and each one takes no instance lock,
+so it runs beside the live service. Give the lower-case, trimmed form
+of the address; the command prints `invited <address>` or `uninvited
+<address>` and exits.
+
+The mail sender follows `OCTOMETER_MAIL_SENDER`: `resend` sends a real
+mail through the Resend API key; `file` writes one file per mail under
+`OCTOMETER_MAIL_DIR`, for a local run or the end-to-end suite. The
+service refuses to start with `mailSender=file` on a public host. The
+hosted service, with a public `OCTOMETER_PUBLIC_URL`, keeps the default
+`resend`; a local run, with no `publicUrl` or a loopback one, keeps the
+default `file`.
+
+An app row with a `NULL` account id (an app that existed before this
+issue) is visible to no account, and it polls no more. It waits, inert,
+until a later story attaches it to an account.
+
+Read the health of a deployed app with `/healthz`, which needs no
+session:
+
+```
+curl https://app.0ct0meter.com/healthz
 ```
 
 ### The Atlas access list

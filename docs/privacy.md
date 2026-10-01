@@ -93,6 +93,20 @@ anonymous clicks of that tab to your account.
 The owner's own monitor keeps its own copy until the owner runs a separate
 erasure step, after one poll cycle of the monitor.
 
+## 10. The Octometer dashboard account
+
+This section covers the Octometer dashboard itself (issue #301), not the
+app that this policy otherwise covers.
+
+A dashboard user signs in with a mail link, not a password. We store the
+email address, and the time of each sign-in token and each session.
+
+The session cookie (`octometer_session`) is an essential cookie: the
+dashboard cannot show your apps without it, so it needs no consent banner.
+It expires 30 days after each sign-in.
+
+We store no other cookie of the dashboard.
+
 <!--
 Sources:
 contract/README.md, rules C4, C6, C39, C40, C42, C43

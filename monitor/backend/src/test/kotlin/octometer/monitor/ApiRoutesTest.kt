@@ -21,11 +21,15 @@ class ApiRoutesTest {
 
     @Test
     fun `a POST on an unknown api path gets the fixed JSON body, not an empty one`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = client.post("/api/does-not-exist") {
             allowedHost()
             header("Origin", "http://localhost:7431")
+            withSession(session)
         }
 
         assertEquals(HttpStatusCode.NotFound, response.status)

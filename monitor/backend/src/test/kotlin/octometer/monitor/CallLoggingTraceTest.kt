@@ -43,6 +43,12 @@ private const val AWAIT_LINE_STEP_MILLIS = 20L
  *
  * [withRawSocketServer] starts a real Netty engine, not the test engine
  * of `testApplication` (issue #148 lesson, brief-internal-api.md).
+ *
+ * Issue #301, D52: a case that must reach the route (the 200 case, the
+ * 400 case, and the 404 case) now carries the Cookie header of a valid
+ * session, through [sessionCookieValue]; the 403 and the 415 cases stay
+ * without one, because RequestGuard rejects each of them before the
+ * session check of the same `Setup` phase ever runs.
  */
 class CallLoggingTraceTest {
 
@@ -50,12 +56,14 @@ class CallLoggingTraceTest {
     fun `a 200 from health writes the one line METHOD PATH, with no marker at any level`() {
         val marker = "callmarker-200-a1c3"
         val expectedLine = "GET /api/health"
-        withRawSocketServer { port, send ->
+        withRawSocketServer { port, dataDir, send ->
+            val session = sessionCookieValue(dataDir)
             val (response, events) = runBlocking {
                 captureLogEvents {
                     val result = send(
                         "GET /api/health?marker=$marker HTTP/1.1\r\n" +
                             "Host: localhost:$port\r\n" +
+                            "Cookie: $session\r\n" +
                             "Connection: close\r\n" +
                             "\r\n",
                     )
@@ -74,12 +82,14 @@ class CallLoggingTraceTest {
     fun `a 400 from a bad page parameter writes the one line METHOD PATH, with no marker at any level`() {
         val marker = "callmarker-400-d4f6"
         val expectedLine = "GET /api/apps/1/users"
-        withRawSocketServer { port, send ->
+        withRawSocketServer { port, dataDir, send ->
+            val session = sessionCookieValue(dataDir)
             val (response, events) = runBlocking {
                 captureLogEvents {
                     val result = send(
                         "GET /api/apps/1/users?page=not-a-number&marker=$marker HTTP/1.1\r\n" +
                             "Host: localhost:$port\r\n" +
+                            "Cookie: $session\r\n" +
                             "Connection: close\r\n" +
                             "\r\n",
                     )
@@ -98,12 +108,14 @@ class CallLoggingTraceTest {
     fun `a 404 from an unmatched route writes the one line METHOD PATH, with no marker at any level`() {
         val marker = "callmarker-404-g7i9"
         val expectedLine = "GET /api/no-such-route"
-        withRawSocketServer { port, send ->
+        withRawSocketServer { port, dataDir, send ->
+            val session = sessionCookieValue(dataDir)
             val (response, events) = runBlocking {
                 captureLogEvents {
                     val result = send(
                         "GET /api/no-such-route?marker=$marker HTTP/1.1\r\n" +
                             "Host: localhost:$port\r\n" +
+                            "Cookie: $session\r\n" +
                             "Connection: close\r\n" +
                             "\r\n",
                     )
@@ -122,7 +134,7 @@ class CallLoggingTraceTest {
     fun `a 415 from an unsupported content type writes the one line METHOD PATH, with no marker at any level`() {
         val marker = "callmarker-415-j1l2"
         val expectedLine = "POST /api/health"
-        withRawSocketServer { port, send ->
+        withRawSocketServer { port, _, send ->
             val body = "x"
             val (response, events) = runBlocking {
                 captureLogEvents {
@@ -155,7 +167,7 @@ class CallLoggingTraceTest {
     fun `a 403 from a wrong Host header writes the one line METHOD PATH, with no marker at any level`() {
         val marker = "callmarker-403-m3n5"
         val expectedLine = "GET /api/health"
-        withRawSocketServer { port, send ->
+        withRawSocketServer { port, _, send ->
             val (response, events) = runBlocking {
                 captureLogEvents {
                     val result = send(

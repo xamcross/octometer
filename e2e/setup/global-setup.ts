@@ -3,12 +3,23 @@ import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as net from 'node:net';
 import * as path from 'node:path';
+import { URL } from 'node:url';
+
+import { chromium } from '@playwright/test';
 
 import { COMPOSE_PROJECT } from './constants';
-import { readState, RUN_DIR, writeState } from './state';
+import { runInviteCommand } from './invite';
+import { readState, RUN_DIR, STORAGE_STATE_FILE, writeState } from './state';
 
 const POLL_INTERVAL_MS = 500;
 const READY_TIMEOUT_MS = 60_000;
+
+// Issue #301, D52: the one account of the storage state that every
+// existing scenario shares. The new scenario "two accounts see two
+// different app lists" makes its own two invites, and it runs with
+// `test.use({ storageState: undefined })`, so it never signs in as
+// this account.
+const OWNER_EMAIL = 'e2e-owner@example.com';
 
 /**
  * The path of the Windows `tar.exe` (bsdtar, ships with Windows since
@@ -58,6 +69,27 @@ function httpOk(url: string): Promise<boolean> {
     const request = http.get(url, { timeout: 2000 }, (response) => {
       response.resume();
       pass(response.statusCode === 200);
+    });
+    request.on('error', () => pass(false));
+    request.on('timeout', () => {
+      request.destroy();
+      pass(false);
+    });
+  });
+}
+
+// Issue #301, brief review B1: /api/health now needs a session, so the
+// global setup can no longer probe it before the owner signs in.
+// /healthz needs no session (D52), and it answers "ok" in plain text.
+function healthzOk(url: string): Promise<boolean> {
+  return new Promise((pass) => {
+    const request = http.get(url, { timeout: 2000 }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8');
+        pass(response.statusCode === 200 && body === 'ok');
+      });
     });
     request.on('error', () => pass(false));
     request.on('timeout', () => {
@@ -133,6 +165,92 @@ function spawnScript(
     throw new Error(`The process of '${scriptPath}' gave no process id.`);
   }
   return child.pid;
+}
+
+/** Posts one JSON body to [url], with the `Origin` header that D12 demands for a POST. */
+function postJson(url: string, body: unknown, origin: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const target = new URL(url);
+    const request = http.request(
+      {
+        hostname: target.hostname,
+        port: target.port,
+        path: target.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data),
+          Origin: origin,
+        },
+      },
+      (response) => {
+        response.resume();
+        response.on('end', () => {
+          if (response.statusCode === 202) {
+            resolve();
+          } else {
+            reject(new Error(`POST ${url} answered ${response.statusCode}, expected 202.`));
+          }
+        });
+      },
+    );
+    request.on('error', reject);
+    request.write(data);
+    request.end();
+  });
+}
+
+/** Waits for [mailDir] to hold at least one file, then gives the path of the newest one. */
+async function waitForNewestMailFile(mailDir: string): Promise<string> {
+  await waitFor(`a mail file in ${mailDir}`, async () => {
+    return fs.existsSync(mailDir) && fs.readdirSync(mailDir).length > 0;
+  });
+  const files = fs
+    .readdirSync(mailDir)
+    .map((name) => {
+      const fullPath = path.join(mailDir, name);
+      return { fullPath, mtime: fs.statSync(fullPath).mtimeMs };
+    })
+    .sort((a, b) => b.mtime - a.mtime);
+  return files[0].fullPath;
+}
+
+/** Reads the sign-in token out of the mail text of D52 ("...token=<token>. If you..."). */
+function extractToken(mailText: string): string {
+  const match = /token=([A-Za-z0-9_-]+)/.exec(mailText);
+  if (!match) {
+    throw new Error(`The mail text carries no token:\n${mailText}`);
+  }
+  return match[1];
+}
+
+/**
+ * The sign-in flow of the owner account (issue #301, m11): requests a
+ * link, reads the newest mail file, opens the link page, clicks "Sign
+ * in", and saves the storage state that every existing scenario uses.
+ * A scenario that calls the API directly attaches the cookie from that
+ * same storage state (the `request` fixture of Playwright reads the
+ * project's `storageState` option).
+ */
+async function signInOwnerAndSaveStorageState(monitorUrl: string, mailDir: string): Promise<void> {
+  await postJson(`${monitorUrl}/api/signin`, { email: OWNER_EMAIL }, monitorUrl);
+  const mailFile = await waitForNewestMailFile(mailDir);
+  const token = extractToken(fs.readFileSync(mailFile, 'utf8'));
+
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    // The link page changes no state (M5): this first GET must not sign
+    // the owner in by itself. The click of "Sign in" runs the confirm.
+    await page.goto(`${monitorUrl}/signin?token=${token}`);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.waitForURL(`${monitorUrl}/apps`);
+    await context.storageState({ path: STORAGE_STATE_FILE });
+  } finally {
+    await browser.close();
+  }
 }
 
 async function globalSetup(): Promise<void> {
@@ -226,6 +344,10 @@ async function globalSetup(): Promise<void> {
   const monitorDataDir = path.join(RUN_DIR, 'monitor-data');
   fs.mkdirSync(monitorDataDir, { recursive: true });
   state.monitorDataDir = monitorDataDir.split('\\').join('/');
+  const monitorMailDir = path.join(RUN_DIR, 'mail');
+  fs.mkdirSync(monitorMailDir, { recursive: true });
+  state.monitorMailDir = monitorMailDir.split('\\').join('/');
+  const monitorUrl = `http://127.0.0.1:${ports.monitor}`;
   const monitorEnv: NodeJS.ProcessEnv = {
     ...process.env,
     OCTOMETER_MODE: 'dev',
@@ -233,8 +355,18 @@ async function globalSetup(): Promise<void> {
     OCTOMETER_DATA_DIR: monitorDataDir,
     OCTOMETER_SETTLE_LAG_SECONDS: '1',
     OCTOMETER_POLL_INTERVAL_SECONDS: '2',
+    // Issue #301, D52, brief review M8, B3: the file mail sender, its
+    // folder, and the loopback public URL that the local run and this
+    // suite share, so the file sender's host check passes and the
+    // sign-in link carries this same origin.
+    OCTOMETER_MAIL_SENDER: 'file',
+    OCTOMETER_MAIL_DIR: monitorMailDir,
+    OCTOMETER_PUBLIC_URL: monitorUrl,
     ...(process.env.E2E_JAVA_OPTS_MONITOR ? { JAVA_OPTS: process.env.E2E_JAVA_OPTS_MONITOR } : {}),
   };
+  // Issue #301, D2: one run of the launcher, before the monitor starts,
+  // adds the owner's own invite. M7: this call opens the store only.
+  runInviteCommand(state, OWNER_EMAIL);
   state.pids.monitor = spawnScript(
     monitorScript,
     monitorEnv,
@@ -242,16 +374,24 @@ async function globalSetup(): Promise<void> {
     path.join(RUN_DIR, 'monitor.log'),
   );
   writeState(state);
-  await waitFor(`the monitor health route on http://127.0.0.1:${ports.monitor}/api/health`, () =>
-    httpOk(`http://127.0.0.1:${ports.monitor}/api/health`),
+  // Issue #301, brief review B1: /api/health now needs a session, so
+  // this probes /healthz instead, which sits outside /api/ and needs
+  // none.
+  await waitFor(`the monitor healthz route on ${monitorUrl}/healthz`, () =>
+    healthzOk(`${monitorUrl}/healthz`),
   );
+
+  // Issue #301, m11: the owner signs in once, here, and every existing
+  // scenario reuses that one session through the storage state.
+  await signInOwnerAndSaveStorageState(monitorUrl, monitorMailDir);
 
   // The demo URL goes to the tests through the environment (decision 2).
   // Playwright test workers start after this function returns, and they
   // inherit this process's environment at that moment.
   process.env.E2E_DEMO_URL = `http://127.0.0.1:${ports.demo}`;
-  process.env.E2E_MONITOR_URL = `http://127.0.0.1:${ports.monitor}`;
+  process.env.E2E_MONITOR_URL = monitorUrl;
   process.env.E2E_MONGO_PORT = String(ports.mongo);
+  process.env.E2E_MONITOR_MAIL_DIR = monitorMailDir;
 }
 
 export default globalSetup;

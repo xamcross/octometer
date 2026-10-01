@@ -9,6 +9,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlinx.serialization.Serializable
+import octometer.monitor.accounts.accountId
 import octometer.monitor.store.SqliteDatabase
 
 /**
@@ -67,9 +68,14 @@ internal const val UNIQUE_SESSIONS_SQL =
 // Order by id, not by name: id is stable and it needs no collation
 // rule, and this issue adds no sort feature. A later issue can add a
 // name order or a client-side sort, on its own evidence.
+//
+// Issue #301: account_id = ? keeps this list to the apps of the
+// session's account. An app with a NULL account_id (the scaffold's
+// pre-existing rows) never matches a bound account id, thus it stays
+// out of every account's list.
 private const val APPS_SQL =
     "SELECT id, name, status, last_poll_at, last_success_at, last_error, next_poll_at " +
-        "FROM app ORDER BY id"
+        "FROM app WHERE account_id = ? ORDER BY id"
 
 // The maintainer's correction of the brief review of 2026-09-27 (issue
 // #62): the gap table holds no NULL from_ts or to_ts, so this query
@@ -82,19 +88,19 @@ private val TIMESTAMP_FORMATTER: DateTimeFormatter =
 /** Installs `GET /api/apps` on the route tree. Issue #15 adds the other methods. */
 fun Route.appTotals(database: SqliteDatabase) {
     get("/api/apps") {
-        call.respond(loadAppTotals(database))
+        call.respond(loadAppTotals(database, call.accountId()))
     }
 }
 
 /**
- * Reads the app rows, the three level 1 statements of section 6, and
- * the gap rows of D16, and merges them. One `read` call holds the
- * read-only connection for the five statements; no connection escapes
- * this function.
+ * Reads the app rows of [accountId] (issue #301), the three level 1
+ * statements of section 6, and the gap rows of D16, and merges them.
+ * One `read` call holds the read-only connection for the five
+ * statements; no connection escapes this function.
  */
-suspend fun loadAppTotals(database: SqliteDatabase): List<AppTotalsRow> =
+suspend fun loadAppTotals(database: SqliteDatabase, accountId: Long): List<AppTotalsRow> =
     database.read { reader ->
-        val apps = readApps(reader)
+        val apps = readApps(reader, accountId)
         val (clicks, uniqueUsers) = readClicksAndUsers(reader)
         val uniqueSessions = readTotals(reader, UNIQUE_SESSIONS_SQL)
         val gaps = readGaps(reader)
@@ -142,10 +148,10 @@ private data class AppRecord(
     )
 }
 
-private fun readApps(connection: Connection): List<AppRecord> {
+private fun readApps(connection: Connection, accountId: Long): List<AppRecord> {
     val apps = mutableListOf<AppRecord>()
-    connection.createStatement().use { statement ->
-        statement.executeQuery(APPS_SQL).use { result ->
+    connection.prepareStatement(APPS_SQL).apply { setLong(1, accountId) }.use { statement ->
+        statement.executeQuery().use { result ->
             while (result.next()) {
                 apps += AppRecord(
                     id = result.getLong("id"),

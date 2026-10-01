@@ -134,7 +134,7 @@ class AppRegistryService(
     private val eventDeleteChunkSize: Int = EVENT_DELETE_CHUNK_SIZE,
 ) {
 
-    suspend fun createApp(request: CreateAppRequest): CreateAppResult {
+    suspend fun createApp(accountId: Long, request: CreateAppRequest): CreateAppResult {
         val name = request.name.trim()
         if (name.isEmpty()) return CreateAppResult.InvalidRequest("Give a non-empty name.")
         if (name.length > MAX_SHORT_FIELD_LENGTH) return CreateAppResult.InvalidRequest("Give a shorter name.")
@@ -162,7 +162,7 @@ class AppRegistryService(
 
         val appId = try {
             database.write { writer ->
-                insertApp(writer, name, databaseName, request.collection)
+                insertApp(writer, accountId, name, databaseName, request.collection)
             }
         } catch (constraintFailure: SQLException) {
             if (isUniqueNameViolation(constraintFailure)) {
@@ -224,7 +224,7 @@ class AppRegistryService(
      * itself changed. This closes the gap where a stale `database_name`
      * made the reader open the old database (`MongoAppReader.kt`).
      */
-    suspend fun updateApp(appId: Long, request: UpdateAppRequest): UpdateAppResult {
+    suspend fun updateApp(accountId: Long, appId: Long, request: UpdateAppRequest): UpdateAppResult {
         val name = request.name?.trim()
         if (name != null && name.isEmpty()) return UpdateAppResult.InvalidRequest("Give a non-empty name.")
         if (name != null && name.length > MAX_SHORT_FIELD_LENGTH) {
@@ -257,7 +257,7 @@ class AppRegistryService(
 
         val found = if (name != null) {
             val updated = try {
-                database.write { writer -> updateAppName(writer, appId, name) }
+                database.write { writer -> updateAppName(writer, accountId, appId, name) }
             } catch (constraintFailure: SQLException) {
                 if (isUniqueNameViolation(constraintFailure)) {
                     return UpdateAppResult.NameTaken(name)
@@ -266,7 +266,7 @@ class AppRegistryService(
             }
             updated
         } else {
-            database.read { reader -> appExists(reader, appId) }
+            database.read { reader -> appExists(reader, accountId, appId) }
         }
         if (!found) return UpdateAppResult.NotFound
 
@@ -305,31 +305,34 @@ class AppRegistryService(
      * id; it never reads the secret store, so it never gives a
      * connection string.
      */
-    suspend fun getApp(appId: Long): AppDetail? =
-        database.read { reader -> readAppDetail(reader, appId) }
+    suspend fun getApp(accountId: Long, appId: Long): AppDetail? =
+        database.read { reader -> readAppDetail(reader, accountId, appId) }
 
     /**
      * The delete of step 5, in the order of MAJOR 4 of the security
      * review. It removes the secret first. Then it removes the events in
-     * chunks, the skipped_event rows, the gap rows, and the app row. A
-     * stop between two steps leaves an app row with no secret. The owner
-     * can see and correct that state. A stop never leaves a secret with
-     * no app row. Each step commits on its own. A second call finishes
-     * the remaining steps.
+     * chunks, the skipped_event rows, the gap rows, and the app row.
+     * Each step commits on its own.
+     *
+     * Issue #301: the app must belong to [accountId], else this gives
+     * `false` (the route answers 404), the same rule as an unknown app
+     * id. The orphan-secret sweep of `MonitorServices.open` still
+     * recovers a secret whose app row a former, interrupted delete
+     * already removed; this method no longer repeats that recovery on
+     * its own, because an app row absent from this account gives no
+     * safe way to tell an owned secret apart from a foreign one.
      */
-    suspend fun deleteApp(appId: Long): Boolean {
-        val appRowExists = database.read { reader -> appExists(reader, appId) }
-        val secretExists = secretStore.contains(appId)
-        if (!appRowExists && !secretExists) return false
+    suspend fun deleteApp(accountId: Long, appId: Long): Boolean {
+        val appRowExists = database.read { reader -> appExists(reader, accountId, appId) }
+        if (!appRowExists) return false
 
-        val secretRemoved = secretStore.remove(appId)
+        secretStore.remove(appId)
         deleteEventsInChunks(appId)
         database.write { writer ->
             deleteSkippedEvents(writer, appId)
             deleteGaps(writer, appId)
         }
-        val appRowRemoved = database.write { writer -> deleteAppRow(writer, appId) }
-        return appRowRemoved || secretRemoved
+        return database.write { writer -> deleteAppRow(writer, accountId, appId) }
     }
 
     private suspend fun deleteEventsInChunks(appId: Long) {
@@ -342,6 +345,7 @@ class AppRegistryService(
 
 private fun insertApp(
     writer: Connection,
+    accountId: Long,
     name: String,
     databaseName: String,
     collectionName: String,
@@ -349,13 +353,18 @@ private fun insertApp(
     // Design decision D48 (issue #277): path_patterns starts NULL. The
     // registry writes it no more; the reader writes it, once the app
     // publishes its first list.
+    //
+    // Issue #301, brief review M4: account_id is the session's account.
+    // The unique rule of 006_accounts.sql is UNIQUE(account_id, name),
+    // so a duplicate name of a different account never gives NameTaken.
     writer.prepareStatement(
-        "INSERT INTO app (name, database_name, collection_name, created_at) VALUES (?, ?, ?, ?)",
+        "INSERT INTO app (name, database_name, collection_name, created_at, account_id) VALUES (?, ?, ?, ?, ?)",
     ).use { insert ->
         insert.setString(1, name)
         insert.setString(2, databaseName)
         insert.setString(3, collectionName)
         insert.setLong(4, System.currentTimeMillis())
+        insert.setLong(5, accountId)
         insert.executeUpdate()
     }
     return writer.createStatement().use { statement ->
@@ -419,16 +428,22 @@ private fun resolvedDatabaseName(connectionString: String, requestDatabase: Stri
     }
 }
 
-private fun updateAppName(writer: Connection, appId: Long, name: String): Boolean =
-    writer.prepareStatement("UPDATE app SET name = ? WHERE id = ?").use { update ->
+private fun updateAppName(writer: Connection, accountId: Long, appId: Long, name: String): Boolean =
+    writer.prepareStatement("UPDATE app SET name = ? WHERE id = ? AND account_id = ?").use { update ->
         update.setString(1, name)
         update.setLong(2, appId)
+        update.setLong(3, accountId)
         update.executeUpdate() == 1
     }
 
-private fun appExists(reader: Connection, appId: Long): Boolean =
-    reader.prepareStatement("SELECT 1 FROM app WHERE id = ?").use { select ->
+// Issue #301: an app of another account, or an app with a NULL
+// account_id (not yet claimed, or the scaffold's pre-existing rows),
+// answers false here, so the caller gives the same 404 as an unknown
+// id.
+private fun appExists(reader: Connection, accountId: Long, appId: Long): Boolean =
+    reader.prepareStatement("SELECT 1 FROM app WHERE id = ? AND account_id = ?").use { select ->
         select.setLong(1, appId)
+        select.setLong(2, accountId)
         select.executeQuery().use { it.next() }
     }
 
@@ -458,11 +473,12 @@ private fun updateAppDatabaseName(writer: Connection, appId: Long, databaseName:
 private val PATH_PATTERNS_PUBLISHED_AT_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC)
 
-private fun readAppDetail(reader: Connection, appId: Long): AppDetail? =
+private fun readAppDetail(reader: Connection, accountId: Long, appId: Long): AppDetail? =
     reader.prepareStatement(
-        "SELECT name, path_patterns, path_patterns_published_at, kit_version FROM app WHERE id = ?",
+        "SELECT name, path_patterns, path_patterns_published_at, kit_version FROM app WHERE id = ? AND account_id = ?",
     ).use { select ->
         select.setLong(1, appId)
+        select.setLong(2, accountId)
         select.executeQuery().use { result ->
             if (!result.next()) return@use null
             val publishedAtMillis = result.getLong("path_patterns_published_at").takeUnless { result.wasNull() }
@@ -542,9 +558,19 @@ private fun deleteGaps(writer: Connection, appId: Long) {
     }
 }
 
+// MAJOR 3 cleanup path of createApp: appId alone, right after this same
+// method inserted that exact row, with no session account in scope.
 private fun deleteAppRow(writer: Connection, appId: Long): Boolean =
     writer.prepareStatement("DELETE FROM app WHERE id = ?").use { delete ->
         delete.setLong(1, appId)
+        delete.executeUpdate() == 1
+    }
+
+// Issue #301: the account-scoped delete of deleteApp.
+private fun deleteAppRow(writer: Connection, accountId: Long, appId: Long): Boolean =
+    writer.prepareStatement("DELETE FROM app WHERE id = ? AND account_id = ?").use { delete ->
+        delete.setLong(1, appId)
+        delete.setLong(2, accountId)
         delete.executeUpdate() == 1
     }
 

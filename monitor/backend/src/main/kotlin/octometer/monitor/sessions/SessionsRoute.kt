@@ -11,6 +11,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlinx.serialization.Serializable
 import octometer.monitor.ErrorBody
+import octometer.monitor.accounts.accountId
 import octometer.monitor.store.SqliteDatabase
 
 /** The row count of one page (issue #113, design decision D13). */
@@ -205,7 +206,7 @@ private const val SESSION_SIGN_IN_SQL =
     "SELECT user_id FROM event WHERE app_id = ? AND session_id = ? AND user_id IS NOT NULL " +
         "ORDER BY ts ASC LIMIT 1"
 
-private const val APP_EXISTS_SQL = "SELECT 1 FROM app WHERE id = ?"
+private const val APP_EXISTS_SQL = "SELECT 1 FROM app WHERE id = ? AND account_id = ?"
 
 private val TIMESTAMP_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC)
@@ -236,7 +237,7 @@ fun Route.sessionsRoute(database: SqliteDatabase) {
             call.respond(HttpStatusCode.BadRequest, ErrorBody(PAGE_MESSAGE))
             return@get
         }
-        when (val result = loadAnonymousSessions(database, appId, firstPath, requestedPage)) {
+        when (val result = loadAnonymousSessions(database, call.accountId(), appId, firstPath, requestedPage)) {
             SessionsResult.AppNotFound ->
                 call.respond(HttpStatusCode.NotFound, ErrorBody(APP_NOT_FOUND_MESSAGE))
             is SessionsResult.Success ->
@@ -258,9 +259,10 @@ private fun parsePage(raw: String?): Int? {
 
 private fun ceilDiv(total: Int, size: Int): Int = (total + size - 1) / size
 
-private fun appExists(reader: Connection, appId: Long): Boolean =
+private fun appExists(reader: Connection, accountId: Long, appId: Long): Boolean =
     reader.prepareStatement(APP_EXISTS_SQL).use { statement ->
         statement.setLong(1, appId)
+        statement.setLong(2, accountId)
         statement.executeQuery().use { it.next() }
     }
 
@@ -274,12 +276,13 @@ private fun appExists(reader: Connection, appId: Long): Boolean =
  */
 internal suspend fun loadAnonymousSessions(
     database: SqliteDatabase,
+    accountId: Long,
     appId: Long,
     firstPath: String?,
     requestedPage: Int,
 ): SessionsResult =
     database.read { reader ->
-        if (!appExists(reader, appId)) {
+        if (!appExists(reader, accountId, appId)) {
             return@read SessionsResult.AppNotFound
         }
         val total = countSessions(reader, appId, firstPath)

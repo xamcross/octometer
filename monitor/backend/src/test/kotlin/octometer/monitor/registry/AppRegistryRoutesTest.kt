@@ -23,7 +23,9 @@ import octometer.monitor.allowedHost
 import octometer.monitor.captureErrorLogEvents
 import octometer.monitor.module
 import octometer.monitor.prodConfig
+import octometer.monitor.sessionCookieValue
 import octometer.monitor.testDataDir
+import octometer.monitor.withSession
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -31,13 +33,20 @@ import kotlin.test.assertTrue
 
 // Steps 3, 4, and 5 of issue #15, through the real HTTP routes, with the
 // headers that the request guard of issue #5 demands (D12).
+//
+// Issue #301, D52: every route below now needs a session too. Each test
+// reads the config's own dataDir to seed one, through sessionCookieValue,
+// and sends it with every request that must reach the route handler.
 class AppRegistryRoutesTest {
 
     @Test
     fun `POST creates an app, and the response holds no connection string`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = createApp(name = "demo", connectionString = allowlistedSrvUri())
+        val response = createApp(session, name = "demo", connectionString = allowlistedSrvUri())
 
         assertEquals(HttpStatusCode.Created, response.status)
         val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
@@ -48,9 +57,12 @@ class AppRegistryRoutesTest {
     @Test
     fun `POST 201 carries a Location header for the new app`() = testApplication {
         // MINOR 7 of the Ktor review.
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
+        val created = createApp(session, name = "demo", connectionString = allowlistedSrvUri())
         val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
 
         assertEquals("/api/apps/$appId", created.headers[HttpHeaders.Location])
@@ -59,12 +71,16 @@ class AppRegistryRoutesTest {
     @Test
     fun `POST with a body that is missing a field gets 400`() = testApplication {
         // MINOR 3 of the Ktor review.
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = client.post("/api/apps") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
             contentType(ContentType.Application.Json)
+            withSession(session)
             setBody("""{"name":"demo","database":"db","collection":"octometer_events"}""")
         }
 
@@ -78,11 +94,14 @@ class AppRegistryRoutesTest {
     fun `POST with no collection field gets 201, and stores octometer_events`() = testApplication {
         val dataDir = testDataDir()
         application { module(prodConfig(dataDir = dataDir)) }
+        startApplication()
+        val session = sessionCookieValue(dataDir)
 
         val response = client.post("/api/apps") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
             contentType(ContentType.Application.Json)
+            withSession(session)
             setBody("""{"name":"demo","connectionString":"${allowlistedSrvUri()}","database":"db"}""")
         }
 
@@ -94,12 +113,16 @@ class AppRegistryRoutesTest {
 
     @Test
     fun `POST with a body that is not JSON gets 400`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = client.post("/api/apps") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
             contentType(ContentType.Application.Json)
+            withSession(session)
             setBody("this is not json")
         }
 
@@ -111,12 +134,16 @@ class AppRegistryRoutesTest {
     // then answered 500 for a plain client mistake.
     @Test
     fun `POST with no body gets 400, not 500, and writes no ERROR log line`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val (response, errorEvents) = captureErrorLogEvents {
             client.post("/api/apps") {
                 allowedHost()
                 header(HttpHeaders.Origin, "http://localhost:7431")
+                withSession(session)
             }
         }
 
@@ -126,14 +153,18 @@ class AppRegistryRoutesTest {
 
     @Test
     fun `PATCH with no body gets 400, not 500, and writes no ERROR log line`() = testApplication {
-        application { module(prodConfig()) }
-        val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
+        val created = createApp(session, name = "demo", connectionString = allowlistedSrvUri())
         val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
 
         val (response, errorEvents) = captureErrorLogEvents {
             client.patch("/api/apps/$appId") {
                 allowedHost()
                 header(HttpHeaders.Origin, "http://localhost:7431")
+                withSession(session)
             }
         }
 
@@ -143,10 +174,13 @@ class AppRegistryRoutesTest {
 
     @Test
     fun `POST with a duplicate name gets 409`() = testApplication {
-        application { module(prodConfig()) }
-        createApp(name = "demo", connectionString = allowlistedSrvUri())
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
+        createApp(session, name = "demo", connectionString = allowlistedSrvUri())
 
-        val response = createApp(name = "demo", connectionString = allowlistedSrvUriWithoutCredential())
+        val response = createApp(session, name = "demo", connectionString = allowlistedSrvUriWithoutCredential())
 
         assertEquals(HttpStatusCode.Conflict, response.status)
     }
@@ -154,12 +188,16 @@ class AppRegistryRoutesTest {
     @Test
     fun `PATCH with a non-numeric id gets 400`() = testApplication {
         // MINOR 3 of the Ktor review.
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = client.patch("/api/apps/not-a-number") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
             contentType(ContentType.Application.Json)
+            withSession(session)
             setBody("""{"name":"demo2"}""")
         }
 
@@ -168,11 +206,15 @@ class AppRegistryRoutesTest {
 
     @Test
     fun `DELETE with a non-numeric id gets 400`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = client.delete("/api/apps/not-a-number") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
+            withSession(session)
         }
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -180,11 +222,15 @@ class AppRegistryRoutesTest {
 
     @Test
     fun `DELETE of an unknown id gets 404`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = client.delete("/api/apps/999") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
+            withSession(session)
         }
 
         assertEquals(HttpStatusCode.NotFound, response.status)
@@ -192,18 +238,25 @@ class AppRegistryRoutesTest {
 
     @Test
     fun `POST with a mongodb URI and a public host gets 400`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = createApp(name = "demo", connectionString = publicHostUri())
+        val response = createApp(session, name = "demo", connectionString = publicHostUri())
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
     @Test
     fun `POST with tlsInsecure=true gets 400`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = createApp(
+            session,
             name = "demo",
             connectionString = allowlistedSrvUriWithoutCredential("tlsInsecure=true"),
         )
@@ -213,9 +266,13 @@ class AppRegistryRoutesTest {
 
     @Test
     fun `POST with readPreference gets 400`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = createApp(
+            session,
             name = "demo",
             connectionString = allowlistedSrvUriWithoutCredential("readPreference=secondary"),
         )
@@ -225,15 +282,19 @@ class AppRegistryRoutesTest {
 
     @Test
     fun `PATCH replaces the connection string of an existing app`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
+        val created = createApp(session, name = "demo", connectionString = allowlistedSrvUri())
         val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
 
         val response = client.patch("/api/apps/$appId") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
             contentType(ContentType.Application.Json)
+            withSession(session)
             setBody("""{"connectionString":"${withDatabasePath(allowlistedSrvUriWithoutCredential())}"}""")
         }
 
@@ -242,12 +303,16 @@ class AppRegistryRoutesTest {
 
     @Test
     fun `PATCH on an unknown id gets 404`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = client.patch("/api/apps/999") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
             contentType(ContentType.Application.Json)
+            withSession(session)
             setBody("""{"name":"demo2"}""")
         }
 
@@ -256,18 +321,23 @@ class AppRegistryRoutesTest {
 
     @Test
     fun `DELETE removes an app, and a second DELETE call gets 404`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
+        val created = createApp(session, name = "demo", connectionString = allowlistedSrvUri())
         val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
 
         val firstDelete = client.delete("/api/apps/$appId") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
+            withSession(session)
         }
         val secondDelete = client.delete("/api/apps/$appId") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
+            withSession(session)
         }
 
         assertEquals(HttpStatusCode.NoContent, firstDelete.status)
@@ -283,7 +353,9 @@ class AppRegistryRoutesTest {
         val dataDir = testDataDir()
         testApplication {
             application { module(prodConfig(dataDir = dataDir)) }
-            createApp(name = "demo", connectionString = allowlistedSrvUri())
+            startApplication()
+            val session = sessionCookieValue(dataDir)
+            createApp(session, name = "demo", connectionString = allowlistedSrvUri())
         }
 
         val needle = allowlistedSrvUri().toByteArray(Charsets.UTF_8)
@@ -298,8 +370,10 @@ class AppRegistryRoutesTest {
     fun `the secret file sits next to dataDir, and holds the connection string`() = testApplication {
         val dataDir = testDataDir()
         application { module(prodConfig(dataDir = dataDir)) }
+        startApplication()
+        val session = sessionCookieValue(dataDir)
 
-        createApp(name = "demo", connectionString = allowlistedSrvUri())
+        createApp(session, name = "demo", connectionString = allowlistedSrvUri())
 
         val secretsFile = File(File(dataDir).parentFile, "secrets/apps.json")
         assertTrue(secretsFile.isFile, "expected ${secretsFile.absolutePath} to exist")
@@ -314,10 +388,13 @@ class AppRegistryRoutesTest {
         lateinit var status: HttpStatusCode
         testApplication {
             application { module(prodConfig(dataDir = dataDir)) }
+            startApplication()
+            val session = sessionCookieValue(dataDir)
 
             status = client.post("/api/apps") {
                 allowedHost()
                 contentType(ContentType.Application.Json)
+                withSession(session)
                 setBody("""{"name":"demo","connectionString":"x","database":"db","collection":"c"}""")
             }.status
         }
@@ -344,7 +421,9 @@ class AppRegistryRoutesTest {
         lateinit var status: HttpStatusCode
         testApplication {
             application { module(prodConfig(dataDir = dataDir)) }
-            status = createApp(name = "demo", connectionString = allowlistedSrvUri()).status
+            startApplication()
+            val session = sessionCookieValue(dataDir)
+            status = createApp(session, name = "demo", connectionString = allowlistedSrvUri()).status
         }
 
         assertEquals(HttpStatusCode.ServiceUnavailable, status)
@@ -358,7 +437,9 @@ class AppRegistryRoutesTest {
         lateinit var status: HttpStatusCode
         testApplication {
             application { module(prodConfig(dataDir = dataDir)) }
-            val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
+            startApplication()
+            val session = sessionCookieValue(dataDir)
+            val created = createApp(session, name = "demo", connectionString = allowlistedSrvUri())
             val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
 
             File(File(dataDir).parentFile, "secrets/apps.json").writeText("{ this is not valid json")
@@ -367,6 +448,7 @@ class AppRegistryRoutesTest {
                 allowedHost()
                 header(HttpHeaders.Origin, "http://localhost:7431")
                 contentType(ContentType.Application.Json)
+                withSession(session)
                 setBody("""{"connectionString":"${withDatabasePath(allowlistedSrvUriWithoutCredential())}"}""")
             }.status
         }
@@ -381,7 +463,9 @@ class AppRegistryRoutesTest {
         lateinit var status: HttpStatusCode
         testApplication {
             application { module(prodConfig(dataDir = dataDir)) }
-            val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
+            startApplication()
+            val session = sessionCookieValue(dataDir)
+            val created = createApp(session, name = "demo", connectionString = allowlistedSrvUri())
             val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
 
             File(File(dataDir).parentFile, "secrets/apps.json").writeText("{ this is not valid json")
@@ -389,6 +473,7 @@ class AppRegistryRoutesTest {
             status = client.delete("/api/apps/$appId") {
                 allowedHost()
                 header(HttpHeaders.Origin, "http://localhost:7431")
+                withSession(session)
             }.status
         }
 
@@ -402,6 +487,7 @@ class AppRegistryRoutesTest {
     // connection string has none yet, so each existing test still
     // names one database, the same as before.
     private suspend fun ApplicationTestBuilder.createApp(
+        session: String,
         name: String,
         connectionString: String,
         collection: String = "octometer_events",
@@ -409,6 +495,7 @@ class AppRegistryRoutesTest {
         allowedHost()
         header(HttpHeaders.Origin, "http://localhost:7431")
         contentType(ContentType.Application.Json)
+        withSession(session)
         setBody(
             """{"name":"$name","connectionString":"${withDatabasePath(connectionString)}",""" +
                 """"collection":"$collection"}""",
@@ -421,12 +508,16 @@ class AppRegistryRoutesTest {
 
     @Test
     fun `POST with a pathPatterns field gets 400 with the fixed reason`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = client.post("/api/apps") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
             contentType(ContentType.Application.Json)
+            withSession(session)
             setBody(
                 """{"name":"demo","connectionString":"${withDatabasePath(allowlistedSrvUri())}",""" +
                     """"pathPatterns":"/checkout"}""",
@@ -440,14 +531,18 @@ class AppRegistryRoutesTest {
 
     @Test
     fun `PATCH with a pathPatterns field gets 400 with the fixed reason`() = testApplication {
-        application { module(prodConfig()) }
-        val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
+        val created = createApp(session, name = "demo", connectionString = allowlistedSrvUri())
         val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
 
         val response = client.patch("/api/apps/$appId") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
             contentType(ContentType.Application.Json)
+            withSession(session)
             setBody("""{"pathPatterns":"/checkout"}""")
         }
 
@@ -467,12 +562,14 @@ class AppRegistryRoutesTest {
         testApplication {
             val dataDir = testDataDir()
             application { module(prodConfig(dataDir = dataDir)) }
+            startApplication()
+            val session = sessionCookieValue(dataDir)
 
-            val created = createApp(name = "demo", connectionString = allowlistedSrvUri())
+            val created = createApp(session, name = "demo", connectionString = allowlistedSrvUri())
             val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
             seedRoutePatterns(dataDir, appId, "/checkout", publishedAt = 1_700_000_000_000L, kitVersion = "1.2.3")
 
-            val response = client.get("/api/apps/$appId") { allowedHost() }
+            val response = client.get("/api/apps/$appId") { allowedHost(); withSession(session) }
 
             assertEquals(HttpStatusCode.OK, response.status)
             val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
@@ -486,18 +583,24 @@ class AppRegistryRoutesTest {
 
     @Test
     fun `GET apps id on an unknown id gets 404`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/apps/999") { allowedHost() }
+        val response = client.get("/api/apps/999") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.NotFound, response.status)
     }
 
     @Test
     fun `GET apps id with a non-numeric id gets 400`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/apps/not-a-number") { allowedHost() }
+        val response = client.get("/api/apps/not-a-number") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
