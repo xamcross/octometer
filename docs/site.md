@@ -40,7 +40,8 @@ repeat it.
 2. **Project name**: `octometer`.
 3. **Build command**: `npm run build`.
 4. **Deploy command**: `npx wrangler deploy`.
-5. **Preview command**: the dashboard proposes `npx wrangler versions upload`; keep it.
+5. **Preview command**: `npx wrangler preview`, the dashboard's default. Each branch and
+   each pull request gets its own preview environment through that command.
 6. **Preview builds**: on. **Cloudflare Access**: off.
 7. **Advanced settings** → **Root directory**: `site`.
 
@@ -64,7 +65,7 @@ repeat it.
 | Root directory | `site` |
 | Build command | `npm run build` |
 | Deploy command | `npx wrangler deploy` |
-| Preview command | `npx wrangler versions upload` |
+| Preview command | `npx wrangler preview` |
 | Node version | The environment variable `NODE_VERSION`, from `site/.nvmrc` |
 
 ### The preview URL
