@@ -227,7 +227,50 @@
         <p><a href="#notice">Read the notice of the waitlist.</a></p>
       </section>
 
-      <!-- #291: the "Join the waitlist" section, with the email field and its two answers. -->
+      <!-- #291: the "Join the waitlist" section, with the email field and
+           its one answer region (the mockup section 5, minus the two
+           demo state blocks the real page never ships). -->
+      <section class="sec" id="waitlist" aria-labelledby="waitlist-title">
+        <h2 id="waitlist-title">Join the waitlist</h2>
+        <p class="sec-lead">
+          Octometer is in a pilot. Give us your address, and we write to you at the start.
+        </p>
+        <div class="wl">
+          <form class="panel waitlist-form" method="post" action="/api/waitlist" novalidate>
+            <div class="panel-body">
+              <div class="field">
+                <label for="waitlist-email">Your email address</label>
+                <input
+                  id="waitlist-email"
+                  name="email"
+                  type="email"
+                  autocomplete="email"
+                  aria-describedby="email-hint consent"
+                />
+                <p class="hint" id="email-hint">
+                  We send one mail with a confirmation link. Open that link to join the list.
+                </p>
+              </div>
+              <div class="field hp" aria-hidden="true">
+                <label for="waitlist-website">Your website</label>
+                <input
+                  id="waitlist-website"
+                  name="website"
+                  type="text"
+                  tabindex="-1"
+                  autocomplete="off"
+                />
+              </div>
+              <p class="hint" id="consent">
+                We use your address for this waitlist only. Read the
+                <a href="#notice">notice</a>.
+              </p>
+              <p><button class="btn btn-primary" type="submit">Join the waitlist</button></p>
+              <p class="wl-status" id="waitlist-status" role="status" aria-live="polite"></p>
+            </div>
+          </form>
+        </div>
+      </section>
 
       <!-- #290: the footer notice of the waitlist. The footer is the last
            element of ".page" (the note of the brief review). -->
