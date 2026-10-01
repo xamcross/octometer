@@ -99,8 +99,6 @@ tasks.named<JacocoReport>("jacocoTestReport") {
 // org.jetbrains.kotlinx:kotlinx-coroutines-core. The app gives Ktor
 // itself (see the file header of this module).
 //
-// See kit/jvm-core/build.gradle.kts for the note on the missing
-// license.
 publishing {
     publications {
         create<MavenPublication>("maven") {

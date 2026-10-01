@@ -90,8 +90,6 @@ tasks.named<JacocoReport>("jacocoTestReport") {
 // jakarta.servlet:jakarta.servlet-api. The app gives Spring MVC itself
 // (see the file header of this module).
 //
-// See kit/jvm-core/build.gradle.kts for the note on the missing
-// license.
 publishing {
     publications {
         create<MavenPublication>("maven") {

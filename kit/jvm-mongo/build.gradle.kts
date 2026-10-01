@@ -195,8 +195,6 @@ tasks.named<JacocoReport>("jacocoTestReport") {
 // org.mongodb:mongodb-driver-sync. The app gives the driver itself
 // (see the file header of this module).
 //
-// See kit/jvm-core/build.gradle.kts for the note on the missing
-// license.
 publishing {
     publications {
         create<MavenPublication>("maven") {
