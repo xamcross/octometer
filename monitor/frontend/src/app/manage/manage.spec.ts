@@ -316,6 +316,10 @@ describe('Manage', () => {
       };
     }
 
+    // MAJOR 2 of the review of pull request #323: the origins PUT now
+    // runs first, and each successful call (the PUT, then the PATCH)
+    // emits its own list reload, so the two flushList calls below each
+    // answer one of the two reloads.
     it('reloads the list after the edit form renames the app', () => {
       flushList([buildRow({ appId: 4, name: 'traficio' })]);
 
@@ -331,15 +335,17 @@ describe('Manage', () => {
         .querySelector('app-edit-app-form form')!
         .dispatchEvent(new Event('submit', { cancelable: true }));
       httpMock
+        .expectOne({ url: '/api/apps/4/origins', method: 'PUT' })
+        .flush(detailOf(), { status: 200, statusText: 'OK' });
+      fixture.detectChanges();
+      flushList([buildRow({ appId: 4, name: 'traficio' })]);
+
+      httpMock
         .expectOne({ url: '/api/apps/4', method: 'PATCH' })
         .flush(null, { status: 204, statusText: 'No Content' });
       fixture.detectChanges();
-      httpMock
-        .expectOne({ url: '/api/apps/4/origins', method: 'PUT' })
-        .flush(detailOf({ name: 'traficio-renamed' }), { status: 200, statusText: 'OK' });
-      fixture.detectChanges();
-
       flushList([buildRow({ appId: 4, name: 'traficio-renamed' })]);
+
       expect(root().querySelector('tbody th')?.textContent?.trim()).toBe('traficio-renamed');
     });
 
@@ -357,6 +363,12 @@ describe('Manage', () => {
       root()
         .querySelector('app-edit-app-form form')!
         .dispatchEvent(new Event('submit', { cancelable: true }));
+      httpMock
+        .expectOne({ url: '/api/apps/4/origins', method: 'PUT' })
+        .flush(detailOf(), { status: 200, statusText: 'OK' });
+      fixture.detectChanges();
+      flushList([buildRow({ appId: 4, name: 'traficio' })]);
+
       httpMock
         .expectOne({ url: '/api/apps/4', method: 'PATCH' })
         .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });

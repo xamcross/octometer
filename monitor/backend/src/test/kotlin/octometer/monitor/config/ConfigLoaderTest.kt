@@ -603,13 +603,15 @@ class ConfigLoaderTest {
             assertFalse(lines.contains(sessionValue), "the log must never hold the session id: $lines")
         }
 
-    // Issue #296, D51, D58, the correction of the brief review (m13):
-    // the sentinel of the new key, through the same precedent as the
-    // test above. clusterUri must be non-blank, else the create gives
-    // 503 before it ever makes a key. This reads the plain secret key
-    // from the 201 answer, then asserts the captured log holds none of
-    // it: the secret key is random at each run, so no fixed marker
-    // name is possible here.
+    // Issue #296, D51, D58, the correction of the brief review (m13),
+    // and the MAJOR 1 fix of the review of PR #323: the sentinel of the
+    // new key, through the same precedent as the test above. clusterUri
+    // must be non-blank, else the create gives 503 before it ever makes
+    // a key. This reads the plain secret key from the 201 answer, then
+    // asserts the captured log holds no window of 12 characters or more
+    // of it: the secret key is random at each run, so no fixed marker
+    // name is possible here, and a whole-secret assert alone misses a
+    // partial leak (a truncated log line of the key).
     @Test
     fun `a real app registration with origins never writes the secret key to the log`() = testApplication {
         val config = devConfig(clusterUri = "mongodb://127.0.0.1:1/octometer_service")
@@ -630,7 +632,11 @@ class ConfigLoaderTest {
         }
 
         val lines = events.joinToString("\n") { it.formattedMessage }
-        assertFalse(lines.contains(secretKey), "the log must never hold the secret key: $lines")
+        val window = 12
+        for (start in 0..secretKey.length - window) {
+            val part = secretKey.substring(start, start + window)
+            assertFalse(lines.contains(part), "the log must never hold a part of the secret key: $lines")
+        }
     }
 
     // Issue #301, brief review M8: the default of mailSender is "file"

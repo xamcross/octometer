@@ -319,13 +319,13 @@ describe('EditAppForm', () => {
       .querySelector('form')!
       .dispatchEvent(new Event('submit', { cancelable: true }));
 
-    const patchReq = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
-    expect(patchReq.request.body).toEqual({ name: 'traficio-renamed' });
-    patchReq.flush(null, { status: 204, statusText: 'No Content' });
-
     const putReq = httpMock.expectOne({ url: '/api/apps/3/origins', method: 'PUT' });
     expect(putReq.request.body).toEqual({ origins: ['https://traficio.example'] });
     putReq.flush(buildDetail({ name: 'traficio-renamed' }), { status: 200, statusText: 'OK' });
+
+    const patchReq = httpMock.expectOne({ url: '/api/apps/3', method: 'PATCH' });
+    expect(patchReq.request.body).toEqual({ name: 'traficio-renamed' });
+    patchReq.flush(null, { status: 204, statusText: 'No Content' });
   });
 
   it('sends PUT /api/apps/{id}/origins with the edited origin list, and no PATCH when the name is unchanged', () => {

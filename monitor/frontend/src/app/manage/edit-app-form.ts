@@ -19,9 +19,10 @@ import { AppDetail, UpdateOriginsRequest, readApiErrorMessage } from './app-regi
 import { ORIGINS_HINT } from './field-hints';
 
 /**
- * The control of issue #296 (D52): `PATCH /api/apps/{id}` for a
- * changed name, and `PUT /api/apps/{id}/origins` for the origin list.
- * Each row of the list gets its own instance. The trigger button
+ * The control of issue #296 (D52): `PUT /api/apps/{id}/origins` for
+ * the origin list, then `PATCH /api/apps/{id}` for a changed name
+ * (the order of the correction of pull request #323, MAJOR 2). Each
+ * row of the list gets its own instance. The trigger button
  * reads "Edit origins" (the correction of the brief review): it opens
  * the one form below, with the name and the origin list of the app.
  *
@@ -176,40 +177,57 @@ export class EditAppForm {
     }
     this.pending.set(true);
     this.errorMessage.set(null);
-    const newName = this.name().trim();
-    if (newName !== this.app().name) {
-      this.http.patch<void>(`/api/apps/${this.app().appId}`, { name: newName }).subscribe({
-        next: () => this.saveOrigins(),
-        error: (error: unknown) => this.onFailed(error),
-      });
-    } else {
-      this.saveOrigins();
-    }
+    this.saveOrigins();
   }
 
-  // The API rejects an empty origin list (one to 20 origins, M11). An
-  // app of the legacy connection-string path (D32) starts with an
-  // empty list and an empty textarea here; a save with no typed
-  // origin then skips this request, so a plain rename of such an app
-  // still works, the same as before this story.
+  // The origins save now runs first, then the name save (MAJOR 2 of
+  // the review of pull request #323): the origins PUT alone can fail
+  // on a rule the name PATCH never checks (a bad origin, a duplicate,
+  // more than 20 origins), so a rename never ships ahead of a
+  // rejected origin list. The API rejects an empty origin list (one
+  // to 20 origins, M11). An app of the legacy connection-string path
+  // (D32) starts with an empty list and an empty textarea here; a
+  // save with no typed origin then skips this request, so a plain
+  // rename of such an app still works, the same as before this story.
   private saveOrigins(): void {
     const lines = linesOf(this.origins());
     if (lines.length === 0) {
-      this.onUpdated();
+      this.saveName();
       return;
     }
     const request: UpdateOriginsRequest = { origins: lines };
     this.http.put<AppDetail>(`/api/apps/${this.app().appId}/origins`, request).subscribe({
-      next: () => this.onUpdated(),
+      next: () => {
+        this.updated.emit();
+        this.saveName();
+      },
       error: (error: unknown) => this.onFailed(error),
     });
   }
 
-  private onUpdated(): void {
+  // Each successful call emits `updated` right away (MAJOR 2), so the
+  // list shows the saved part even when the other call then fails;
+  // `onFailed` shows the failed call's error, with the saved part
+  // already visible in the list.
+  private saveName(): void {
+    const newName = this.name().trim();
+    if (newName === this.app().name) {
+      this.onSaved();
+      return;
+    }
+    this.http.patch<void>(`/api/apps/${this.app().appId}`, { name: newName }).subscribe({
+      next: () => {
+        this.updated.emit();
+        this.onSaved();
+      },
+      error: (error: unknown) => this.onFailed(error),
+    });
+  }
+
+  private onSaved(): void {
     this.pending.set(false);
     this.editing.set(false);
     this.announcer.announce('App updated');
-    this.updated.emit();
     afterNextRender(() => this.editToggle()?.nativeElement.focus(), { injector: this.injector });
   }
 
