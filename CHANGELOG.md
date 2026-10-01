@@ -54,6 +54,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add the collector route `POST /collect`: the app key and Origin checks, the body limit,
   the rate limit and the daily caps, the cluster-wide write stop, the CORS preflight of
   `/collect` and `/tracker.js`, and the `writeStopped` field of `GET /api/health`. (#297)
+- Make the sign-in sentinel test of `ConfigLoaderTest` wait for the mail file: a bound
+  poll replaces the one immediate read of the mail folder. (#328)
 
 ### CI
 
