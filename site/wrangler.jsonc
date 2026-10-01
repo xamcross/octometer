@@ -1,11 +1,30 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "octometer",
+  "main": "src/worker.ts",
   "compatibility_date": "2026-09-01",
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "404-page"
+    "not_found_handling": "404-page",
+    // Issue #291: only these three paths reach the "fetch" handler of
+    // "src/worker.ts". Every other path goes straight to a static asset.
+    "run_worker_first": ["/api/*", "/confirm", "/remove"]
   },
+  "vars": {
+    // A preview reads its own origin from the request; this value is
+    // the production origin (docs/site.md).
+    "SITE_URL": "https://0ct0meter.com"
+  },
+  "d1_databases": [
+    {
+      "binding": "WAITLIST",
+      "database_name": "octometer-waitlist",
+      // Owner step 1 (docs/site.md): the owner creates the database and
+      // reports its id in a comment on #291; this placeholder stands
+      // until then.
+      "database_id": "<set by the owner>"
+    }
+  ],
   "preview_urls": true,
   "previews": {}
 }

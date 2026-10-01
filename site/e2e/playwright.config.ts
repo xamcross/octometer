@@ -16,20 +16,28 @@ export default defineConfig({
   outputDir: join(here, 'test-results'),
   fullyParallel: false,
   workers: 1,
+  // Issue #291: "waitlist.spec.ts" runs several "wrangler d1 execute"
+  // calls, each one its own process; the default 30 000 ms timeout is
+  // too short for that scenario.
+  timeout: 90_000,
   reporter: [['html', { outputFolder: join(here, 'playwright-report'), open: 'never' }]],
   use: {
     baseURL,
     ...devices['Desktop Chrome'],
   },
   webServer: {
-    // Review MAJOR 1 of pull request #321: the harness builds the site
-    // itself, so a fresh clone passes "npm ci && npm test" with no
-    // stale "dist". The CI job keeps its own separate build step too
-    // (correction m8), so this build runs a second time there.
-    command: `npm run build && npx vite preview --port ${port} --strictPort`,
+    // Issue #291, the brief review correction M5: the harness builds the
+    // site, applies the D1 migration to a fresh local database, then
+    // starts the real Worker (not "vite preview"), so the waitlist
+    // routes answer too. "MAIL_MODE" switches the mail sender to the
+    // file mock; "SITE_URL" points back at this local origin, so the
+    // host check of "src/worker.ts" lets a local write through.
+    command:
+      `npm run build && npx wrangler d1 migrations apply WAITLIST --local && ` +
+      `npx wrangler dev --port ${port} --var MAIL_MODE:file --var SITE_URL:http://localhost:${port}`,
     cwd: '..',
     url: baseURL,
     reuseExistingServer: false,
-    timeout: 30_000,
+    timeout: 120_000,
   },
 });

@@ -1,7 +1,7 @@
 // The scaffold scenario of the public site (issue #287), grown by issue
 // #288 with the wave animation, the focus move into the waitlist field, and
 // the overflow proof at 360 px and 1440 px. Issue #291 adds the real
-// waitlist field; until then the test injects a stub field.
+// waitlist field that the click below now reaches.
 import { test, expect } from '@playwright/test';
 
 test('the hero shows the promise and the button reaches the form', async ({ page }) => {
@@ -58,9 +58,6 @@ test('the hero shows the promise and the button reaches the form', async ({ page
   // capture-phase listener cancels that navigation, so only the script of
   // "main.ts" can move the focus, and the assertion proves that script.
   await page.evaluate(() => {
-    const input = document.createElement('input');
-    input.id = 'waitlist-email';
-    document.body.appendChild(input);
     document.addEventListener('click', (event) => event.preventDefault(), true);
   });
   await button.click();
