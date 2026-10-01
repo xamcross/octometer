@@ -35,12 +35,20 @@ async function writeToOutbox(env: Env, to: string, text: string): Promise<void> 
     .run();
 }
 
+// The correction round of pull request #326, MAJOR 5: a missing key, a
+// non-2xx Resend answer, and a thrown error each write one log line, so
+// a mail outage shows in the Worker log. The answer to the visitor
+// stays the same (the brief review correction M3): this call runs
+// inside "ctx.waitUntil()", after the handler already sent that answer.
+// Each log line writes the status code or the error class only, never
+// the address and never the key.
 async function sendThroughResend(env: Env, to: string, text: string): Promise<void> {
   if (!env.MAIL_API_KEY) {
+    console.error('resend: no MAIL_API_KEY secret is set');
     return;
   }
   try {
-    await fetch(RESEND_URL, {
+    const response = await fetch(RESEND_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${env.MAIL_API_KEY}`,
@@ -48,10 +56,11 @@ async function sendThroughResend(env: Env, to: string, text: string): Promise<vo
       },
       body: JSON.stringify({ from: FROM_ADDRESS, to: [to], subject: SUBJECT, text }),
     });
-  } catch {
-    // A mail outage never breaks the form (the brief review correction
-    // M3). This call runs inside "ctx.waitUntil()", after the handler
-    // already sent the answer to the visitor.
+    if (!response.ok) {
+      console.error('resend', response.status);
+    }
+  } catch (error) {
+    console.error('resend', error instanceof Error ? error.name : 'unknown error');
   }
 }
 

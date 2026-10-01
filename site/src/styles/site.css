@@ -406,9 +406,12 @@ label {
 }
 /* The one answer region (the brief review correction M3): its text
  * changes in place, so no pair of a shown block and a hidden block ever
- * exists. */
+ * exists. The correction round of pull request #326, MAJOR 3: the
+ * region stays rendered at all times, with "display: flex" at every
+ * state, so a screen reader meets the region before the text changes,
+ * and so the change itself fires the "role=status" announcement. */
 .wl-status {
-  display: none;
+  display: flex;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
@@ -419,12 +422,15 @@ label {
   font-weight: 700;
   max-width: 40ch;
 }
+.wl-status:empty {
+  border: 0;
+  padding: 0;
+  background: none;
+}
 .wl-status-ok {
-  display: flex;
   background: var(--seaweed);
 }
 .wl-status-bad {
-  display: flex;
   background: var(--coral);
 }
 

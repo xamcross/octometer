@@ -134,7 +134,7 @@ async function handlePostWaitlist(
       // An unconfirmed address, or an unsubscribed address that joins
       // again, reuses its one stable token (the brief review correction
       // M2) and gets the mail again.
-      await reopenWaitlistRow(env, address);
+      await reopenWaitlistRow(env, address, now);
       ctx.waitUntil(sendConfirmationMail(env, address, existing.token));
     }
     // A confirmed address that stays on the list: no mail, the same
@@ -187,8 +187,7 @@ async function handlePostRemove(request: Request, env: Env, url: URL): Promise<R
   try {
     const form = await request.formData();
     const token = String(form.get('token') ?? '');
-    const now = Date.now();
-    const found = await removeByToken(env, token, now);
+    const found = await removeByToken(env, token);
     if (!found) {
       return new Response(renderInvalidLinkPage(), { status: 400, headers: HTML_HEADERS });
     }

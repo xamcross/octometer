@@ -68,7 +68,10 @@ each run starts with an empty database.
 ### The export of the list for the owner
 
 The site ships no export route. The owner reads the list through a D1 query in the
-Cloudflare dashboard, for example `SELECT email, created_at, confirmed_at FROM waitlist`.
+Cloudflare dashboard: `SELECT email, created_at, confirmed_at FROM waitlist WHERE
+confirmed_at IS NOT NULL AND unsubscribed_at IS NULL`. A removed address deletes its
+row (the correction round of pull request #326, MAJOR 2); the `confirmed_at` filter
+still excludes an unconfirmed address.
 
 ## The screenshots of "Three levels in your dashboard"
 

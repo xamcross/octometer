@@ -76,9 +76,24 @@ test('an address joins the list, confirms through the link, and can remove itsel
   await page.locator('form[action="/confirm"] button[type="submit"]').click();
   await expect(page.locator('h1')).toHaveText('You are on the list.');
 
+  // The correction round of pull request #326, BLOCKER 1: the page text
+  // alone proves nothing of the row. "confirmByToken" must have written
+  // "confirmed_at".
+  const confirmedRows = runD1Query(
+    `SELECT confirmed_at FROM waitlist WHERE email = '${address}'`,
+  ) as Array<{ confirmed_at: number | null }>;
+  expect(confirmedRows).toHaveLength(1);
+  expect(confirmedRows[0].confirmed_at).not.toBeNull();
+
   await page.goto(removeLink);
   await page.locator('form[action="/remove"] button[type="submit"]').click();
   await expect(page.locator('h1')).toHaveText('You are removed.');
+
+  // The correction round of pull request #326, BLOCKER 1 and MAJOR 2:
+  // "removeByToken" deletes the row (the notice says "we remove"), so
+  // the proof of the remove is that the row is gone, not a flag on it.
+  const removedRows = runD1Query(`SELECT email FROM waitlist WHERE email = '${address}'`);
+  expect(removedRows).toHaveLength(0);
 
   // An invalid address shows the error text, in the same status region.
   await page.goto('/');
@@ -115,6 +130,69 @@ test('an address joins the list, confirms through the link, and can remove itsel
   await page.locator('form.waitlist-form button[type="submit"]').click();
   await expect(status).toHaveText(SUCCESS_TEXT);
   expect(countOutboxRows()).toBe(countBeforeHoneypot);
+
+  // The correction round of pull request #326, MAJOR 1: a re-join of a
+  // row that "reopenWaitlistRow" touches (an unconfirmed address, or an
+  // address that unsubscribed before #326) must refresh "created_at",
+  // so the lazy cleanup of a later request never deletes a row that
+  // just sent a fresh link. A row joined and removed more than 7 days
+  // ago, before pull request #326 deleted on remove, is the one case
+  // "d1 execute" can still seed (a wait of 7 days is not possible in a
+  // test, and the live remove route deletes a row since MAJOR 2).
+  const reopenAddress = `reopen-${stamp}@example.com`;
+  await page.goto('/');
+  await joinWithAddress(page, reopenAddress);
+  await expect(status).toHaveText(SUCCESS_TEXT);
+  const firstReopenLinks = readLatestOutboxBody();
+  await page.goto(extractLink(firstReopenLinks, '/confirm'));
+  await page.locator('form[action="/confirm"] button[type="submit"]').click();
+  await expect(page.locator('h1')).toHaveText('You are on the list.');
+
+  const eightDaysAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;
+  runD1Query(
+    `UPDATE waitlist SET unsubscribed_at = ${Date.now()}, created_at = ${eightDaysAgo} ` +
+      `WHERE email = '${reopenAddress}'`,
+  );
+
+  await page.goto('/');
+  await joinWithAddress(page, reopenAddress);
+  await expect(status).toHaveText(SUCCESS_TEXT);
+  const reopenConfirmLink = extractLink(readLatestOutboxBody(), '/confirm');
+
+  // A request of a different address runs the lazy cleanup again; a row
+  // with a stale "created_at" would not survive this second pass.
+  await page.goto('/');
+  await joinWithAddress(page, `cleanup-trigger-${stamp}@example.com`);
+  await expect(status).toHaveText(SUCCESS_TEXT);
+
+  await page.goto(reopenConfirmLink);
+  await page.locator('form[action="/confirm"] button[type="submit"]').click();
+  await expect(page.locator('h1')).toHaveText('You are on the list.');
+  const reopenedRows = runD1Query(
+    `SELECT confirmed_at FROM waitlist WHERE email = '${reopenAddress}'`,
+  ) as Array<{ confirmed_at: number | null }>;
+  expect(reopenedRows).toHaveLength(1);
+  expect(reopenedRows[0].confirmed_at).not.toBeNull();
+
+  // The correction round of pull request #326, MAJOR 4: "page.request"
+  // sends no browser "Origin" header of its own, so this call sets a
+  // wrong one by hand, and proves the CSRF guard of "POST /api/waitlist".
+  const originAddress = `origin-check-${stamp}@example.com`;
+  const wrongOriginResponse = await page.request.post('/api/waitlist', {
+    headers: { Origin: 'https://evil.example.com', 'Content-Type': 'application/json' },
+    data: JSON.stringify({ email: originAddress, website: '' }),
+  });
+  expect(wrongOriginResponse.status()).toBe(403);
+  expect(await wrongOriginResponse.body()).toHaveLength(0);
+
+  // A wrong "Host" answers "404" (the host check that keeps a preview
+  // with the production "WAITLIST" binding from writing a row).
+  const hostAddress = `host-check-${stamp}@example.com`;
+  const wrongHostResponse = await page.request.post('/api/waitlist', {
+    headers: { Host: 'evil.example.com', 'Content-Type': 'application/json' },
+    data: JSON.stringify({ email: hostAddress, website: '' }),
+  });
+  expect(wrongHostResponse.status()).toBe(404);
 
   // No cookie after the whole flow: the join, the confirm, and the
   // remove each answer with no "Set-Cookie" header.

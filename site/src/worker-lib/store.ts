@@ -68,14 +68,15 @@ export async function insertWaitlistRow(
 }
 
 // One stable token per address (the brief review correction M2): a later
-// submit of an unconfirmed or an unsubscribed address reuses the token
-// of the first submit, and clears "unsubscribed_at" so the address can
-// join again.
-export async function reopenWaitlistRow(env: Env, address: string): Promise<void> {
+// submit of an unconfirmed address reuses the token of the first submit,
+// and clears "unsubscribed_at" so the address can join again. The
+// correction round of pull request #326, MAJOR 1: "created_at" moves to
+// now too, so the lazy cleanup never deletes a row that just re-joined.
+export async function reopenWaitlistRow(env: Env, address: string, now: number): Promise<void> {
   await env.WAITLIST.prepare(
-    'UPDATE waitlist SET confirmed_at = NULL, unsubscribed_at = NULL WHERE email = ?',
+    'UPDATE waitlist SET confirmed_at = NULL, unsubscribed_at = NULL, created_at = ? WHERE email = ?',
   )
-    .bind(address)
+    .bind(now, address)
     .run();
 }
 
@@ -94,15 +95,17 @@ export async function confirmByToken(env: Env, token: string, now: number): Prom
   return true;
 }
 
-export async function removeByToken(env: Env, token: string, now: number): Promise<boolean> {
+// The correction round of pull request #326, MAJOR 2: the row deletes in
+// place of a "state" update, so the store keeps the promise of the
+// notice ("we keep it until you remove yourself"), and a later re-join
+// writes a fresh row (which also closes MAJOR 1 for this path).
+export async function removeByToken(env: Env, token: string): Promise<boolean> {
   const row = await env.WAITLIST.prepare('SELECT email FROM waitlist WHERE token = ?')
     .bind(token)
     .first<{ email: string }>();
   if (!row) {
     return false;
   }
-  await env.WAITLIST.prepare('UPDATE waitlist SET unsubscribed_at = ? WHERE token = ?')
-    .bind(now, token)
-    .run();
+  await env.WAITLIST.prepare('DELETE FROM waitlist WHERE token = ?').bind(token).run();
   return true;
 }
