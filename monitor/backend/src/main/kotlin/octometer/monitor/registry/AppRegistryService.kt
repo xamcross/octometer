@@ -99,7 +99,12 @@ data class AppSummary(
  * `kitVersion` of that same document, or `null` with [pathPatterns].
  * [appKey] and [databaseName] are `null` for an app of the legacy
  * connection-string path that never registered keys. [origins] is `[]`
- * for such an app.
+ * for such an app. [droppedToday] is the collector's own daily drop
+ * count of issue #297 (design decision D50, the brief review of
+ * 2026-10-01, M5); it stays 0 for an app with no drop yet, and for an
+ * app of the legacy connection-string path (the collector never writes
+ * for such an app). `AppRegistryRoutes.kt` fills this field; this
+ * class's own [readAppDetail] always gives 0 here.
  */
 @Serializable
 data class AppDetail(
@@ -111,6 +116,7 @@ data class AppDetail(
     val appKey: String?,
     val origins: List<String>,
     val databaseName: String?,
+    val droppedToday: Long = 0,
 )
 
 /**

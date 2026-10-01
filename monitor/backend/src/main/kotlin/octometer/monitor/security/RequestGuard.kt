@@ -99,7 +99,13 @@ fun Application.installRequestGuard(config: MonitorConfig, env: Map<String, Stri
             }
         }
 
-        if (call.request.httpMethod !in SAFE_METHODS) {
+        // Issue #297 (D50, the brief review of 2026-10-01, B1): /collect
+        // and /tracker.js carry the app key and the app's own Origin,
+        // never the dashboard's own Origin and session. The collector
+        // route runs its own Origin check (OriginCheck.matches) and its
+        // own content type check (415) in its place. isCollectorPath
+        // fails closed on a bad escape, the same rule as isHealthzPath.
+        if (call.request.httpMethod !in SAFE_METHODS && !isCollectorPath(requestPath)) {
             val origin = call.request.header(HttpHeaders.Origin)?.lowercase()
             if (origin == null || origin !in allowedOrigins) {
                 call.respond(HttpStatusCode.Forbidden, RejectionBody("The Origin header is missing or not allowed."))
@@ -166,6 +172,20 @@ internal fun isHealthzPath(rawPath: String): Boolean {
     }
     val normalised = Regex("/+").replace(decoded, "/")
     return normalised == "/healthz"
+}
+
+// Issue #297 (D50, the brief review of 2026-10-01, B1): the same two
+// steps as isHealthzPath, with an exact match of "/collect" or
+// "/tracker.js". A bad escape fails closed: it returns false, so the
+// caller keeps the Origin check and the content type check.
+internal fun isCollectorPath(rawPath: String): Boolean {
+    val decoded = try {
+        rawPath.decodeURLPart()
+    } catch (badEscape: URLDecodeException) {
+        return false
+    }
+    val normalised = Regex("/+").replace(decoded, "/")
+    return normalised == "/collect" || normalised == "/tracker.js"
 }
 
 // The host of config.publicUrl, for example "app.0ct0meter.com" from

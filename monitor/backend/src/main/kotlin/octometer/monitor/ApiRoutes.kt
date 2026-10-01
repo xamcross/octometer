@@ -4,10 +4,13 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.get
 import io.ktor.server.routing.route
+import kotlinx.serialization.Serializable
 import octometer.monitor.accounts.meRoute
 import octometer.monitor.accounts.signInRoutes
 import octometer.monitor.apps.appTotals
+import octometer.monitor.config.Mode
 import octometer.monitor.elements.elementsRoute
 import octometer.monitor.erasure.userErasureRoutes
 import octometer.monitor.pages.firstPagesRoute
@@ -32,13 +35,24 @@ fun Route.apiRoutes(services: MonitorServices) {
     // header and the cookie's Secure flag.
     signInRoutes(services.signInService, services.config)
     meRoute(services.signInService, services.config)
-    appRegistryRoutes(services.appRegistryService)
+    appRegistryRoutes(services.appRegistryService, services.dailyEventCountStore)
     appTotals(services.database)
     userTotalsRoute(services.database)
     elementsRoute(services.database)
     firstPagesRoute(services.database)
     userErasureRoutes(services.database)
     sessionsRoute(services.database)
+    // Issue #297 (D50, the brief review of 2026-10-01, M5): the
+    // end-to-end suite's own test hook, in config.mode == "dev" only.
+    // It gives the monitor's own per-key request count, because
+    // kit/jvm-core keeps no public getter for one key's own count.
+    if (services.config.mode == Mode.DEV.value) {
+        get("/api/dev/collector-counters") {
+            val counters = services.collectorRuntime.rateLimiting.requestCountSnapshot()
+                .map { (key, count) -> CollectorCounterEntry(key, count) }
+            call.respond(HttpStatusCode.OK, CollectorCountersResponse(counters))
+        }
+    }
     // Issue #38, step 4: a request below "/api/" never gets index.html.
     // Ktor tries a constant path segment before this wildcard segment,
     // so this route matches only after each specific "/api/" route
@@ -54,3 +68,11 @@ fun Route.apiRoutes(services: MonitorServices) {
         }
     }
 }
+
+/** One row of [CollectorCountersResponse]: the rate-limit key, and its request count. */
+@Serializable
+data class CollectorCounterEntry(val key: String, val count: Long)
+
+/** The body of `GET /api/dev/collector-counters` (issue #297, the brief review of 2026-10-01, M5). */
+@Serializable
+data class CollectorCountersResponse(val counters: List<CollectorCounterEntry>)

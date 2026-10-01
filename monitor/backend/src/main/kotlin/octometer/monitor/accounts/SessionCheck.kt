@@ -18,10 +18,11 @@ private data class SessionErrorBody(val error: String)
 
 private const val SIGN_IN_FIRST_MESSAGE = "Sign in first."
 
-// The two routes of D52 that need no session (issue #301, brief review
-// B1, m4): /healthz sits outside /api/ already, so the exception list
-// holds these two only.
-private val EXCLUDED_PATHS = setOf("/api/signin", "/api/signin/confirm")
+// The routes of D52 that need no session (issue #301, brief review B1,
+// m4): /healthz sits outside /api/ already. Issue #297 adds the
+// dev-only test hook of the end-to-end suite (the brief review of
+// 2026-10-01, M5); a browser page with no session must still read it.
+private val EXCLUDED_PATHS = setOf("/api/signin", "/api/signin/confirm", "/api/dev/collector-counters")
 
 /**
  * The session check of D52 (issue #301): one interceptor after the
