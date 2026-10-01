@@ -113,7 +113,7 @@ private fun runServer(settings: DemoSettings) {
             configureNettyEngine(this)
         },
     ) {
-        demoModule(store)
+        demoModule(store, settings.collectorUrl, settings.appKey)
         // MINOR 11 of the Ktor review: close the client at the stop
         // event, so a restart of the app leaks no connection.
         monitor.subscribe(ApplicationStopped) {
@@ -127,11 +127,21 @@ private fun runServer(settings: DemoSettings) {
  * built tracker, and the ingest route of `kit/jvm-ktor` with [store]. The
  * app writes no CORS header and needs no login, the same rule as the
  * ingest route of the kit (design decision D23).
+ *
+ * [collectorUrl] and [appKey] are the hosted collector of design
+ * decision D50 (issue #297). A blank [collectorUrl] (the default, for
+ * each existing caller of this function) keeps the page's own tracker
+ * pointed at this app's ingest route, with the kit route below still in
+ * place, the behavior before this issue. With [collectorUrl] set, the
+ * page sends every click to the hosted collector instead; the kit
+ * route below stays installed (an app with the compose file and no
+ * suite can still run it directly), but the suite's own page then
+ * sends it no event (the maintainer's note of 2026-10-01).
  */
-fun Application.demoModule(store: EventLogStore) {
+fun Application.demoModule(store: EventLogStore, collectorUrl: String = "", appKey: String = "") {
     routing {
         get("/") {
-            call.respondText(DemoIndexPage.html, ContentType.Text.Html)
+            call.respondText(DemoIndexPage.html(collectorUrl, appKey), ContentType.Text.Html)
         }
         get("/tracker/{fileName}") {
             val fileName = call.parameters["fileName"]
@@ -144,7 +154,7 @@ fun Application.demoModule(store: EventLogStore) {
         }
         get("/items/{id}") {
             val itemId = call.parameters["id"].orEmpty()
-            call.respondText(DemoItemPage.html(itemId), ContentType.Text.Html)
+            call.respondText(DemoItemPage.html(itemId, collectorUrl, appKey), ContentType.Text.Html)
         }
         octometerIngestRoute(store = store, settings = DEMO_INGEST_SETTINGS) { call -> demoUserId(call) }
     }
