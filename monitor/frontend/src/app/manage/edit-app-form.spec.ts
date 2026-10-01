@@ -386,6 +386,28 @@ describe('EditAppForm', () => {
     });
   });
 
+  // MAJOR 1 of the review of pull request #332: a save that starts
+  // before the GET on open answers must send no PUT .../routes
+  // request, or the empty field clears the stored list.
+  // routePatternsLoaded stays false until the GET's next handler runs,
+  // so saveRoutes skips its own request and moves on to saveName.
+  it('sends no PUT /api/apps/{id}/routes when a save starts before the GET on open answers', () => {
+    root().querySelector<HTMLButtonElement>('button.edit-toggle')!.click();
+    fixture.detectChanges();
+
+    root()
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { cancelable: true }));
+
+    httpMock.expectNone({ url: '/api/apps/3/routes', method: 'PUT' });
+    httpMock.expectNone({ url: '/api/apps/3/origins', method: 'PUT' });
+    httpMock.expectNone({ url: '/api/apps/3', method: 'PATCH' });
+
+    // The GET from open() is still pending. Flush it, so the
+    // httpMock.verify() of afterEach finds no open request.
+    httpMock.expectOne({ url: '/api/apps/3', method: 'GET' }).flush(buildDetail());
+  });
+
   describe('on a saved answer', () => {
     it('closes the form, announces "App updated", and emits updated', () => {
       const announceSpy = vi.spyOn(announcer, 'announce');

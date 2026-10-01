@@ -94,6 +94,16 @@ export class EditAppForm {
    */
   protected readonly routePatternsReadFailed = signal(false);
 
+  /**
+   * True once the `GET /api/apps/{id}` answer sets the route pattern
+   * list (issue #299, MAJOR 1 of the review of pull request #332). A
+   * save that starts before the answer must send no
+   * `PUT .../routes` request, or an empty field clears the stored
+   * list; [saveRoutes] waits for this signal and still runs the name
+   * save and the origins save.
+   */
+  protected readonly routePatternsLoaded = signal(false);
+
   protected get nameId(): string {
     return `edit-app-name-${this.app().appId}`;
   }
@@ -124,6 +134,7 @@ export class EditAppForm {
     this.origins.set('');
     this.routePatterns.set('');
     this.routePatternsReadFailed.set(false);
+    this.routePatternsLoaded.set(false);
     this.errorMessage.set(null);
     this.editing.set(true);
     afterNextRender(() => this.nameField()?.nativeElement.focus(), { injector: this.injector });
@@ -131,6 +142,7 @@ export class EditAppForm {
       next: (detail) => {
         this.origins.set(detail.origins.join('\n'));
         this.routePatterns.set(detail.routePatterns.join('\n'));
+        this.routePatternsLoaded.set(true);
       },
       // Issue #299: a failed read must not stay silent. It shows a
       // message next to the route pattern field. Save stays enabled:
@@ -204,9 +216,12 @@ export class EditAppForm {
   // its request even for an empty field, unlike saveOrigins above. A
   // failed GET of the stored list (routePatternsReadFailed) skips this
   // request instead: an empty field must never clear the app's real
-  // list by accident.
+  // list by accident. A save that starts before the GET answer
+  // (routePatternsLoaded still false, MAJOR 1 of the review of pull
+  // request #332) skips this request too, for the same reason; the
+  // name save still runs.
   private saveRoutes(): void {
-    if (this.routePatternsReadFailed()) {
+    if (this.routePatternsReadFailed() || !this.routePatternsLoaded()) {
       this.saveName();
       return;
     }
