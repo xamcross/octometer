@@ -93,6 +93,18 @@ class AppKeyCache(private val database: SqliteDatabase, private val clock: Clock
         return originsUnion
     }
 
+    /**
+     * Removes every cached app (issue #299, the correction of the brief
+     * review of 2026-10-01, M8). `AppRegistryRoutes.kt` calls this right
+     * before it answers a `PUT /api/apps/{id}/routes`, so a request
+     * against the collector right after the answer always reads the
+     * fresh route pattern list, with no 10-second wait. It never clears
+     * [allOrigins]: a route save changes no origin.
+     */
+    fun clear() {
+        byAppKey.clear()
+    }
+
     private fun needsOriginsRefresh(now: Long): Boolean =
         originsUnionCachedAtMillis == Long.MIN_VALUE ||
             now - originsUnionCachedAtMillis >= APP_CACHE_TTL_MILLIS ||

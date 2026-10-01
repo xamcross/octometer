@@ -11,6 +11,7 @@ import java.time.format.DateTimeFormatter
 import kotlinx.serialization.Serializable
 import octometer.monitor.accounts.accountId
 import octometer.monitor.registry.decodeOriginsJson
+import octometer.monitor.registry.decodeRoutePatternsJson
 import octometer.monitor.store.SqliteDatabase
 
 /**
@@ -44,6 +45,10 @@ data class AppTotalsRow(
     val appKey: String?,
     val origins: List<String>,
     val databaseName: String?,
+    // Issue #299, M10: the count of the typed route pattern list
+    // (the "Patterns" column of the manage list), 0 when the app has
+    // no list; the default rule then applies to every path.
+    val routePatternCount: Int,
 )
 
 // Rule M4 of the design change (#109, #18): the literal `kind = 0` keeps
@@ -82,7 +87,7 @@ internal const val UNIQUE_SESSIONS_SQL =
 // out of every account's list.
 private const val APPS_SQL =
     "SELECT id, name, status, last_poll_at, last_success_at, last_error, next_poll_at, " +
-        "app_key, origins, database_name " +
+        "app_key, origins, database_name, route_patterns " +
         "FROM app WHERE account_id = ? ORDER BY id"
 
 // The maintainer's correction of the brief review of 2026-09-27 (issue
@@ -135,6 +140,7 @@ private data class AppRecord(
     val appKey: String?,
     val origins: List<String>,
     val databaseName: String?,
+    val routePatternCount: Int,
 ) {
     // D8: the derived status NEVER_POLLED replaces the stored status when
     // the app has no poll cycle yet. MINOR 3 of correction round 1: a
@@ -159,6 +165,7 @@ private data class AppRecord(
         appKey = appKey,
         origins = origins,
         databaseName = databaseName,
+        routePatternCount = routePatternCount,
     )
 }
 
@@ -178,6 +185,7 @@ private fun readApps(connection: Connection, accountId: Long): List<AppRecord> {
                     appKey = result.getString("app_key"),
                     origins = decodeOriginsJson(result.getString("origins")),
                     databaseName = result.getString("database_name"),
+                    routePatternCount = decodeRoutePatternsJson(result.getString("route_patterns")).size,
                 )
             }
         }

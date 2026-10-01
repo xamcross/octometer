@@ -321,6 +321,14 @@ describe('AddAppForm', () => {
       expect(root().textContent).toContain('The script is not built on this instance.');
       expect(root().textContent).not.toContain('tracker.js');
     });
+
+    // Issue #299: the registration takes no route pattern field; the
+    // keys panel points the owner at the edit form instead.
+    it('shows the sentence "Add the route patterns of your app in the edit form." under the keys panel', () => {
+      submitAndFlushCreated(keysOf());
+
+      expect(root().textContent).toContain('Add the route patterns of your app in the edit form.');
+    });
   });
 
   it('shows the fixed 400 message from the API next to the field, linked with aria-describedby', () => {

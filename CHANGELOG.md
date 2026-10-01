@@ -62,6 +62,10 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   `trackerHash` of `GET /api/me`. (#298)
 - Make the sign-in sentinel test of `ConfigLoaderTest` wait for the mail file: a bound
   poll replaces the one immediate read of the mail folder. (#328)
+- Add `PUT /api/apps/{id}/routes`: the typed route pattern list of an app, in the column
+  `route_patterns`; the manage view edits it, with a "Patterns" column on the app list, and
+  the collector's app key cache clears on each save. Remove the closed, published-list read
+  of `octometer_config`. (#299)
 
 ### CI
 

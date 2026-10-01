@@ -148,14 +148,14 @@ Follow one rule today and after #56 lands: upgrade the monitor before an
 app (design decision D26). Read the release notes of the new monitor
 version first.
 
-**The route list case.** Kit 0.3.0 lets an app derive and publish its own
-route pattern list; the monitor reads that list at each poll cycle
-(design decisions D46 to D48). Upgrade the monitor first, so it can read
-a published list from the app's first deploy on the new kit. A list that
-an operator typed on `/manage` before this change stays as the cached
-copy until the app publishes its own list. The manage view shows the
-published list read-only, with the publish time and the kit version;
-section 6 states the full detail.
+**The route list case.** Issue #299 (D5, D40) brings the typed route
+pattern list back to the manage view, in the dashboard's own `app`
+table (the column `route_patterns`). The owner types one pattern per
+line in "Route patterns (one per line)" on the edit form; the collector
+applies the list at write time, and the default rule groups each path
+outside the list (a number, a UUID, or a hex segment of 8 characters or
+more becomes `:id`). The former kit-publish story (design decisions D46
+to D48, issue #277) is closed; section 6 states the full detail.
 
 ## 4. Register an app
 
@@ -168,10 +168,11 @@ with a copy button. Copy the secret key now: it shows one time, and
 the monitor never shows it again. The app key is public (it names the
 app to a visitor's browser); keep the secret key private.
 
-The app list shows the app key in its short form, and the origin
-list. "Edit origins" changes the origin list. "New secret key" asks
-for a confirmation, then shows a new secret key one time; the old
-secret key stops working at once.
+The app list shows the app key in its short form, the origin list, and
+the count of the typed route pattern list. "Edit app" changes the name,
+the origin list, and the route pattern list. "New secret key" asks for
+a confirmation, then shows a new secret key one time; the old secret
+key stops working at once.
 
 The present path with a connection string stays for a local MongoDB
 database of your own: fill `connectionString` through the API
@@ -277,13 +278,10 @@ The owner accepts each risk below (design section 8):
   line, and the set never ages out on its own. A pattern-shaped raw path
   passes the shape check. The first `pathValueCap` raw values stay in
   `event.path` until the retention purge or an erasure of their user id.
-- The monitor takes the route pattern list from the app's own database
-  now (design decision D48, issue #277); the manage view shows it
-  read-only, with the publish time and the kit version. An absent
-  document, an invalid list, or a failed read keeps the monitor's last
-  stored list, with one WARN line for that app, at most once an hour. A
-  list that an operator typed on `/manage` before this change stays as
-  that stored, cached copy until the app publishes its own list.
+- The owner types the route pattern list on `/manage` (issue #299, D5,
+  D40, the column `route_patterns`); the collector applies it at write
+  time, with the default rule for a path outside the list. The former
+  kit-publish story of design decision D48 (issue #277) is closed.
 
 ## 7. The hosted service
 

@@ -70,6 +70,16 @@ internal object PathPatternList {
             return PathPatternListResult.Rejected("The route pattern at index $firstBadIndex breaks $rule.")
         }
 
+        // Issue #299, the correction of the brief review of 2026-10-01:
+        // a pattern that an earlier index already holds is a duplicate.
+        // This check runs last, after the grammar and the length checks,
+        // so a malformed pattern always reports its own rule first.
+        val seenPatterns = HashSet<String>()
+        val duplicateIndex = patterns.indices.firstOrNull { index -> !seenPatterns.add(patterns[index]) }
+        if (duplicateIndex != null) {
+            return PathPatternListResult.Rejected("The route pattern at index $duplicateIndex appears twice.")
+        }
+
         return PathPatternListResult.Accepted(patterns.joinToString("\n"))
     }
 }

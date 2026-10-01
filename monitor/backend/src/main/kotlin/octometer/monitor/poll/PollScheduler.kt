@@ -293,20 +293,10 @@ class PollScheduler(
      */
     private fun startPoll(row: AppRow) {
         val checkPrivileges = isPrivilegeCheckDue(row, clock.millis())
-        // Issue #226: AppRow.pathPatterns holds the stored, normalized
-        // text (one pattern per line, no blank line). This splits it
-        // into the list that MongoAppReader.runCycle admits against.
-        val pathPatterns = row.pathPatterns?.lines()?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
-        val target = PollTarget(
-            row.appId,
-            row.database,
-            row.collection,
-            row.cursor,
-            checkPrivileges,
-            pathPatterns,
-            row.pathPatternsPublishedAt,
-            row.kitVersion,
-        )
+        // Issue #299, the correction of the brief review of 2026-10-01
+        // (B1, M4): the collector matches the route pattern at write
+        // time (D50), so the reader needs no pattern list of its own.
+        val target = PollTarget(row.appId, row.database, row.collection, row.cursor, checkPrivileges)
         val job = scope.launch { runPollCycle(row, target) }
         activePolls[row.appId] = job
         job.invokeOnCompletion { activePolls.remove(row.appId, job) }

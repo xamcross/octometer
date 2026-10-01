@@ -123,17 +123,33 @@ export class ManagePage {
   }
 
   async openEditForm(row: ReturnType<ManagePage['row']>): Promise<void> {
-    await row.getByRole('button', { name: 'Edit origins' }).click();
+    await row.getByRole('button', { name: 'Edit app' }).click();
   }
 
-  /** The `<code>` items of the published route list of the open edit form (design decision D48). */
-  routePatternItems(row: ReturnType<ManagePage['row']>) {
-    return row.locator('.route-patterns-block li code');
+  /**
+   * Replaces the route pattern list of the open edit form, and saves
+   * it (issue #299, D5, D40). `open()` fetches `GET /api/apps/{id}`
+   * asynchronously, the same race `addOriginAndSave` guards against;
+   * an empty string is a valid fill (it clears the list), so this
+   * waits for the origins field instead, which the same fetch fills.
+   */
+  async setRoutePatternsAndSave(
+    row: ReturnType<ManagePage['row']>,
+    patterns: readonly string[],
+  ): Promise<void> {
+    await expect(row.getByLabel('Origins (one per line)')).not.toHaveValue('');
+    await row.getByLabel('Route patterns (one per line)').fill(patterns.join('\n'));
+    await row.getByRole('button', { name: 'Save' }).click();
   }
 
-  /** The "Published by the app on" line of the open edit form (design decision D48). */
-  publishedLine(row: ReturnType<ManagePage['row']>) {
-    return row.locator('.route-patterns-block .form-hint');
+  /** The `.form-error` text of the open edit form (issue #299). */
+  editFormError(row: ReturnType<ManagePage['row']>) {
+    return row.locator('.form-error');
+  }
+
+  /** The "Patterns" cell of one row of the list (issue #299, M10). */
+  patternsCell(row: ReturnType<ManagePage['row']>) {
+    return row.locator('td.patterns');
   }
 
   /** Renames the app of the open edit form, and saves it (design decision D48). */

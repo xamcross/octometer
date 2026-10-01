@@ -23,6 +23,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import octometer.monitor.ErrorBody
 import octometer.monitor.accounts.accountId
+import octometer.monitor.collect.AppKeyCache
 import octometer.monitor.collect.DailyEventCountStore
 
 private const val SECRET_STORE_UNAVAILABLE_MESSAGE = "The secret store is not available. Try again."
@@ -45,7 +46,11 @@ private const val PATH_PATTERNS_REJECTED_MESSAGE = "The app publishes its route 
  * default error page. That page can quote part of the body. A
  * connection string can sit in that part (D11, D15).
  */
-fun Route.appRegistryRoutes(registry: AppRegistryService, dailyEventCountStore: DailyEventCountStore) {
+fun Route.appRegistryRoutes(
+    registry: AppRegistryService,
+    dailyEventCountStore: DailyEventCountStore,
+    appKeyCache: AppKeyCache,
+) {
     // Issue #296, M8: the body's own keys pick the path. A body with
     // `connectionString` takes the present, local-developer path
     // (D32); a body with `origins` takes the hosted path of D51, D52,
@@ -108,6 +113,49 @@ fun Route.appRegistryRoutes(registry: AppRegistryService, dailyEventCountStore: 
             is UpdateOriginsResult.Updated -> call.respond(HttpStatusCode.OK, result.detail)
             UpdateOriginsResult.NotFound -> call.respond(HttpStatusCode.NotFound, ErrorBody("The app is not registered."))
             is UpdateOriginsResult.InvalidRequest -> call.respond(HttpStatusCode.BadRequest, ErrorBody(result.message))
+        }
+    }
+
+    // Issue #299, D5, D40: replaces the typed route pattern list of one
+    // app, the same model as PUT /api/apps/{id}/origins above. The app
+    // of another account, or an unknown id, gives the same 404 as the
+    // other routes of this file.
+    put("/api/apps/{id}/routes") {
+        val appId = call.parameters["id"]?.toLongOrNull()
+        if (appId == null) {
+            call.respond(HttpStatusCode.BadRequest, ErrorBody("The app id must be a whole number."))
+            return@put
+        }
+        val rawJson = when (val outcome = receiveRawAppJson(call)) {
+            is RawAppJsonOutcome.Ok -> outcome.json
+            RawAppJsonOutcome.Invalid -> {
+                call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
+                return@put
+            }
+            RawAppJsonOutcome.PathPatternsRejected -> {
+                call.respond(HttpStatusCode.BadRequest, ErrorBody(PATH_PATTERNS_REJECTED_MESSAGE))
+                return@put
+            }
+        }
+        val request = try {
+            Json.decodeFromJsonElement<UpdateRoutesRequest>(rawJson)
+        } catch (malformed: SerializationException) {
+            call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
+            return@put
+        } catch (malformed: IllegalArgumentException) {
+            call.respond(HttpStatusCode.BadRequest, ErrorBody("The body is not a valid app request."))
+            return@put
+        }
+        when (val result = registry.updateRoutes(call.accountId(), appId, request.patterns)) {
+            is UpdateRoutesResult.Updated -> {
+                // Issue #299, M8: the cache clears before the answer, so
+                // a /collect request right after this response always
+                // reads the fresh list, with no 10-second wait.
+                appKeyCache.clear()
+                call.respond(HttpStatusCode.OK, result.detail)
+            }
+            UpdateRoutesResult.NotFound -> call.respond(HttpStatusCode.NotFound, ErrorBody("The app is not registered."))
+            is UpdateRoutesResult.InvalidRequest -> call.respond(HttpStatusCode.BadRequest, ErrorBody(result.message))
         }
     }
 

@@ -15,17 +15,22 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import java.io.File
+import java.nio.file.Files
 import java.sql.DriverManager
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import octometer.monitor.allowedHost
 import octometer.monitor.captureErrorLogEvents
+import octometer.monitor.collect.AppKeyCache
 import octometer.monitor.devConfig
 import octometer.monitor.module
 import octometer.monitor.prodConfig
 import octometer.monitor.sessionCookieValue
+import octometer.monitor.store.SqliteDatabase
 import octometer.monitor.testDataDir
 import octometer.monitor.withSession
 import kotlin.test.Test
@@ -553,14 +558,11 @@ class AppRegistryRoutesTest {
         assertEquals("The app publishes its route list; the monitor takes no list.", body["error"]!!.jsonPrimitive.content)
     }
 
-    // Issue #226, the correction of the brief review of 2026-09-27: the
-    // edit form reads this route when it opens. Design decision D48
-    // (issue #277): the registry no longer writes path_patterns; this
-    // test seeds it with a direct SQL write, the same rule as the
-    // service test.
+    // Issue #299, D5, D40: GET gives the typed route pattern list back,
+    // the list that PUT /api/apps/{id}/routes just stored.
 
     @Test
-    fun `GET apps id gives the id, the name, the published route list, its time, and the kit version, never a connection string`() =
+    fun `GET apps id gives the id, the name, and the route pattern list, never a connection string`() =
         testApplication {
             val dataDir = testDataDir()
             application { module(prodConfig(dataDir = dataDir)) }
@@ -569,7 +571,7 @@ class AppRegistryRoutesTest {
 
             val created = createApp(session, name = "demo", connectionString = allowlistedSrvUri())
             val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
-            seedRoutePatterns(dataDir, appId, "/checkout", publishedAt = 1_700_000_000_000L, kitVersion = "1.2.3")
+            putRoutes(session, appId, listOf("/checkout"))
 
             val response = client.get("/api/apps/$appId") { allowedHost(); withSession(session) }
 
@@ -577,11 +579,127 @@ class AppRegistryRoutesTest {
             val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
             assertEquals(appId, body["appId"]!!.jsonPrimitive.long)
             assertEquals("demo", body["name"]!!.jsonPrimitive.content)
-            assertEquals("/checkout", body["pathPatterns"]!!.jsonPrimitive.content)
-            assertEquals("2023-11-14T22:13:20.000Z", body["pathPatternsPublishedAt"]!!.jsonPrimitive.content)
-            assertEquals("1.2.3", body["kitVersion"]!!.jsonPrimitive.content)
+            assertEquals(listOf("/checkout"), body["routePatterns"]!!.jsonArray.map { it.jsonPrimitive.content })
             assertFalse(response.bodyAsText().contains(allowlistedSrvUri()))
         }
+
+    // Issue #299, D5, D40, M8: PUT /api/apps/{id}/routes.
+
+    @Test
+    fun `PUT apps id routes replaces the list, and the answer holds it`() = testApplication {
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
+        val created = createApp(session, name = "demo", connectionString = allowlistedSrvUri())
+        val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
+
+        val response = putRoutes(session, appId, listOf("/orders/:id", "/checkout"))
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals(
+            listOf("/orders/:id", "/checkout"),
+            body["routePatterns"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+    }
+
+    @Test
+    fun `PUT apps id routes with an empty list clears it, so the default rule applies`() = testApplication {
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
+        val created = createApp(session, name = "demo", connectionString = allowlistedSrvUri())
+        val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
+        putRoutes(session, appId, listOf("/checkout"))
+
+        val response = putRoutes(session, appId, emptyList())
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals(emptyList<String>(), body["routePatterns"]!!.jsonArray.map { it.jsonPrimitive.content })
+    }
+
+    @Test
+    fun `PUT apps id routes with a pattern outside the C42 grammar gets 400 with the fixed reason`() = testApplication {
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
+        val created = createApp(session, name = "demo", connectionString = allowlistedSrvUri())
+        val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
+
+        val response = putRoutes(session, appId, listOf("no-leading-slash"))
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertTrue(body["error"]!!.jsonPrimitive.content.contains("grammar"), "the reason names the grammar rule")
+    }
+
+    @Test
+    fun `PUT apps id routes of an app of account A gives 404 to account B`() = testApplication {
+        val dataDir = testDataDir()
+        application { module(devConfig(dataDir = dataDir, clusterUri = "mongodb://127.0.0.1:1/octometer_service")) }
+        startApplication()
+        val ownerSession = sessionCookieValue(dataDir, "owner-a@example.com")
+        val otherSession = sessionCookieValue(dataDir, "owner-b@example.com")
+        val created = createAppWithOrigins(ownerSession, name = "demo", origins = listOf("https://demo.example"))
+        val appId = Json.parseToJsonElement(created.bodyAsText()).jsonObject["appId"]!!.jsonPrimitive.long
+
+        val response = putRoutes(otherSession, appId, listOf("/checkout"))
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    // Issue #299, M8: AppKeyCache (CollectorApps.kt) caches a lookup for
+    // 10 seconds. A PUT that writes a fresh list must still let the
+    // collector read it inside that window: `clear()` is the method
+    // that forces the next lookup to skip the cached, stale entry. This
+    // test opens its own SqliteDatabase in its own temporary folder
+    // (the rule of the service test), so it needs no running
+    // application and no second database on one file.
+    @Test
+    fun `AppKeyCache clear forces the next lookup to read the fresh route pattern list`() = runBlocking {
+        val root = Files.createTempDirectory("octometer-route-cache-test-").toFile()
+        val dataDir = File(root, "data").absolutePath
+        val database = SqliteDatabase.open(dataDir)
+        try {
+            val secretStore = SecretStore(dataDir)
+            val registry = AppRegistryService(database, secretStore, clusterUri = "mongodb://127.0.0.1:1/octometer_service")
+            val accountId = database.write { writer ->
+                writer.prepareStatement("INSERT INTO account (email, created_at) VALUES (?, ?)").use { insert ->
+                    insert.setString(1, "route-cache-test@example.com")
+                    insert.setLong(2, 1_700_000_000_000L)
+                    insert.executeUpdate()
+                }
+                writer.createStatement().use { statement ->
+                    statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+                        result.next()
+                        result.getLong(1)
+                    }
+                }
+            }
+            val created = registry.createAppWithOrigins(
+                accountId,
+                CreateAppWithOriginsRequest("demo", listOf("https://demo.example")),
+            ) as CreateAppKeysResult.Created
+            val cache = AppKeyCache(database)
+            val beforeLookup = cache.lookup(created.keys.appKey)
+            assertEquals(null, beforeLookup?.routePatternMatcher, "the app starts with no list")
+
+            registry.updateRoutes(accountId, created.keys.appId, listOf("/orders/:id"))
+            val staleLookup = cache.lookup(created.keys.appKey)
+            assertEquals(null, staleLookup?.routePatternMatcher, "a lookup inside the TTL, with no clear(), must stay stale")
+            cache.clear()
+            val freshLookup = cache.lookup(created.keys.appKey)
+
+            assertTrue(freshLookup?.routePatternMatcher != null, "clear() must force a fresh read of the new list")
+        } finally {
+            database.close()
+            root.deleteRecursively()
+        }
+    }
 
     @Test
     fun `GET apps id on an unknown id gets 404`() = testApplication {
@@ -708,24 +826,17 @@ class AppRegistryRoutesTest {
         val originsJson = origins.joinToString(",") { "\"$it\"" }
         setBody("""{"name":"$name","origins":[$originsJson]}""")
     }
-}
 
-// Design decision D48 (issue #277): only MongoAppReader writes these
-// three columns in production. This test double runs after the store
-// closes, the same rule as countAppRows and readCollectionName below.
-private fun seedRoutePatterns(dataDir: String, appId: Long, patterns: String, publishedAt: Long, kitVersion: String) {
-    val url = "jdbc:sqlite:" + File(dataDir, "octometer.db").absolutePath
-    DriverManager.getConnection(url).use { connection ->
-        connection.prepareStatement(
-            "UPDATE app SET path_patterns = ?, path_patterns_published_at = ?, kit_version = ? WHERE id = ?",
-        ).use { update ->
-            update.setString(1, patterns)
-            update.setLong(2, publishedAt)
-            update.setString(3, kitVersion)
-            update.setLong(4, appId)
-            update.executeUpdate()
+    // Issue #299, D5, D40: PUT /api/apps/{id}/routes, for each test above.
+    private suspend fun ApplicationTestBuilder.putRoutes(session: String, appId: Long, patterns: List<String>) =
+        client.put("/api/apps/$appId/routes") {
+            allowedHost()
+            header(HttpHeaders.Origin, "http://localhost:7431")
+            contentType(ContentType.Application.Json)
+            withSession(session)
+            val patternsJson = patterns.joinToString(",") { "\"$it\"" }
+            setBody("""{"patterns":[$patternsJson]}""")
         }
-    }
 }
 
 // The store closed when testApplication ended, so a fresh, short-lived

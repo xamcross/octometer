@@ -23,28 +23,6 @@ data class AppRow(
     val consecutiveFailures: Int,
     /** `app.privileges_checked_at` (design decision D9, issue #30), or `null` before the first check. */
     val privilegesCheckedAt: Long? = null,
-    /**
-     * `app.path_patterns` (issue #226, the D5 rule of 2026-09-27): the
-     * route pattern list of the app, one pattern per line, or `null`
-     * when the app gives no list. [PollScheduler] splits this text into
-     * [octometer.monitor.mongo.PollTarget.pathPatterns]. Design decision
-     * D48 (issue #277) turns this into a cached copy of the list that the
-     * app publishes; the reader writes it, and the registry writes it no
-     * more.
-     */
-    val pathPatterns: String? = null,
-    /**
-     * `app.path_patterns_published_at` (design decision D48, issue
-     * #277): the `publishedAt` of the config document that the reader
-     * last stored, epoch milliseconds UTC, or `null` before the first
-     * stored list. [PollScheduler] passes it to
-     * [octometer.monitor.mongo.PollTarget], so the reader can tell a
-     * fresh publish apart from the stored one, and write only on a
-     * change.
-     */
-    val pathPatternsPublishedAt: Long? = null,
-    /** `app.kit_version` (design decision D48, issue #277), or `null` before the first stored list. */
-    val kitVersion: String? = null,
 )
 
 /**
@@ -113,14 +91,12 @@ private fun readAppRows(reader: Connection): List<AppRow> =
     reader.createStatement().use { statement ->
         statement.executeQuery(
             "SELECT id, database_name, collection_name, cursor, next_poll_at, status, consecutive_failures, " +
-                "privileges_checked_at, path_patterns, path_patterns_published_at, kit_version FROM app " +
-                "WHERE account_id IS NOT NULL",
+                "privileges_checked_at FROM app WHERE account_id IS NOT NULL",
         ).use { result ->
             val rows = mutableListOf<AppRow>()
             while (result.next()) {
                 val nextPollAt = result.getLong("next_poll_at").takeUnless { result.wasNull() }
                 val privilegesCheckedAt = result.getLong("privileges_checked_at").takeUnless { result.wasNull() }
-                val pathPatternsPublishedAt = result.getLong("path_patterns_published_at").takeUnless { result.wasNull() }
                 rows += AppRow(
                     appId = result.getLong("id"),
                     database = result.getString("database_name"),
@@ -130,9 +106,6 @@ private fun readAppRows(reader: Connection): List<AppRow> =
                     status = result.getString("status"),
                     consecutiveFailures = result.getInt("consecutive_failures"),
                     privilegesCheckedAt = privilegesCheckedAt,
-                    pathPatterns = result.getString("path_patterns"),
-                    pathPatternsPublishedAt = pathPatternsPublishedAt,
-                    kitVersion = result.getString("kit_version"),
                 )
             }
             rows
