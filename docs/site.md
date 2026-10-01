@@ -51,7 +51,8 @@ repeat it.
    repository.** A private repository then shows in the "Continue with GitHub" list.
 2. **Set the build watch path to `site/*` under Settings → Builds.** Workers Builds
    gives 3 000 build minutes each month on the free plan. The watch path keeps a build
-   for a real change to the site only.
+   for a real change to the site only. Exclude the branch `dependabot/*` under
+   Settings → Builds → Branch control, so a dependabot branch spends no build minutes.
 3. **A pull request from a fork gets no preview build.** The CI job `site` is the check
    for that pull request.
 4. **The Worker deploys a push to `main` on its own.** The maintainer merges a pull

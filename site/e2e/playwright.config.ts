@@ -22,9 +22,11 @@ export default defineConfig({
     ...devices['Desktop Chrome'],
   },
   webServer: {
-    // The build runs as its own CI step (correction m8); this preview
-    // step only serves the already-built "site/dist" folder.
-    command: `npx vite preview --port ${port} --strictPort`,
+    // Review MAJOR 1 of pull request #321: the harness builds the site
+    // itself, so a fresh clone passes "npm ci && npm test" with no
+    // stale "dist". The CI job keeps its own separate build step too
+    // (correction m8), so this build runs a second time there.
+    command: `npm run build && npx vite preview --port ${port} --strictPort`,
     cwd: '..',
     url: baseURL,
     reuseExistingServer: false,
