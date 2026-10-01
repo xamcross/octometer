@@ -307,6 +307,71 @@ a:hover {
   display: block;
 }
 
+/* 4. What we keep (issue #290, the mockup rules verbatim). */
+.points {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+.points li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  align-items: start;
+}
+.points p {
+  max-width: 40ch;
+}
+.ic {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ic .f-sea {
+  fill: var(--seaweed);
+}
+.ic .f-shal {
+  fill: var(--shallows-deep);
+}
+.ic .f-octo {
+  fill: var(--octo);
+}
+.ic .f-coral {
+  fill: var(--coral);
+}
+.ic .pupil {
+  fill: var(--on-bright);
+  stroke: none;
+}
+
+/* 6. The footer with the notice (issue #290, the mockup rules verbatim). */
+.foot {
+  display: grid;
+  gap: var(--space-4);
+  padding-top: var(--space-5);
+  border-top: var(--line-control);
+}
+.foot h2 {
+  font-size: var(--text-xl);
+}
+.notice {
+  display: grid;
+  gap: var(--space-2);
+}
+.notice li {
+  max-width: 60ch;
+}
+.foot-meta {
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-s);
+}
+
 /*
  * The quality floor (issue #287, issue #288): the focus ring of
  * docs/design.md, on every control, and the reduced-motion and

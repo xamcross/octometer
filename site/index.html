@@ -184,9 +184,75 @@
         </div>
       </section>
 
-      <!-- #290: the "What we keep" privacy section. -->
-      <!-- #290: the footer notice of the waitlist. -->
+      <!-- #290: the "What we keep" privacy section (the mockup section 4, the corrected first point of the brief review). -->
+      <section class="sec" aria-labelledby="privacy-title">
+        <h2 id="privacy-title">What we keep</h2>
+        <ul class="points">
+          <li>
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <rect class="f-sea" x="2.5" y="2.5" width="19" height="19" rx="4" />
+              <path d="M6.5 8h11M6.5 12h11M6.5 16h7" />
+            </svg>
+            <p>
+              We keep the click, the page pattern, the time, and the host your visitor came
+              from. Nothing else.
+            </p>
+          </li>
+          <li>
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <rect class="f-shal" x="2.5" y="4.5" width="19" height="15" rx="3" />
+              <path d="M2.5 9.5h19M6 7h4" />
+            </svg>
+            <p>Your users get a pseudonymous id and a session id. We set no cookie in your page.</p>
+          </li>
+          <li>
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                class="f-octo"
+                d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6Z"
+              />
+              <circle class="pupil" cx="12" cy="12" r="2.6" />
+              <path d="M4 4 20 20" />
+            </svg>
+            <p>We never store an IP address.</p>
+          </li>
+          <li>
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <path class="f-coral" d="M6.5 7h11l-1 13h-9Z" />
+              <path d="M4.5 7h15M9.5 7V4.2h5V7" />
+            </svg>
+            <p>One call erases one user. Each click goes after 12 months.</p>
+          </li>
+        </ul>
+        <p><a href="#notice">Read the notice of the waitlist.</a></p>
+      </section>
+
       <!-- #291: the "Join the waitlist" section, with the email field and its two answers. -->
+
+      <!-- #290: the footer notice of the waitlist. The footer is the last
+           element of ".page" (the note of the brief review). -->
+      <footer class="foot" id="notice" tabindex="-1">
+        <h2>The notice of the waitlist</h2>
+        <ul class="notice">
+          <li><strong>The purpose.</strong> We use your address for the news of Octometer. We send no other mail.</li>
+          <li><strong>The data.</strong> We store your address, the day you join, and the day you confirm.</li>
+          <li><strong>The retention.</strong> We remove an address that stays unconfirmed for 7 days.</li>
+          <li>
+            <strong>The retention of a confirmed address.</strong> We keep it until you remove
+            yourself, or 12 months after the launch.
+          </li>
+          <li>
+            <strong>The third parties.</strong> Resend, our mail service, sends the mails.
+            Nobody else gets your address.
+          </li>
+          <li><strong>The removal.</strong> Each mail holds a removal link. You can also write to the contact address.</li>
+        </ul>
+        <div class="foot-meta">
+          <p>The privacy policy of the service: app.0ct0meter.com/privacy (the page comes with the service).</p>
+          <p>Contact: <a href="mailto:support@0ct0meter.com">support@0ct0meter.com</a></p>
+          <p>This page sets no cookie and loads no third-party script.</p>
+        </div>
+      </footer>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
