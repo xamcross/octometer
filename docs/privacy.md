@@ -107,6 +107,12 @@ It expires 30 days after each sign-in.
 
 We store no other cookie of the dashboard.
 
+## 11. The waitlist notice of the public site
+
+The public site and this app are two products, each with its own notice.
+The public site holds its own privacy notice for the waitlist address, at
+`https://0ct0meter.com/#notice`. Read that notice for the waitlist data.
+
 <!--
 Sources:
 contract/README.md, rules C4, C6, C39, C40, C42, C43
@@ -148,4 +154,7 @@ Issue #279 added the raw-path sentence of section 2, design decision D49: the ra
   path of the page travels to the app's own server only, and the event record
   holds the pattern, never the raw path. Section 2 already named the pattern; the
   new sentence adds the raw-path fact only.
+Issue #290 added section 11, the pointer to the waitlist notice of the public site
+  (`site/index.html`, `footer#notice`). The site and this app are two products, each
+  with its own notice.
 -->

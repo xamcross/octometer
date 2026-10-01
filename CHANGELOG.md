@@ -18,6 +18,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add the "How it works" section with the three steps and the scroll-reveal flow
   illustration, and the "Three levels in your dashboard" section with real screenshots
   of the demo monitor; add the screenshot script `site/scripts/screenshots.mjs`. (#289)
+- Add the "What we keep" section and the footer notice of the waitlist, with a link
+  from the section into the notice. (#290)
 
 ### Monitor
 
