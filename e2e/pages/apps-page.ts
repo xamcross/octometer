@@ -45,6 +45,11 @@ export class AppsPage {
     };
   }
 
+  /** The count of data rows of the table (the header row excluded), for issue #301. */
+  async rowCount(): Promise<number> {
+    return this.page.getByRole('row').count().then((count) => Math.max(count - 1, 0));
+  }
+
   /** Waits, up to `timeoutMs`, for the exact level 1 totals of one app (decision 5b). */
   async expectTotals(name: string, totals: AppTotals, timeoutMs: number): Promise<void> {
     const locators = this.rowOf(name);

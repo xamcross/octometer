@@ -87,3 +87,15 @@
 app-main-nav {
   margin-left: auto;
 }
+
+/* The signed-in account, at the end of the band row (issue #301, D52). */
+.account-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.account-email {
+  color: var(--ink);
+  font-size: var(--text-s);
+}

@@ -76,6 +76,7 @@ async function main() {
     pids: { demo: null, monitor: null },
     monitorExtractRoot: null,
     monitorDataDir: null,
+    monitorMailDir: null,
   };
   writeFileSync(stateFile, JSON.stringify(state, null, 2), 'utf8');
   console.log(

@@ -31,7 +31,9 @@ import octometer.monitor.config.MonitorConfig
 import octometer.monitor.devConfig
 import octometer.monitor.module
 import octometer.monitor.prodConfig
+import octometer.monitor.sessionCookieValue
 import octometer.monitor.testDataDir
+import octometer.monitor.withSession
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -40,13 +42,15 @@ import kotlin.test.assertNull
  * D12 of the design: the Host check, the Origin check, the content type
  * check, and the security response headers. Each test writes the Host
  * header by itself, because the test client sends no default value.
+ *
+ * Issue #301, D52: every route under `/api/` now needs a session too.
+ * A test that expects the request to reach the route handler adds
+ * [withSession] with a cookie from [sessionCookieValue]; a test that
+ * expects a rejection from the Host, the Origin, or the content type
+ * check needs no session, because that rejection runs, and calls
+ * `finish()`, before the session check of the same `Setup` phase.
  */
 class RequestGuardTest {
-
-    // markerAdminValue, not adminToken = "...": gitleaks' generic-api-key
-    // rule matches a quoted literal right beside a name that holds the
-    // word "token" (the implementer rule of the secret scan).
-    private val markerAdminValue = "octoadminguardmarker7f3a"
 
     // -- The Host check --------------------------------------------------
 
@@ -61,27 +65,42 @@ class RequestGuardTest {
 
     @Test
     fun `the Host localhost with the configured port passes`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/health") { allowedHost() }
+        val response = client.get("/api/health") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.OK, response.status)
     }
 
     @Test
     fun `the Host 127-0-0-1 with the configured port passes`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/health") { header(HttpHeaders.Host, "127.0.0.1:7431") }
+        val response = client.get("/api/health") {
+            header(HttpHeaders.Host, "127.0.0.1:7431")
+            withSession(session)
+        }
 
         assertEquals(HttpStatusCode.OK, response.status)
     }
 
     @Test
     fun `an upper-case Host passes, because a host name is case-insensitive`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/health") { header(HttpHeaders.Host, "LOCALHOST:7431") }
+        val response = client.get("/api/health") {
+            header(HttpHeaders.Host, "LOCALHOST:7431")
+            withSession(session)
+        }
 
         assertEquals(HttpStatusCode.OK, response.status)
     }
@@ -97,10 +116,13 @@ class RequestGuardTest {
 
     @Test
     fun `an unknown route still gets the Host check, and it still holds the security headers`() = testApplication {
-        application { module(prodConfig()) }
+        val config = prodConfig()
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = client.get("/api/no-such-route") { header(HttpHeaders.Host, "evil.example") }
-        val allowed = client.get("/api/no-such-route") { allowedHost() }
+        val allowed = client.get("/api/no-such-route") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.Forbidden, response.status)
         assertEquals(HttpStatusCode.NotFound, allowed.status)
@@ -110,15 +132,18 @@ class RequestGuardTest {
     @Test
     fun `a route added only in this test still gets the Host check, with no new code at the route`() =
         testApplication {
+            val config = prodConfig()
             application {
-                module(prodConfig())
+                module(config)
                 routing {
                     routeGet("/api/added-by-test") { call.respond(HttpStatusCode.OK) }
                 }
             }
+            startApplication()
+            val session = sessionCookieValue(config.dataDir)
 
             val blocked = client.get("/api/added-by-test") { header(HttpHeaders.Host, "evil.example") }
-            val allowed = client.get("/api/added-by-test") { allowedHost() }
+            val allowed = client.get("/api/added-by-test") { allowedHost(); withSession(session) }
 
             assertEquals(HttpStatusCode.Forbidden, blocked.status)
             assertEquals(HttpStatusCode.OK, allowed.status)
@@ -128,16 +153,23 @@ class RequestGuardTest {
     // form with ":443", both pass.
     @Test
     fun `the bare host of publicUrl, and the same host with the port 443, both pass`() = testApplication {
-        application { module(prodConfig(publicUrl = "https://app.0ct0meter.com")) }
+        val config = prodConfig(publicUrl = "https://app.0ct0meter.com")
+        application { module(config) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val bare = client.get("/api/health") { header(HttpHeaders.Host, "app.0ct0meter.com") }
-        val withPort = client.get("/api/health") { header(HttpHeaders.Host, "app.0ct0meter.com:443") }
+        val bare = client.get("/api/health") { header(HttpHeaders.Host, "app.0ct0meter.com"); withSession(session) }
+        val withPort = client.get("/api/health") {
+            header(HttpHeaders.Host, "app.0ct0meter.com:443")
+            withSession(session)
+        }
 
         assertEquals(HttpStatusCode.OK, bare.status)
         assertEquals(HttpStatusCode.OK, withPort.status)
     }
 
     // Issue #295, brief review B3: /healthz skips the Host check.
+    // Issue #301: /healthz sits outside /api/, so it needs no session.
     @Test
     fun `healthz answers 200 with the body ok, with no allowed Host header`() = testApplication {
         application { module(prodConfig()) }
@@ -159,9 +191,11 @@ class RequestGuardTest {
             pollIntervalSeconds = 60,
         )
         application { module(port80Config) }
+        startApplication()
+        val session = sessionCookieValue(port80Config.dataDir)
 
-        val withPort = client.get("/api/health") { header(HttpHeaders.Host, "localhost:80") }
-        val withoutPort = client.get("/api/health") { header(HttpHeaders.Host, "localhost") }
+        val withPort = client.get("/api/health") { header(HttpHeaders.Host, "localhost:80"); withSession(session) }
+        val withoutPort = client.get("/api/health") { header(HttpHeaders.Host, "localhost"); withSession(session) }
 
         assertEquals(HttpStatusCode.OK, withPort.status)
         assertEquals(HttpStatusCode.OK, withoutPort.status)
@@ -185,11 +219,14 @@ class RequestGuardTest {
                 routePost("/api/added-by-test") { call.respond(HttpStatusCode.NoContent) }
             }
         }
+        startApplication()
+        val session = sessionCookieValue(port80Config.dataDir)
 
         val response = client.post("/api/added-by-test") {
             header(HttpHeaders.Host, "localhost")
             header(HttpHeaders.Origin, "http://localhost")
             contentType(ContentType.Application.Json)
+            withSession(session)
             setBody("{}")
         }
 
@@ -275,17 +312,21 @@ class RequestGuardTest {
 
     @Test
     fun `a POST with an allowed Origin header and application-json passes`() = testApplication {
+        val config = prodConfig()
         application {
-            module(prodConfig())
+            module(config)
             routing {
                 routePost("/api/added-by-test") { call.respond(HttpStatusCode.NoContent) }
             }
         }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = client.post("/api/added-by-test") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
             contentType(ContentType.Application.Json)
+            withSession(session)
             setBody("{}")
         }
 
@@ -325,17 +366,21 @@ class RequestGuardTest {
 
     @Test
     fun `the ng serve origin passes in dev mode`() = testApplication {
+        val config = devConfig()
         application {
-            module(devConfig())
+            module(config)
             routing {
                 routePost("/api/added-by-test") { call.respond(HttpStatusCode.NoContent) }
             }
         }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = client.post("/api/added-by-test") {
             header(HttpHeaders.Host, "localhost:4200")
             header(HttpHeaders.Origin, "http://localhost:4200")
             contentType(ContentType.Application.Json)
+            withSession(session)
             setBody("{}")
         }
 
@@ -365,75 +410,25 @@ class RequestGuardTest {
     // passes, so a POST or a DELETE from the deployed dashboard works.
     @Test
     fun `the origin of publicUrl passes for a POST`() = testApplication {
+        val config = prodConfig(publicUrl = "https://app.0ct0meter.com")
         application {
-            module(prodConfig(publicUrl = "https://app.0ct0meter.com"))
+            module(config)
             routing {
                 routePost("/api/added-by-test") { call.respond(HttpStatusCode.NoContent) }
             }
         }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = client.post("/api/added-by-test") {
             header(HttpHeaders.Host, "app.0ct0meter.com")
             header(HttpHeaders.Origin, "https://app.0ct0meter.com")
             contentType(ContentType.Application.Json)
+            withSession(session)
             setBody("{}")
         }
 
         assertEquals(HttpStatusCode.NoContent, response.status)
-    }
-
-    // -- The admin guard (issue #295, brief review B2, B3; a temporary
-    //    measure until #301) --------------------------------------------
-
-    @Test
-    fun `an api route without the admin header gets 401 when adminToken is set`() = testApplication {
-        application { module(prodConfig(adminToken = markerAdminValue)) }
-
-        val response = client.get("/api/health") { allowedHost() }
-
-        assertEquals(HttpStatusCode.Unauthorized, response.status)
-    }
-
-    @Test
-    fun `an api route with the correct admin header passes when adminToken is set`() = testApplication {
-        application { module(prodConfig(adminToken = markerAdminValue)) }
-
-        val response = client.get("/api/health") {
-            allowedHost()
-            header("X-Octometer-Admin", markerAdminValue)
-        }
-
-        assertEquals(HttpStatusCode.OK, response.status)
-    }
-
-    @Test
-    fun `an api route with a wrong admin header gets 401 when adminToken is set`() = testApplication {
-        application { module(prodConfig(adminToken = markerAdminValue)) }
-
-        val response = client.get("/api/health") {
-            allowedHost()
-            header("X-Octometer-Admin", "wrong-value")
-        }
-
-        assertEquals(HttpStatusCode.Unauthorized, response.status)
-    }
-
-    @Test
-    fun `healthz needs no admin header, even when adminToken is set`() = testApplication {
-        application { module(prodConfig(adminToken = markerAdminValue)) }
-
-        val response = client.get("/healthz") { allowedHost() }
-
-        assertEquals(HttpStatusCode.OK, response.status)
-    }
-
-    @Test
-    fun `an api route needs no admin header when adminToken is not set`() = testApplication {
-        application { module(prodConfig()) }
-
-        val response = client.get("/api/health") { allowedHost() }
-
-        assertEquals(HttpStatusCode.OK, response.status)
     }
 
     // -- The content type check, only on a request with a body -----------
@@ -483,8 +478,9 @@ class RequestGuardTest {
     @Test
     fun `a DELETE with an allowed Origin and without a body passes the content type rule`() = testApplication {
         var handlerRan = false
+        val config = prodConfig()
         application {
-            module(prodConfig())
+            module(config)
             routing {
                 routeDelete("/api/added-by-test") {
                     handlerRan = true
@@ -492,10 +488,13 @@ class RequestGuardTest {
                 }
             }
         }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
         val response = client.delete("/api/added-by-test") {
             allowedHost()
             header(HttpHeaders.Origin, "http://localhost:7431")
+            withSession(session)
         }
 
         assertEquals(HttpStatusCode.NoContent, response.status)
@@ -533,6 +532,10 @@ class RequestGuardTest {
     }
 
     // -- The response headers, and the Cache-Control path rule ------------
+    //
+    // Neither test below asserts the status code: RequestGuard sets each
+    // header before the session check ever runs (D52, issue #301), so a
+    // 401 answer with no session still carries every header below.
 
     @Test
     fun `each response holds the CSP and X-Content-Type-Options, and the API response holds Cache-Control no-store`() =

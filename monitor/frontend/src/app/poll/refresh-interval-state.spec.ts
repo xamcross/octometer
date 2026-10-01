@@ -25,12 +25,14 @@ describe('RefreshIntervalState', () => {
     const state = TestBed.inject(RefreshIntervalState);
     expect(state.refreshSeconds()).toBeUndefined();
     expect(state.retentionDays()).toBeNull();
+    state.allowStart();
     vi.advanceTimersByTime(0);
     httpMock.expectOne('/api/health').flush({ refreshSeconds: 10 });
   });
 
   it('reads retentionDays from the health answer, with the one health request of the session', () => {
     const state = TestBed.inject(RefreshIntervalState);
+    state.allowStart();
 
     vi.advanceTimersByTime(0);
     httpMock.expectOne('/api/health').flush({ refreshSeconds: 10, retentionDays: 395 });
@@ -42,6 +44,7 @@ describe('RefreshIntervalState', () => {
 
   it('gives retentionDays null when the field is not a positive integer', () => {
     const state = TestBed.inject(RefreshIntervalState);
+    state.allowStart();
 
     vi.advanceTimersByTime(0);
     httpMock.expectOne('/api/health').flush({ refreshSeconds: 10, retentionDays: 0 });
@@ -51,6 +54,7 @@ describe('RefreshIntervalState', () => {
 
   it('gives retentionDays null when the health answer lacks the field', () => {
     const state = TestBed.inject(RefreshIntervalState);
+    state.allowStart();
 
     vi.advanceTimersByTime(0);
     httpMock.expectOne('/api/health').flush({ refreshSeconds: 10 });
@@ -60,6 +64,7 @@ describe('RefreshIntervalState', () => {
 
   it('retries the health route each 5 seconds until it gets a valid answer, then it stops', () => {
     const state = TestBed.inject(RefreshIntervalState);
+    state.allowStart();
 
     vi.advanceTimersByTime(0);
     httpMock
@@ -87,6 +92,7 @@ describe('RefreshIntervalState', () => {
 
   it('rejects a refreshSeconds value that is not a number above 0, and uses the fallback', () => {
     const state = TestBed.inject(RefreshIntervalState);
+    state.allowStart();
 
     vi.advanceTimersByTime(0);
     httpMock.expectOne('/api/health').flush({ refreshSeconds: 0 });
@@ -97,6 +103,7 @@ describe('RefreshIntervalState', () => {
   it('gives the same instance to each caller, so the app sends one health request', () => {
     const first = TestBed.inject(RefreshIntervalState);
     const second = TestBed.inject(RefreshIntervalState);
+    first.allowStart();
 
     vi.advanceTimersByTime(0);
     httpMock.expectOne('/api/health').flush({ refreshSeconds: 10 });
@@ -107,6 +114,7 @@ describe('RefreshIntervalState', () => {
 
   it('replays the cached ms value to a late subscriber, with no new health request', () => {
     const state = TestBed.inject(RefreshIntervalState);
+    state.allowStart();
     vi.advanceTimersByTime(0);
     httpMock.expectOne('/api/health').flush({ refreshSeconds: 10 });
 
@@ -121,6 +129,7 @@ describe('RefreshIntervalState', () => {
 
   it('carries a data-poll error through setDataError, and clears it again (issue #164)', () => {
     const state = TestBed.inject(RefreshIntervalState);
+    state.allowStart();
     vi.advanceTimersByTime(0);
     httpMock.expectOne('/api/health').flush({ refreshSeconds: 10 });
     expect(state.error()).toBeUndefined();
@@ -135,6 +144,7 @@ describe('RefreshIntervalState', () => {
 
   it('shows the health error first, so a data-poll error waits for the health route to answer', () => {
     const state = TestBed.inject(RefreshIntervalState);
+    state.allowStart();
     vi.advanceTimersByTime(0);
     httpMock
       .expectOne('/api/health')

@@ -5,7 +5,10 @@ import com.typesafe.config.ConfigException
 import com.typesafe.config.ConfigFactory
 import com.typesafe.config.ConfigParseOptions
 import java.io.File
+import java.net.URI
+import java.net.URISyntaxException
 import octometer.monitor.backup.backupsDir
+import octometer.monitor.mail.mailDir as defaultMailDir
 
 // The argument form of D2: -P:octometer.<key>=<value>.
 private val ARGUMENT_PATTERN = Regex("""^-P:octometer\.([a-zA-Z]+)=(.*)$""")
@@ -26,7 +29,11 @@ private val ENVIRONMENT_VARIABLE_NAMES = mapOf(
     "clientIpHeader" to "OCTOMETER_CLIENT_IP_HEADER",
     "clusterUri" to "OCTOMETER_CLUSTER_URI",
     "mailApiKey" to "OCTOMETER_MAIL_API_KEY",
-    "adminToken" to "OCTOMETER_ADMIN_TOKEN",
+    // Issue #301 (D52): the mail keys. adminToken (issue #295) is gone;
+    // the session rule of D52 replaces the temporary admin guard.
+    "mailFrom" to "OCTOMETER_MAIL_FROM",
+    "mailSender" to "OCTOMETER_MAIL_SENDER",
+    "mailDir" to "OCTOMETER_MAIL_DIR",
 )
 
 private val KNOWN_KEYS = ENVIRONMENT_VARIABLE_NAMES.keys
@@ -130,9 +137,10 @@ fun loadConfig(
             bundled.getString("octometer.pathValueCap"),
         )
         // Issue #295: the hosted-service keys. Each one is a plain
-        // string; requireLoopbackBindAddress and requireHostedSecrets
-        // validate bind, clusterUri, and adminToken at the start, after
-        // loadConfig returns.
+        // string; requireLoopbackBindAddress validates bind at the
+        // start, after loadConfig returns. Issue #301:
+        // requireLocalMailSender validates mailSender and publicUrl
+        // together, the same way.
         val bind = resolveValue("bind", arguments, env, userConfig, bundled.getString("octometer.bind"))
         val publicUrl = resolveValue("publicUrl", arguments, env, userConfig, bundled.getString("octometer.publicUrl"))
         val clientIpHeader = resolveValue(
@@ -144,7 +152,7 @@ fun loadConfig(
         )
         val clusterUri = resolveValue("clusterUri", arguments, env, userConfig, bundled.getString("octometer.clusterUri"))
         val mailApiKey = resolveValue("mailApiKey", arguments, env, userConfig, bundled.getString("octometer.mailApiKey"))
-        val adminToken = resolveValue("adminToken", arguments, env, userConfig, bundled.getString("octometer.adminToken"))
+        val mailFrom = resolveValue("mailFrom", arguments, env, userConfig, bundled.getString("octometer.mailFrom"))
         val validatedDataDir = validateDataDir(dataDir.value)
         // Issue #55: the bundled default is the folder "backups" beside
         // dataDir. The value depends on the resolved dataDir, so this
@@ -155,6 +163,27 @@ fun loadConfig(
             env,
             userConfig,
             backupsDir(validatedDataDir).absolutePath,
+        )
+        // Issue #301, brief review M8: the local run has no path to a
+        // session with the default sender "resend". The bundled default
+        // of mailSender is "file" when publicUrl is blank or a loopback
+        // host, else "resend"; the value depends on the resolved
+        // publicUrl, the same pattern as backupDir above.
+        val mailSender = resolveValue(
+            "mailSender",
+            arguments,
+            env,
+            userConfig,
+            defaultMailSenderOf(publicUrl.value),
+        )
+        // Issue #301: the bundled default is the sibling folder "mail"
+        // of dataDir, the same pattern as backupDir.
+        val mailDir = resolveValue(
+            "mailDir",
+            arguments,
+            env,
+            userConfig,
+            defaultMailDir(validatedDataDir).absolutePath,
         )
 
         val config = MonitorConfig(
@@ -177,7 +206,9 @@ fun loadConfig(
             clientIpHeader = clientIpHeader.value,
             clusterUri = clusterUri.value,
             mailApiKey = mailApiKey.value,
-            adminToken = adminToken.value,
+            mailFrom = mailFrom.value,
+            mailSender = validateMailSender(mailSender.value),
+            mailDir = mailDir.value,
         )
 
         return ResolvedConfig(
@@ -196,7 +227,9 @@ fun loadConfig(
                 ResolvedValue("clientIpHeader", config.clientIpHeader, clientIpHeader.source),
                 ResolvedValue("clusterUri", secretDisplayValue(config.clusterUri), clusterUri.source),
                 ResolvedValue("mailApiKey", secretDisplayValue(config.mailApiKey), mailApiKey.source),
-                ResolvedValue("adminToken", secretDisplayValue(config.adminToken), adminToken.source),
+                ResolvedValue("mailFrom", config.mailFrom, mailFrom.source),
+                ResolvedValue("mailSender", config.mailSender, mailSender.source),
+                ResolvedValue("mailDir", File(config.mailDir).absolutePath, mailDir.source),
             ),
             warnings = warnings,
         )
@@ -316,6 +349,26 @@ private fun validateMode(value: String) {
     if (Mode.fromValue(value) == null) {
         throw InvalidConfigException("The value of mode is '${escapeForLog(value)}'. Set it to 'dev' or 'prod'.")
     }
+}
+
+// Issue #301, brief review M8: the local run has no path to a session
+// with a real mail service. The host of a blank publicUrl, or a
+// loopback host, gives "file"; any other host gives "resend".
+private fun defaultMailSenderOf(publicUrl: String): String {
+    if (publicUrl.isBlank()) return "file"
+    val host = try {
+        URI(publicUrl).host?.lowercase()
+    } catch (malformed: URISyntaxException) {
+        null
+    }
+    return if (host == "localhost" || host == "127.0.0.1") "file" else "resend"
+}
+
+private fun validateMailSender(value: String): String {
+    if (value != "resend" && value != "file") {
+        throw InvalidConfigException("The value of mailSender is '${escapeForLog(value)}'. Set it to 'resend' or 'file'.")
+    }
+    return value
 }
 
 private fun validateDataDir(value: String): String {

@@ -230,10 +230,13 @@ private fun setBusyTimeout(writer: Connection, millis: Int) {
     writer.createStatement().use { it.execute("PRAGMA busy_timeout=$millis") }
 }
 
-/** `SELECT 1 FROM app WHERE id = ?`, for the 404 check of the route. */
-internal fun appExists(reader: Connection, appId: Long): Boolean =
-    reader.prepareStatement("SELECT 1 FROM app WHERE id = ?").use { select ->
+// Issue #301, brief review B2: the erasure route now needs the account
+// filter too. An app of another account, or a NULL-account app, gives
+// false, the same 404 as an unknown id.
+internal fun appExists(reader: Connection, accountId: Long, appId: Long): Boolean =
+    reader.prepareStatement("SELECT 1 FROM app WHERE id = ? AND account_id = ?").use { select ->
         select.setLong(1, appId)
+        select.setLong(2, accountId)
         select.executeQuery().use { it.next() }
     }
 

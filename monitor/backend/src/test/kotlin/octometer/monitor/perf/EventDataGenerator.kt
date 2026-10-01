@@ -47,8 +47,13 @@ class EventDataGenerator(private val database: SqliteDatabase) {
     private val eventStore = EventStore(database)
     private var eventIdCounter = 0L
 
+    /** The one account of every app that [generate] writes (issue #301). Set once, inside [generate]. */
+    var accountId: Long = 0L
+        private set
+
     /** Writes [totalEventCount] event rows, split about evenly over the three apps. Gives the three app ids. */
     suspend fun generate(totalEventCount: Long): List<Long> {
+        accountId = insertAccount()
         val appIds = (1..APP_COUNT).map { index -> insertApp("perf-app-$index") }
         val perAppCounts = splitAcrossApps(totalEventCount, APP_COUNT)
         appIds.forEachIndexed { index, appId -> writeApp(appId, perAppCounts[index]) }
@@ -61,15 +66,31 @@ class EventDataGenerator(private val database: SqliteDatabase) {
         return (0 until appCount).map { index -> if (index == appCount - 1) base + remainder else base }
     }
 
+    private suspend fun insertAccount(): Long =
+        database.write { writer ->
+            writer.prepareStatement("INSERT INTO account (email, created_at) VALUES (?, ?)").use { insert ->
+                insert.setString(1, "perf-test@example.com")
+                insert.setLong(2, BASE_TS_MILLIS)
+                insert.executeUpdate()
+            }
+            writer.createStatement().use { statement ->
+                statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+                    result.next()
+                    result.getLong(1)
+                }
+            }
+        }
+
     private suspend fun insertApp(name: String): Long =
         database.write { writer ->
             writer.prepareStatement(
-                "INSERT INTO app (name, database_name, collection_name, created_at) VALUES (?, ?, ?, ?)",
+                "INSERT INTO app (name, database_name, collection_name, created_at, account_id) VALUES (?, ?, ?, ?, ?)",
             ).use { insert ->
                 insert.setString(1, name)
                 insert.setString(2, "perf_db")
                 insert.setString(3, "octometer_events")
                 insert.setLong(4, BASE_TS_MILLIS)
+                insert.setLong(5, accountId)
                 insert.executeUpdate()
             }
             writer.createStatement().use { statement ->

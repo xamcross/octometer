@@ -46,7 +46,22 @@ class BackupSecretSafetyTest {
         val database = SqliteDatabase.open(dataDir, clock = clock)
         try {
             val registry = AppRegistryService(database, secretStore)
+            // Issue #301: every app now belongs to an account.
+            val accountId = database.write { writer ->
+                writer.prepareStatement("INSERT INTO account (email, created_at) VALUES (?, ?)").use { insert ->
+                    insert.setString(1, "backup-secret-test@example.com")
+                    insert.setLong(2, 1_700_000_000_000L)
+                    insert.executeUpdate()
+                }
+                writer.createStatement().use { statement ->
+                    statement.executeQuery("SELECT last_insert_rowid()").use { queryResult ->
+                        queryResult.next()
+                        queryResult.getLong(1)
+                    }
+                }
+            }
             val result = registry.createApp(
+                accountId,
                 CreateAppRequest(
                     name = "probe",
                     connectionString = secretString,

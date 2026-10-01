@@ -5,6 +5,8 @@ import io.ktor.server.application.call
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.route
+import octometer.monitor.accounts.meRoute
+import octometer.monitor.accounts.signInRoutes
 import octometer.monitor.apps.appTotals
 import octometer.monitor.elements.elementsRoute
 import octometer.monitor.erasure.userErasureRoutes
@@ -24,6 +26,12 @@ import octometer.monitor.users.userTotalsRoute
  * parameter is gone.
  */
 fun Route.apiRoutes(services: MonitorServices) {
+    // Issue #301, D52: the sign-in routes carry no session; each other
+    // route below needs one, through the session check that Application.kt
+    // installs. signInRoutes needs the config for the client address
+    // header and the cookie's Secure flag.
+    signInRoutes(services.signInService, services.config)
+    meRoute(services.signInService)
     appRegistryRoutes(services.appRegistryService)
     appTotals(services.database)
     userTotalsRoute(services.database)

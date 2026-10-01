@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
+import { RefreshIntervalState } from '../poll/refresh-interval-state';
 import type { ElementRow, ElementsResponse } from './element-row';
 import { Elements, buildElementsRequestParams } from './elements';
 
@@ -62,7 +63,11 @@ describe('Elements', () => {
 
     httpMock = TestBed.inject(HttpTestingController);
     router = TestBed.inject(Router);
+    // Issue #301, brief review B4: the health poll waits for the start
+    // gate. This suite tests the view alone, with no App shell to open
+    // it, so it opens the gate itself.
     vi.useFakeTimers();
+    TestBed.inject(RefreshIntervalState).allowStart();
     fixture = TestBed.createComponent(Elements);
     fixture.componentRef.setInput('appId', '7');
     fixture.componentRef.setInput('userId', '42');

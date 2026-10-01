@@ -64,7 +64,10 @@ class ApplicationLifecycleTest {
             val server = embeddedServer(Netty, host = "127.0.0.1", port = port) { module(config) }
             server.start(wait = false)
             try {
-                val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$port/api/health")).GET().build()
+                val session = sessionCookieValue(dataDir.absolutePath)
+                val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$port/api/health"))
+                    .header("Cookie", session)
+                    .GET().build()
                 val response = client.send(request, HttpResponse.BodyHandlers.ofString())
 
                 assertEquals(200, response.statusCode())
@@ -108,7 +111,10 @@ class ApplicationLifecycleTest {
         server.start(wait = false)
         try {
             val client = HttpClient.newHttpClient()
-            val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$port/api/health")).GET().build()
+            val session = sessionCookieValue(ownDataDir)
+            val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$port/api/health"))
+                .header("Cookie", session)
+                .GET().build()
             val response = client.send(request, HttpResponse.BodyHandlers.ofString())
 
             assertEquals(200, response.statusCode())
@@ -133,6 +139,12 @@ class ApplicationLifecycleTest {
     @Test
     fun `GET api-apps answers across two starts and stops of the server, in one folder`() {
         val client = HttpClient.newHttpClient()
+        // Issue #301: GET /api/apps now needs a session, and it lists
+        // only the apps of that session's account. One session, made
+        // after the first start (the migrations then already ran),
+        // carries across both rounds of this same folder.
+        var session: String? = null
+        var accountId = 0L
 
         repeat(2) { round ->
             val port = freePort()
@@ -147,7 +159,15 @@ class ApplicationLifecycleTest {
             val server = embeddedServer(Netty, host = "127.0.0.1", port = port) { module(config) }
             server.start(wait = false)
             try {
-                val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$port/api/apps")).GET().build()
+                if (session == null) {
+                    val (cookie, ownerAccountId) = sessionCookieValueWithAccountId(dataDir.absolutePath)
+                    session = cookie
+                    accountId = ownerAccountId
+                }
+                val currentSession = requireNotNull(session)
+                val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$port/api/apps"))
+                    .header("Cookie", currentSession)
+                    .GET().build()
                 val response = client.send(request, HttpResponse.BodyHandlers.ofString())
 
                 assertEquals(200, response.statusCode())
@@ -158,7 +178,7 @@ class ApplicationLifecycleTest {
             }
 
             if (round == 0) {
-                insertLifecycleApp()
+                insertLifecycleApp(accountId)
             }
         }
     }
@@ -166,18 +186,19 @@ class ApplicationLifecycleTest {
     // Writes one app row between the two starts, on a fresh SqliteDatabase
     // handle. The server of round 0 already closed, thus this call opens
     // no second writer next to a live one.
-    private fun insertLifecycleApp() = runBlocking {
+    private fun insertLifecycleApp(accountId: Long) = runBlocking {
         val database = SqliteDatabase.open(dataDir.absolutePath)
         try {
             database.write { writer ->
                 writer.prepareStatement(
-                    "INSERT INTO app (name, database_name, collection_name, created_at) " +
-                        "VALUES (?, ?, ?, ?)",
+                    "INSERT INTO app (name, database_name, collection_name, created_at, account_id) " +
+                        "VALUES (?, ?, ?, ?, ?)",
                 ).use { insert ->
                     insert.setString(1, "lifecycle-app")
                     insert.setString(2, "db")
                     insert.setString(3, "octometer_events")
                     insert.setLong(4, 1_700_000_000_000L)
+                    insert.setLong(5, accountId)
                     insert.executeUpdate()
                 }
             }

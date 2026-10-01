@@ -12,6 +12,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Scaffold the hosted service: the Docker image, `fly.toml`, the `/healthz` route, the D56
   fields of `GET /api/health`, the public bind and the temporary admin guard, and the CI
   deploy job. (#295)
+- Add sign-in with a mail link: the accounts, the invite list, the session cookie, the
+  Resend and the file mail senders, the account filter of every API route, and the
+  launcher command `--invite`. Remove the temporary admin guard of #295. (#301)
 
 ### CI
 

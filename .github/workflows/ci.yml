@@ -339,7 +339,6 @@ jobs:
           docker run --rm -d --name octometer-image-check \
             -p 8080:8080 \
             -v "$PWD/image-check-data:/data" \
-            -e OCTOMETER_ADMIN_TOKEN=check \
             octometer-monitor:ci
           health_ready=""
           for attempt in $(seq 1 30); do

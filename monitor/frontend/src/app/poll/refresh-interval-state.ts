@@ -1,7 +1,8 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, Signal, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import {
+  BehaviorSubject,
   Observable,
   catchError,
   exhaustMap,
@@ -9,6 +10,7 @@ import {
   map,
   of,
   shareReplay,
+  switchMap,
   take,
   timer,
 } from 'rxjs';
@@ -59,6 +61,22 @@ export class RefreshIntervalState {
   private readonly retentionDaysState = signal<number | null>(null);
 
   /**
+   * The start gate of the health poll (issue #301, brief review B4). It
+   * stays false until [allowStart] runs. The root `App` component calls
+   * [allowStart] once `Me.ready` turns true, so the first `GET
+   * /api/health` waits for one good answer of `GET /api/me`. A test that
+   * builds a poll store or a view component with no `App` shell calls
+   * [allowStart] itself, in its own `beforeEach`.
+   *
+   * A plain `BehaviorSubject`, not a signal: [allowStart] then reaches
+   * [intervalMs$] at once, with no Angular change-detection tick between
+   * the call and the request. A signal needs that tick (through
+   * `toObservable`), and a service-only test builds no component and
+   * runs no tick of its own.
+   */
+  private readonly startGate$ = new BehaviorSubject(false);
+
+  /**
    * The retention length in days from `GET /api/health` (D13, issue #66).
    * Null until the first good answer arrives, and null when the field is
    * absent or not a positive integer. The service reads this from the one
@@ -76,29 +94,52 @@ export class RefreshIntervalState {
    * The interval in ms. It tries the health route again each 5 seconds
    * until it gets a valid answer, then it stops. `shareReplay` gives the
    * cached answer to a later subscriber, and it sends no new request.
+   *
+   * Issue #301, brief review B4: `/api/health` needs a session, and the
+   * poll of this observable sends no request before [allowStart] runs
+   * (the [startGate] signal). A visitor that has not signed in yet
+   * then sends no `/api/health` request at all, on `/signin` or on any
+   * other route.
    */
-  readonly intervalMs$: Observable<number> = timer(0, HEALTH_RETRY_MS).pipe(
-    exhaustMap(() =>
-      this.http.get<HealthResponse>('/api/health').pipe(
-        map((health) => {
-          this.errorState.set(undefined);
-          this.retentionDaysState.set(
-            isPositiveInteger(health.retentionDays) ? health.retentionDays : null,
-          );
-          return isPositiveNumber(health.refreshSeconds)
-            ? health.refreshSeconds * 1000
-            : FALLBACK_INTERVAL_MS;
-        }),
-        catchError((healthError: unknown) => {
-          this.errorState.set(healthError);
-          return of(undefined);
-        }),
+  readonly intervalMs$: Observable<number> = this.startGate$.pipe(
+    filter((started) => started),
+    take(1),
+    switchMap(() =>
+      timer(0, HEALTH_RETRY_MS).pipe(
+        exhaustMap(() =>
+          this.http.get<HealthResponse>('/api/health').pipe(
+            map((health) => {
+              this.errorState.set(undefined);
+              this.retentionDaysState.set(
+                isPositiveInteger(health.retentionDays) ? health.retentionDays : null,
+              );
+              return isPositiveNumber(health.refreshSeconds)
+                ? health.refreshSeconds * 1000
+                : FALLBACK_INTERVAL_MS;
+            }),
+            catchError((healthError: unknown) => {
+              if (!(healthError instanceof HttpErrorResponse && healthError.status === 401)) {
+                this.errorState.set(healthError);
+              }
+              return of(undefined);
+            }),
+          ),
+        ),
+        filter((ms): ms is number => ms !== undefined),
+        take(1),
       ),
     ),
-    filter((ms): ms is number => ms !== undefined),
-    take(1),
     shareReplay({ bufferSize: 1, refCount: false }),
   );
+
+  /**
+   * Opens the [startGate$]. The first call starts the health poll of
+   * [intervalMs$]; a later call does nothing (`take(1)` above has taken
+   * its one value already).
+   */
+  allowStart(): void {
+    this.startGate$.next(true);
+  }
 
   /** The interval in seconds. Undefined before the first good answer. */
   readonly refreshSeconds: Signal<number | undefined> = toSignal(

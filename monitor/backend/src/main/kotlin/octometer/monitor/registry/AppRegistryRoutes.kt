@@ -21,6 +21,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import octometer.monitor.ErrorBody
+import octometer.monitor.accounts.accountId
 
 private const val SECRET_STORE_UNAVAILABLE_MESSAGE = "The secret store is not available. Try again."
 
@@ -51,7 +52,7 @@ fun Route.appRegistryRoutes(registry: AppRegistryService) {
                 return@post
             }
         }
-        when (val result = registry.createApp(request)) {
+        when (val result = registry.createApp(call.accountId(), request)) {
             is CreateAppResult.Created -> {
                 call.response.header(HttpHeaders.Location, "/api/apps/${result.summary.appId}")
                 call.respond(HttpStatusCode.Created, result.summary)
@@ -75,7 +76,7 @@ fun Route.appRegistryRoutes(registry: AppRegistryService) {
             call.respond(HttpStatusCode.BadRequest, ErrorBody("The app id must be a whole number."))
             return@get
         }
-        val detail = registry.getApp(appId)
+        val detail = registry.getApp(call.accountId(), appId)
         if (detail == null) {
             call.respond(HttpStatusCode.NotFound, ErrorBody("The app is not registered."))
         } else {
@@ -100,7 +101,7 @@ fun Route.appRegistryRoutes(registry: AppRegistryService) {
                 return@patch
             }
         }
-        when (val result = registry.updateApp(appId, request)) {
+        when (val result = registry.updateApp(call.accountId(), appId, request)) {
             UpdateAppResult.Updated -> call.respond(HttpStatusCode.NoContent)
             UpdateAppResult.NotFound -> call.respond(HttpStatusCode.NotFound, ErrorBody("The app is not registered."))
             is UpdateAppResult.InvalidRequest -> call.respond(HttpStatusCode.BadRequest, ErrorBody(result.message))
@@ -121,7 +122,7 @@ fun Route.appRegistryRoutes(registry: AppRegistryService) {
         // secret store before it touches the app row. A broken or a
         // locked secret file must give 503 here too, with no file path.
         val found = try {
-            registry.deleteApp(appId)
+            registry.deleteApp(call.accountId(), appId)
         } catch (unavailable: SecretStoreUnavailableException) {
             call.respond(HttpStatusCode.ServiceUnavailable, ErrorBody(SECRET_STORE_UNAVAILABLE_MESSAGE))
             return@delete

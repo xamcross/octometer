@@ -25,12 +25,12 @@ class Migration003Test {
     }
 
     @Test
-    fun `a new database gets user_version 5 and the table app_path`() = runBlocking {
+    fun `a new database gets user_version 6 and the table app_path`() = runBlocking {
         val database = SqliteDatabase.open(dataDir.absolutePath)
         try {
             // Issue #226 added migration 004; a fresh open now runs
             // every migration, up to the current latest version.
-            assertEquals(5, database.write { userVersion(it) })
+            assertEquals(6, database.write { userVersion(it) })
             assertTrue(database.write { tableExists(it, "app_path") }, "the table app_path exists")
         } finally {
             database.close()
@@ -80,7 +80,7 @@ class Migration003Test {
 
         val secondStart = SqliteDatabase.open(dataDir.absolutePath)
         try {
-            assertEquals(5, secondStart.write { userVersion(it) })
+            assertEquals(6, secondStart.write { userVersion(it) })
         } finally {
             secondStart.close()
         }

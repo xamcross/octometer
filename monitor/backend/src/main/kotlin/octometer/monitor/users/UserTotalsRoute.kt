@@ -8,6 +8,7 @@ import io.ktor.server.routing.get
 import java.sql.Connection
 import kotlinx.serialization.Serializable
 import octometer.monitor.ErrorBody
+import octometer.monitor.accounts.accountId
 import octometer.monitor.store.SqliteDatabase
 
 /** The row count of one page (issue #50, step 4). */
@@ -104,7 +105,7 @@ fun Route.userTotalsRoute(database: SqliteDatabase) {
             call.respond(HttpStatusCode.BadRequest, ErrorBody("The filter q holds a control character."))
             return@get
         }
-        when (val result = loadUserTotals(database, appId, requestedPage, filter)) {
+        when (val result = loadUserTotals(database, call.accountId(), appId, requestedPage, filter)) {
             UserTotalsResult.AppNotFound ->
                 call.respond(HttpStatusCode.NotFound, ErrorBody("The app is not registered."))
             is UserTotalsResult.Success ->
@@ -140,12 +141,13 @@ private fun parsePage(raw: String?): Int? {
  */
 suspend fun loadUserTotals(
     database: SqliteDatabase,
+    accountId: Long,
     appId: Long,
     requestedPage: Int,
     filter: String?,
 ): UserTotalsResult =
     database.read { reader ->
-        if (!appExists(reader, appId)) {
+        if (!appExists(reader, accountId, appId)) {
             return@read UserTotalsResult.AppNotFound
         }
         val likePattern = toLikePattern(filter)
@@ -179,9 +181,12 @@ internal fun escapeLikePattern(value: String): String =
 
 private fun ceilDiv(total: Int, size: Int): Int = (total + size - 1) / size
 
-private fun appExists(reader: Connection, appId: Long): Boolean =
-    reader.prepareStatement("SELECT 1 FROM app WHERE id = ?").use { statement ->
+// Issue #301: an app of another account, or a NULL-account app, gives
+// false, the same 404 as an unknown id.
+private fun appExists(reader: Connection, accountId: Long, appId: Long): Boolean =
+    reader.prepareStatement("SELECT 1 FROM app WHERE id = ? AND account_id = ?").use { statement ->
         statement.setLong(1, appId)
+        statement.setLong(2, accountId)
         statement.executeQuery().use { it.next() }
     }
 

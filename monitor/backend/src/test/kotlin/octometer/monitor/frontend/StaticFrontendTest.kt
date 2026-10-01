@@ -15,6 +15,8 @@ import octometer.monitor.allowedHost
 import octometer.monitor.module
 import octometer.monitor.prodConfig
 import octometer.monitor.registerTempRoot
+import octometer.monitor.sessionCookieValue
+import octometer.monitor.withSession
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -95,9 +97,12 @@ class StaticFrontendTest {
 
     @Test
     fun `an unknown api path gives the 404 of the api, never index html`() = testApplication {
-        application { module(prodConfig(), staticDirWithFrontend()) }
+        val config = prodConfig()
+        application { module(config, staticDirWithFrontend()) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/api/does-not-exist") { allowedHost() }
+        val response = client.get("/api/does-not-exist") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.NotFound, response.status)
         val bodyText = response.bodyAsText()
@@ -204,9 +209,12 @@ class StaticFrontendTest {
     // rule as RequestGuard, before it looks for a file.
     @Test
     fun `an api path with a bad escape gets the fixed 404 of the api, not index html`() = testApplication {
-        application { module(prodConfig(), staticDirWithFrontend()) }
+        val config = prodConfig()
+        application { module(config, staticDirWithFrontend()) }
+        startApplication()
+        val session = sessionCookieValue(config.dataDir)
 
-        val response = client.get("/%61pi/does-not-exist") { allowedHost() }
+        val response = client.get("/%61pi/does-not-exist") { allowedHost(); withSession(session) }
 
         assertEquals(HttpStatusCode.NotFound, response.status)
         assertEquals(false, response.bodyAsText().contains("octometer"))

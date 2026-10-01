@@ -9,13 +9,24 @@
       <span class="wordmark">Octometer</span>
     </a>
 
-    <app-main-nav />
+    @if (!isSigninRoute()) {
+      <app-main-nav />
+
+      @if (me.email(); as email) {
+        <div class="account-status">
+          <span class="account-email">{{ email }}</span>
+          <button type="button" class="btn" (click)="onSignOutClick()">Sign out</button>
+        </div>
+      }
+    }
   </div>
 </header>
 
 <app-banner [apiError]="monitorApiError()" />
 
-<app-breadcrumb-nav [items]="breadcrumbItems()" />
+@if (!isSigninRoute()) {
+  <app-breadcrumb-nav [items]="breadcrumbItems()" />
+}
 
 <main id="main-content" tabindex="-1">
   @if (!appReady()) {

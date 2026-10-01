@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { defineConfig } from '@playwright/test';
 
 import { DESKTOP_CHROME_USER_AGENT } from './setup/constants';
-import { STATE_FILE } from './setup/state';
+import { STATE_FILE, STORAGE_STATE_FILE } from './setup/state';
 
 /**
  * Reads the monitor port that `pretest.mjs` reserved, before the global
@@ -41,6 +41,11 @@ export default defineConfig({
     baseURL: readMonitorBaseUrl(),
     userAgent: DESKTOP_CHROME_USER_AGENT,
     trace: 'retain-on-failure',
+    // Issue #301, m11: the owner's session, from the global setup. The
+    // 13 existing scenarios stay signed in with no change of their own.
+    // The new scenario of this issue overrides this with
+    // `test.use({ storageState: undefined })`.
+    storageState: STORAGE_STATE_FILE,
   },
   // Chromium only (decision 1). This project sets no device descriptor:
   // a descriptor such as "Desktop Chrome" carries its own `userAgent`

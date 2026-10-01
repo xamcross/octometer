@@ -80,6 +80,14 @@ const requireSessionsFilter: CanActivateFn = (route: ActivatedRouteSnapshot) => 
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'apps' },
   {
+    path: 'signin',
+    title: 'Sign in - Octometer',
+    loadComponent: () => import('./signin/signin').then((m) => m.Signin),
+    data: {
+      breadcrumb: (): BreadcrumbItem[] => [{ label: 'Sign in', path: null }],
+    },
+  },
+  {
     path: 'manage',
     title: 'Manage - Octometer',
     loadComponent: () => import('./manage/manage').then((m) => m.Manage),

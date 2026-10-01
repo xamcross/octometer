@@ -26,17 +26,19 @@ import io.ktor.server.routing.routing
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.isActive
 import kotlinx.serialization.Serializable
+import octometer.monitor.accounts.installSessionCheck
+import octometer.monitor.accounts.runInviteCommandIfPresent
 import octometer.monitor.config.InvalidConfigException
 import octometer.monitor.config.MonitorConfig
 import octometer.monitor.config.ResolvedConfig
 import octometer.monitor.config.escapeForLog
 import octometer.monitor.config.loadConfig
-import octometer.monitor.config.requireHostedSecrets
 import octometer.monitor.frontend.defaultStaticDir
 import octometer.monitor.log.logsDir
 import octometer.monitor.frontend.staticFrontend
 import octometer.monitor.lock.InstanceLock
 import octometer.monitor.lock.InstanceLockFailedException
+import octometer.monitor.mail.requireLocalMailSender
 import octometer.monitor.security.installRequestGuard
 import octometer.monitor.security.requireLoopbackBindAddress
 import octometer.monitor.store.CorruptDatabaseException
@@ -91,6 +93,9 @@ private val VERSION: String = readVersion()
 private val log = LoggerFactory.getLogger("octometer.monitor.Application")
 
 fun main(args: Array<String>) {
+    // Issue #301, D2, brief review M7: --invite and --uninvite each run
+    // one short-lived store call and exit. Neither starts the server.
+    if (runInviteCommandIfPresent(args)) return
     // Issue #57, MAJOR 1 of the JVM operations review of pull request
     // #231: logback.xml holds the two console appenders only. It
     // loads no file appender at the class load of this file, before
@@ -114,10 +119,12 @@ fun main(args: Array<String>) {
         log.error("The bind address is invalid. {}", invalidBindAddress.message)
         exitProcess(2)
     }
-    // Issue #295, step 4: a public bind in prod mode needs the cluster
-    // URI and the admin token, each as a clear start error.
+    // Issue #301: the file mail sender refuses to start on a public
+    // host (brief review m5). loadConfig already resolved mailSender
+    // and publicUrl; this is a clear start error, the same shape as
+    // each other invalid-start path.
     try {
-        requireHostedSecrets(resolved.config)
+        requireLocalMailSender(resolved.config)
     } catch (invalidConfig: InvalidConfigException) {
         log.error("The config is invalid. {}", invalidConfig.message)
         exitProcess(2)
@@ -260,6 +267,10 @@ fun Application.module(
         }
     }
     installRequestGuard(config, env)
+    // Issue #301, D52: the session check, one interceptor after the
+    // guard block of RequestGuard.kt. It puts the account id into a
+    // call attribute that each route handler below reads.
+    installSessionCheck(services.database)
     routing {
         // D56: the process-and-store check. It skips the Host check
         // (RequestGuard.isHealthzPath) and the admin guard (it sits

@@ -561,6 +561,8 @@ together.
   (rule: "a status is a mark plus a word plus a color", `apps.html:73-76`).
 - Do not give the mark any meaning of its own. `aria-hidden="true"` keeps it out of the
   accessibility tree, so a screen reader reads the word only (`apps.html:74`).
+- Do reuse `badge badge-ok` for a plain inline success message outside a status cell,
+  for example the sign-in page's "Check your mail." text (issue #301, `signin.html`).
 
 ## The note under a badge
 
