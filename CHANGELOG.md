@@ -60,6 +60,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add the route `GET /tracker.js`: the served IIFE bundle, the ETag, and the two cache
   rules; the manage view's keys panel shows the hashed script tag, from the new field
   `trackerHash` of `GET /api/me`. (#298)
+- Make the sign-in sentinel test of `ConfigLoaderTest` wait for the mail file: a bound
+  poll replaces the one immediate read of the mail folder. (#328)
 
 ### CI
 
