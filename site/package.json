@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "npm run test:e2e",
-    "test:e2e": "node e2e/run.mjs"
+    "test:e2e": "node e2e/run.mjs",
+    "screenshots": "node scripts/screenshots.mjs"
   },
   "dependencies": {
     "@fontsource/fredoka": "5.3.0",
