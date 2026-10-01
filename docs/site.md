@@ -12,6 +12,30 @@ The arms of the mark wave one time on load (600 ms); `prefers-reduced-motion: re
 turns the wave off. `src/main.ts` moves the focus into the waitlist email field on a
 click of "Join the waitlist", with no scroll of its own.
 
+The flow illustration of "How it works" reveals on a scroll: an `IntersectionObserver`
+adds the class `node-in` to each node, behind the same guard as the early class `js` of
+`index.html`. `prefers-reduced-motion: reduce` shows each node at once, with no move.
+
+## The screenshots of "Three levels in your dashboard"
+
+`site/scripts/screenshots.mjs` takes the three screenshots of the dashboard: the apps
+view, the users view of the first app, and the elements view of the first user. Run it
+from `site/`, against the local monitor:
+
+```
+npm run screenshots
+```
+
+The script reads the first app and the first user through the monitor's own API, so it
+needs no app id or user id as an argument. It writes six PNG files into
+`site/public/screens/`: a 1200 px file and a 600 px file for each view, for the two
+sources of the `<picture>` element of each frame.
+
+Two rules:
+
+- A screenshot changes only through this script. Never edit a screenshot file by hand.
+- A screenshot shows the demo data only. It never shows a real app or a real user.
+
 ## The local commands
 
 Run each command from `site/`.
