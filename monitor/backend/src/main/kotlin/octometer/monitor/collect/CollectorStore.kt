@@ -62,19 +62,21 @@ class CollectorStore(private val clientFactory: () -> MongoClient, private val c
     private val prepareMutex = Mutex()
 
     /**
-     * Writes [events] into the app's database. Returns `false`, with no
-     * write, when the event cap of design decision D21 already holds
+     * Writes [events] into the app's database, each with [userId]
+     * (issue #300, design decision D54; `null` for an anonymous click,
+     * unchanged from issue #297). Returns `false`, with no write, when
+     * the event cap of design decision D21 already holds
      * [EVENT_CAP_PER_APP] events or more for this app; the caller then
      * answers 204, the same answer as a stored batch (contract rule
      * C19). [events] must not be empty.
      */
-    suspend fun write(appId: Long, databaseName: String, events: List<IngestEvent>): Boolean {
+    suspend fun write(appId: Long, databaseName: String, events: List<IngestEvent>, userId: String? = null): Boolean {
         require(events.isNotEmpty()) { "events must hold one event or more" }
         val app = preparedApp(appId, databaseName)
         if (app.eventCap.isOverCap()) {
             return false
         }
-        val documents = events.map(::toDocument)
+        val documents = events.map { event -> toDocument(event, userId) }
         app.collection.insertMany(documents)
         app.eventCap.countAppended(documents.size)
         return true
@@ -131,15 +133,16 @@ class CollectorStore(private val clientFactory: () -> MongoClient, private val c
         log.warn("The collector's TTL index step '{}' failed with the MongoDB error code {}. The write continues.", step, errorCode)
     }
 
-    private fun toDocument(event: IngestEvent): Document {
+    private fun toDocument(event: IngestEvent, userId: String?): Document {
         val document = Document()
             .append("ts", Date.from(event.ts()))
             .append("element", event.element())
             .append("sessionId", event.sessionId())
-            // Issue #297: the collector stores no user id in this story
-            // (the brief review of 2026-10-01, B3); #300 adds the
-            // tracker option that resolves a real value.
-            .append("userId", null)
+            // Issue #300 (design decision D54): the collector stores the
+            // body's own user id, dropped to null already by
+            // IngestPipeline.processBatch for an invalid value (the
+            // brief review of 2026-10-01, point 25).
+            .append("userId", userId)
         if (event.path() != null) {
             document.append("path", event.path())
         }

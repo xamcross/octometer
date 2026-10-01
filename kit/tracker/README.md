@@ -119,6 +119,7 @@ session start.
 | `headers` | none | A function that returns extra request headers. |
 | `flushIntervalMs` | `5000` | The delay before the tracker sends a filled queue. |
 | `ignoreWebdriver` | `false` | Turns off the `navigator.webdriver` filter. Set it to `true` only for an end-to-end test. |
+| `userId` | none | A pseudonymous id of the signed-in user (design decision D54, issue #300): 1 to 254 characters. The tracker drops a value with an `@` character or a space, with one `console.warn`; an email address never passes. A click with no usable id is anonymous. |
 
 ## The page lifecycle flush
 
@@ -265,11 +266,16 @@ host (issue #103). The tracker of this package changes no file of
 
 ## What leaves the browser
 
-Each request body holds only `sessionId` and `clicks`. Each click holds
-only `element`, `ageMs`, and `path`. The session start also holds
+Each request body holds `sessionId` and `clicks`. Each click holds only
+`element`, `ageMs`, and `path`. The session start also holds
 `referrerHost`, when the referrer gives one.
-The tracker never sends a user id: the app takes the user id from its own
-authentication context (owner decision O5).
+
+With the kit's own ingest route, the tracker sends no `userId` field:
+the app takes the user id from its own authentication context (owner
+decision O5). With the `userId` option set, the body also holds
+`userId` (design decision D54, issue #300); only the hosted collector
+reads this field, for the app's own route the field has no effect
+(contract rules C16 and C32).
 
 The session id is a UUID. The tracker keeps it under the `sessionStorage` key
 `octo_session_id`, for the life of one browser tab.

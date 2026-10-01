@@ -41,6 +41,14 @@ export interface TrackerOptions {
    * end-to-end test of the app itself.
    */
   ignoreWebdriver?: boolean;
+  /**
+   * A pseudonymous id of the signed-in user, for the hosted collector
+   * (issue #300, design decision D54). A string of 1 to 254 characters.
+   * The tracker drops a value with an `@` character or a space, with one
+   * `console.warn`, so an email address never passes; a click without a
+   * usable value is anonymous.
+   */
+  userId?: string;
 }
 
 /** The tracker instance. Call `start()` after consent, and `stop()` to end tracking. */
@@ -151,6 +159,7 @@ export function createTracker(options: TrackerOptions): Tracker {
   const getExtraHeaders = options.headers;
   const flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
   const ignoreWebdriver = options.ignoreWebdriver === true;
+  const userId = acceptableUserId(options.userId);
 
   let queue: QueueEntry[] = [];
   let timerId: ReturnType<typeof setTimeout> | null = null;
@@ -377,7 +386,7 @@ export function createTracker(options: TrackerOptions): Tracker {
       click.referrerHost = referrerHost;
     }
     try {
-      void sendBatch(sessionId, [click], true, TIMER_RETRY_COUNT, token);
+      void sendBatch(sessionId, [click], true, TIMER_RETRY_COUNT, token, userId);
     } catch {
       // The tracker gives no error to the page. It drops the entry instead.
     }
@@ -454,7 +463,7 @@ export function createTracker(options: TrackerOptions): Tracker {
       try {
         // MINOR 4 of the reliability review: one batch must not stop the
         // send of a later batch, also when fetch throws at the call.
-        void sendBatch(id, batch, options.keepalive, options.retryCount, token);
+        void sendBatch(id, batch, options.keepalive, options.retryCount, token, userId);
       } catch {
         // The tracker gives no error to the page. It drops this batch only.
       }
@@ -491,7 +500,17 @@ export function createTracker(options: TrackerOptions): Tracker {
     keepalive: boolean,
     retriesLeft: number,
     token: number,
+    sendUserId: string | undefined,
   ): Promise<void> {
+    // Issue #300 (design decision D54): the body carries userId only
+    // when the tracker has a usable value. The kit's own ingest route
+    // keeps rule C16 and rule C32 unchanged; the hosted collector reads
+    // this field on its own exception (point 23 of the correction
+    // round of 2026-10-01).
+    const body: { sessionId: string; clicks: ClickPayload[]; userId?: string } = { sessionId: id, clicks: batch };
+    if (sendUserId !== undefined) {
+      body.userId = sendUserId;
+    }
     return fetch(endpoint, {
       method: 'POST',
       mode: 'cors',
@@ -499,7 +518,7 @@ export function createTracker(options: TrackerOptions): Tracker {
       headers: buildHeaders(),
       referrerPolicy: 'no-referrer',
       keepalive,
-      body: JSON.stringify({ sessionId: id, clicks: batch }),
+      body: JSON.stringify(body),
     })
       .then((response) => {
         if (response.ok) {
@@ -507,13 +526,13 @@ export function createTracker(options: TrackerOptions): Tracker {
         }
         const isRetryableStatus = response.status === 429 || response.status >= 500;
         if (retriesLeft > 0 && isRetryableStatus && token === runId) {
-          return waitThenRetry(id, batch, keepalive, retriesLeft, token, response.status);
+          return waitThenRetry(id, batch, keepalive, retriesLeft, token, response.status, sendUserId);
         }
         // Each other 4xx response drops the batch. No error reaches the page.
       })
       .catch(() => {
         if (retriesLeft > 0 && token === runId) {
-          return waitThenRetry(id, batch, keepalive, retriesLeft, token, undefined).catch(() => {
+          return waitThenRetry(id, batch, keepalive, retriesLeft, token, undefined, sendUserId).catch(() => {
             // A second network error drops the batch too.
           });
         }
@@ -534,6 +553,7 @@ export function createTracker(options: TrackerOptions): Tracker {
     retriesLeft: number,
     token: number,
     status: number | undefined,
+    sendUserId: string | undefined,
   ): Promise<void> {
     return new Promise((resolve) => {
       setTimeout(() => {
@@ -541,7 +561,7 @@ export function createTracker(options: TrackerOptions): Tracker {
           resolve();
           return;
         }
-        resolve(sendBatch(id, batch, keepalive, retriesLeft - 1, token));
+        resolve(sendBatch(id, batch, keepalive, retriesLeft - 1, token, sendUserId));
       }, retryDelayMs(status));
     });
   }
@@ -655,6 +675,28 @@ export function createTracker(options: TrackerOptions): Tracker {
   }
 
   return { start, stop };
+}
+
+/**
+ * Checks the `userId` option against design decision D54 (issue #300):
+ * 1 to 254 characters, no `@` character, no space. It gives `undefined`
+ * for an absent option, and for a value that breaks one of the three
+ * rules; it logs one `console.warn` for the second case only, so an app
+ * that sets no option at all sees no warning.
+ */
+function acceptableUserId(rawValue: string | undefined): string | undefined {
+  if (rawValue === undefined) {
+    return undefined;
+  }
+  const isUsable = rawValue.length >= 1 && rawValue.length <= 254 && !rawValue.includes('@') && !rawValue.includes(' ');
+  if (isUsable) {
+    return rawValue;
+  }
+  console.warn(
+    'octometer: the userId option must have 1 to 254 characters, with no "@" character and no space. ' +
+      'The tracker sends this click as anonymous.',
+  );
+  return undefined;
 }
 
 /**

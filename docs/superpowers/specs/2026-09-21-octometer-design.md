@@ -179,6 +179,9 @@ A session start is its own request, with one entry only (design decision D41):
 - The server calculates `ts = receivedAt - ageMs`. It clamps an `ageMs` above 600 000. A
   negative `ageMs` is invalid.
 - The server takes `userId` from the authentication context. The client never sends it.
+  Dated note (2026-10-01, issue #300): the hosted collector of design decision D50 is the one
+  exception; it takes the `userId` value of the body, when the request carries a valid app
+  key (design decision D54).
 - The server ignores an unknown field in the body, a `userId` field included, and an unknown
   field inside an entry of `clicks` (contract rule C32).
 - The server checks `element` and `sessionId` with the rules of 4.1. It drops an entry whose
@@ -811,6 +814,7 @@ Fly.io, the events live in one MongoDB Atlas cluster, and the kit goes. The doma
   D43 stay service-wide defaults. Each counter takes the app id and the client key (m3).
   The CORS plugin serves `/collect` and `/tracker.js` only. The preflight from a listed
   origin gets that origin, the header name, `POST`, and a `max-age` of one day.
+  Dated note (2026-10-01, issue #300): the collector path takes the body user id since #300.
 - **D51. The keys.** The app key is 32 random bytes from `SecureRandom`, in base64url form.
   It is public. The secret key has the same form. Each app gets one secret key. The service
   shows it one time only. The service stores it as a SHA-256 hash. The compare runs in

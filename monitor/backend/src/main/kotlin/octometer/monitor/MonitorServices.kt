@@ -62,7 +62,11 @@ class MonitorServices private constructor(
     // #296, M11): the write path and the read path of the hosted model
     // share one pool, not two.
     val dailyEventCountStore: DailyEventCountStore = DailyEventCountStore(database)
-    private val sharedWriteClient = { mongoAppReader.sharedClientForWriting(config.clusterUri) }
+    // Issue #300 (D55): the erasure route's secret path also writes
+    // through this exact shared client instance, for the cluster
+    // deletion of an app of the collector path. internal, not private,
+    // so ApiRoutes.kt (apiRoutes) can wire it into userErasureRoutes.
+    internal val sharedWriteClient = { mongoAppReader.sharedClientForWriting(config.clusterUri) }
     val collectorRuntime: CollectorRuntime = CollectorRuntime(
         appKeyCache = AppKeyCache(database),
         store = CollectorStore(sharedWriteClient),

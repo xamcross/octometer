@@ -1,25 +1,42 @@
 package octometer.monitor.erasure
 
+import com.mongodb.kotlin.client.coroutine.MongoClient
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
+import io.ktor.server.request.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
+import java.sql.Connection
 import kotlinx.serialization.Serializable
 import octometer.monitor.ErrorBody
 import octometer.monitor.accounts.accountId
+import octometer.monitor.accounts.constantTimeHashEquals
+import octometer.monitor.accounts.sha256Hex
+import octometer.monitor.security.ERASURE_SECRET_HEADER
 import octometer.monitor.store.SqliteDatabase
+import org.slf4j.LoggerFactory
 
 /** Contract rule C6: a `userId` string has 1 to 254 characters. */
 internal const val USER_ID_MAX_LENGTH = 254
 
+private const val APP_NOT_REGISTERED_MESSAGE = "The app is not registered."
+
+/** BLOCKER 1 of the review of pull request #333: the text of a failed cluster erasure. It names no detail. */
+private const val CLUSTER_ERASURE_FAILED_MESSAGE = "The erasure did not complete. Try again."
+
+private val log = LoggerFactory.getLogger("octometer.monitor.erasure.UserErasureRoutes")
+
 /**
  * The answer of the erasure route. It never holds the user id. [deleted]
- * is the row count. [checkpointed] is `true` when the WAL checkpoint
- * completed (BLOCKER 1, privacy review of #61).
+ * is the cache row count. [checkpointed] is `true` when the WAL
+ * checkpoint completed (BLOCKER 1, privacy review of #61).
+ * [clusterDeleted] is the cluster row count of [eraseUserEventsFromCluster]
+ * (BLOCKER 2 of the review of pull request #333); it stays `0` for an
+ * app of the kit path, which has no cluster erasure step.
  */
 @Serializable
-data class UserErasureResponse(val deleted: Int, val checkpointed: Boolean)
+data class UserErasureResponse(val deleted: Int, val checkpointed: Boolean, val clusterDeleted: Long)
 
 /**
  * The erasure route of issue #61: `DELETE /api/apps/{appId}/events?userId=<id>`
@@ -28,11 +45,33 @@ data class UserErasureResponse(val deleted: Int, val checkpointed: Boolean)
  * [eraseUserEvents] and gives 200 with the fields `deleted` and
  * `checkpointed`.
  *
- * The handler never logs the user id, and it never puts it into an
- * exception message. The database layer treats it as a bound parameter
- * only (D15, and contract rule C43 for its width).
+ * Issue #300 (design decision D55, the correction round of 2026-10-01):
+ * a request with the header [ERASURE_SECRET_HEADER] needs no session.
+ * `RequestGuard.kt` and `SessionCheck.kt` already skip the Origin check
+ * and the session check for this exact shape; this handler is the one
+ * place that decides the header's own result. A `NULL` secret hash (an
+ * app with no secret key) and a wrong secret both give 404, the same
+ * text as an unknown app, so a probe learns nothing. For an app of the
+ * collector path (a non-`NULL` `app_key`), the cluster erasure of
+ * [eraseUserEventsFromCluster] runs first. BLOCKER 1 of the review of
+ * pull request #333: a failed cluster call skips the cache erasure of
+ * [eraseUserEvents] and answers 503. A poll cycle between the two steps
+ * would restore the cluster rows into the cache, so a fail-open rule
+ * would make the owner trust a 200 answer that erased nothing of real
+ * weight. For an app of the kit path (a `NULL` `app_key`), the route
+ * keeps the cache erasure only: the app owns its own store.
+ *
+ * [clusterClientFactory] gives the shared Mongo client of
+ * `MonitorServices.sharedWriteClient`; a call with no secret header
+ * never reads it (the local run and most tests give no working
+ * cluster).
+ *
+ * The handler never logs the user id or the secret key, and it never
+ * puts either one into an exception message. The database layer treats
+ * the user id as a bound parameter only (D15, and contract rule C43 for
+ * its width).
  */
-fun Route.userErasureRoutes(database: SqliteDatabase) {
+fun Route.userErasureRoutes(database: SqliteDatabase, clusterClientFactory: () -> MongoClient) {
     delete("/api/apps/{appId}/events") {
         val appId = call.parameters["appId"]?.toLongOrNull()
         if (appId == null) {
@@ -48,12 +87,67 @@ fun Route.userErasureRoutes(database: SqliteDatabase) {
             call.respond(HttpStatusCode.BadRequest, ErrorBody("The user id must have at most 254 characters."))
             return@delete
         }
+
+        val secretHeader = call.request.header(ERASURE_SECRET_HEADER)
+        if (secretHeader != null) {
+            val appRow = database.read { reader -> appForSecretErasure(reader, appId) }
+            val secretKeyHash = appRow?.secretKeyHash
+            if (secretKeyHash == null || !constantTimeHashEquals(sha256Hex(secretHeader), secretKeyHash)) {
+                call.respond(HttpStatusCode.NotFound, ErrorBody(APP_NOT_REGISTERED_MESSAGE))
+                return@delete
+            }
+            var clusterDeleted = 0L
+            if (appRow.appKey != null) {
+                try {
+                    clusterDeleted = eraseUserEventsFromCluster(clusterClientFactory(), appRow.databaseName, userId)
+                } catch (clusterFailure: RuntimeException) {
+                    log.warn(
+                        "The cluster erasure of design decision D55 failed for app {}. The exception class is {}.",
+                        appId,
+                        clusterFailure.javaClass.simpleName,
+                    )
+                    // BLOCKER 1: skip the cache step. A poll cycle
+                    // between a cache erasure and a stuck cluster row
+                    // would restore that row, so the cache step must
+                    // never run while the cluster step is in doubt.
+                    call.respond(HttpStatusCode.ServiceUnavailable, ErrorBody(CLUSTER_ERASURE_FAILED_MESSAGE))
+                    return@delete
+                }
+            }
+            val result = eraseUserEvents(database, appId, userId)
+            call.respond(HttpStatusCode.OK, UserErasureResponse(result.total, result.checkpointed, clusterDeleted))
+            return@delete
+        }
+
         val found = database.read { reader -> appExists(reader, call.accountId(), appId) }
         if (!found) {
-            call.respond(HttpStatusCode.NotFound, ErrorBody("The app is not registered."))
+            call.respond(HttpStatusCode.NotFound, ErrorBody(APP_NOT_REGISTERED_MESSAGE))
             return@delete
         }
         val result = eraseUserEvents(database, appId, userId)
-        call.respond(HttpStatusCode.OK, UserErasureResponse(result.total, result.checkpointed))
+        call.respond(HttpStatusCode.OK, UserErasureResponse(result.total, result.checkpointed, 0L))
     }
 }
+
+/** The app row of the secret path (design decision D55): no account filter, the id alone. */
+private data class SecretErasureAppRow(val secretKeyHash: String?, val appKey: String?, val databaseName: String)
+
+// Issue #300, the correction round of 2026-10-01, point 19: the secret
+// path reads the app by its id alone, with no account filter. A NULL
+// secretKeyHash (an app of the kit path, migration 007) never matches
+// any header value, so the caller's 404 covers that case too.
+private fun appForSecretErasure(reader: Connection, appId: Long): SecretErasureAppRow? =
+    reader.prepareStatement("SELECT secret_key_hash, app_key, database_name FROM app WHERE id = ?").use { select ->
+        select.setLong(1, appId)
+        select.executeQuery().use { result ->
+            if (!result.next()) {
+                null
+            } else {
+                SecretErasureAppRow(
+                    result.getString("secret_key_hash"),
+                    result.getString("app_key"),
+                    result.getString("database_name"),
+                )
+            }
+        }
+    }

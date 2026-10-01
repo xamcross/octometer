@@ -129,6 +129,47 @@ public final class IngestPipeline {
      */
     public static List<IngestEvent> process(String rawBody, Clock clock, IngestSettings settings,
             UnaryOperator<String> defaultPathRule) {
+        return processBatch(rawBody, clock, settings, defaultPathRule).events();
+    }
+
+    /**
+     * One processed batch: {@link #events} in the order of the body's
+     * {@code clicks} array, and {@link #userId}, the body's top-level
+     * {@code userId} field, kept only when {@link
+     * IngestSettings#acceptBodyUserId()} is {@code true} and the value
+     * passes {@link #acceptableBodyUserId} (issue #300, design decision
+     * D54). {@code userId} is {@code null} on every other call, the same
+     * as before this issue.
+     *
+     * <p>{@link #userIdDropped} is {@code true} when the body carried a
+     * top-level {@code userId} value, {@link
+     * IngestSettings#acceptBodyUserId()} was {@code true}, and {@link
+     * #acceptableBodyUserId} dropped that value (MAJOR 1 of the review
+     * of pull request #333). It stays {@code false} for an absent value
+     * and for a kept value, so a caller can count only a real drop, and
+     * never an ordinary anonymous batch.
+     */
+    public record IngestBatch(List<IngestEvent> events, String userId, boolean userIdDropped) {
+    }
+
+    /**
+     * Runs {@link #process(String, Clock, IngestSettings, UnaryOperator)}
+     * and also gives the body's own user id, for the collector route of
+     * issue #297 (design decision D54, issue #300). {@link
+     * IngestSettings#acceptBodyUserId()} stays {@code false} for the kit
+     * ingest route, so the body's {@code userId} field keeps no effect
+     * there (contract rules C16, C32).
+     *
+     * <p>With {@link IngestSettings#acceptBodyUserId()} {@code true}, the
+     * collector's own server-side rule of the brief review of
+     * 2026-10-01, point 25 applies: a body user id with an {@code @}
+     * character, a space, or more than 254 characters, counts as absent.
+     * The browser's own filter protects nothing, so the server repeats
+     * it. This method throws no exception for such a value; the batch
+     * stays, with no user id.
+     */
+    public static IngestBatch processBatch(String rawBody, Clock clock, IngestSettings settings,
+            UnaryOperator<String> defaultPathRule) {
         ParsedIngestRequest parsed = IngestParser.parse(rawBody);
         EventFieldValidator.validateSessionId(parsed.sessionId());
 
@@ -203,7 +244,10 @@ public final class IngestPipeline {
 
             events.add(new IngestEvent(parsed.sessionId(), click.element(), ts, path, referrerHost));
         }
-        return List.copyOf(events);
+        String rawBodyUserId = parsed.userId();
+        String bodyUserId = settings.acceptBodyUserId() ? acceptableBodyUserId(rawBodyUserId) : null;
+        boolean userIdDropped = settings.acceptBodyUserId() && rawBodyUserId != null && bodyUserId == null;
+        return new IngestBatch(List.copyOf(events), bodyUserId, userIdDropped);
     }
 
     /**
@@ -214,6 +258,25 @@ public final class IngestPipeline {
     private static boolean hasReservedElementPrefix(String element) {
         return element.length() >= RESERVED_ELEMENT_PREFIX.length()
                 && element.regionMatches(true, 0, RESERVED_ELEMENT_PREFIX, 0, RESERVED_ELEMENT_PREFIX.length());
+    }
+
+    /**
+     * The collector's own server-side rule for a body user id (issue
+     * #300, design decision D54, the brief review of 2026-10-01, point
+     * 25): {@code null} for an absent value, an empty value, a value
+     * above 254 characters, or a value with an {@code @} character or a
+     * space. Each other value stays as it is; this method applies no
+     * other shape check, so a value with a slash still passes (issue
+     * #300, the owner's example {@code team/42}).
+     */
+    private static String acceptableBodyUserId(String rawValue) {
+        if (rawValue == null || rawValue.isEmpty() || rawValue.length() > 254) {
+            return null;
+        }
+        if (rawValue.indexOf('@') >= 0 || rawValue.indexOf(' ') >= 0) {
+            return null;
+        }
+        return rawValue;
     }
 
     /**

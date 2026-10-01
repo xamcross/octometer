@@ -111,6 +111,7 @@ final class IngestParser {
         boolean sessionIdSeen = false;
         List<ParsedClick> clicks = null;
         boolean clicksSeen = false;
+        String userId = null;
         Set<String> seenKeys = new HashSet<>();
 
         skipWhitespace();
@@ -133,6 +134,14 @@ final class IngestParser {
                 } else if (key.equals("clicks")) {
                     clicks = parseClicksArray();
                     clicksSeen = true;
+                } else if (key.equals("userId")) {
+                    // Issue #300 (design decision D54): a top-level
+                    // userId field. Rule C32 keeps this field with no
+                    // effect on the kit ingest route; the lenient read
+                    // here (a non-string type gives null, the same rule
+                    // as a click's own path field) never makes the whole
+                    // body invalid for it.
+                    userId = parseOptionalStringValue();
                 } else {
                     skipValue();
                 }
@@ -159,7 +168,7 @@ final class IngestParser {
             throw new IngestException(IngestException.Reason.MISSING_FIELD,
                     "The body is missing the clicks field.");
         }
-        return new ParsedIngestRequest(sessionId, clicks);
+        return new ParsedIngestRequest(sessionId, clicks, userId);
     }
 
     private List<ParsedClick> parseClicksArray() {

@@ -29,10 +29,17 @@ import octometer.kit.core.path.PathPatternMatcher;
  * anonSessionsPerMinute} are the three per-minute limits of design
  * decision D43 and issue #116. A route gives the three values to one
  * {@link AnonymousMinuteLimiter}.
+ *
+ * <p>{@code acceptBodyUserId} is the hosted collector's own exception of
+ * issue #300 (design decision D54, the brief review of 2026-10-01, point
+ * 23): the default is {@code false}, so the kit ingest route keeps rule
+ * C16 and rule C32 with no change. The collector route sets it to
+ * {@code true}, so the top-level {@code userId} field of the body
+ * reaches the stored event, through {@link IngestPipeline#processBatch}.
  */
 public record IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher pathPatternMatcher,
         long anonMaxEventsPerDay, long anonEventsPerKeyPerDay, long anonReqPerMinute, long anonEventsPerMinute,
-        long anonSessionsPerMinute) {
+        long anonSessionsPerMinute, boolean acceptBodyUserId) {
 
     private static final Logger LOGGER = System.getLogger("octometer.kit.core");
 
@@ -85,6 +92,18 @@ public record IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher p
     }
 
     /**
+     * Builds a setting with no route pattern list, the default daily
+     * caps, and the default per-minute limits, and {@code
+     * acceptBodyUserId} set (issue #300). The collector route uses this
+     * constructor with {@code true}.
+     */
+    public IngestSettings(boolean recordAnonymousClicks, boolean acceptBodyUserId) {
+        this(recordAnonymousClicks, null, DEFAULT_ANON_MAX_EVENTS_PER_DAY, DEFAULT_ANON_EVENTS_PER_KEY_PER_DAY,
+                DEFAULT_ANON_REQ_PER_MIN, DEFAULT_ANON_EVENTS_PER_MIN, DEFAULT_ANON_SESSIONS_PER_MIN,
+                acceptBodyUserId);
+    }
+
+    /**
      * Builds a setting with the default daily caps and the default
      * per-minute limits. A caller from before issue #117 still compiles
      * with this constructor.
@@ -95,13 +114,48 @@ public record IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher p
     }
 
     /**
+     * Builds a setting with the default daily caps, the default
+     * per-minute limits, and {@code acceptBodyUserId} set (issue #300).
+     * The collector route uses this constructor with {@code true}.
+     */
+    public IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher pathPatternMatcher,
+            boolean acceptBodyUserId) {
+        this(recordAnonymousClicks, pathPatternMatcher, DEFAULT_ANON_MAX_EVENTS_PER_DAY,
+                DEFAULT_ANON_EVENTS_PER_KEY_PER_DAY, DEFAULT_ANON_REQ_PER_MIN, DEFAULT_ANON_EVENTS_PER_MIN,
+                DEFAULT_ANON_SESSIONS_PER_MIN, acceptBodyUserId);
+    }
+
+    /**
      * Builds a setting with the default per-minute limits. A caller from
      * before issue #116 still compiles with this constructor.
      */
     public IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher pathPatternMatcher,
             long anonMaxEventsPerDay, long anonEventsPerKeyPerDay) {
         this(recordAnonymousClicks, pathPatternMatcher, anonMaxEventsPerDay, anonEventsPerKeyPerDay,
-                DEFAULT_ANON_REQ_PER_MIN, DEFAULT_ANON_EVENTS_PER_MIN, DEFAULT_ANON_SESSIONS_PER_MIN);
+                DEFAULT_ANON_REQ_PER_MIN, DEFAULT_ANON_EVENTS_PER_MIN, DEFAULT_ANON_SESSIONS_PER_MIN, false);
+    }
+
+    /**
+     * Builds a setting with the default per-minute limits, and {@code
+     * acceptBodyUserId} set (issue #300).
+     */
+    public IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher pathPatternMatcher,
+            long anonMaxEventsPerDay, long anonEventsPerKeyPerDay, boolean acceptBodyUserId) {
+        this(recordAnonymousClicks, pathPatternMatcher, anonMaxEventsPerDay, anonEventsPerKeyPerDay,
+                DEFAULT_ANON_REQ_PER_MIN, DEFAULT_ANON_EVENTS_PER_MIN, DEFAULT_ANON_SESSIONS_PER_MIN,
+                acceptBodyUserId);
+    }
+
+    /**
+     * Builds a setting with every field named (issue #116). A caller
+     * from before issue #300 still compiles with this constructor;
+     * {@code acceptBodyUserId} defaults to {@code false}.
+     */
+    public IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher pathPatternMatcher,
+            long anonMaxEventsPerDay, long anonEventsPerKeyPerDay, long anonReqPerMinute, long anonEventsPerMinute,
+            long anonSessionsPerMinute) {
+        this(recordAnonymousClicks, pathPatternMatcher, anonMaxEventsPerDay, anonEventsPerKeyPerDay,
+                anonReqPerMinute, anonEventsPerMinute, anonSessionsPerMinute, false);
     }
 
     /**
@@ -183,7 +237,20 @@ public record IngestSettings(boolean recordAnonymousClicks, PathPatternMatcher p
      */
     public IngestSettings withPathPatternMatcher(PathPatternMatcher pathPatternMatcher) {
         return new IngestSettings(recordAnonymousClicks(), pathPatternMatcher, anonMaxEventsPerDay(),
-                anonEventsPerKeyPerDay(), anonReqPerMinute(), anonEventsPerMinute(), anonSessionsPerMinute());
+                anonEventsPerKeyPerDay(), anonReqPerMinute(), anonEventsPerMinute(), anonSessionsPerMinute(),
+                acceptBodyUserId());
+    }
+
+    /**
+     * Builds a copy of this setting, with {@code acceptBodyUserId} in
+     * place of the flag of this instance, and every other field
+     * unchanged (issue #300). The collector route calls this method with
+     * {@code true}.
+     */
+    public IngestSettings withAcceptBodyUserId(boolean acceptBodyUserId) {
+        return new IngestSettings(recordAnonymousClicks(), pathPatternMatcher(), anonMaxEventsPerDay(),
+                anonEventsPerKeyPerDay(), anonReqPerMinute(), anonEventsPerMinute(), anonSessionsPerMinute(),
+                acceptBodyUserId);
     }
 
     /**

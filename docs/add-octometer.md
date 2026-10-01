@@ -23,8 +23,8 @@ The attribute `data-endpoint` is optional. Its default value is the origin
 of the script's own `src`, plus `/collect`. Set it only when your app
 proxies the collector behind a different host.
 
-A later issue adds a user id attribute to this script tag. Read issue #300
-for that rule when it lands.
+The attribute `data-user-id` is optional. Read section 7, "Your users",
+for its rule.
 
 ## 2. The npm option
 
@@ -75,3 +75,33 @@ Two rules decide the page of each path:
   groups `/orders/1` and `/orders/2` into one page.
 - A path outside the list gets the default rule. A number, a UUID, or a hex segment
   of 8 characters or more becomes `:id`. Each other path stays as it is.
+
+## 7. Your users
+
+Set the attribute `data-user-id` to a pseudonymous id of your signed-in
+user, for example an account id. Never set it to an email address: the
+tracker drops a value with an `@` character, with no click stored for
+it, so it logs it as anonymous instead.
+
+```html
+<script src="https://app.0ct0meter.com/tracker.js?v=<hash>"
+  data-app-key="<your app key>" data-user-id="<your pseudonymous id>"></script>
+```
+
+The id has 1 to 254 characters. A value with a space, or above 254
+characters, is also dropped; such a click shows in the users view as
+anonymous, not under that id. A value can hold a `/`, for example
+`team/42`.
+
+Erase one user's clicks from your app, and from the users view, with
+your app's secret key:
+
+```
+curl -X DELETE "https://app.0ct0meter.com/api/apps/<your app id>/events?userId=<the user id>" \
+  -H "X-Octometer-Secret: <secret key>"
+```
+
+Percent-encode the user id in the query string, for example `team%2F42`
+for `team/42`. The call needs no session and no `Origin` header: call it
+from your own server, when your app erases that user's account. A wrong
+secret key answers `404`.

@@ -669,6 +669,35 @@ class RequestGuardTest {
         assertEquals(HttpStatusCode.NoContent, trackerResponse.status)
     }
 
+    // -- isErasureEventsPath (issue #300, D55; MAJOR 4 of the review of pull request #333) --
+    //
+    // Ktor decodes each path segment of a route on its own, never the
+    // whole raw path at once, so a percent-escaped slash inside one
+    // segment never becomes a real segment separator there. A raw
+    // target of "/api/apps/5%2Fevents" must still fail the erasure
+    // secret path's own pattern match, or the guard's Origin check and
+    // the session check both skip for a route far wider than the
+    // erasure route.
+
+    @Test
+    fun `isErasureEventsPath gives false for a percent-encoded slash, even with a matching segment count`() {
+        assertEquals(false, isErasureEventsPath("/api/apps/5%2Fevents"))
+        assertEquals(false, isErasureEventsPath("/api/apps/5%2fevents"))
+    }
+
+    @Test
+    fun `DELETE with a percent-encoded slash in the path and the secret header keeps the session rule`() = testApplication {
+        application { module(prodConfig()) }
+
+        val response = client.delete("/api/apps/5%2Fevents") {
+            allowedHost()
+            header(HttpHeaders.Origin, "http://localhost:7431")
+            header(ERASURE_SECRET_HEADER, "irrelevant-value")
+        }
+
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
     @Test
     fun `OriginCheck matches the scheme, the host, and the port, each after lower-casing`() {
         val origins = listOf("https://Example.com", "http://localhost:4200")

@@ -11,6 +11,7 @@ import io.ktor.server.response.respond
 import java.time.Clock
 import kotlinx.serialization.Serializable
 import octometer.monitor.security.isApiPath
+import octometer.monitor.security.isErasureSecretRequest
 import octometer.monitor.store.SqliteDatabase
 
 @Serializable
@@ -49,6 +50,10 @@ fun Application.installSessionCheck(database: SqliteDatabase, clock: Clock = Clo
         val rawPath = call.request.path()
         if (!isApiPath(rawPath)) return@intercept
         if (normalisedPath(rawPath) in EXCLUDED_PATHS) return@intercept
+        // Issue #300 (D55, the correction round of 2026-10-01, B1): the
+        // header present means the secret decides the request; the
+        // route itself checks it, with no fallback to the session.
+        if (isErasureSecretRequest(call.request, rawPath)) return@intercept
 
         val sessionToken = call.request.cookies[SESSION_COOKIE_NAME]
         val accountId = sessionToken?.let { token ->

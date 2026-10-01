@@ -1,4 +1,4 @@
-# Event log contract v1.3
+# Event log contract v1.4
 
 This document states the event log contract of Octometer. The contract has four parts: the
 event document, the ingest request, the reader rule, and the database user. The source is
@@ -18,6 +18,12 @@ C42. Each one now agrees word for word with design version 1.1. It adds no field
 thus it is not a major change under rule C10. A reader of version 1.1 already matches each
 corrected rule, because the correction states no new behavior of the tracker or of the
 server.
+
+Version 1.4 (2026-10-01, issue #300). It amends rule C16 and rule C32: the hosted collector of
+design decision D50 takes the `userId` value of the body when the request carries a valid
+app key, and that field is no longer an unknown field there. The kit's own ingest route of an
+app keeps both rules unchanged. Version 1.4 adds no field and no collection, thus it is a
+minor change under rule C9.
 
 Version 1.3. It is in progress. This change amends rule C42: the app gives its route pattern
 list to the server only, and the tracker sends the raw page path with no list of its own
@@ -118,7 +124,10 @@ key in the header `X-Octometer-Key`.
   `ageMs` value above 600000.
 - **C15.** A negative `ageMs` value is invalid.
 - **C16.** The server takes the `userId` value from the authentication context. The client
-  never sends a `userId` field.
+  never sends a `userId` field. *Changed on 2026-10-01 (issue #300): the hosted collector of
+  design decision D50 takes the `userId` value of the body instead, when the request carries
+  a valid app key (design decision D54). The kit's own ingest route of an app keeps this rule
+  unchanged, because the app's own session is the source there.*
 - **C17.** One batch holds a maximum of 50 clicks. A batch above this limit is invalid; the
   server returns 400.
 - **C18.** One request body has a maximum size of 16 KB. A body above this limit is invalid;
@@ -136,7 +145,10 @@ key in the header `X-Octometer-Key`.
 - **C32.** The server ignores an unknown field in the ingest request body. A `userId` field
   in the body is such a field. The server ignores it. The stored user id comes only from the
   authentication context (rule C16). The server also ignores an unknown field inside an entry
-  of `clicks`.
+  of `clicks`. *Changed on 2026-10-01 (issue #300): on the hosted collector of design decision
+  D50, the `userId` field of the body is no longer an unknown field (rule C16). The server
+  there stores it, under the length rule of section 4.1, and drops a value with an `@`
+  character, a space, or more than 254 characters, with no 400 answer for it.*
 - **C33.** The ingest route checks the `element` value with the rule of C4, and the
   `sessionId` value with the rule of C5. A value that breaks one of these rules makes the
   body invalid; the server returns 400.
@@ -166,7 +178,9 @@ key in the header `X-Octometer-Key`.
   escape `%[0-9A-Fa-f]{2}`. It holds no query string and no fragment. The server matches the
   client value against the route pattern list of the app (rule C42). The server stores only
   the result of that match. The server never stores the raw client value. Rule C16 states
-  the same rule for `userId`.
+  the same rule for `userId`. *Changed on 2026-10-01 (issue #300): the hosted collector's own
+  exception of rule C16 stores the body's `userId` value as the kit gave it, under its own
+  drop rule; the kit's own ingest route keeps the rule of this paragraph unchanged.*
 - **C40.** The `referrerHost` field is optional on `octo:session-start`. It is the literal
   `other`, or it has 1 to 253 bytes, the pattern `[a-z0-9.-]+`, and at least one dot. The
   server converts no letter case. A value with an upper-case letter breaks this rule. The
@@ -320,14 +334,14 @@ is also valid JSON. Its value breaks one rule of the contract.
 | C13 | Ingest body shape | `examples/ingest-valid-C13.json` (valid), `examples/ingest-invalid-C13-missing-sessionid.json` (no `sessionId`), `examples/ingest-invalid-C13-missing-clicks.json` (no `clicks`) |
 | C14 | `ageMs` clamp | No example file. The design does not ask for an example of the clamp. |
 | C15 | Negative `ageMs` | `examples/ingest-invalid-C15-negative-age.json` |
-| C16 | `userId` from the authentication context | No example file. See rule C32. |
+| C16 | `userId` from the authentication context, with the hosted collector's own exception since issue #300 | No example file. See rule C32. |
 | C17 | Batch limit (50 clicks), invalid above the limit | `examples/ingest-invalid-C17-batch-limit.json` |
 | C18 | Body size limit (16 KB), invalid above the limit | `examples/ingest-invalid-C18-body-size.json` — the file's padding field is an ignored unknown field (rule C32); the file breaks only the size rule. |
 | C19 | Response codes | No example file. An HTTP response is not a JSON document in this contract. |
 | C20–C24, C26 | The read window and the delivery model | No example file. These rules state a server-side read algorithm. |
 | C25 | The accepted loss | No example file. This rule states a timing bound, not a document shape. |
 | C27–C31 | The database user | No example file. These rules state shell commands. |
-| C32 | Unknown-field tolerance in the ingest body, `userId` included, and an unknown field inside a `clicks` entry | No dedicated example file. The padding field of `examples/ingest-invalid-C18-body-size.json` is such an ignored field. The `path` field of `examples/ingest-valid-C41-bad-path-dropped.json` is another one, under the present parser. |
+| C32 | Unknown-field tolerance in the ingest body, `userId` included on the kit's own ingest route (not on the hosted collector since issue #300), and an unknown field inside a `clicks` entry | No dedicated example file. The padding field of `examples/ingest-invalid-C18-body-size.json` is such an ignored field. The `path` field of `examples/ingest-valid-C41-bad-path-dropped.json` is another one, under the present parser. |
 | C33 | Ingest-time check of `element` (C4) and `sessionId` (C5) | `examples/ingest-invalid-C4-element-pattern.json`, `examples/ingest-invalid-C4-element-length.json`, `examples/ingest-invalid-C5-session-id.json` |
 | C34 | Cursor start value and advance rule | No example file. This rule states a server-side algorithm. |
 | C35 | Database role limit (`FIND` only, one collection) | No example file. This rule states a database administration fact. |

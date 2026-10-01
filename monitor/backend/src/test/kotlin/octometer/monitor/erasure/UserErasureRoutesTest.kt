@@ -12,6 +12,7 @@ import java.sql.DriverManager
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import octometer.monitor.accounts.sha256Hex
 import octometer.monitor.allowedHost
 import octometer.monitor.captureLogEvents
 import octometer.monitor.module
@@ -52,6 +53,10 @@ class UserErasureRoutesTest {
         assertEquals(1, response.deletedField())
         assertTrue(response.checkpointedField(), "expected checkpointed = true with no other reader")
         assertEquals(listOf("user-b"), remainingUserIds(dataDir, appId))
+        // BLOCKER 2 of the review of pull request #333: the kit path (no
+        // secret header, no app_key) runs no cluster erasure, so the
+        // answer's own clusterDeleted field stays 0.
+        assertEquals(0L, response.clusterDeletedField())
     }
 
     // MINOR 2 of the privacy review: contract rule C6 caps a userId at
@@ -126,6 +131,120 @@ class UserErasureRoutesTest {
         }
 
         assertEquals(HttpStatusCode.BadRequest, status)
+    }
+
+    // Issue #300 (design decision D55, the correction round of
+    // 2026-10-01): the secret path. insertAppWithSecret gives a
+    // non-NULL app_key, so each call below also runs the cluster
+    // erasure; the test config's blank clusterUri makes that call fail
+    // and get caught. BLOCKER 1 of the review of pull request #333:
+    // this failure now skips the cache step and answers 503, so each
+    // test below proves the fail-closed result, not a successful
+    // cache erasure (no real cluster exists in this test module).
+
+    @Test
+    fun `DELETE with a valid secret header needs no session, and a failing cluster client gives 503 with the cache rows kept`() {
+        val (dataDir, accountId) = prepareStore()
+        val markerSecondValue = "a-fixture-secret-value"
+        val appId = insertAppWithSecret(dataDir, accountId, "demo", markerSecondValue)
+        insertEvent(dataDir, appId, "e1", sessionId = "s1", userId = "user-a")
+
+        val response = runEraseWithSecret(dataDir, appId, "user-a", markerSecondValue)
+
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        assertEquals("The erasure did not complete. Try again.", response.errorField())
+        assertEquals(listOf("user-a"), remainingUserIds(dataDir, appId))
+    }
+
+    @Test
+    fun `DELETE with a wrong secret header gives 404 and erases nothing`() {
+        val (dataDir, accountId) = prepareStore()
+        val markerSecondValue = "a-fixture-secret-value"
+        val markerThirdValue = "a-different-fixture-value"
+        val appId = insertAppWithSecret(dataDir, accountId, "demo", markerSecondValue)
+        insertEvent(dataDir, appId, "e1", sessionId = "s1", userId = "user-a")
+
+        val response = runEraseWithSecret(dataDir, appId, "user-a", markerThirdValue)
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+        assertEquals(listOf("user-a"), remainingUserIds(dataDir, appId))
+    }
+
+    @Test
+    fun `DELETE with the secret header and a percent-encoded id reaches the handler, and a failing cluster client gives 503`() {
+        val (dataDir, accountId) = prepareStore()
+        val markerSecondValue = "a-fixture-secret-value"
+        val appId = insertAppWithSecret(dataDir, accountId, "demo", markerSecondValue)
+        insertEvent(dataDir, appId, "e1", sessionId = "s1", userId = "team/42")
+        insertEvent(dataDir, appId, "e2", sessionId = "s2", userId = "team/43")
+
+        val response = runEraseWithSecret(dataDir, appId, "team/42", markerSecondValue)
+
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        assertEquals(listOf("team/42", "team/43"), remainingUserIds(dataDir, appId))
+    }
+
+    @Test
+    fun `DELETE with the secret header and a userId over 254 characters gives 400`() {
+        val (dataDir, accountId) = prepareStore()
+        val markerSecondValue = "a-fixture-secret-value"
+        val appId = insertAppWithSecret(dataDir, accountId, "demo", markerSecondValue)
+        val tooLong = "u".repeat(255)
+
+        val response = runEraseWithSecret(dataDir, appId, tooLong, markerSecondValue)
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `DELETE with no header and no session gives 401`() {
+        val (dataDir, accountId) = prepareStore()
+        val markerSecondValue = "a-fixture-secret-value"
+        val appId = insertAppWithSecret(dataDir, accountId, "demo", markerSecondValue)
+        insertEvent(dataDir, appId, "e1", sessionId = "s1", userId = "user-a")
+
+        lateinit var status: HttpStatusCode
+        testApplication {
+            application { module(prodConfig(dataDir = dataDir)) }
+            startApplication()
+            status = client.delete("/api/apps/$appId/events?userId=user-a") {
+                allowedHost()
+                header(HttpHeaders.Origin, "http://localhost:7431")
+            }.status
+        }
+
+        assertEquals(HttpStatusCode.Unauthorized, status)
+        assertEquals(listOf("user-a"), remainingUserIds(dataDir, appId))
+    }
+
+    // Design decision D58: the sentinel rule of D15 extends to the
+    // secret key. No log line of the secret path, valid or wrong, may
+    // hold it.
+    @Test
+    fun `no log line holds the secret key, on 503 with a failing cluster client`() {
+        val (dataDir, accountId) = prepareStore()
+        val markerSecondValue = "sentinel-secret-value-7f21"
+        val appId = insertAppWithSecret(dataDir, accountId, "demo", markerSecondValue)
+        insertEvent(dataDir, appId, "e1", sessionId = "s1", userId = "user-a")
+
+        val (status, events) = deleteWithSecretAndCaptureLog(dataDir, appId, "user-a", markerSecondValue)
+
+        assertEquals(HttpStatusCode.ServiceUnavailable, status)
+        assertNoLogLineHoldsMarker(events, markerSecondValue)
+    }
+
+    @Test
+    fun `no log line holds the secret key, on 404 with a wrong secret`() {
+        val (dataDir, accountId) = prepareStore()
+        val markerSecondValue = "sentinel-secret-value-9c44"
+        val markerThirdValue = "sentinel-wrong-value-3b10"
+        val appId = insertAppWithSecret(dataDir, accountId, "demo", markerSecondValue)
+        insertEvent(dataDir, appId, "e1", sessionId = "s1", userId = "user-a")
+
+        val (status, events) = deleteWithSecretAndCaptureLog(dataDir, appId, "user-a", markerThirdValue)
+
+        assertEquals(HttpStatusCode.NotFound, status)
+        assertNoLogLineHoldsMarker(events, markerThirdValue)
     }
 
     @Test
@@ -291,12 +410,56 @@ class UserErasureRoutesTest {
         }
         return CapturedResponse(status, body)
     }
+
+    // Issue #300, design decision D55: the secret path, with no session
+    // cookie at all; the header alone must carry the request.
+    private fun runEraseWithSecret(dataDir: String, appId: Long, userId: String, secret: String): CapturedResponse {
+        var status: HttpStatusCode = HttpStatusCode.InternalServerError
+        var body = ""
+        testApplication {
+            application { module(prodConfig(dataDir = dataDir)) }
+            startApplication()
+            val response = client.delete("/api/apps/$appId/events?userId=${urlEncode(userId)}") {
+                allowedHost()
+                header("X-Octometer-Secret", secret)
+            }
+            status = response.status
+            body = response.bodyAsText()
+        }
+        return CapturedResponse(status, body)
+    }
+
+    private fun deleteWithSecretAndCaptureLog(
+        dataDir: String,
+        appId: Long,
+        userId: String,
+        secret: String,
+    ): Pair<HttpStatusCode, List<ch.qos.logback.classic.spi.ILoggingEvent>> {
+        lateinit var status: HttpStatusCode
+        var events = emptyList<ch.qos.logback.classic.spi.ILoggingEvent>()
+        testApplication {
+            application { module(prodConfig(dataDir = dataDir)) }
+            startApplication()
+            val (response, capturedEvents) = captureLogEvents {
+                client.delete("/api/apps/$appId/events?userId=${urlEncode(userId)}") {
+                    allowedHost()
+                    header("X-Octometer-Secret", secret)
+                }
+            }
+            status = response.status
+            events = capturedEvents
+        }
+        return status to events
+    }
 }
 
 private data class CapturedResponse(val status: HttpStatusCode, val body: String) {
     fun deletedField(): Int = Json.parseToJsonElement(body).jsonObject["deleted"]!!.jsonPrimitive.content.toInt()
     fun checkpointedField(): Boolean =
         Json.parseToJsonElement(body).jsonObject["checkpointed"]!!.jsonPrimitive.content.toBoolean()
+
+    // BLOCKER 2 of the review of pull request #333: the cluster row count of eraseUserEventsFromCluster.
+    fun clusterDeletedField(): Long = Json.parseToJsonElement(body).jsonObject["clusterDeleted"]!!.jsonPrimitive.content.toLong()
     fun errorField(): String = Json.parseToJsonElement(body).jsonObject["error"]!!.jsonPrimitive.content
 }
 
@@ -352,6 +515,39 @@ private fun insertApp(dataDir: String, accountId: Long, name: String): Long {
             insert.setString(3, "octometer_events")
             insert.setLong(4, 1_700_000_000_000L)
             insert.setLong(5, accountId)
+            insert.executeUpdate()
+        }
+        connection.createStatement().use { statement ->
+            statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+                result.next()
+                return result.getLong(1)
+            }
+        }
+    }
+}
+
+/**
+ * An app of the collector path (issue #300, design decision D55): a
+ * non-NULL `app_key`, and `secret_key_hash` the SHA-256 hash of
+ * [rawSecret]. The caller keeps [rawSecret] for its own `X-Octometer-Secret`
+ * header; this function stores only its hash, the same rule as
+ * `AppRegistryService.createAppWithOrigins`.
+ */
+private fun insertAppWithSecret(dataDir: String, accountId: Long, name: String, rawSecret: String): Long {
+    val url = "jdbc:sqlite:" + File(dataDir, "octometer.db").absolutePath
+    DriverManager.getConnection(url).use { connection ->
+        connection.prepareStatement(
+            "INSERT INTO app (name, database_name, collection_name, created_at, account_id, app_key, " +
+                "secret_key_hash, origins) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ).use { insert ->
+            insert.setString(1, name)
+            insert.setString(2, "db")
+            insert.setString(3, "octometer_events")
+            insert.setLong(4, 1_700_000_000_000L)
+            insert.setLong(5, accountId)
+            insert.setString(6, "$name-app-key")
+            insert.setString(7, sha256Hex(rawSecret))
+            insert.setString(8, "[]")
             insert.executeUpdate()
         }
         connection.createStatement().use { statement ->

@@ -50,7 +50,7 @@ fun Route.apiRoutes(services: MonitorServices, trackerHash: String?) {
     userTotalsRoute(services.database)
     elementsRoute(services.database)
     firstPagesRoute(services.database)
-    userErasureRoutes(services.database)
+    userErasureRoutes(services.database, services.sharedWriteClient)
     sessionsRoute(services.database)
     // Issue #297 (D50, the brief review of 2026-10-01, M5): the
     // end-to-end suite's own test hook, in config.mode == "dev" only.
@@ -75,7 +75,13 @@ fun Route.apiRoutes(services: MonitorServices, trackerHash: String?) {
                     if (appId !in ownedAppIds) return@mapNotNull null
                     CollectorCounterEntry(appId, sha256Hex(key.substringAfter(':')).take(16), count)
                 }
-            call.respond(HttpStatusCode.OK, CollectorCountersResponse(counters))
+            // MAJOR 1 of the review of pull request #333: the dropped
+            // body user id counter of DailyEventCountStore.recordBodyUserIdDrop,
+            // with the same account filter as every counter above.
+            val droppedBodyUserIds = services.dailyEventCountStore.bodyUserIdDropSnapshot()
+                .filterKeys { it in ownedAppIds }
+                .map { (appId, count) -> DroppedBodyUserIdEntry(appId, count) }
+            call.respond(HttpStatusCode.OK, CollectorCountersResponse(counters, droppedBodyUserIds))
         }
     }
     // Issue #38, step 4: a request below "/api/" never gets index.html.
@@ -104,7 +110,14 @@ data class CollectorCounterEntry(val appId: Long, val addressHash: String, val c
 
 /** The body of `GET /api/dev/collector-counters` (issue #297, the brief review of 2026-10-01, M5). */
 @Serializable
-data class CollectorCountersResponse(val counters: List<CollectorCounterEntry>)
+data class CollectorCountersResponse(
+    val counters: List<CollectorCounterEntry>,
+    val droppedBodyUserIds: List<DroppedBodyUserIdEntry> = emptyList(),
+)
+
+/** One row of [droppedBodyUserIds] (MAJOR 1 of the review of pull request #333): the app id and its drop count. */
+@Serializable
+data class DroppedBodyUserIdEntry(val appId: Long, val count: Long)
 
 /** The app ids of [accountId] (MAJOR 8), for the account filter of `GET /api/dev/collector-counters`. */
 private suspend fun ownedAppIds(database: SqliteDatabase, accountId: Long): Set<Long> =
