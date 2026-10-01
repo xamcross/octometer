@@ -3,12 +3,14 @@ package octometer.monitor.frontend
 import io.ktor.client.request.get
 import io.ktor.client.request.head
 import io.ktor.client.request.header
+import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.io.File
 import java.nio.file.Files
+import java.security.MessageDigest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import octometer.monitor.allowedHost
@@ -247,5 +249,84 @@ class StaticFrontendTest {
         val jarFile = File(libDir, "backend.jar").also { it.writeText("no static sibling here") }
 
         assertNull(staticDirBesideJar(jarFile))
+    }
+
+    // Issue #298, D53 (the brief review of 2026-10-01, B5): GET
+    // /tracker.js, served from the same static folder as the Angular
+    // build. These cases cover the headers, the two cache rules, and
+    // the content; octometer.monitor.tracker holds the route itself.
+
+    private val trackerBody = "console.log('octometer tracker');"
+
+    private fun trackerHashOf(body: String): String =
+        MessageDigest.getInstance("SHA-256").digest(body.toByteArray()).joinToString("") { "%02x".format(it) }
+
+    private fun staticDirWithTracker(body: String = trackerBody): File {
+        val root = Files.createTempDirectory("octometer-tracker-test-").toFile().also { registerTempRoot(it) }
+        File(root, "tracker.js").writeText(body)
+        return root
+    }
+
+    @Test
+    fun `GET tracker js serves the bundle with its content type and ETag`() = testApplication {
+        application { module(prodConfig(), staticDirWithTracker()) }
+
+        val response = client.get("/tracker.js") { allowedHost() }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(trackerBody, response.bodyAsText())
+        assertEquals("text/javascript; charset=utf-8", response.headers[HttpHeaders.ContentType])
+        assertEquals("\"${trackerHashOf(trackerBody)}\"", response.headers[HttpHeaders.ETag])
+    }
+
+    @Test
+    fun `GET tracker js with no v query gives the one-hour Cache-Control`() = testApplication {
+        application { module(prodConfig(), staticDirWithTracker()) }
+
+        val response = client.get("/tracker.js") { allowedHost() }
+
+        assertEquals("public, max-age=3600", response.headers[HttpHeaders.CacheControl])
+    }
+
+    @Test
+    fun `GET tracker js with the matching v query gives the one-year immutable Cache-Control`() = testApplication {
+        application { module(prodConfig(), staticDirWithTracker()) }
+        val hash = trackerHashOf(trackerBody)
+
+        val response = client.get("/tracker.js?v=$hash") { allowedHost() }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("public, max-age=31536000, immutable", response.headers[HttpHeaders.CacheControl])
+    }
+
+    @Test
+    fun `GET tracker js with a wrong v query still gives 200 and the one-hour Cache-Control`() = testApplication {
+        application { module(prodConfig(), staticDirWithTracker()) }
+
+        val response = client.get("/tracker.js?v=not-the-real-hash") { allowedHost() }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals(trackerBody.toByteArray().toList(), response.bodyAsBytes().toList())
+        assertEquals("public, max-age=3600", response.headers[HttpHeaders.CacheControl])
+    }
+
+    @Test
+    fun `GET tracker js gives 404 when the static folder holds no tracker bundle`() = testApplication {
+        val root = Files.createTempDirectory("octometer-tracker-test-").toFile().also { registerTempRoot(it) }
+        application { module(prodConfig(), root) }
+
+        val response = client.get("/tracker.js") { allowedHost() }
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
+        assertNotNull(Json.parseToJsonElement(response.bodyAsText()).jsonObject["error"])
+    }
+
+    @Test
+    fun `GET tracker js gives 404 with no static folder configured at all`() = testApplication {
+        application { module(prodConfig(), staticDir = null) }
+
+        val response = client.get("/tracker.js") { allowedHost() }
+
+        assertEquals(HttpStatusCode.NotFound, response.status)
     }
 }

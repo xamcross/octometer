@@ -31,14 +31,20 @@ import octometer.monitor.users.userTotalsRoute
  * MINOR 3 (third Ktor review): this function took a `config` parameter
  * that it never read. [MonitorServices] already holds the config, so the
  * parameter is gone.
+ *
+ * [trackerHash] is the hash of the served tracker bundle (design
+ * decision D53, issue #298), or `null` with no bundle on this instance
+ * (the brief review of 2026-10-01, B5). `meRoute` passes it through to
+ * `GET /api/me`, so the manage view's keys panel can build the hashed
+ * script tag with no extra route.
  */
-fun Route.apiRoutes(services: MonitorServices) {
+fun Route.apiRoutes(services: MonitorServices, trackerHash: String?) {
     // Issue #301, D52: the sign-in routes carry no session; each other
     // route below needs one, through the session check that Application.kt
     // installs. signInRoutes needs the config for the client address
     // header and the cookie's Secure flag.
     signInRoutes(services.signInService, services.config)
-    meRoute(services.signInService, services.config)
+    meRoute(services.signInService, services.config, trackerHash)
     appRegistryRoutes(services.appRegistryService, services.dailyEventCountStore)
     appTotals(services.database)
     userTotalsRoute(services.database)

@@ -512,12 +512,35 @@ val buildFrontend = tasks.register<Exec>("buildFrontend") {
     outputs.dir(frontendBuildDir.map { it.dir("browser") })
 }
 
+// Issue #298, D53 (the brief review of 2026-10-01, B4, B5): the IIFE
+// bundle of kit/tracker, renamed to "tracker.js", for the "static"
+// folder of the distribution (the Angular build lands there too, the
+// block right below). The Gradle module ":kit:tracker" owns the npm
+// build itself, through its own task "npmBuild"; this task only
+// copies and renames its one output file.
+val trackerDistDir = layout.buildDirectory.dir("tracker-dist")
+
+val copyTrackerAsset = tasks.register<Copy>("copyTrackerAsset") {
+    group = "distribution"
+    description = "Copies the IIFE bundle of kit/tracker into this distribution's static folder, as tracker.js."
+    dependsOn(":kit:tracker:npmBuild")
+    from(rootProject.layout.projectDirectory.file("kit/tracker/dist/tracker.iife.js")) {
+        rename { "tracker.js" }
+    }
+    into(trackerDistDir)
+}
+
 // Issue #38, step 2: distZip and installDist package the Angular build
-// as the "static" folder next to "lib".
+// as the "static" folder next to "lib". copyTrackerAsset joins it at
+// issue #298: both land in "static", so GET /tracker.js and the
+// Angular route (StaticFrontend.kt) read one and the same folder.
 distributions {
     main {
         contents {
             from(buildFrontend) {
+                into("static")
+            }
+            from(copyTrackerAsset) {
                 into("static")
             }
         }
