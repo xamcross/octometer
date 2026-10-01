@@ -12,6 +12,12 @@
     />
     <link rel="stylesheet" href="/src/styles/tokens.css" />
     <link rel="stylesheet" href="/src/styles/site.css" />
+    <!-- #289, correction B1: this early class avoids a flash of the hidden
+         nodes before the module script of "main.ts" runs. -->
+    <script>
+      var hasObserver = typeof window.IntersectionObserver === 'function';
+      if (hasObserver) document.documentElement.classList.add('js');
+    </script>
   </head>
   <body>
     <div class="page">
@@ -39,11 +45,214 @@
         </div>
       </header>
 
-      <!-- #289: the "How it works" section, with the three steps and the flow diagram. -->
-      <!-- #289: the "Three levels in your dashboard" section. -->
-      <!-- #290: the "What we keep" privacy section. -->
-      <!-- #290: the footer notice of the waitlist. -->
+      <section class="sec" aria-labelledby="how-title">
+        <h2 id="how-title">How it works</h2>
+        <div class="how">
+          <ol class="steps">
+            <li>
+              <h3>Register your app</h3>
+              <p>You sign in with a mail link, you register your app, and you get a key.</p>
+            </li>
+            <li>
+              <h3>Add one script tag</h3>
+              <p>You paste one script tag into your pages. Nothing else changes in your app.</p>
+            </li>
+            <li>
+              <h3>Open your dashboard</h3>
+              <p>
+                The dashboard shows the clicks, the users, and the elements of your app within a
+                minute.
+              </p>
+            </li>
+          </ol>
+          <figure class="flow">
+            <svg
+              viewBox="0 0 300 356"
+              role="img"
+              aria-label="One click travels from your page through the tracker in the browser to Octometer and to your dashboard."
+            >
+              <g class="node on" style="--i: 0">
+                <g transform="translate(0,0)">
+                  <rect class="flow-sunny" x="20" y="0" width="260" height="68" rx="16" />
+                  <g class="glyph" transform="translate(38,14)">
+                    <path d="M8 4 8 30 14 24 19 34 24 32 19 22 27 21Z" />
+                    <path d="M28 7 33 3M30 14 36 13" />
+                  </g>
+                  <text class="nt" x="96" y="30">A click</text>
+                  <text class="ns" x="96" y="48">on your page</text>
+                </g>
+              </g>
+              <path class="arrow" d="M150 74 150 84M144 79 150 86 156 79" />
+              <g class="node in-ink" style="--i: 1">
+                <g transform="translate(0,96)">
+                  <rect class="flow-in" x="20" y="0" width="260" height="68" rx="16" />
+                  <g class="glyph" transform="translate(38,14)">
+                    <path d="M13 9 5 20 13 31M27 9 35 20 27 31M23 6 17 34" />
+                  </g>
+                  <text class="nt" x="96" y="30">The tracker</text>
+                  <text class="ns" x="96" y="48">in the browser</text>
+                </g>
+              </g>
+              <path class="arrow" d="M150 170 150 180M144 175 150 182 156 175" />
+              <g class="node on" style="--i: 2">
+                <g transform="translate(0,192)">
+                  <rect class="flow-octo" x="20" y="0" width="260" height="68" rx="16" />
+                  <g class="glyph" transform="translate(38,14)">
+                    <circle cx="20" cy="16" r="12" />
+                    <circle cx="15" cy="13" r="2" style="fill: var(--on-bright); stroke: none" />
+                    <circle cx="25" cy="13" r="2" style="fill: var(--on-bright); stroke: none" />
+                  </g>
+                  <text class="nt" x="96" y="30">Octometer</text>
+                  <text class="ns" x="96" y="48">counts the click</text>
+                </g>
+              </g>
+              <path class="arrow" d="M150 266 150 276M144 271 150 278 156 271" />
+              <g class="node on" style="--i: 3">
+                <g transform="translate(0,288)">
+                  <rect class="flow-sea" x="20" y="0" width="260" height="68" rx="16" />
+                  <g class="glyph" transform="translate(38,14)">
+                    <rect x="6" y="6" width="28" height="21" rx="3" />
+                    <path d="M2 32 38 32M13 22 13 16M20 22 20 11M27 22 27 18" />
+                  </g>
+                  <text class="nt" x="96" y="30">Your dashboard</text>
+                  <text class="ns" x="96" y="48">app.0ct0meter.com</text>
+                </g>
+              </g>
+            </svg>
+            <figcaption class="small soft">
+              One click travels from your page to Octometer and to your dashboard. Nothing else
+              travels.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="sec" aria-labelledby="levels-title">
+        <h2 id="levels-title">Three levels in your dashboard</h2>
+        <p class="sec-lead">
+          The dashboard opens on the apps. A click on a row opens the next level.
+        </p>
+        <div class="levels">
+          <figure class="frame" id="level-apps">
+            <h3>The apps view</h3>
+            <picture>
+              <source srcset="/screens/apps-600.png" media="(max-width: 48rem)" />
+              <img
+                src="/screens/apps-1200.png"
+                alt="The apps view: the app name, the clicks, the unique users, the unique sessions, the first pages, the status, and the data time."
+                width="1200"
+                height="800"
+                loading="lazy"
+              />
+            </picture>
+            <figcaption>
+              Each app gives its totals: the clicks, the unique users, the unique sessions.
+            </figcaption>
+          </figure>
+          <figure class="frame">
+            <h3>The users view</h3>
+            <picture>
+              <source srcset="/screens/users-600.png" media="(max-width: 48rem)" />
+              <img
+                src="/screens/users-1200.png"
+                alt="The users view: the user id, the clicks, the sessions, and the unique elements."
+                width="1200"
+                height="800"
+                loading="lazy"
+              />
+            </picture>
+            <figcaption>
+              One app row opens its users. A user id is pseudonymous, never an email address.
+            </figcaption>
+          </figure>
+          <figure class="frame">
+            <h3>The elements view</h3>
+            <picture>
+              <source srcset="/screens/elements-600.png" media="(max-width: 48rem)" />
+              <img
+                src="/screens/elements-1200.png"
+                alt="The elements view: the element, the clicks, the sessions, and the last interaction time."
+                width="1200"
+                height="800"
+                loading="lazy"
+              />
+            </picture>
+            <figcaption>
+              One user row opens each element that this user touched, with the newest click time.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <!-- #290: the "What we keep" privacy section (the mockup section 4, the corrected first point of the brief review). -->
+      <section class="sec" aria-labelledby="privacy-title">
+        <h2 id="privacy-title">What we keep</h2>
+        <ul class="points">
+          <li>
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <rect class="f-sea" x="2.5" y="2.5" width="19" height="19" rx="4" />
+              <path d="M6.5 8h11M6.5 12h11M6.5 16h7" />
+            </svg>
+            <p>
+              We keep the click, the page pattern, the time, and the host your visitor came
+              from. Nothing else.
+            </p>
+          </li>
+          <li>
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <rect class="f-shal" x="2.5" y="4.5" width="19" height="15" rx="3" />
+              <path d="M2.5 9.5h19M6 7h4" />
+            </svg>
+            <p>Your users get a pseudonymous id and a session id. We set no cookie in your page.</p>
+          </li>
+          <li>
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                class="f-octo"
+                d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6Z"
+              />
+              <circle class="pupil" cx="12" cy="12" r="2.6" />
+              <path d="M4 4 20 20" />
+            </svg>
+            <p>We never store an IP address.</p>
+          </li>
+          <li>
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true">
+              <path class="f-coral" d="M6.5 7h11l-1 13h-9Z" />
+              <path d="M4.5 7h15M9.5 7V4.2h5V7" />
+            </svg>
+            <p>One call erases one user. Each click goes after 12 months.</p>
+          </li>
+        </ul>
+        <p><a href="#notice">Read the notice of the waitlist.</a></p>
+      </section>
+
       <!-- #291: the "Join the waitlist" section, with the email field and its two answers. -->
+
+      <!-- #290: the footer notice of the waitlist. The footer is the last
+           element of ".page" (the note of the brief review). -->
+      <footer class="foot" id="notice" tabindex="-1">
+        <h2>The notice of the waitlist</h2>
+        <ul class="notice">
+          <li><strong>The purpose.</strong> We use your address for the news of Octometer. We send no other mail.</li>
+          <li><strong>The data.</strong> We store your address, the day you join, and the day you confirm.</li>
+          <li><strong>The retention.</strong> We remove an address that stays unconfirmed for 7 days.</li>
+          <li>
+            <strong>The retention of a confirmed address.</strong> We keep it until you remove
+            yourself, or 12 months after the launch.
+          </li>
+          <li>
+            <strong>The third parties.</strong> Resend, our mail service, sends the mails.
+            Nobody else gets your address.
+          </li>
+          <li><strong>The removal.</strong> Each mail holds a removal link. You can also write to the contact address.</li>
+        </ul>
+        <div class="foot-meta">
+          <p>The privacy policy of the service: app.0ct0meter.com/privacy (the page comes with the service).</p>
+          <p>Contact: <a href="mailto:support@0ct0meter.com">support@0ct0meter.com</a></p>
+          <p>This page sets no cookie and loads no third-party script.</p>
+        </div>
+      </footer>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

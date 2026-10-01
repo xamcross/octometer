@@ -57,7 +57,9 @@ a:hover {
   display: grid;
   gap: var(--space-7);
 }
-.page > * {
+.page > *,
+.how > *,
+.frame > * {
   min-width: 0;
 }
 .small {
@@ -65,6 +67,16 @@ a:hover {
 }
 .soft {
   color: var(--ink-soft);
+}
+.sec {
+  display: grid;
+  gap: var(--space-5);
+}
+.sec > h2 {
+  font-size: var(--text-2xl);
+}
+.sec-lead {
+  max-width: 60ch;
 }
 
 /* 1. The hero: the one bold place of the page. */
@@ -164,6 +176,202 @@ a:hover {
   text-decoration: none;
 }
 
+/* 2. How it works (issue #289, the mockup rules verbatim). */
+.how {
+  display: grid;
+  gap: var(--space-6);
+  align-items: start;
+}
+.steps {
+  display: grid;
+  gap: var(--space-4);
+  counter-reset: step;
+}
+.steps li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-4);
+  align-items: baseline;
+  counter-increment: step;
+}
+.steps li::before {
+  content: counter(step);
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  background: var(--sunny);
+  color: var(--on-bright);
+  border: var(--line-control);
+  border-color: var(--on-bright);
+  border-radius: var(--radius-pill);
+  font: 600 var(--text-m) / 1 var(--display);
+}
+.steps h3 {
+  font-size: var(--text-l);
+}
+.steps p {
+  max-width: 48ch;
+}
+.flow {
+  margin: 0;
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+.flow svg {
+  width: 100%;
+  max-width: 19rem;
+  height: auto;
+}
+.flow-in {
+  fill: var(--paper);
+  stroke: var(--ink);
+}
+.flow-sunny {
+  fill: var(--sunny);
+}
+.flow-octo {
+  fill: var(--octo);
+}
+.flow-sea {
+  fill: var(--seaweed);
+}
+.flow-sunny,
+.flow-octo,
+.flow-sea {
+  stroke: var(--on-bright);
+}
+.flow rect {
+  stroke-width: 2.5;
+}
+.flow .arrow,
+.flow .glyph * {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.flow .arrow {
+  stroke: var(--ink);
+}
+.flow text {
+  stroke: none;
+}
+.flow .nt {
+  font: 600 15px / 1 var(--display);
+}
+.flow .ns {
+  font: 400 11.5px / 1 var(--body);
+}
+.on,
+.on text {
+  fill: var(--on-bright);
+}
+.on .glyph * {
+  stroke: var(--on-bright);
+}
+.in-ink text {
+  fill: var(--ink);
+}
+.in-ink .glyph * {
+  stroke: var(--ink);
+}
+
+/* 3. The three levels (issue #289, the mockup rules verbatim). */
+.levels {
+  display: grid;
+  gap: var(--space-5);
+}
+.frame {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--paper);
+  border: var(--line-panel);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+  margin: 0;
+}
+.frame h3 {
+  font-size: var(--text-l);
+}
+.frame figcaption {
+  max-width: 50ch;
+}
+/* Correction m3 of the brief review: the frame image never grows past it. */
+.frame img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* 4. What we keep (issue #290, the mockup rules verbatim). */
+.points {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+.points li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  align-items: start;
+}
+.points p {
+  max-width: 40ch;
+}
+.ic {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ic .f-sea {
+  fill: var(--seaweed);
+}
+.ic .f-shal {
+  fill: var(--shallows-deep);
+}
+.ic .f-octo {
+  fill: var(--octo);
+}
+.ic .f-coral {
+  fill: var(--coral);
+}
+.ic .pupil {
+  fill: var(--on-bright);
+  stroke: none;
+}
+
+/* 6. The footer with the notice (issue #290, the mockup rules verbatim). */
+.foot {
+  display: grid;
+  gap: var(--space-4);
+  padding-top: var(--space-5);
+  border-top: var(--line-control);
+}
+.foot h2 {
+  font-size: var(--text-xl);
+}
+.notice {
+  display: grid;
+  gap: var(--space-2);
+}
+.notice li {
+  max-width: 60ch;
+}
+.foot-meta {
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-s);
+}
+
 /*
  * The quality floor (issue #287, issue #288): the focus ring of
  * docs/design.md, on every control, and the reduced-motion and
@@ -177,6 +385,24 @@ a:hover {
 .btn:focus-visible {
   box-shadow: var(--shadow-control), 0 0 0 7px var(--ink);
 }
+/*
+ * The scroll reveal of the flow illustration (issue #289). This rule
+ * stands before the reduced-motion block below, so the override rule of
+ * that block wins the tie of equal specificity (lesson 14 of the
+ * frontend brief: the source order decides).
+ */
+.js .node {
+  opacity: 0;
+  transform: translateY(10px);
+  transition:
+    opacity 300ms ease-out,
+    transform 300ms ease-out;
+  transition-delay: calc(var(--i) * 90ms);
+}
+.js .node-in {
+  opacity: 1;
+  transform: none;
+}
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -187,9 +413,15 @@ a:hover {
   .arms {
     animation: none;
   }
+  .js .node {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }
 @media (forced-colors: active) {
-  .btn {
+  .btn,
+  .frame {
     outline: 2px solid;
     outline-offset: 0;
   }
@@ -201,5 +433,14 @@ a:hover {
 @media (min-width: 48rem) {
   .page {
     padding-inline: var(--space-6);
+  }
+  .how {
+    grid-template-columns: 1fr 20rem;
+  }
+  .levels {
+    grid-template-columns: 1fr 1fr;
+  }
+  .levels > :first-child {
+    grid-column: 1 / -1;
   }
 }
