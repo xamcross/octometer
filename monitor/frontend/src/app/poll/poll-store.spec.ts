@@ -50,7 +50,11 @@ describe('createPollStore', () => {
       providers: [provideHttpClient(), provideHttpClientTesting()],
     });
     httpMock = TestBed.inject(HttpTestingController);
+    // Issue #301, brief review B4: the health poll waits for the start
+    // gate. This suite builds a poll store alone, with no App shell to
+    // open it, so it opens the gate itself.
     vi.useFakeTimers();
+    TestBed.inject(RefreshIntervalState).allowStart();
     document.body.innerHTML = '';
     Object.defineProperty(document, 'hidden', { value: false, configurable: true });
   });

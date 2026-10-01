@@ -405,17 +405,36 @@ class MonitorServicesTest {
         return count
     }
 
+    // MAJOR 3 of the review of pull request #313 (issue #301): the poll
+    // scheduler now skips a row with account_id NULL, so this row needs
+    // an account, the same as a row that a real sign-in and a real
+    // create leave behind.
     private suspend fun seedOneAppRow(): Long {
         val database = SqliteDatabase.open(dataDir)
         val appId = try {
             database.write { writer ->
+                val accountId = writer.prepareStatement(
+                    "INSERT INTO account (email, created_at) VALUES (?, ?)",
+                ).use { insert ->
+                    insert.setString(1, "demo@example.com")
+                    insert.setLong(2, System.currentTimeMillis())
+                    insert.executeUpdate()
+                }.let {
+                    writer.createStatement().use { statement ->
+                        statement.executeQuery("SELECT last_insert_rowid()").use { result ->
+                            result.next()
+                            result.getLong(1)
+                        }
+                    }
+                }
                 writer.prepareStatement(
-                    "INSERT INTO app (name, database_name, collection_name, created_at) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO app (name, database_name, collection_name, created_at, account_id) VALUES (?, ?, ?, ?, ?)",
                 ).use { insert ->
                     insert.setString(1, "demo")
                     insert.setString(2, "db")
                     insert.setString(3, "octometer_events")
                     insert.setLong(4, System.currentTimeMillis())
+                    insert.setLong(5, accountId)
                     insert.executeUpdate()
                 }
                 writer.createStatement().use { statement ->

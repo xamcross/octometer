@@ -162,6 +162,10 @@ class SqlitePollStoreTest {
     }
 }
 
+// MAJOR 3 of the review of pull request #313 (issue #301): readAppRows
+// now skips a row with account_id NULL, so this helper gives each app
+// row an account, the same as a row that a real sign-in and a real
+// create leave behind.
 private suspend fun insertApp(
     database: SqliteDatabase,
     name: String,
@@ -171,9 +175,16 @@ private suspend fun insertApp(
     collectionName: String = "octometer_events",
 ): Long =
     database.write { writer ->
+        val accountId = writer.prepareStatement(
+            "INSERT INTO account (email, created_at) VALUES (?, ?)",
+        ).use { insert ->
+            insert.setString(1, "$name@example.com")
+            insert.setLong(2, 0L)
+            insert.executeUpdate()
+        }.let { lastInsertId(writer) }
         writer.prepareStatement(
-            "INSERT INTO app (name, database_name, collection_name, created_at, next_poll_at, cursor) " +
-                "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO app (name, database_name, collection_name, created_at, next_poll_at, cursor, account_id) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
         ).use { insert ->
             insert.setString(1, name)
             insert.setString(2, databaseName)
@@ -181,6 +192,7 @@ private suspend fun insertApp(
             insert.setLong(4, 0L)
             if (nextPollAt != null) insert.setLong(5, nextPollAt) else insert.setNull(5, java.sql.Types.INTEGER)
             insert.setString(6, cursor)
+            insert.setLong(7, accountId)
             insert.executeUpdate()
         }
         lastInsertId(writer)

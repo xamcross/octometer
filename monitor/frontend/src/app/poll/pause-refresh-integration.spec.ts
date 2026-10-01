@@ -6,6 +6,7 @@ import { of } from 'rxjs';
 
 import { PauseRefreshButton } from './pause-refresh-button';
 import { PollStore, createPollStore } from './poll-store';
+import { RefreshIntervalState } from './refresh-interval-state';
 
 /**
  * A host component. It binds the button to a poll store, the way a view does.
@@ -32,7 +33,11 @@ describe('PauseRefreshButton bound to a poll store', () => {
       providers: [provideHttpClient(), provideHttpClientTesting()],
     });
     httpMock = TestBed.inject(HttpTestingController);
+    // Issue #301, brief review B4: the health poll waits for the start
+    // gate. This suite builds a poll store alone, with no App shell to
+    // open it, so it opens the gate itself.
     vi.useFakeTimers();
+    TestBed.inject(RefreshIntervalState).allowStart();
     fixture = TestBed.createComponent(PauseRefreshTestHost);
     fixture.detectChanges();
   });

@@ -99,7 +99,15 @@ export class App {
     effect(() => this.announceMonitorApiTransition());
 
     // Issue #301, brief review B4: the health poll starts only after
-    // this call answers once, good or bad.
+    // one good answer of GET /api/me. me.load() sends that request;
+    // the effect below opens the poll's start gate once me.ready()
+    // turns true, so a visitor with no session sends no /api/health
+    // request at all (a 401 there never sets ready).
+    effect(() => {
+      if (this.me.ready()) {
+        this.intervalState.allowStart();
+      }
+    });
     this.me.load();
   }
 

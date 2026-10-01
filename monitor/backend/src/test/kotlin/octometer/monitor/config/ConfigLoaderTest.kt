@@ -1,9 +1,23 @@
 package octometer.monitor.config
 
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.server.testing.testApplication
 import java.io.File
+import java.sql.DriverManager
 import kotlinx.coroutines.runBlocking
+import octometer.monitor.accounts.insertInvite
+import octometer.monitor.allowedHost
 import octometer.monitor.captureLogEvents
+import octometer.monitor.devConfig
 import octometer.monitor.logStart
+import octometer.monitor.module
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -520,6 +534,69 @@ class ConfigLoaderTest {
         assertFalse(lines.contains(markerConfigValue), "the log must never hold the real secret value")
     }
 
+    // MAJOR 5 of the review of pull request #313 (issue #301, D58): D58
+    // extends the log rule of D15 to the sign-in token, the session id,
+    // and the mail address. ConnectionStringSentinelContainerTest.kt
+    // needs Docker for its own marker flow (the Mongo container); this
+    // guard needs none, so it sits here instead, the same choice as the
+    // config-value sentinel above. It drives one real sign-in (the
+    // file mail sender writes the link to a file, the same as the
+    // end-to-end suite), one real confirm, and one real API call, each
+    // with a marker value, then reads the whole captured log for each
+    // of the three.
+    @Test
+    fun `a real sign-in, confirm, and API call never write the address, the token, or the session id to the log`() =
+        testApplication {
+            val markerEmail = "octomarkersigninuser4f9c@example.com"
+            val config = devConfig()
+            application { module(config) }
+            startApplication()
+            insertInviteRow(config.dataDir, markerEmail)
+
+            val (marker, events) = captureLogEvents {
+                val signInResponse = client.post("/api/signin") {
+                    allowedHost()
+                    header("Origin", "http://localhost:7431")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"email":"$markerEmail"}""")
+                }
+                assertEquals(HttpStatusCode.Accepted, signInResponse.status)
+
+                val mailFile = File(config.mailDir).listFiles()?.maxByOrNull { it.lastModified() }
+                    ?: error("The mail folder ${config.mailDir} holds no file.")
+                val mailText = mailFile.readText()
+                val token = Regex("token=([A-Za-z0-9_-]+)").find(mailText)?.groupValues?.get(1)
+                    ?: error("The mail text carries no token:\n$mailText")
+
+                val confirmResponse = client.post("/api/signin/confirm") {
+                    allowedHost()
+                    header("Origin", "http://localhost:7431")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"token":"$token"}""")
+                }
+                assertEquals(HttpStatusCode.NoContent, confirmResponse.status)
+                val setCookie = confirmResponse.headers[HttpHeaders.SetCookie]
+                    ?: error("The confirm answer carries no Set-Cookie header.")
+                val sessionValue = Regex("octometer_session=([^;]+)").find(setCookie)?.groupValues?.get(1)
+                    ?: error("The Set-Cookie header carries no session value: $setCookie")
+
+                val meResponse = client.get("/api/me") {
+                    allowedHost()
+                    header(HttpHeaders.Cookie, "octometer_session=$sessionValue")
+                }
+                assertEquals(HttpStatusCode.OK, meResponse.status)
+
+                Triple(markerEmail, token, sessionValue)
+            }
+
+            val (address, token, sessionValue) = marker
+            val lines = events.joinToString("\n") { it.formattedMessage }
+
+            assertFalse(lines.contains(address), "the log must never hold the mail address: $lines")
+            assertFalse(lines.contains(token), "the log must never hold the sign-in token: $lines")
+            assertFalse(lines.contains(sessionValue), "the log must never hold the session id: $lines")
+        }
+
     // Issue #301, brief review M8: the default of mailSender is "file"
     // when publicUrl is blank or a loopback host, else "resend".
     @Test
@@ -567,5 +644,23 @@ class ConfigLoaderTest {
         val file = File.createTempFile("octometer-test-missing-", ".conf")
         file.delete()
         return file
+    }
+
+    // MAJOR 5 of the review of pull request #313: a raw JDBC connection
+    // of its own, the same pattern as TestConfigs.kt's
+    // sessionCookieValue helpers (WAL mode admits a second writer). The
+    // wait loop covers the same lazy start of Ktor's testApplication
+    // (the module, and so the migrations, run at the first request, not
+    // at the `application { }` call).
+    private fun insertInviteRow(dataDir: String, email: String) {
+        val dbFile = File(dataDir, "octometer.db")
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (!dbFile.isFile && System.nanoTime() < deadline) {
+            Thread.sleep(20)
+        }
+        DriverManager.getConnection("jdbc:sqlite:" + dbFile.absolutePath).use { connection ->
+            connection.createStatement().use { it.execute("PRAGMA busy_timeout=5000") }
+            insertInvite(connection, email, System.currentTimeMillis())
+        }
     }
 }

@@ -1,6 +1,8 @@
 import { HttpClient } from '@angular/common/http';
-import { Component, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { map } from 'rxjs';
 
 import { Announcer } from '../announcer';
 import { NETWORK_FAILURE_MESSAGE, readApiErrorMessage } from '../manage/app-registry-api';
@@ -40,13 +42,36 @@ export class Signin {
   private readonly route = inject(ActivatedRoute);
   private readonly announcer = inject(Announcer);
 
-  /** The token of the query string, or null for the plain request form. */
-  protected readonly token = signal<string | null>(this.route.snapshot.queryParamMap.get('token'));
+  /**
+   * The token of the query string, or null for the plain request form.
+   * MAJOR 1 of the review of pull request #313: Angular reuses this one
+   * component instance for the whole `/signin` route, so a read of
+   * `route.snapshot` at construction never changes again. This reads
+   * the query-parameter stream instead, so a link such as "Request a
+   * new link" (which changes the URL to `/signin`, with no navigation
+   * away from the route) brings the plain form back.
+   */
+  protected readonly token = toSignal(
+    this.route.queryParamMap.pipe(map((params) => params.get('token'))),
+    { initialValue: this.route.snapshot.queryParamMap.get('token') },
+  );
 
   protected readonly email = signal('');
   protected readonly pending = signal(false);
   protected readonly requestSent = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
+
+  constructor() {
+    // MAJOR 1 of the review of pull request #313: a token that turns
+    // null (the visitor left the confirm page for the plain form)
+    // clears a stale confirm error, so the form shows with no leftover
+    // text of the link it replaces.
+    effect(() => {
+      if (this.token() === null) {
+        this.errorMessage.set(null);
+      }
+    });
+  }
 
   protected onEmailInput(event: Event): void {
     this.email.set((event.target as HTMLInputElement).value);

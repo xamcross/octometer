@@ -56,7 +56,7 @@ local run keeps `mailSender=file` by default (a blank `publicUrl`), so
 no address needs an invite yet: run
 
 ```powershell
-octometer.cmd --invite <your address>
+bin\backend.bat --invite <your address>
 ```
 
 then request a link on the sign-in page. Read the newest file of the
@@ -360,12 +360,17 @@ Every route under `/api/` needs a session now, except `/api/signin`,
 link; an account sees the apps of that account only.
 
 The invite list controls who can sign in. Add an address with the
-launcher, on the Fly machine:
+launcher: locally, `bin\backend.bat --invite <address>` (Linux:
+`bin/backend --invite <address>`). On the Fly machine:
 
 ```
 flyctl ssh console
-octometer.cmd --invite <address>
+setpriv --reuid octometer --regid octometer --clear-groups /app/bin/backend --invite <address>
 ```
+
+The ssh session starts as root; the service itself runs as the user
+`octometer` (`monitor/backend/docker-entrypoint.sh`), so the invite
+command drops to that user the same way.
 
 `--invite <address>` and `--uninvite <address>` open the store only.
 Neither command starts a server, and each one takes no instance lock,
@@ -382,8 +387,8 @@ hosted service, with a public `OCTOMETER_PUBLIC_URL`, keeps the default
 default `file`.
 
 An app row with a `NULL` account id (an app that existed before this
-issue) is visible to no account; sign in and add it again through the
-manage form.
+issue) is visible to no account, and it polls no more. It waits, inert,
+until a later story attaches it to an account.
 
 Read the health of a deployed app with `/healthz`, which needs no
 session:

@@ -103,11 +103,18 @@ class SqlitePollStore(private val database: SqliteDatabase) : PollStore {
     }
 }
 
+// MAJOR 3 of the review of pull request #313 (issue #301): a row with
+// account_id NULL is an app that no account owns. The account filter
+// of #301 makes such a row invisible and unreachable through the API,
+// so no account can pause or delete it; the WHERE clause below also
+// stops its poll cycle. The run guide states that this row waits,
+// inert, for a later story to attach it to an account.
 private fun readAppRows(reader: Connection): List<AppRow> =
     reader.createStatement().use { statement ->
         statement.executeQuery(
             "SELECT id, database_name, collection_name, cursor, next_poll_at, status, consecutive_failures, " +
-                "privileges_checked_at, path_patterns, path_patterns_published_at, kit_version FROM app",
+                "privileges_checked_at, path_patterns, path_patterns_published_at, kit_version FROM app " +
+                "WHERE account_id IS NOT NULL",
         ).use { result ->
             val rows = mutableListOf<AppRow>()
             while (result.next()) {

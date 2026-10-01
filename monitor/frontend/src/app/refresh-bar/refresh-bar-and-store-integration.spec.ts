@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { of } from 'rxjs';
 
 import { PollStore, createPollStore } from '../poll/poll-store';
+import { RefreshIntervalState } from '../poll/refresh-interval-state';
 import { RefreshBar } from './refresh-bar';
 
 /**
@@ -34,7 +35,11 @@ describe('RefreshBar next to a poll store, in one view', () => {
       providers: [provideHttpClient(), provideHttpClientTesting()],
     });
     httpMock = TestBed.inject(HttpTestingController);
+    // Issue #301, brief review B4: the health poll waits for the start
+    // gate. This suite builds the view alone, with no App shell to open
+    // it, so it opens the gate itself.
     vi.useFakeTimers();
+    TestBed.inject(RefreshIntervalState).allowStart();
     fixture = TestBed.createComponent(RefreshBarAndStoreTestHost);
     fixture.detectChanges();
   });
