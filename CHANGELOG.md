@@ -15,6 +15,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   Pages is now the legacy path. (#287)
 - Add the wave animation of the mark and the focus move into the waitlist email field
   on a click of "Join the waitlist"; enable the Worker preview URL. (#288)
+- Add the "How it works" section with the three steps and the scroll-reveal flow
+  illustration, and the "Three levels in your dashboard" section with real screenshots
+  of the demo monitor; add the screenshot script `site/scripts/screenshots.mjs`. (#289)
 
 ### Monitor
 
