@@ -108,9 +108,13 @@ test('the three sections render with their images and texts, and nothing moves u
 
   // Guard of BLOCKER 1, the review of pull request #324: at 360 px the
   // phone source resolves, so a later source change away from the
-  // "*-600.png" file fails this scenario.
-  const firstImageSrc = await images.first().evaluate((el: HTMLImageElement) => el.currentSrc);
-  expect(firstImageSrc).toContain('-600.png');
+  // "*-600.png" file fails this scenario. The browser re-runs the
+  // "<picture>" source selection one paint after the resize, so this
+  // read polls, not a single read (a CI run of pull request #324 found
+  // the race).
+  await expect
+    .poll(() => images.first().evaluate((el: HTMLImageElement) => el.currentSrc))
+    .toContain('-600.png');
 
   await page.setViewportSize({ width: 1440, height: 900 });
   const at1440 = await page.evaluate(() => ({
