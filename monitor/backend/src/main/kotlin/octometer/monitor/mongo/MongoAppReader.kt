@@ -37,6 +37,13 @@ private val log = LoggerFactory.getLogger("octometer.monitor.mongo.MongoAppReade
 
 /** The client pool size of design decision D10: two connections for one app. */
 private const val MAX_POOL_SIZE = 2
+
+/**
+ * The pool size of the one shared cluster client of issue #296 (D57):
+ * every app with no stored secret shares this one client, keyed by the
+ * cluster URI.
+ */
+private const val MAX_SHARED_POOL_SIZE = 16
 private const val SERVER_SELECTION_TIMEOUT_MS = 10_000L
 private const val MAX_IDLE_TIME_MS = 120_000L
 private const val APPLICATION_NAME = "octometer"
@@ -170,6 +177,16 @@ data class PollTarget(
     val pathPatternsPublishedAt: Long? = null,
     /** `AppRow.kitVersion` (design decision D48, issue #277), or `null` before the first stored list. */
     val kitVersion: String? = null,
+    /**
+     * Issue #296, M6: true for an app with no stored secret (the
+     * hosted path of D51, D57), so [MongoAppReader.clientFor] reuses
+     * the one shared cluster client of [MAX_SHARED_POOL_SIZE] in place
+     * of a client of its own. [octometer.monitor.poll.PollScheduler]
+     * sets this after it reads the secret store, never here: the
+     * default `false` keeps each existing call site of this class
+     * compiling.
+     */
+    val useSharedClient: Boolean = false,
 )
 
 /**
@@ -300,6 +317,9 @@ class MongoAppReader(
     private val eventStore: EventStore,
     private val settleLagSeconds: Long,
     private val clientFactory: (String) -> MongoClient = ::defaultMongoClient,
+    // Issue #296, M6: the factory of the one shared cluster client
+    // (MAX_SHARED_POOL_SIZE), a test seam the same way as clientFactory.
+    private val sharedClientFactory: (String) -> MongoClient = ::defaultSharedMongoClient,
     private val serverTimeSource: suspend (MongoDatabase) -> Date = ::helloLocalTime,
     internal val cycleTimeoutMillis: Long = CYCLE_TIMEOUT_MILLIS,
     private val clock: Clock = Clock.systemUTC(),
@@ -310,6 +330,15 @@ class MongoAppReader(
 ) : AutoCloseable {
 
     private val clients = ConcurrentHashMap<Long, CachedClient>()
+
+    // Issue #296, M6: the apps with no stored secret share one client,
+    // keyed by the SHA-256 hex of the cluster URI (the same hash rule
+    // as clients above). The config's clusterUri never changes at
+    // runtime, so this map holds at most one entry in practice; a
+    // changed value (a future issue) simply builds a second entry, and
+    // closes neither: the shared client of one app never closes while
+    // a different app may still hold it.
+    private val sharedClients = ConcurrentHashMap<String, MongoClient>()
 
     // Design decision D48 (issue #277): the last time this app id got
     // its one WARN line for a kept, cached route list (an absent
@@ -335,7 +364,7 @@ class MongoAppReader(
      */
     suspend fun pollOnce(target: PollTarget, connectionString: String): PollOutcome =
         withTimeout(cycleTimeoutMillis) {
-            val database = openDatabase(target.appId, connectionString, target.database)
+            val database = openDatabase(target.appId, connectionString, target.database, target.useSharedClient)
             if (target.checkPrivileges) {
                 checkPrivileges(database, target)
                 eventStore.recordPrivilegeCheck(target.appId, clock.millis())
@@ -494,6 +523,9 @@ class MongoAppReader(
         val toClose = ArrayList(clients.values)
         clients.clear()
         toClose.forEach { it.client.close() }
+        val sharedToClose = ArrayList(sharedClients.values)
+        sharedClients.clear()
+        sharedToClose.forEach { it.close() }
     }
 
     /**
@@ -501,11 +533,17 @@ class MongoAppReader(
      * [connectionString]. The call to [clientFor] sits inside
      * [withMongoFailure], so a failed parse of the connection string,
      * or a failed client build, gives [MongoReadFailedException] too.
+     * [shared] is [PollTarget.useSharedClient] (issue #296, M6).
      */
-    private suspend fun openDatabase(appId: Long, connectionString: String, databaseName: String): MongoDatabase =
+    private suspend fun openDatabase(
+        appId: Long,
+        connectionString: String,
+        databaseName: String,
+        shared: Boolean = false,
+    ): MongoDatabase =
         withMongoFailure {
             withContext(Dispatchers.IO) {
-                clientFor(appId, connectionString).getDatabase(databaseName)
+                clientFor(appId, connectionString, shared).getDatabase(databaseName)
             }
         }
 
@@ -535,13 +573,26 @@ class MongoAppReader(
      * twice for one [appId] at once. The plain read, build, and put
      * below need no further lock.
      */
-    internal fun clientFor(appId: Long, connectionString: String): MongoClient {
+    internal fun clientFor(appId: Long, connectionString: String, shared: Boolean = false): MongoClient {
+        if (shared) return sharedClientFor(connectionString)
         val hash = sha256Hex(connectionString)
         val cached = clients[appId]
         if (cached != null && cached.connectionStringHash == hash) return cached.client
         val fresh = clientFactory(connectionString)
         clients.put(appId, CachedClient(hash, fresh))?.client?.close()
         return fresh
+    }
+
+    /**
+     * Gives the one shared client of the cluster URI [connectionString]
+     * (issue #296, M6, design decision D57): every app with no stored
+     * secret shares it. [ConcurrentHashMap.computeIfAbsent] builds it
+     * at most one time for the one entry this map holds in practice, so
+     * two apps that poll at the same moment never build two clients.
+     */
+    private fun sharedClientFor(connectionString: String): MongoClient {
+        val hash = sha256Hex(connectionString)
+        return sharedClients.computeIfAbsent(hash) { sharedClientFactory(connectionString) }
     }
 
     private suspend fun readBound(database: MongoDatabase): CycleBound =
@@ -1035,7 +1086,18 @@ private fun bsonByteSize(document: Document): Long {
  * part of the connection string (BLOCKER 1 of the security review of
  * pull request #160).
  */
-private fun defaultMongoClient(connectionString: String): MongoClient {
+private fun defaultMongoClient(connectionString: String): MongoClient = buildMongoClient(connectionString, MAX_POOL_SIZE)
+
+/**
+ * Builds the one shared cluster client of issue #296 (M6, design
+ * decision D57), with the pool size of [MAX_SHARED_POOL_SIZE] in place
+ * of [MAX_POOL_SIZE]: every app with no stored secret shares this one
+ * client, so its pool must cover every one of them at once.
+ */
+private fun defaultSharedMongoClient(connectionString: String): MongoClient =
+    buildMongoClient(connectionString, MAX_SHARED_POOL_SIZE)
+
+private fun buildMongoClient(connectionString: String, maxPoolSize: Int): MongoClient {
     val check = ConnectionStringValidator.check(connectionString)
     if (check is ConnectionStringCheck.Invalid) {
         throw IllegalArgumentException(check.message)
@@ -1045,7 +1107,7 @@ private fun defaultMongoClient(connectionString: String): MongoClient {
         .readPreference(ReadPreference.primary())
         .applicationName(APPLICATION_NAME)
         .applyToConnectionPoolSettings { pool ->
-            pool.maxSize(MAX_POOL_SIZE)
+            pool.maxSize(maxPoolSize)
             pool.maxConnectionIdleTime(MAX_IDLE_TIME_MS, TimeUnit.MILLISECONDS)
         }
         .applyToClusterSettings { cluster ->

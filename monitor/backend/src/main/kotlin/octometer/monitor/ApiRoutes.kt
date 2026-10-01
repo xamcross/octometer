@@ -31,7 +31,7 @@ fun Route.apiRoutes(services: MonitorServices) {
     // installs. signInRoutes needs the config for the client address
     // header and the cookie's Secure flag.
     signInRoutes(services.signInService, services.config)
-    meRoute(services.signInService)
+    meRoute(services.signInService, services.config)
     appRegistryRoutes(services.appRegistryService)
     appTotals(services.database)
     userTotalsRoute(services.database)
