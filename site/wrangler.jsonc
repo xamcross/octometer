@@ -31,5 +31,24 @@
     }
   ],
   "preview_urls": true,
-  "previews": {}
+  "previews": {},
+  // Issue #292: "wrangler dev" presents the host of the first route to the
+  // Worker, so the host check of "src/worker.ts" fails on localhost. The
+  // harness and a local run use this environment: no route, the same
+  // binding and the same variable (an environment inherits neither).
+  "env": {
+    "dev": {
+      "routes": [],
+      "vars": {
+        "SITE_URL": "https://0ct0meter.com"
+      },
+      "d1_databases": [
+        {
+          "binding": "WAITLIST",
+          "database_name": "octometer-waitlist",
+          "database_id": "cf096cc1-b32b-4e5d-b840-78a38abf398a"
+        }
+      ]
+    }
+  }
 }
