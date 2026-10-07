@@ -22,6 +22,9 @@ private const val MAX_CLIENT_ADDRESS_LENGTH = 64
 /** The trusted proxy count of the collector: 1, fixed (the brief review of 2026-10-01, M4). */
 private const val TRUSTED_PROXY_COUNT = 1
 
+/** The default bound of [CollectorRateLimiting.lookupGate] (issue #335): ten times the D43 request cap. */
+private val DEFAULT_LOOKUP_GATE_PER_MINUTE: Long = 10 * IngestSettings.DEFAULT_ANON_REQ_PER_MIN
+
 private val IPV4_ADDRESS_PATTERN: Pattern = Pattern.compile(
     "^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}$",
 )
@@ -97,8 +100,41 @@ private fun looksLikeAnIpAddress(value: String): Boolean =
  * rate limiter of design decision D20, keyed by the app id and the user
  * id. `IngestRequestProcessor.beforeBody` of `kit/jvm-core` picks the
  * very same way, on `settings.recordAnonymousClicks()`.
+ *
+ * Issue #335 corrects two counters that an earlier version of this
+ * class mixed under one instance. [lookupGate] runs before
+ * [AppKeyCache.lookup]. [AnonymousKey.of] keys it on the address alone,
+ * the D43 /64 collapse. The gate counts every request, identified or
+ * not. Its default bound is ten times the D43 request cap
+ * ([DEFAULT_LOOKUP_GATE_PER_MINUTE]). [minuteLimiter] runs its own
+ * request count after the body parse now, for an anonymous batch only;
+ * an identified batch never calls it. An identified request counts
+ * against [lookupGate] and against [userLimiter] only. Design decision
+ * D20 stops no flood of rotating user ids, so [lookupGate] is the
+ * control that matters for that case. The per-app daily cap of 20 000
+ * events (design decision D50) stays the one daily bound of an
+ * identified batch. `receiveLimitedText` of [CollectRoute] bounds the
+ * body to 16 KB before the parse, so this change adds no new pre-parse
+ * limit.
  */
-class CollectorRateLimiting(private val clock: Clock) {
+class CollectorRateLimiting(
+    private val clock: Clock,
+    lookupGatePerMinute: Long = DEFAULT_LOOKUP_GATE_PER_MINUTE,
+) {
+
+    /**
+     * The pre-lookup gate of design decision D43 (issue #335, M7, M8).
+     * [AnonymousKey.of] keys it on the client address alone, with no
+     * app id. [CollectRoute] calls [AnonymousMinuteLimiter.checkRequest]
+     * with it before [AppKeyCache.lookup], for every request. This gate
+     * is not the D43 request count; [minuteLimiter] owns that count.
+     */
+    val lookupGate: AnonymousMinuteLimiter = AnonymousMinuteLimiter(
+        clock,
+        lookupGatePerMinute,
+        lookupGatePerMinute,
+        lookupGatePerMinute,
+    )
 
     val minuteLimiter: AnonymousMinuteLimiter = AnonymousMinuteLimiter(
         clock,

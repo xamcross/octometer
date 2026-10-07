@@ -19,6 +19,7 @@ import io.ktor.utils.io.readRemaining
 import java.time.Clock
 import java.util.regex.Pattern
 import kotlinx.io.readByteArray
+import octometer.kit.core.ingest.AnonymousKey
 import octometer.kit.core.ingest.BotUserAgentFilter
 import octometer.kit.core.ingest.IngestException
 import octometer.kit.core.ingest.IngestEvent
@@ -121,13 +122,16 @@ fun Route.collectRoute(runtime: CollectorRuntime) {
         }
         val clientAddress = clientAddressOf(clientIpHeaderLines, call.request.local.remoteAddress)
 
-        if (!runtime.rateLimiting.minuteLimiter.checkRequest(clientAddress)) {
-            // MAJOR 1: the per-address rate limit runs before the app
-            // key lookup, keyed on the client address alone (the app is
-            // not known yet). One client address can then never force a
-            // SQLite read for each of a flood of different invented
-            // keys; this gate bounds that cost, with no app known at
-            // all.
+        if (!runtime.rateLimiting.lookupGate.checkRequest(AnonymousKey.of(clientAddress))) {
+            // MAJOR 1 of the review of pull request #327, corrected by
+            // issue #335: the pre-lookup gate runs before the app key
+            // lookup, keyed on the client address alone (the app is not
+            // known yet), collapsed to its D43 /64 form. One client
+            // address can then never force a SQLite read for each of a
+            // flood of different invented keys; this gate bounds that
+            // cost, with no app known at all. The gate counts every
+            // request, identified or not; it is not the D43 request
+            // count of [CollectorRateLimiting.minuteLimiter] below.
             call.respond(HttpStatusCode.TooManyRequests)
             return@post
         }
@@ -188,11 +192,6 @@ fun Route.collectRoute(runtime: CollectorRuntime) {
             return@post
         }
 
-        if (!runtime.rateLimiting.minuteLimiter.checkRequest(rateLimitKey)) {
-            call.respond(HttpStatusCode.TooManyRequests)
-            return@post
-        }
-
         val rawBody = call.receiveLimitedText(MAX_BODY_BYTES)
         if (rawBody == null) {
             call.respond(HttpStatusCode.BadRequest)
@@ -223,6 +222,15 @@ fun Route.collectRoute(runtime: CollectorRuntime) {
         }
 
         if (userId == null) {
+            // Issue #335: the D43 request count now runs after the
+            // parse, for an anonymous batch only. An identified request
+            // never reaches this branch, so it never pays this count
+            // (the gate above, and the D20 user limiter below, are its
+            // own two controls).
+            if (!runtime.rateLimiting.minuteLimiter.checkRequest(rateLimitKey)) {
+                call.respond(HttpStatusCode.TooManyRequests)
+                return@post
+            }
             if (events.isNotEmpty()) {
                 val (clickCount, sessionStartCount) = countEntries(events)
                 if (!runtime.rateLimiting.minuteLimiter.checkEntries(rateLimitKey, clickCount, sessionStartCount)) {
