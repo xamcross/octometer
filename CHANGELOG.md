@@ -75,6 +75,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add the secret-key path of the erasure route: a server of the app calls it with no
   session, erases the cluster copy first, then the cache, and stores the body's own user
   id on the collector path. (#300)
+- Spare an identified request from the D43 request count: a new pre-lookup gate takes
+  the per-address check before the app lookup, and the D43 count now runs after the
+  parse, for an anonymous batch only. (#335)
 
 ### CI
 

@@ -694,6 +694,13 @@ C43). Where the two differ, `contract/README.md` on `main` has priority.
   holds 20 000 keys with an LRU eviction. This daily map is a third map. It is separate from
   the two windowed maps of D20. The pilot app has fewer than 500
   visits each day, thus the default caps fit (owner decision, 2026-09-21).
+  Addendum of 2026-10-02, #335: a pre-lookup gate is address-keyed (the D43 /64 collapse)
+  and bound at ten times the D43 request cap, and it counts every request. The D43 request
+  count runs after the parse, for an anonymous batch only. An identified request counts
+  against the gate and the D20 user limiter only. The D20 user limiter stops no flood of
+  rotating user ids, so the gate is the control that matters. The per-app daily cap of
+  20 000 events (D50) is the one daily bound of an identified batch. `receiveLimitedText`
+  bounds the body to 16 KB.
 - **D44. First pages and anonymous sessions.** Two views join the monitor: "First pages"
   (`path`, `sessions`) and "Anonymous sessions". Each row of "Anonymous sessions" holds the
   session id, the first path, and the source. It holds the start time and the click count. It

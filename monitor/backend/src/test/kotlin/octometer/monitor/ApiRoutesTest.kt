@@ -17,6 +17,8 @@ import io.ktor.server.testing.testApplication
 import java.io.File
 import java.sql.DriverManager
 import java.time.Clock
+import java.time.Instant
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.ZoneOffset
 import kotlin.test.Test
@@ -29,6 +31,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
+import octometer.kit.core.ingest.IngestSettings
 import octometer.monitor.collect.AppKeyCache
 import octometer.monitor.collect.CollectorRateLimiting
 import octometer.monitor.collect.CollectorRuntime
@@ -96,34 +99,136 @@ class ApiRoutesTest {
         assertEquals(HttpStatusCode.UnsupportedMediaType, response.status)
     }
 
+    // Issue #335 (M7, M8, the brief review correction): the pre-lookup
+    // gate is its own AnonymousMinuteLimiter, keyed by the address alone
+    // (the D43 /64 collapse), before AppKeyCache.lookup ever runs. This
+    // test builds its own CollectorRuntime with a small gate bound (5),
+    // so the proof stays fast; the real service keeps the default bound
+    // of ten times the D43 request cap (3 000). The sixth request, from
+    // a second IPv6 address of the same /64, still answers 429: the two
+    // addresses share one gate counter.
     @Test
-    fun `POST collect above the per-address rate limit gets 429`() = testApplication {
-        application { module(prodConfig()) }
-        startApplication()
+    fun `POST collect above the pre-lookup gate bound gets 429, shared by one IPv6 slash64`() {
+        val dataDir = testDataDir()
+        val database = SqliteDatabase.open(dataDir)
+        val gateBound = 5L
+        val clock = MutableClock(Instant.parse("2026-10-03T09:00:00Z"))
+        val runtime = CollectorRuntime(
+            appKeyCache = AppKeyCache(database),
+            store = CollectorStore(clientFactory = { throw IllegalStateException("no real cluster in this test") }),
+            dailyEventCountStore = DailyEventCountStore(database),
+            writeStopGate = WriteStopGate(database, client = { null }),
+            rateLimiting = CollectorRateLimiting(clock, lookupGatePerMinute = gateBound),
+            clientIpHeaderName = "X-Forwarded-For",
+            clock = clock,
+        )
 
-        // MAJOR 1 of the review of pull request #327: the per-address
-        // rate limit of OCTOMETER_ANON_REQ_PER_MIN (300) runs before
-        // the app key lookup, keyed on the client address alone, with
-        // no app ever found. This key has the exact shape of a real
-        // key (isPlausibleAppKey), so it passes the cheap format check
-        // and reaches the rate limiter; AppKeyCache.lookup then finds
-        // no app for it (a fresh SQLite read, no Mongo touch at all),
-        // the same low cost as a real flood of invented keys.
+        // MAJOR 1 of the review of pull request #327: this key has the
+        // exact shape of a real key (isPlausibleAppKey), so it passes
+        // the cheap format check and reaches the gate; AppKeyCache.lookup
+        // never runs, the same low cost as a real flood of invented keys.
         val neverRegisteredAppKey = "A".repeat(43)
+        val firstAddress = "2001:db8:1234:5678::1"
+        val secondAddressOfTheSameSlash64 = "2001:db8:1234:5678::2"
         var lastStatus: HttpStatusCode? = null
-        repeat(301) {
-            lastStatus = client.post("/collect") {
-                allowedHost()
-                header("X-Octometer-Key", neverRegisteredAppKey)
-                contentType(ContentType.Application.Json)
-                setBody(
-                    """{"sessionId":"00000000-0000-4000-8000-000000000000",""" +
-                        """"clicks":[{"element":"a","ageMs":0}]}""",
-                )
-            }.status
+        testApplication {
+            application { routing { collectRoute(runtime) } }
+            repeat(gateBound.toInt()) {
+                lastStatus = oneUnregisteredCollectRequest(this, neverRegisteredAppKey, firstAddress).status
+            }
+            lastStatus = oneUnregisteredCollectRequest(this, neverRegisteredAppKey, secondAddressOfTheSameSlash64).status
         }
 
         assertEquals(HttpStatusCode.TooManyRequests, lastStatus)
+        database.close()
+    }
+
+    // Issue #335: the D43 request count now runs after the parse, for
+    // an anonymous batch only, so it never counts an identified request.
+    // This test sends one more identified batch than the D43 request
+    // cap (IngestSettings.DEFAULT_ANON_REQ_PER_MIN, 300) allows, each
+    // with its own userId (so the plain D20 user limiter, 30 requests
+    // for one user id, never interferes) and one click. The last one
+    // still answers 204.
+    @Test
+    fun `301 identified batches from one address all answer 204, the D43 request cap spares them`() {
+        val dataDir = testDataDir()
+        var appKey = ""
+        lateinit var origin: String
+        testApplication {
+            val config = devConfig(dataDir = dataDir, clusterUri = "mongodb://127.0.0.1:1/octometer_service")
+            application { module(config) }
+            startApplication()
+            val (_, registeredAppKey, registeredOrigin) = registerCollectorApp(this, dataDir)
+            appKey = registeredAppKey
+            origin = registeredOrigin
+        }
+
+        val database = SqliteDatabase.open(dataDir)
+        val clock = MutableClock(Instant.parse("2026-10-03T09:00:00Z"))
+        val runtime = CollectorRuntime(
+            appKeyCache = AppKeyCache(database),
+            store = CollectorStore(clientFactory = { throw IllegalStateException("no real cluster in this test") }),
+            dailyEventCountStore = DailyEventCountStore(database),
+            writeStopGate = WriteStopGate(database, client = { null }),
+            rateLimiting = CollectorRateLimiting(clock),
+            clientIpHeaderName = "",
+            clock = clock,
+        )
+
+        val requestCountAboveTheD43RequestCap = IngestSettings.DEFAULT_ANON_REQ_PER_MIN.toInt() + 1
+        var lastStatus: HttpStatusCode? = null
+        testApplication {
+            application { routing { collectRoute(runtime) } }
+            repeat(requestCountAboveTheD43RequestCap) { index ->
+                lastStatus = oneCollectRequestWithUserId(this, appKey, origin, "user-$index").status
+            }
+        }
+
+        assertEquals(HttpStatusCode.NoContent, lastStatus)
+        database.close()
+    }
+
+    // Issue #335: the mirror case of the test above. An anonymous batch
+    // still pays the D43 request cap, after the parse. The last of 301
+    // requests from one address, one more than the cap, answers 429.
+    @Test
+    fun `301 anonymous batches from one address, the last above the D43 request cap gets 429`() {
+        val dataDir = testDataDir()
+        var appKey = ""
+        lateinit var origin: String
+        testApplication {
+            val config = devConfig(dataDir = dataDir, clusterUri = "mongodb://127.0.0.1:1/octometer_service")
+            application { module(config) }
+            startApplication()
+            val (_, registeredAppKey, registeredOrigin) = registerCollectorApp(this, dataDir)
+            appKey = registeredAppKey
+            origin = registeredOrigin
+        }
+
+        val database = SqliteDatabase.open(dataDir)
+        val clock = MutableClock(Instant.parse("2026-10-03T09:00:00Z"))
+        val runtime = CollectorRuntime(
+            appKeyCache = AppKeyCache(database),
+            store = CollectorStore(clientFactory = { throw IllegalStateException("no real cluster in this test") }),
+            dailyEventCountStore = DailyEventCountStore(database),
+            writeStopGate = WriteStopGate(database, client = { null }),
+            rateLimiting = CollectorRateLimiting(clock),
+            clientIpHeaderName = "",
+            clock = clock,
+        )
+
+        val requestCountAboveTheD43RequestCap = IngestSettings.DEFAULT_ANON_REQ_PER_MIN.toInt() + 1
+        var lastStatus: HttpStatusCode? = null
+        testApplication {
+            application { routing { collectRoute(runtime) } }
+            repeat(requestCountAboveTheD43RequestCap) {
+                lastStatus = oneCollectRequest(this, appKey, origin).status
+            }
+        }
+
+        assertEquals(HttpStatusCode.TooManyRequests, lastStatus)
+        database.close()
     }
 
     @Test
@@ -349,6 +454,51 @@ class ApiRoutesTest {
                     """"clicks":[{"element":"a","ageMs":0}],"userId":"$userId"}""",
             )
         }
+
+    /**
+     * A request with no registered app (issue #335's gate test): no
+     * `Origin` header, since [AppKeyCache.lookup] never runs for such a
+     * key. The header `X-Forwarded-For` carries [clientAddress], read by
+     * the hand-built [CollectorRuntime] above (`clientIpHeaderName`).
+     */
+    private suspend fun oneUnregisteredCollectRequest(
+        builder: ApplicationTestBuilder,
+        appKey: String,
+        clientAddress: String,
+    ): HttpResponse =
+        builder.client.post("/collect") {
+            allowedHost()
+            header("X-Octometer-Key", appKey)
+            header("X-Forwarded-For", clientAddress)
+            contentType(ContentType.Application.Json)
+            setBody(
+                """{"sessionId":"00000000-0000-4000-8000-000000000000",""" +
+                    """"clicks":[{"element":"a","ageMs":0}]}""",
+            )
+        }
+}
+
+/**
+ * A [Clock] that a test can move forward (lesson 9 of the backend
+ * brief: no real `delay` in a rate-limit window test). The gate and the
+ * D43 tests of issue #335 never call [advance]; a frozen clock keeps
+ * every check inside one window, with no flake from a slow run.
+ */
+private class MutableClock(startInstant: Instant) : Clock() {
+    @Volatile
+    private var current: Instant = startInstant
+
+    fun advance(duration: java.time.Duration) {
+        current = current.plus(duration)
+    }
+
+    override fun getZone(): ZoneId = ZoneOffset.UTC
+
+    override fun withZone(zone: ZoneId?): Clock {
+        throw UnsupportedOperationException("This test clock always uses UTC.")
+    }
+
+    override fun instant(): Instant = current
 }
 
 /**
