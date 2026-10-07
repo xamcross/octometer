@@ -58,7 +58,7 @@ scheduled job runs this cleanup; the next real request runs it instead.
 ```
 npm run build
 npx wrangler d1 migrations apply WAITLIST --local
-npx wrangler dev --var MAIL_MODE:file --var SITE_URL:http://localhost:8787
+npx wrangler dev --env dev --var MAIL_MODE:file --var SITE_URL:http://localhost:8787
 ```
 
 `npm test` runs this same Worker under Playwright: `site/e2e/run.mjs` picks a free port,

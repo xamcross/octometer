@@ -32,9 +32,11 @@ export default defineConfig({
     // routes answer too. "MAIL_MODE" switches the mail sender to the
     // file mock; "SITE_URL" points back at this local origin, so the
     // host check of "src/worker.ts" lets a local write through.
+    // Issue #292: the environment "dev" of "wrangler.jsonc" holds no route,
+    // so the Worker sees the local host and the host check holds here.
     command:
-      `npm run build && npx wrangler d1 migrations apply WAITLIST --local && ` +
-      `npx wrangler dev --port ${port} --var MAIL_MODE:file --var SITE_URL:http://localhost:${port}`,
+      `npm run build && npx wrangler d1 migrations apply WAITLIST --local --env dev && ` +
+      `npx wrangler dev --env dev --port ${port} --var MAIL_MODE:file --var SITE_URL:http://localhost:${port}`,
     cwd: '..',
     url: baseURL,
     reuseExistingServer: false,

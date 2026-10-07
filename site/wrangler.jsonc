@@ -15,16 +15,40 @@
     // the production origin (docs/site.md).
     "SITE_URL": "https://0ct0meter.com"
   },
+  // Issue #292: the two custom domains of the site. The zone 0ct0meter.com
+  // sits in the same Cloudflare account, so a deploy creates the DNS records.
+  "routes": [
+    { "pattern": "0ct0meter.com", "custom_domain": true },
+    { "pattern": "www.0ct0meter.com", "custom_domain": true }
+  ],
   "d1_databases": [
     {
       "binding": "WAITLIST",
       "database_name": "octometer-waitlist",
-      // Owner step 1 (docs/site.md): the owner creates the database and
-      // reports its id in a comment on #291; this placeholder stands
-      // until then.
+      // Owner step 1 (docs/site.md): the owner created the database on
+      // 2026-10-07 and reported its id in a comment on #291.
       "database_id": "cf096cc1-b32b-4e5d-b840-78a38abf398a"
     }
   ],
   "preview_urls": true,
-  "previews": {}
+  "previews": {},
+  // Issue #292: "wrangler dev" presents the host of the first route to the
+  // Worker, so the host check of "src/worker.ts" fails on localhost. The
+  // harness and a local run use this environment: no route, the same
+  // binding and the same variable (an environment inherits neither).
+  "env": {
+    "dev": {
+      "routes": [],
+      "vars": {
+        "SITE_URL": "https://0ct0meter.com"
+      },
+      "d1_databases": [
+        {
+          "binding": "WAITLIST",
+          "database_name": "octometer-waitlist",
+          "database_id": "cf096cc1-b32b-4e5d-b840-78a38abf398a"
+        }
+      ]
+    }
+  }
 }
