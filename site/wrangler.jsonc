@@ -22,7 +22,7 @@
       // Owner step 1 (docs/site.md): the owner creates the database and
       // reports its id in a comment on #291; this placeholder stands
       // until then.
-      "database_id": "<set by the owner>"
+      "database_id": "cf096cc1-b32b-4e5d-b840-78a38abf398a"
     }
   ],
   "preview_urls": true,
