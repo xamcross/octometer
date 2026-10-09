@@ -103,6 +103,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Remove the blank reserved band under the header: the banner slot keeps no reserved
   height. A banner that shows sits in the page flow. It pushes the breadcrumb down by
   its own height, so a user can always reach the breadcrumb. (#375)
+- Change the Users filter form to a grid: the filter input and the Filter button stay
+  on one row from 360 px wide up, and the input keeps its 44 px minimum height. (#374)
 
 ### CI
 
