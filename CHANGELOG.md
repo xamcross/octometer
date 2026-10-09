@@ -107,6 +107,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Remove the blank reserved band under the header: the banner slot keeps no reserved
   height. A banner that shows sits in the page flow. It pushes the breadcrumb down by
   its own height, so a user can always reach the breadcrumb. (#375)
+- Even the padding of the add-app panel: a zero top margin on the heading and a
+  24 px padding on each side, so the gap above the heading matches the gap below
+  the submit button. (#389)
 
 ### CI
 
