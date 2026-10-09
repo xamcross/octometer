@@ -395,9 +395,12 @@ jobs:
       # three variables.
       - name: Print the JaCoCo agent line of the monitor and of the demo app
         run: ./gradlew -q :monitor:backend:jacocoAgentArgs >> "$GITHUB_ENV"
-      # Step (c).
+      # Step (c). Issue #406: the fixed project name, through the
+      # override variable, so this job's own outputs stay stable.
       - name: Run the end-to-end suite
         working-directory: e2e
+        env:
+          OCTOMETER_E2E_PROJECT: octometer-e2e
         run: npm test
       # Issue #295, criterion 3, brief review M9, M10: the image builds
       # in CI and answers ok on /healthz in a container. The empty
