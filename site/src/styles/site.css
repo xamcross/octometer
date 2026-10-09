@@ -529,8 +529,11 @@ label {
   .how {
     grid-template-columns: minmax(0, 36rem) 1fr;
   }
+  .steps p {
+    max-width: none;
+  }
   .flow {
-    justify-self: center;
+    justify-self: start;
   }
   .levels {
     grid-template-columns: 1fr 1fr;

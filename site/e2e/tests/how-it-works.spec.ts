@@ -31,18 +31,40 @@ test('the three sections render with their images and texts, and nothing moves u
     'Your dashboard',
   ]);
 
-  // Issue #355: at 1280 px, the gap between the steps column and the
-  // flow figure must not pass 48 px (the issue's step 5 and acceptance
-  // criterion). The pull request text states the measured number
-  // before and after the fix.
-  const stepsBox = await page.locator('.steps').boundingBox();
-  const flowBox = await page.locator('figure.flow').boundingBox();
-  if (!stepsBox || !flowBox) {
-    throw new Error('the steps column or the flow figure has no box');
+  // Issue #355: at 1280 px, the gap between the right edge of the step
+  // paragraph text and the left edge of the flow diagram must not pass
+  // 56 px (the issue's 48 px bound plus the maintainer's 8 px
+  // tolerance, the review of pull request #401). A `Range` over each
+  // step paragraph gives the right edge of the rendered text, not the
+  // grid column box, so a change of the column gap alone cannot pass
+  // this assertion (BLOCKER 2 of the review).
+  const stepTextRight = await page.locator('.steps').evaluate((steps) => {
+    let maxRight = 0;
+    for (const p of steps.querySelectorAll('p')) {
+      const range = document.createRange();
+      range.selectNodeContents(p);
+      for (const rect of Array.from(range.getClientRects())) {
+        if (rect.right > maxRight) {
+          maxRight = rect.right;
+        }
+      }
+    }
+    return maxRight;
+  });
+  const diagramBox = await page.locator('figure.flow svg').boundingBox();
+  if (!diagramBox) {
+    throw new Error('the flow svg has no box');
   }
-  const stepsToFlowGap = flowBox.x - (stepsBox.x + stepsBox.width);
-  console.log(`issue #355 gap at 1280 px: ${stepsToFlowGap}px`);
-  expect(stepsToFlowGap).toBeLessThanOrEqual(48);
+  const textToDiagramGap = diagramBox.x - stepTextRight;
+  console.log(`issue #355 text-to-diagram gap at 1280 px: ${textToDiagramGap}px`);
+  expect(textToDiagramGap).toBeLessThanOrEqual(56);
+
+  // No sideways scroll at 1280 px, the width of the measurement above.
+  const at1280 = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+  }));
+  expect(at1280.scroll).toBeLessThanOrEqual(at1280.client);
 
   const nodes = page.locator('.node');
   // MAJOR 1 of the review of pull request #324: a loop of "nodeCount"
@@ -143,6 +165,13 @@ test('the three sections render with their images and texts, and nothing moves u
   expect(longestLabelBox).not.toBeNull();
   expect(longestLabelBox!.height).toBeGreaterThanOrEqual(17);
   expect(longestLabelBox!.height).toBeLessThan(26);
+
+  // No sideways scroll at 390 px, the width of the sub-label check above.
+  const at390 = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+  }));
+  expect(at390.scroll).toBeLessThanOrEqual(at390.client);
 
   // The quality floor (issue #288, hero.spec.ts:70-85): no sideways scroll
   // at 360 px and at 1440 px, now that both sections render.
