@@ -25,6 +25,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   through Resend. (#291)
 - Re-capture the three dashboard screenshots of the landing page from the current
   build, and crop each one to its content, with 24 px below the table. (#343)
+- Pack the users card and the elements card at the top of their grid row, so the
+  stretch rule no longer opens a gap above a shorter card's figcaption. (#382)
 
 ### Contract
 

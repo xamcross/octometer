@@ -86,6 +86,32 @@ test('the three sections render with their images and texts, and nothing moves u
     }).toPass();
   }
 
+  // Issue #382: at 1280 px the users card and the elements card share one
+  // grid row. The old ".frame" rule set no "align-content" property, so
+  // the default "stretch" value spread the taller card's extra row height
+  // into the shorter card's own rows, and a gap opened above its
+  // figcaption. The fix packs each frame at the start, so the gap between
+  // each image and its own figcaption stays at the design gap token
+  // (--space-3, 12px) and the users card no longer differs from the
+  // elements card (the break proof of the pull request text states both
+  // numbers).
+  const frames = page.locator('.frame');
+  await expect(frames).toHaveCount(3);
+  const usersFrame = frames.nth(1);
+  const elementsFrame = frames.nth(2);
+  const usersGap = await usersFrame.evaluate((frame) => {
+    const image = frame.querySelector('img') as HTMLElement;
+    const caption = frame.querySelector('figcaption') as HTMLElement;
+    return caption.getBoundingClientRect().top - image.getBoundingClientRect().bottom;
+  });
+  const elementsGap = await elementsFrame.evaluate((frame) => {
+    const image = frame.querySelector('img') as HTMLElement;
+    const caption = frame.querySelector('figcaption') as HTMLElement;
+    return caption.getBoundingClientRect().top - image.getBoundingClientRect().bottom;
+  });
+  expect(elementsGap).toBeLessThan(16);
+  expect(Math.abs(elementsGap - usersGap)).toBeLessThan(2);
+
   // State 3: under reduced motion, a reload shows each node at once, with
   // no transition (lesson 17 of the frontend brief guards against a false
   // pass here too: the computed style, not the animation name, proves it).
