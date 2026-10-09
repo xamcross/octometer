@@ -86,6 +86,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   not-found page no longer show a one-item trail that repeats the heading. (#346)
 - Put the sign-in form into the cartoon card, with the sentence "We send you a mail
   with a link. The link works for 15 minutes." under the title. (#349)
+- Hide the pager of the users view and of the first-pages view for a one-page result,
+  and remove the misused `aria-current` from the page-label span. (#387)
 
 ### CI
 
