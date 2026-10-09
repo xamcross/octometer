@@ -131,5 +131,31 @@ test.describe('the dark color scheme (issue #366, the UI audit finding L16)', ()
       lumText > lumBackground ? [lumText, lumBackground] : [lumBackground, lumText];
     const contrast = (lighter + 0.05) / (darker + 0.05);
     expect(contrast).toBeGreaterThanOrEqual(4.5);
+
+    // MAJOR 1 of the review of pull request #407: the sunny outline sits
+    // inside a halo. The halo must keep a 3:1 contrast against the
+    // outline in the dark scheme too.
+    // The read waits for the 80ms box-shadow transition to settle. A
+    // mid-transition read is not the rest value (review MAJOR 2 of pull
+    // request #321).
+    const button = page.getByRole('link', { name: 'Join the waitlist' });
+    await page.keyboard.press('Tab');
+    await expect(button).toBeFocused();
+    let rawShadow = '';
+    for (let i = 0; i < 20; i += 1) {
+      rawShadow = await button.evaluate((el) => getComputedStyle(el).boxShadow);
+      if (rawShadow.includes('0px 0px 0px 7px')) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(rawShadow).toContain('0px 0px 0px 7px');
+    const outlineColor = await button.evaluate((el) => getComputedStyle(el).outlineColor);
+    const halo = rawShadow.match(/rgb\([^)]+\)(?=\s+0px 0px 0px 7px)/);
+    expect(halo).not.toBeNull();
+    const lumOutline = relativeLuminance(outlineColor);
+    const lumHalo = relativeLuminance((halo as RegExpMatchArray)[0]);
+    const [ringLighter, ringDarker] =
+      lumOutline > lumHalo ? [lumOutline, lumHalo] : [lumHalo, lumOutline];
+    const ringContrast = (ringLighter + 0.05) / (ringDarker + 0.05);
+    expect(ringContrast).toBeGreaterThanOrEqual(3);
   });
 });
