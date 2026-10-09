@@ -449,6 +449,13 @@ separate guide.
 read-only, published-list form of design decision D48, issue #277).
 
 **Anatomy.**
+- The whole edit form, the name field, the origins field, and this field, sits inside a
+  native `<dialog #dialogEl>`, over a dimmed backdrop, the same pattern as "The dialog"
+  below; the row keeps its own height, with no inline growth of the Actions cell (issue
+  #364, D3; `edit-app-form.html:1-54`).
+- The "Edit app" button opens the dialog with `showModal()` and moves the focus to the
+  name field, the first field of the form; Escape and the Cancel button close the dialog
+  and move the focus back to "Edit app" (`edit-app-form.ts`, `open()`, `onDialogClose()`).
 - A `<div class="field">` under the origins field: a `<label>` "Route patterns (one per
   line)", a `<textarea>`, and a `<p class="form-hint">` with the example and the default
   rule (`edit-app-form.html:31-41`).
@@ -658,7 +665,9 @@ the last success, or the last error text.
 
 ## The dialog
 
-**Purpose.** The dialog confirms a delete of one app, over a dimmed backdrop.
+**Purpose.** The dialog confirms a delete of one app, over a dimmed backdrop. The Edit
+app form (issue #364, D3) and the new-secret-key confirmation share the same native
+`<dialog>` pattern, each with its own trigger button in the table row.
 
 **Anatomy.**
 - `<dialog #dialogEl [attr.aria-labelledby]="headingId">` with a heading, a confirmation

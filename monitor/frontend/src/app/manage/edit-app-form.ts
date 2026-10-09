@@ -27,18 +27,27 @@ import { ORIGINS_HINT, ROUTE_PATTERNS_HINT } from './field-hints';
  * (the correction of the brief review of 2026-10-01, MAJOR 2 of #323:
  * a rename must never ship ahead of a rejected list). Each row of the
  * list gets its own instance. The trigger button reads "Edit app"
- * (the correction of the brief review of 2026-10-01): it opens the one
- * form below, with the name, the origin list, and the route pattern
- * list of the app.
+ * (the correction of the brief review of 2026-10-01): it opens a
+ * dialog with the name, the origin list, and the route pattern list
+ * of the app (issue #364, D3), the same native `<dialog>` pattern as
+ * `DeleteAppDialog` and `NewSecretKeyDialog`. The table row keeps its
+ * own height: the open dialog sits in the browser top layer, not
+ * inside the Actions cell.
  *
  * The connection string field of D13 is gone (issue #296): the keys
  * panel of the add form and the "New secret key" action cover the
  * hosted path; this form edits the name, the origins, and the route
  * patterns of any app.
  *
- * The focus moves back to the trigger button after a cancel and after
- * a successful save, so a keyboard user stays near the row (the
- * pattern of `DeleteAppDialog.onDialogClose`).
+ * The focus moves to the name field on open, and back to the trigger
+ * button after a cancel, an Escape, or a successful save, so a
+ * keyboard user stays near the row (the pattern of
+ * `DeleteAppDialog.onDialogClose`). A close from Cancel or from Escape
+ * fires the native `close` event from a queued task, and not at once
+ * (the HTML Standard, "close the dialog"); a successful save closes
+ * the dialog itself and focuses the trigger at once, then
+ * `restoreFocusOnClose` skips the later, queued focus step (the
+ * pattern of `NewSecretKeyDialog.done`).
  *
  * Issue #299, D5, D40: the typed route pattern list returns to this
  * form, one pattern per line, in place of the read-only published list
@@ -69,13 +78,26 @@ export class EditAppForm {
   /** Emits when a 404 answer shows that the app is no longer registered. */
   readonly staleList = output<void>();
 
+  private readonly dialogEl = viewChild.required<ElementRef<HTMLDialogElement>>('dialogEl');
   private readonly nameField = viewChild<ElementRef<HTMLInputElement>>('nameField');
-  private readonly editToggle = viewChild<ElementRef<HTMLButtonElement>>('editToggle');
+  private readonly editToggle = viewChild.required<ElementRef<HTMLButtonElement>>('editToggle');
 
   protected readonly originsHint = ORIGINS_HINT;
   protected readonly routePatternsHint = ROUTE_PATTERNS_HINT;
 
+  /** True while `onDialogClose` must skip the trigger-focus step (a save just succeeded). */
+  private restoreFocusOnClose = true;
+
+  /**
+   * True while the dialog holds its form (issue #364). The heading and
+   * the form render only then: the "Name" field and the "Origins" field
+   * of this dialog share their label text with the add-app form's own
+   * fields, so a closed dialog must hold neither one, or a page-level
+   * `getByLabel` query of the real app (and of the end-to-end suite)
+   * resolves to more than one element.
+   */
   protected readonly editing = signal(false);
+
   protected readonly name = signal('');
   protected readonly origins = signal('');
   protected readonly pending = signal(false);
@@ -128,7 +150,15 @@ export class EditAppForm {
     return `edit-app-error-${this.app().appId}`;
   }
 
-  /** Opens the form with the current name, the current origin list, and the current route pattern list. */
+  protected get headingId(): string {
+    return `edit-app-heading-${this.app().appId}`;
+  }
+
+  /**
+   * Opens the dialog with the current name, the current origin list, and
+   * the current route pattern list. The default focus goes to the name
+   * field, the first field of the form (issue #364).
+   */
   protected open(): void {
     this.name.set(this.app().name);
     this.origins.set('');
@@ -137,6 +167,7 @@ export class EditAppForm {
     this.routePatternsLoaded.set(false);
     this.errorMessage.set(null);
     this.editing.set(true);
+    this.dialogEl().nativeElement.showModal();
     afterNextRender(() => this.nameField()?.nativeElement.focus(), { injector: this.injector });
     this.http.get<AppDetail>(`/api/apps/${this.app().appId}`).subscribe({
       next: (detail) => {
@@ -157,10 +188,24 @@ export class EditAppForm {
     });
   }
 
-  /** Closes the form. It discards each typed value, and moves the focus back to "Edit origins". */
+  /** Closes the dialog. It discards each typed value; `onDialogClose` moves the focus back to "Edit app". */
   protected cancel(): void {
+    this.dialogEl().nativeElement.close();
+  }
+
+  /**
+   * Restores the focus to the "Edit app" trigger after a close of the
+   * dialog from Cancel or from Escape. Skips the step, once, after a
+   * successful save: `onSaved` already moved the focus and cleared the
+   * flag (the pattern of `DeleteAppDialog.onDialogClose`).
+   */
+  protected onDialogClose(): void {
     this.editing.set(false);
-    afterNextRender(() => this.editToggle()?.nativeElement.focus(), { injector: this.injector });
+    if (!this.restoreFocusOnClose) {
+      this.restoreFocusOnClose = true;
+      return;
+    }
+    this.editToggle().nativeElement.focus();
   }
 
   protected onNameInput(event: Event): void {
@@ -256,9 +301,11 @@ export class EditAppForm {
 
   private onSaved(): void {
     this.pending.set(false);
+    this.restoreFocusOnClose = false;
     this.editing.set(false);
+    this.dialogEl().nativeElement.close();
     this.announcer.announce('App updated');
-    afterNextRender(() => this.editToggle()?.nativeElement.focus(), { injector: this.injector });
+    this.editToggle().nativeElement.focus();
   }
 
   private onFailed(error: unknown): void {

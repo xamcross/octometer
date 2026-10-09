@@ -127,6 +127,15 @@ export class ManagePage {
   }
 
   /**
+   * The Edit app dialog of one row, open or closed (issue #364, D3).
+   * Scoped to `app-edit-app-form`: the row also holds the delete dialog
+   * and the new-secret-key dialog, each its own `<dialog>` element.
+   */
+  editDialog(row: ReturnType<ManagePage['row']>) {
+    return row.locator('app-edit-app-form dialog');
+  }
+
+  /**
    * Replaces the route pattern list of the open edit form, and saves
    * it (issue #299, D5, D40). `open()` fetches `GET /api/apps/{id}`
    * asynchronously, the same race `addOriginAndSave` guards against;
