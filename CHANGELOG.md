@@ -39,6 +39,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   `app.0ct0meter.com/signin`, above the hero. (#367)
 - Give the waitlist section heading and submit button their own labels: "Get an
   invite" and "Send me the link". (#358)
+- Name the domain "0ct0meter.com" next to the contact line in the footer, and mark
+  the zeros once. (#365)
 - Re-capture the three dashboard screenshots at a narrower source width (about 720 px
   for the users view and the elements view, about 920 px for the apps view), keep each
   "Three levels" card at 480 px of image width or more inside the two-column grid, and
