@@ -285,6 +285,22 @@ describe('App', () => {
     expect(current?.textContent).toContain('App 7');
   });
 
+  it('drops the App <id> crumb once the app-name request confirms a 404 (issue #348)', async () => {
+    fixture.detectChanges();
+    await router.navigateByUrl('/apps/999/users');
+    await fixture.whenStable();
+
+    httpMock
+      .expectOne('/api/apps/999')
+      .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).not.toContain('App 999');
+    expect(compiled.querySelector('nav[aria-label="Breadcrumb"]')).toBeNull();
+  });
+
   it('renders no breadcrumb nav for a top-level route (issue #346)', async () => {
     fixture.detectChanges();
     await router.navigateByUrl('/apps');

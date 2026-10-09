@@ -29,6 +29,10 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   above the 12 px floor. (#344)
 - Raise the token `--text-s` from 12.8 px to 14 px, so the hero note, the flow caption,
   and both form hints read larger. (#357)
+- Pack the users card and the elements card at the top of their grid row, so the
+  stretch rule no longer opens a gap above a shorter card's figcaption. (#382)
+- Bound the steps column of the "How it works" grid at 36rem. Put the flow diagram
+  beside the step text, with a gap of about 50 px at 1280 px. (#355)
 
 ### Contract
 
@@ -90,8 +94,12 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   not-found page no longer show a one-item trail that repeats the heading. (#346)
 - Put the sign-in form into the cartoon card, with the sentence "We send you a mail
   with a link. The link works for 15 minutes." under the title. (#349)
+- Give each table caption 12 px of top padding, clear of the panel border. (#376)
 - Remove the bottom margin of `.table-scroll` on the manage view, so no empty strip
   sits between the table and the panel border. (#377)
+- Show the not-found card in the users, the first-pages, the elements, and the sessions
+  view of an app id that is not registered, in place of the loading sentence; the poll
+  stops, and the breadcrumb drops the app crumb. (#348)
 - Keep the three Manage actions in one row at each width from 390 px up; the table
   scrolls inside `.table-scroll` instead of wrapping the row. (#362)
 

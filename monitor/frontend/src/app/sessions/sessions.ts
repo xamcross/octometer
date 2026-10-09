@@ -36,9 +36,9 @@ import type { SessionRow, SessionsResponse } from './session-row';
  * of the same row opens that same link (D28), the same way as the
  * other table views.
  *
- * A 404 answer means the app is not registered. The view then goes to
- * the parent view `/apps`, with the app id in the query parameter
- * `notFoundAppId` (D30), the same way `users.ts` does.
+ * A 404 answer means the app is not registered. The view then shows the
+ * not-found card in place of the table, and the poll stops, the same way
+ * `users.ts` does (issue #348).
  */
 @Component({
   selector: 'app-sessions',
@@ -75,6 +75,17 @@ export class Sessions {
       params: this.buildParams(),
     }),
   );
+
+  /**
+   * True when the last data request failed with a 404 answer: the app id
+   * of the route is not registered (issue #348). The template then shows
+   * the not-found card in place of the table, and the constructor below
+   * stops the poll.
+   */
+  protected readonly appNotFound = computed(() => {
+    const error = this.store.dataError();
+    return error instanceof HttpErrorResponse && error.status === 404;
+  });
 
   /** The page count of the last good answer. 1 before the first answer arrives. */
   protected readonly pageCount = computed(() => this.store.data()?.pageCount ?? 1);
@@ -135,7 +146,20 @@ export class Sessions {
       this.previousQueryKey = key;
     });
 
-    effect(() => this.redirectOnAppNotFound());
+    // Stops the poll on a 404 answer (issue #348): the app id of the
+    // route is not registered, so a further request would only repeat
+    // the same answer. A later change of appId resets the store first,
+    // and that reset opens the gate again for the new target. The
+    // announce call reaches the shared status region (MAJOR 2 of the
+    // review of pull request #396), the same way the old
+    // `notFoundAppId` path did (correction round 1 of pull request
+    // #159, accessibility MAJOR 1).
+    effect(() => {
+      if (this.appNotFound()) {
+        this.store.stop();
+        this.announcer.announce('The app is not registered.');
+      }
+    });
 
     // Announces the result of a pager click or a filter change, once
     // that request answers (lesson 6 of the frontend brief). It stays
@@ -216,19 +240,6 @@ export class Sessions {
     void this.router.navigate(['/apps', this.appId(), 'sessions'], {
       queryParams: { anonymous: 'true', firstPath: this.firstPath(), page },
     });
-  }
-
-  /**
-   * Goes to the parent view `/apps` on a 404 answer (D30). The app id
-   * travels in the query parameter `notFoundAppId`, so the parent view
-   * can show a message. It fires on the first load and on a later 404,
-   * for example a change of appId to an app id that does not exist.
-   */
-  private redirectOnAppNotFound(): void {
-    const error = this.store.dataError();
-    if (error instanceof HttpErrorResponse && error.status === 404) {
-      void this.router.navigate(['/apps'], { queryParams: { notFoundAppId: this.appId() } });
-    }
   }
 
   /**
