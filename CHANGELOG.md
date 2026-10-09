@@ -108,6 +108,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Even the padding of the add-app panel: a zero top margin on the heading and a
   24 px padding on each side, so the gap above the heading matches the gap below
   the submit button. (#389)
+- Keep the three Manage actions in one row at each width from 390 px up; the table
+  scrolls inside `.table-scroll` instead of wrapping the row. (#362)
 - Give a disabled button a shallows fill, ink-soft text, and a dashed border, in place
   of the opacity rule; the text now measures 7.83:1 on its fill. (#384)
 
