@@ -1,4 +1,4 @@
-import type { APIRequestContext, Page } from '@playwright/test';
+import type { APIRequestContext, Locator, Page } from '@playwright/test';
 
 import { expect, test } from '../fixtures';
 import { AppsPage } from '../pages/apps-page';
@@ -35,23 +35,39 @@ async function captionTopPaddingPx(page: Page, captionId: string): Promise<numbe
 }
 
 /**
- * The WCAG contrast ratio of two `"rgb(r, g, b)"` strings (issue #393,
- * MAJOR 3 of the review of pull request #428: `.btn[disabled]` faded
- * the pending label to 2.07:1, below the 4.5:1 floor for 16px text).
+ * The WCAG 2.x contrast ratio of the text color against the background
+ * color of one element (issue #384, finding D25: the disabled Delete
+ * button measured about 2.07:1 at `opacity: 0.55`; issue #393, MAJOR 3
+ * of the review of pull request #428: the pending delete label reused
+ * the same floor). The locator evaluate reads the two resolved
+ * `rgb(...)` strings of the real browser; the ratio math runs here in
+ * Node.
  */
-function contrastRatio(foreground: string, background: string): number {
-  const relativeLuminance = (rgb: string): number => {
-    const channels = rgb
-      .match(/\d+(\.\d+)?/g)!
-      .slice(0, 3)
-      .map(Number)
-      .map((value) => value / 255)
-      .map((value) => (value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
-    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
-  };
-  const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));
-  const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background));
+async function disabledButtonContrastRatio(button: Locator): Promise<number> {
+  const [textColor, backgroundColor] = (await button.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [style.color, style.backgroundColor];
+  })) as [string, string];
+  return contrastRatio(textColor, backgroundColor);
+}
+
+function contrastRatio(colorA: string, colorB: string): number {
+  const luminanceA = relativeLuminance(colorA);
+  const luminanceB = relativeLuminance(colorB);
+  const lighter = Math.max(luminanceA, luminanceB);
+  const darker = Math.min(luminanceA, luminanceB);
   return (lighter + 0.05) / (darker + 0.05);
+}
+
+function relativeLuminance(rgbColor: string): number {
+  const channels = rgbColor.match(/[\d.]+/g);
+  if (!channels) {
+    throw new Error(`"${rgbColor}" is not an rgb(...) color.`);
+  }
+  const [red, green, blue] = channels.slice(0, 3).map((value) => Number(value) / 255);
+  const linear = (value: number): number =>
+    value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue);
 }
 
 /**
@@ -95,6 +111,19 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
     await page.setViewportSize({ width: 1280, height: 720 });
+
+    // Issue #384, finding D25: the disabled Delete button shows a dashed
+    // border and no opacity change, and its text stays at 4.5:1 or more
+    // against its fill. The dialog closes with Cancel, so the demo app
+    // of this serial file stays for every later scenario.
+    const demoManageRow = manage.row('demo');
+    await manage.openDeleteDialog(demoManageRow);
+    const confirmDeleteButton = manage.deleteConfirmButton(demoManageRow);
+    await expect(confirmDeleteButton).toBeDisabled();
+    await expect(confirmDeleteButton).toHaveCSS('border-style', 'dashed');
+    await expect(confirmDeleteButton).toHaveCSS('opacity', '1');
+    expect(await disabledButtonContrastRatio(confirmDeleteButton)).toBeGreaterThanOrEqual(4.5);
+    await manage.cancelDeleteDialog(demoManageRow);
 
     // The app id comes from `GET /api/apps`, through the request context
     // of the test, never from the page response of the POST (correction
@@ -755,7 +784,7 @@ test('the delete-confirm button shows a Deleting label while the request is pend
     await route.fulfill({ response });
   });
 
-  await manage.deleteTrigger(row).click();
+  await manage.openDeleteDialog(row);
   await manage.deleteConfirmNameField(row).fill(appName);
   const confirmButton = manage.deleteConfirmButton(row);
   const cancelButton = row.getByRole('button', { name: 'Cancel' });
@@ -789,16 +818,15 @@ test('the delete-confirm button shows a Deleting label while the request is pend
   expect(Math.abs(pendingConfirmBox.width - restConfirmBox.width)).toBeLessThanOrEqual(1);
   expect(Math.abs(pendingCancelBox.x - restCancelBox.x)).toBeLessThanOrEqual(1);
 
-  // MAJOR 3 of the review of pull request #428: the pending label
-  // stays at full opacity (lesson 24 of the frontend brief: a
-  // contrast check beside an explicit `opacity: 1` assertion, since
+  // MAJOR 3 of the review of pull request #428: pull request #410
+  // gives `.btn[disabled]` the shallows fill and the ink-soft text, in
+  // place of the old opacity rule, so the pending label stays at an
+  // accessible contrast with no rule of its own. The `opacity: 1`
+  // check documents that #410 state (lesson 24 of the frontend brief:
+  // a contrast check beside an explicit opacity assertion, since
   // `getComputedStyle` colors alone ignore a faded element).
   await expect(confirmButton).toHaveCSS('opacity', '1');
-  const confirmColors = await confirmButton.evaluate((el) => {
-    const style = getComputedStyle(el);
-    return { color: style.color, backgroundColor: style.backgroundColor };
-  });
-  const pendingContrast = contrastRatio(confirmColors.color, confirmColors.backgroundColor);
+  const pendingContrast = await disabledButtonContrastRatio(confirmButton);
   console.log(`issue #393, MAJOR 3: the pending label contrast is ${pendingContrast.toFixed(2)}:1.`);
   expect(pendingContrast).toBeGreaterThanOrEqual(4.5);
 

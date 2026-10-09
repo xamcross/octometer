@@ -41,6 +41,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   invite" and "Send me the link". (#358)
 - Name the domain "0ct0meter.com" next to the contact line in the footer, and mark
   the zeros once. (#365)
+- Widen the waitlist panel to fill its row at 48rem and above, with the email
+  field and the button on one row. (#381)
 
 ### Contract
 
@@ -119,11 +121,18 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Hide the pager of the users view, the first-pages view, and the anonymous-sessions
   view for a one-page result, remove the misused `aria-current` from the page-label
   span, and give the page-count announcement the same rule. (#387)
+- Give a disabled button a shallows fill, ink-soft text, and a dashed border, in place
+  of the opacity rule; the text now measures 7.83:1 on its fill. (#384)
 - Show a "Deleting…" label with `aria-busy="true"` on the delete-confirm button while
   the delete request is in flight; the label returns on an error. (#393)
 
 ### CI
 
+- Upload `e2e/.run/*.log` as the artifact `e2e-run-logs` on a failure of the `e2e`
+  job, with a retention of 3 days. (#418)
+- Pull the demo app's MongoDB image and the monitor's base image from the Amazon
+  ECR Public mirror, not from Docker Hub, so the anonymous pull limit never fails
+  the `e2e` job. (#418)
 - Give the secret scan job the `pull-requests: read` permission, so it passes on the
   private repository. (#308)
 - Remove the Windows job and the weekly run, so the private repository stays inside the

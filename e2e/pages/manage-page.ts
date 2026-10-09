@@ -210,24 +210,39 @@ export class ManagePage {
     return this.page.getByRole('heading', { name: 'Add an app' });
   }
 
-  /** The "Delete" trigger button of one row's delete dialog (issue #393). */
-  deleteTrigger(row: ReturnType<ManagePage['row']>) {
-    return row.getByRole('button', { name: 'Delete', exact: true });
+  /**
+   * The "Type the app name to confirm" field of one row's delete
+   * dialog (issue #393). Scoped to the dialog host of #384, so a
+   * page-wide or row-wide lookup of this label never matches a field
+   * of a different, closed dialog.
+   */
+  deleteConfirmNameField(row: ReturnType<ManagePage['row']>) {
+    return this.deleteDialogHost(row).getByLabel('Type the app name to confirm');
   }
 
   /**
-   * The "Type the app name to confirm" field of one row's delete
-   * dialog (issue #393). Scoped to `row`: every row keeps its own
-   * dialog mounted, closed or not, so a page-wide lookup of this label
-   * matches one input per row.
+   * The `app-delete-app-dialog` host of one row. Both the trigger button
+   * and the dialog of this issue sit inside it, so a scoped locator
+   * never matches the Cancel button of the new-secret-key dialog next
+   * to it (issue #384).
    */
-  deleteConfirmNameField(row: ReturnType<ManagePage['row']>) {
-    return row.getByLabel('Type the app name to confirm');
+  private deleteDialogHost(row: ReturnType<ManagePage['row']>) {
+    return row.locator('app-delete-app-dialog');
   }
 
-  /** The confirm button of one row's delete dialog (issue #393, finding D30). */
+  /** Opens the delete dialog of one row (issue #384). */
+  async openDeleteDialog(row: ReturnType<ManagePage['row']>): Promise<void> {
+    await this.deleteDialogHost(row).locator('button.delete-trigger').click();
+  }
+
+  /** The "Delete this app" confirm button of the open delete dialog (issue #384). */
   deleteConfirmButton(row: ReturnType<ManagePage['row']>) {
-    return row.locator('button.confirm-delete');
+    return this.deleteDialogHost(row).locator('button.confirm-delete');
+  }
+
+  /** Closes the delete dialog of one row without a delete (issue #384). */
+  async cancelDeleteDialog(row: ReturnType<ManagePage['row']>): Promise<void> {
+    await this.deleteDialogHost(row).locator('button.cancel').click();
   }
 
   /**
