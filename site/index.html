@@ -20,6 +20,28 @@
     </script>
   </head>
   <body>
+    <!-- #367, the audit finding L2: the top bar gives a visitor a way into
+         the product. The bar sits outside ".page", so its background
+         spans the full width of the viewport; ".topbar-inner" repeats the
+         max-width and the gutter of ".page". -->
+    <nav class="topbar" aria-label="Site navigation">
+      <div class="topbar-inner">
+        <div class="topbar-brand">
+          <svg class="mark topbar-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <circle class="head" cx="16" cy="13" r="9" />
+            <circle class="eye" cx="12.6" cy="11.5" r="1.6" />
+            <circle class="eye" cx="19.4" cy="11.5" r="1.6" />
+            <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2" />
+          </svg>
+          <span class="word">Octometer</span>
+        </div>
+        <ul class="topbar-links">
+          <li><a href="#how-title">How it works</a></li>
+          <li><a href="#privacy-title">Privacy</a></li>
+          <li><a class="btn" href="https://app.0ct0meter.com/signin">Sign in</a></li>
+        </ul>
+      </div>
+    </nav>
     <div class="page">
       <header class="hero">
         <svg class="mark" width="96" height="96" viewBox="0 0 32 32" aria-hidden="true">
@@ -231,7 +253,7 @@
            its one answer region (the mockup section 5, minus the two
            demo state blocks the real page never ships). -->
       <section class="sec" id="waitlist" aria-labelledby="waitlist-title">
-        <h2 id="waitlist-title">Join the waitlist</h2>
+        <h2 id="waitlist-title">Get an invite</h2>
         <p class="sec-lead">
           Octometer is in a pilot. Give us your address, and we write to you at the start.
         </p>
@@ -265,7 +287,7 @@
                 We use your address for this waitlist only. Read the
                 <a href="#notice">notice</a>.
               </p>
-              <p><button class="btn btn-primary" type="submit">Join the waitlist</button></p>
+              <p><button class="btn btn-primary" type="submit">Send me the link</button></p>
               <p class="wl-status" id="waitlist-status" role="status" aria-live="polite"></p>
             </div>
           </form>
