@@ -4,6 +4,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
+import { Me } from '../account/me';
 import { Announcer } from '../announcer';
 import { NETWORK_FAILURE_MESSAGE, readApiErrorMessage } from '../manage/app-registry-api';
 
@@ -41,6 +42,7 @@ export class Signin {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly announcer = inject(Announcer);
+  private readonly me = inject(Me);
 
   /**
    * The token of the query string, or null for the plain request form.
@@ -72,22 +74,15 @@ export class Signin {
       }
     });
 
-    // Issue #347: on the plain route (no `token` query parameter), ask
-    // once if the visitor already holds a session, and skip the form
-    // for that visitor. The confirm page keeps its own behaviour (D52):
-    // a mail scanner must stay able to fetch it with no side effect.
-    if (this.route.snapshot.queryParamMap.get('token') === null) {
-      this.checkExistingSession();
-    }
-  }
-
-  /** Issue #347: `GET /api/me` once, on the plain `/signin` route. */
-  private checkExistingSession(): void {
-    this.http.get('/api/me').subscribe({
-      next: () => void this.router.navigate(['/apps']),
-      // A 401 is the normal state before sign-in: the form already
-      // shows by default, so this branch does nothing.
-      error: () => undefined,
+    // Issue #347, MAJOR 1 of the review of pull request #350: the root
+    // app already sends one `GET /api/me` (`app.ts`), through `Me`.
+    // This effect reads its ready state in place of a second request.
+    // The plain route (no `token` query parameter) navigates away once
+    // a session answer arrives; the confirm route stays out of it.
+    effect(() => {
+      if (this.token() === null && this.me.ready()) {
+        void this.router.navigate(['/apps']);
+      }
     });
   }
 
