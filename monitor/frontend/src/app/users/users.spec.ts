@@ -557,9 +557,30 @@ describe('Users', () => {
 
       expect(announcer.message()).toContain('No user matches');
     });
+
+    it('announces no page part when the fresh answer has one page, so the spoken text agrees with the hidden pager (MAJOR 3 of the review of #405)', () => {
+      startStore();
+      flushUsers(buildPage());
+      const announcer = TestBed.inject(Announcer);
+
+      fixture.componentRef.setInput('q', 'dan');
+      fixture.detectChanges();
+      httpMock.expectOne('/api/apps/7/users?page=1&q=dan').flush(buildPage({ rows: [buildRow()] }));
+      fixture.detectChanges();
+      vi.advanceTimersByTime(200);
+
+      expect(announcer.message()).toBe('1 user matches.');
+    });
   });
 
   describe('the pager', () => {
+    it('shows no pager for a one-page result (D15 of the UI audit of 2026-10-09, MAJOR 2 of the review of #405)', () => {
+      startStore();
+      flushUsers(buildPage({ page: 1, pageCount: 1 }));
+
+      expect(root().querySelector('nav.pager')).toBeNull();
+    });
+
     it('shows "Previous", "Next", and "Page X of Y"', () => {
       startStore();
       flushUsers(buildPage({ page: 2, pageCount: 100 }));
@@ -570,18 +591,18 @@ describe('Users', () => {
       expect(nav.textContent).toContain('Page 2 of 100');
     });
 
-    it('gives the current page text aria-current="true", so only the breadcrumb holds aria-current="page" (MINOR 1 of the accessibility review of #159)', () => {
+    it('gives the current page text no aria-current attribute, since that text names no current item of a set (D15 of the UI audit of 2026-10-09)', () => {
       startStore();
       flushUsers(buildPage({ page: 2, pageCount: 100 }));
 
-      const current = root().querySelector('[aria-current="true"]');
-      expect(current?.textContent).toContain('Page 2 of 100');
-      expect(root().querySelector('nav.pager [aria-current="page"]')).toBeNull();
+      const nav = root().querySelector('nav.pager') as HTMLElement;
+      expect(nav.textContent).toContain('Page 2 of 100');
+      expect(nav.querySelector('[aria-current]')).toBeNull();
     });
 
     it('gives the pager landmark a name that says what it is (MINOR 2 of the accessibility review of #159)', () => {
       startStore();
-      flushUsers(buildPage());
+      flushUsers(buildPage({ pageCount: 5 }));
 
       const nav = root().querySelector('nav.pager') as HTMLElement;
       expect(nav.getAttribute('aria-label')).toBe('Pages of the user list');
