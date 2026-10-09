@@ -60,6 +60,14 @@ test('the three sections render with their images and texts, and nothing moves u
   // The three screenshots: a non-empty alt text, and a loaded image. Each
   // image is lazy, so the scroll comes before the "naturalWidth" read (the
   // lesson of the frontend brief on a lazy image, applied to this suite).
+  //
+  // Issue #343: the old images kept one fixed, tall ratio (height /
+  // width = 1600 / 2400, about 0.667) below each short table, with an
+  // empty area below it. The bound of 0.6 passes each new, cropped
+  // image (the tallest, the users view, gives about 0.51) and fails
+  // the old ratio (the break proof of the pull request text states
+  // both numbers).
+  const MAX_HEIGHT_TO_WIDTH_RATIO = 0.6;
   const images = page.locator('.frame img');
   await expect(images).toHaveCount(3);
   const imageCount = await images.count();
@@ -69,8 +77,12 @@ test('the three sections render with their images and texts, and nothing moves u
     expect(alt).toBeTruthy();
     await image.scrollIntoViewIfNeeded();
     await expect(async () => {
-      const naturalWidth = await image.evaluate((el: HTMLImageElement) => el.naturalWidth);
-      expect(naturalWidth).toBeGreaterThan(0);
+      const naturalSize = await image.evaluate((el: HTMLImageElement) => ({
+        width: el.naturalWidth,
+        height: el.naturalHeight,
+      }));
+      expect(naturalSize.width).toBeGreaterThan(0);
+      expect(naturalSize.height / naturalSize.width).toBeLessThan(MAX_HEIGHT_TO_WIDTH_RATIO);
     }).toPass();
   }
 
