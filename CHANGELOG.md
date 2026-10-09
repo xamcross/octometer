@@ -41,6 +41,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   invite" and "Send me the link". (#358)
 - Name the domain "0ct0meter.com" next to the contact line in the footer, and mark
   the zeros once. (#365)
+- Widen the waitlist panel to fill its row at 48rem and above, with the email
+  field and the button on one row. (#381)
 - Add a product-shot preview to the right side of the hero at 56rem and above, built
   as an HTML table in the visual family of `.frame`, so no empty strip sits past the
   copy. (#372)
@@ -122,6 +124,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Hide the pager of the users view, the first-pages view, and the anonymous-sessions
   view for a one-page result, remove the misused `aria-current` from the page-label
   span, and give the page-count announcement the same rule. (#387)
+- Give a disabled button a shallows fill, ink-soft text, and a dashed border, in place
+  of the opacity rule; the text now measures 7.83:1 on its fill. (#384)
 
 ### CI
 

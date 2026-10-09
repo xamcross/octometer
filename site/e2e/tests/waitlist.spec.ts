@@ -206,3 +206,62 @@ test('an address joins the list, confirms through the link, and can remove itsel
   const cookies = await context.cookies();
   expect(cookies).toHaveLength(0);
 });
+
+// Issue #381, audit finding L6: the panel used about one third of its
+// row at 48rem and above. This scenario measures the panel width
+// against the row width at 1280 px, and checks the field and the
+// button of a narrow viewport (390 px).
+test('the panel fills its row at 1280 px, and the form stays usable at 390 px', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  const row = page.locator('.wl');
+  const panel = page.locator('form.waitlist-form');
+  const input = page.locator('#waitlist-email');
+  const button = page.locator('form.waitlist-form button[type="submit"]');
+
+  // Issue #381, acceptance criterion 2: the email field shows the
+  // placeholder "you@company.com".
+  await expect(input).toHaveAttribute('placeholder', 'you@company.com');
+
+  const rowBox = await row.boundingBox();
+  const panelBox = await panel.boundingBox();
+  if (!rowBox || !panelBox) {
+    throw new Error('The row or the panel has no box at 1280 px.');
+  }
+  // The panel reaches the new cap of 48rem (768 px), far more than the
+  // old cap of 26rem (416 px); audit finding L6. The pilot list of
+  // step 5 takes the rest of the row, so the row itself has no gap.
+  expect(panelBox.width).toBeGreaterThan(750);
+  expect(panelBox.width).toBeLessThan(790);
+  expect(panelBox.width / rowBox.width).toBeGreaterThan(0.6);
+
+  const inputBox = await input.boundingBox();
+  const buttonBox = await button.boundingBox();
+  if (!inputBox || !buttonBox) {
+    throw new Error('The input or the button has no box at 1280 px.');
+  }
+  // The field and the button sit on one row: each box crosses the
+  // vertical range of the other box.
+  expect(inputBox.y).toBeLessThan(buttonBox.y + buttonBox.height);
+  expect(buttonBox.y).toBeLessThan(inputBox.y + inputBox.height);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+
+  const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  const viewportWidth = await page.evaluate(() => window.innerWidth);
+  // The page has no horizontal scrollbar at 390 px.
+  expect(scrollWidth).toBeLessThanOrEqual(viewportWidth);
+
+  const narrowRowBox = await row.boundingBox();
+  const narrowInputBox = await input.boundingBox();
+  const narrowButtonBox = await button.boundingBox();
+  if (!narrowRowBox || !narrowInputBox || !narrowButtonBox) {
+    throw new Error('The row, the input, or the button has no box at 390 px.');
+  }
+  // The field and the button each fill most of the row at 390 px.
+  expect(narrowInputBox.width / narrowRowBox.width).toBeGreaterThan(0.85);
+  expect(narrowButtonBox.width / narrowRowBox.width).toBeGreaterThan(0.85);
+});

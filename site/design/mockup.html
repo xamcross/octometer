@@ -165,6 +165,9 @@ a:hover{text-decoration-thickness:3px}
 .field{display:grid;gap:var(--space-1)}
 label{font-weight:700}
 .field input{font:400 var(--text-m)/1.5 var(--body);width:100%;padding:var(--space-2) var(--space-3);background:var(--paper);color:var(--ink);border:var(--line-control);border-radius:var(--radius-control);scroll-margin-top:6rem}
+/* Issue #381: the submit button fills its row below 48rem; the wide
+   layout at 48rem sets the width back to "auto", beside the field. */
+.panel-body .btn{width:100%}
 .hint{font-size:var(--text-s);color:var(--ink-soft);max-width:44ch}
 .states{display:grid;gap:var(--space-3);justify-items:start}
 .states h3{font-size:var(--text-l)}
@@ -199,7 +202,19 @@ label{font-weight:700}
   .how{grid-template-columns:minmax(0,36rem) 1fr}
   .steps p{max-width:none}
   .flow{justify-self:start}
-  .wl{grid-template-columns:minmax(0,26rem) 1fr;gap:var(--space-6)}
+  /* Issue #381, audit finding L6: the old cap of 26rem left about
+     two-thirds of the row empty. The page caps the first column of
+     ".wl" at 48rem too, the same as this mockup. The mockup keeps
+     its states column beside the form. */
+  .wl{grid-template-columns:minmax(0,48rem) 1fr;gap:var(--space-6)}
+  /* The field and the button sit on one row: column 1 holds the
+     field, column 2 holds the button. The consent text spans the
+     full row, on its own row. */
+  .panel-body{grid-template-columns:1fr auto;align-items:start;column-gap:var(--space-4)}
+  .panel-body>.field{grid-column:1;grid-row:1}
+  .panel-body>p:nth-of-type(1){grid-column:2;grid-row:1;align-self:center}
+  .panel-body>p:nth-of-type(2){grid-column:1/-1;grid-row:2}
+  .panel-body .btn{width:auto}
   .levels{grid-template-columns:1fr 1fr}
   .levels>:first-child{grid-column:1/-1}
 }
@@ -426,10 +441,9 @@ label{font-weight:700}
         <div class="panel-body">
           <div class="field">
             <label for="waitlist-email">Your email address</label>
-            <input id="waitlist-email" name="email" type="email" autocomplete="email" aria-describedby="email-hint consent">
-            <p class="hint" id="email-hint">We send one mail with a confirmation link. Open that link to join the list.</p>
+            <input id="waitlist-email" name="email" type="email" autocomplete="email" placeholder="you@company.com" aria-describedby="email-hint">
+            <p class="hint" id="email-hint">We send one mail with a confirmation link. Open the link to join the list. We use your address for this waitlist only. Read the <a href="#notice">notice</a>.</p>
           </div>
-          <p class="hint" id="consent">We use your address for this waitlist only. Read the <a href="#notice">notice</a>.</p>
           <p><button class="btn btn-primary" type="submit">Send me the link</button></p>
         </div>
       </form>
