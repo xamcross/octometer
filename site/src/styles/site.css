@@ -341,19 +341,19 @@ a:hover {
 }
 
 /* 3. The three levels (issue #289, the mockup rules verbatim). */
-/* Issue #359 (the UI audit finding L1): "auto-fit" with a 32rem (512px)
-   floor keeps each card of the two-column row at 480px of image width or
-   more (512px minus the frame padding of --space-4 on each side). Below
-   that floor the row drops to one column, so the image never shrinks
-   past its readable size; "min(32rem, 100%)" stops the one-column floor
-   from forcing a sideways scroll on a narrow phone. */
+/* Issue #359 correction round, criterion 1 (the owner's body edit of
+   2026-10-10): a two-column row at 1280px gave each small card about
+   526px of image width, below the 12px text floor of the users capture
+   and the elements capture (720px wide). The users table and the
+   elements table do not fit a narrower capture of 560px or less (the
+   scroll guard of "screenshots.mjs" throws on both), so this fix keeps
+   the capture width and puts each card on its own row instead. Each
+   image then renders near the full "page" width, at or above the 12px
+   floor. */
 .levels {
   display: grid;
   gap: var(--space-5);
-  grid-template-columns: repeat(auto-fit, minmax(min(32rem, 100%), 1fr));
-}
-.levels > :first-child {
-  grid-column: 1 / -1;
+  grid-template-columns: 1fr;
 }
 .frame {
   display: grid;
@@ -375,9 +375,9 @@ a:hover {
 }
 /* Correction m3 of the brief review: the frame image never grows past
    its frame. Issue #359: "width: 100%" (in place of "max-width: 100%")
-   fills the apps card, which spans both grid columns and so is wider
-   than the capture's own declared size; the card no longer keeps a
-   blank strip beside a capture that stops at its declared width. */
+   fills each card, now one per row at a width past the capture's own
+   declared size; the card keeps no blank strip beside a capture that
+   stops at its declared width. */
 .frame img {
   width: 100%;
   height: auto;
@@ -422,13 +422,20 @@ a:hover {
 /* The full-size dialog of issue #359. The native "dialog" element traps
    the focus and closes on Escape on its own; "main.ts" adds the close
    button and the click outside the image. */
+/* Correction round of pull request #424, MAJOR 1: at 390px the old
+   "max-width: 100%" on ".lightbox-img" shrank the image below the
+   card's own capture, so the dialog gave no gain over the card. The
+   dialog now holds the capture at its own natural width (no "max-width"
+   rule on the image), and "overflow: auto" lets the visitor pan to the
+   part that does not fit the screen. The card itself stays as it is. */
 .lightbox {
   /* "position: fixed" repeats the browser default of "dialog:modal", so
      the dialog still centers at the middle of the screen; it also gives
      ".lightbox-close" its positioned ancestor. */
   position: fixed;
-  max-width: min(94vw, 1400px);
-  max-height: 90vh;
+  max-width: 100vw;
+  max-height: 100vh;
+  overflow: auto;
   margin: auto;
   padding: var(--space-5);
   background: var(--paper);
@@ -442,8 +449,6 @@ a:hover {
 }
 .lightbox-img {
   display: block;
-  max-width: 100%;
-  max-height: calc(90vh - 2 * var(--space-5));
 }
 .lightbox-close {
   position: absolute;

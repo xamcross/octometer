@@ -112,6 +112,13 @@ test('the three sections render with their images and texts, and nothing moves u
   // the same capture viewport (height 800 over the capture width: about
   // 0.87 for apps, about 1.11 for users and for elements).
   const MAX_HEIGHT_TO_WIDTH_RATIO = [0.7, 1.05, 0.8];
+  // MAJOR 2 of the review of pull request #424: the ratio bound alone
+  // misses a capture at the wrong viewport (the regression of issue
+  // #343). Each capture file is 2x the viewport, so this bound checks
+  // the raw pixel width of the committed file against that viewport:
+  // 1840 px for the apps view (920 px x 2), 1440 px for the users view
+  // and the elements view (720 px x 2 each).
+  const CAPTURE_WIDTH_AT_2X = [1840, 1440, 1440];
   const images = page.locator('.frame img');
   await expect(images).toHaveCount(3);
   const imageCount = await images.count();
@@ -127,29 +134,39 @@ test('the three sections render with their images and texts, and nothing moves u
       }));
       expect(naturalSize.width).toBeGreaterThan(0);
       expect(naturalSize.height / naturalSize.width).toBeLessThan(MAX_HEIGHT_TO_WIDTH_RATIO[i]);
+      expect(naturalSize.width).toBe(CAPTURE_WIDTH_AT_2X[i]);
     }).toPass();
   }
 
-  // Issue #359 (the UI audit finding L1): the rendered width of the
-  // two-column cards against the viewport of 1280 px. Site.css keeps
-  // ".levels" at a floor of 480 px of image width per card (a 32rem
-  // grid track minus the frame padding) until the row drops to one
-  // column; below 1280 px this is the first width where two columns
-  // fit two 480 px cards plus the row gap.
-  const usersImageWidthAt1280 = (await images.nth(1).boundingBox())!.width;
-  const elementsImageWidthAt1280 = (await images.nth(2).boundingBox())!.width;
-  console.log(
-    `issue #359 image width at 1280 px: users ${usersImageWidthAt1280}px, ` +
-      `elements ${elementsImageWidthAt1280}px`,
-  );
-  expect(usersImageWidthAt1280).toBeGreaterThanOrEqual(480);
-  expect(elementsImageWidthAt1280).toBeGreaterThanOrEqual(480);
+  // MAJOR 3 of the review of pull request #424, criterion 1: the
+  // rendered width against the viewport, alone, does not state the
+  // apparent text size. This asserts the apparent size instead: the
+  // rendered width over the "width" attribute (the capture's own
+  // viewport), times the smallest text token of the capture (12.8 px,
+  // "--text-s" of monitor/frontend/src/styles.css:50), at or above the
+  // 12 px floor, for each of the three cards at 1280 px. The owner's
+  // body edit of 2026-10-10 moved this check from the old 480 px floor
+  // of a two-column row: the users table and the elements table do not
+  // fit a narrower capture (the scroll guard of "screenshots.mjs"
+  // throws on both at 560 px), so ".levels" now puts one card per row
+  // instead (site.css).
+  const TEXT_TOKEN_PX = 12.8;
+  for (let i = 0; i < imageCount; i++) {
+    const image = images.nth(i);
+    const widthAttr = Number(await image.getAttribute('width'));
+    const renderedWidth = (await image.boundingBox())!.width;
+    const apparentTextPx = (renderedWidth / widthAttr) * TEXT_TOKEN_PX;
+    console.log(
+      `issue #359 card ${i} at 1280 px: capture ${widthAttr}px, rendered ` +
+        `${renderedWidth}px, apparent text ${apparentTextPx.toFixed(2)}px`,
+    );
+    expect(apparentTextPx).toBeGreaterThanOrEqual(12);
+  }
 
-  // Issue #359: the apps card spans both columns of ".levels", so at
-  // 1280 px it is wider than its own capture (about 920 px declared).
-  // "width: 100%" (site.css, in place of "max-width: 100%") fills the
-  // card; the image keeps no blank strip beside a capture that stopped
-  // at its own declared size.
+  // Issue #359: each card now fills its own row of ".levels" (one
+  // column). "width: 100%" (site.css, in place of "max-width: 100%")
+  // fills the card; the image keeps no blank strip beside a capture
+  // that stopped at its own declared size.
   const appsWidths = await images.nth(0).evaluate((el: HTMLImageElement) => ({
     image: el.getBoundingClientRect().width,
     button: (el.closest('.frame-open') as HTMLElement).getBoundingClientRect().width,
@@ -160,16 +177,15 @@ test('the three sections render with their images and texts, and nothing moves u
   );
   expect(Math.abs(appsWidths.image - appsWidths.button)).toBeLessThan(1);
 
-  // BLOCKER 1 of the review of pull request #399, issue #382. At 1280 px
-  // the users card and the elements card share one grid row. Criterion 1
-  // asks for a small gap below each image. Criterion 2 asks for one
-  // shared bottom edge of the two figcaption boxes. The fix adds
-  // "grid-template-rows: auto 1fr auto" to ".frame". The picture row then
-  // takes the leftover height of the shorter card. The rule
-  // ".frame picture { align-self: end }" pins the image to the bottom of
-  // that row. The free space opens between the heading and the image,
-  // not below the caption (the break proof of the pull request text
-  // states each measured number).
+  // BLOCKER 1 of the review of pull request #399, issue #382, criterion 1:
+  // a small gap sits below each image, above the figcaption. The fix adds
+  // "grid-template-rows: auto 1fr auto" to ".frame", so the middle row
+  // takes any leftover height and the free space never opens below the
+  // caption. Criterion 2 of that review (one shared bottom edge of the
+  // users figcaption and the elements figcaption) no longer applies: the
+  // correction round of pull request #424 puts each card on its own row
+  // of ".levels" (site.css), so the two cards no longer share one grid
+  // row to stretch to one height.
   const frames = page.locator('.frame');
   await expect(frames).toHaveCount(3);
   const usersFrame = frames.nth(1);
@@ -179,7 +195,6 @@ test('the three sections render with their images and texts, and nothing moves u
     const caption = frame.querySelector('figcaption') as HTMLElement;
     return {
       gap: caption.getBoundingClientRect().top - image.getBoundingClientRect().bottom,
-      captionBottom: caption.getBoundingClientRect().bottom,
     };
   };
   const usersMeasure = await usersFrame.evaluate(measure);
@@ -188,9 +203,6 @@ test('the three sections render with their images and texts, and nothing moves u
   // (--space-3, 12 px), at most 16 px.
   expect(usersMeasure.gap).toBeLessThan(16);
   expect(elementsMeasure.gap).toBeLessThan(16);
-  // Criterion 2: the two figcaption boxes share one bottom edge, within
-  // 1 px.
-  expect(Math.abs(elementsMeasure.captionBottom - usersMeasure.captionBottom)).toBeLessThan(1);
 
   // State 3: under reduced motion, a reload shows each node at once, with
   // no transition (lesson 17 of the frontend brief guards against a false
@@ -319,6 +331,36 @@ test('a click on a card opens the screenshot at full size, and each control clos
   await expect(dialog).toHaveJSProperty('open', true);
   await lightboxImage.click();
   await expect(dialog).toHaveJSProperty('open', true);
+  // MAJOR 1 of the review of pull request #424: the dialog now holds the
+  // capture at its natural width, past the viewport, so a click on the
+  // image scrolls the dialog box (the actionability step of this click
+  // tool). This line sets the scroll back to the top-left corner, so the
+  // point (5, 5) below sits in the dialog's own padding ring again, not
+  // on the scrolled-in image.
+  await dialog.evaluate((el) => {
+    el.scrollTop = 0;
+    el.scrollLeft = 0;
+  });
   await dialog.click({ position: { x: 5, y: 5 } });
   await expect(dialog).toHaveJSProperty('open', false);
+
+  // MAJOR 1 and MAJOR 3 of the review of pull request #424, criterion 1
+  // at 390 px: the dialog shows the capture at its own natural width
+  // (no "max-width" rule shrinks it), with a pan for the part past the
+  // screen. This asserts the rendered width of the dialog image equals
+  // its own "naturalWidth" (site.css: ".lightbox-img" carries no
+  // "max-width" and no "max-height"; ".lightbox" carries "overflow:
+  // auto" instead).
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openButton.click();
+  await expect(dialog).toHaveJSProperty('open', true);
+  const dialogSize = await lightboxImage.evaluate((el: HTMLImageElement) => ({
+    rendered: el.getBoundingClientRect().width,
+    natural: el.naturalWidth,
+  }));
+  console.log(
+    `issue #359 dialog image at 390 px: rendered ${dialogSize.rendered}px, ` +
+      `natural ${dialogSize.natural}px`,
+  );
+  expect(dialogSize.rendered).toBe(dialogSize.natural);
 });

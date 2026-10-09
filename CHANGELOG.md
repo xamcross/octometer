@@ -41,11 +41,14 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   invite" and "Send me the link". (#358)
 - Name the domain "0ct0meter.com" next to the contact line in the footer, and mark
   the zeros once. (#365)
-- Re-capture the three dashboard screenshots at a narrower source width (about 720 px
-  for the users view and the elements view, about 920 px for the apps view), keep each
-  "Three levels" card at 480 px of image width or more inside the two-column grid, and
-  add a button that opens one capture at full size, with a close control and the
-  Escape key. (#359)
+- Add a button on each "Three levels" card that opens one dashboard capture at full
+  size, with a close control and the Escape key. (#359)
+- Put each "Three levels" card on its own row at 1280 px, so the row text of each
+  capture reads at 12.8 px or more, with no zoom. (#359, the correction round of pull
+  request #424)
+- Let the full-size dialog hold the capture at its own natural width, with a pan, so
+  the row text reads at 12.8 px at 390 px too. (#359, the correction round of pull
+  request #424)
 
 ### Contract
 
