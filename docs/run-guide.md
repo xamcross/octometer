@@ -519,6 +519,12 @@ stays stable between runs. The suite never touches the owner's own
 containers: the demo app container of a manual run, `demo-app-mongo-1`
 on port 27117, belongs to a different project.
 
+`tools/demo-app/docker-compose.yml` pulls the MongoDB image from the
+Amazon ECR Public mirror (`public.ecr.aws/docker/library/mongo`), not
+from Docker Hub. Docker Hub refuses an anonymous pull past its daily
+limit, and this is the image that each e2e run and each manual demo
+run pulls.
+
 <!--
 Sources:
 monitor/backend/README.md ("Config", "The daily backup", "How to restore a
