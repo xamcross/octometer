@@ -505,6 +505,20 @@ secret `OCTOMETER_CLUSTER_URI`.
 `tools/local-service/README.md` runs the same image on your own
 machine, with a local MongoDB container in place of Atlas.
 
+### The end-to-end suite
+
+Run the suite with `cd e2e && npm test`. Each clone gets its own
+Docker Compose project. `e2e/setup/constants.ts` builds the name from
+the clone's absolute path: `octometer-e2e-<8 hex characters>`. Two
+clones on one machine run the suite at the same time; each clone stops
+only its own containers.
+
+Set `OCTOMETER_E2E_PROJECT` to pick the project name yourself. The CI
+job `e2e` sets it to the fixed name `octometer-e2e`, so its own output
+stays stable between runs. The suite never touches the owner's own
+containers: the demo app container of a manual run, `demo-app-mongo-1`
+on port 27117, belongs to a different project.
+
 <!--
 Sources:
 monitor/backend/README.md ("Config", "The daily backup", "How to restore a
