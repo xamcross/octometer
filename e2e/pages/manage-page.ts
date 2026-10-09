@@ -200,6 +200,11 @@ export class ManagePage {
     return this.page.locator('.table-scroll');
   }
 
+  /** The action-row div of one row's actions cell (issue #362, finding D2). */
+  actionRow(row: ReturnType<ManagePage['row']>) {
+    return row.locator('.action-row');
+  }
+
   /** The heading of the add-app panel (issue #389, finding D29). */
   addAppHeading() {
     return this.page.getByRole('heading', { name: 'Add an app' });
