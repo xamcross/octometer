@@ -4,9 +4,15 @@
 # default of this file. The host port defaults to 27017. Set
 # OCTOMETER_DEMO_MONGO_PORT for a different port, for example when a
 # different MongoDB server already holds port 27017 on this machine.
+#
+# Issue #418: the image comes from the Amazon ECR Public mirror of the
+# Docker library, not from Docker Hub. Docker Hub refuses an
+# anonymous pull past its daily limit, and the CI job pulls this image
+# on every run. The tag stays 8.0 (the rule of 2026-10-09: no version
+# change).
 services:
   mongo:
-    image: mongo:8.0
+    image: public.ecr.aws/docker/library/mongo:8.0
     ports:
       - "127.0.0.1:${OCTOMETER_DEMO_MONGO_PORT:-27017}:27017"
     volumes:
