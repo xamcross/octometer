@@ -52,6 +52,16 @@ test('the notice is reachable from the form and the footer', async ({ page, cont
   const contact = page.getByRole('link', { name: 'support@0ct0meter.com' });
   await expect(contact).toHaveAttribute('href', 'mailto:support@0ct0meter.com');
 
+  // The zero domain next to the contact line (issue #365, the audit
+  // finding L14): the footer names "0ct0meter.com" and marks the zeros,
+  // at a size no smaller than the 14 px floor of issue #357.
+  const footMeta = page.locator('.foot-meta');
+  await expect(footMeta).toContainText('0ct0meter.com — with zeros');
+  const zeroLineSize = await footMeta
+    .locator('p', { hasText: 'with zeros' })
+    .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(zeroLineSize).toBeGreaterThanOrEqual(14);
+
   // The quality floor: no cookie, after the load and after the click.
   const cookies = await context.cookies();
   expect(cookies).toEqual([]);
