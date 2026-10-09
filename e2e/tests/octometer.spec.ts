@@ -35,6 +35,26 @@ async function captionTopPaddingPx(page: Page, captionId: string): Promise<numbe
 }
 
 /**
+ * The WCAG contrast ratio of two `"rgb(r, g, b)"` strings (issue #393,
+ * MAJOR 3 of the review of pull request #428: `.btn[disabled]` faded
+ * the pending label to 2.07:1, below the 4.5:1 floor for 16px text).
+ */
+function contrastRatio(foreground: string, background: string): number {
+  const relativeLuminance = (rgb: string): number => {
+    const channels = rgb
+      .match(/\d+(\.\d+)?/g)!
+      .slice(0, 3)
+      .map(Number)
+      .map((value) => value / 255)
+      .map((value) => (value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  };
+  const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));
+  const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+/**
  * One serial file, one shared app (decision 5). The scenarios run in
  * this fixed order because each one reads the state that an earlier one
  * wrote: the app id of scenario (a), the click totals of scenario (b).
@@ -738,13 +758,49 @@ test('the delete-confirm button shows a Deleting label while the request is pend
   await manage.deleteTrigger(row).click();
   await manage.deleteConfirmNameField(row).fill(appName);
   const confirmButton = manage.deleteConfirmButton(row);
+  const cancelButton = row.getByRole('button', { name: 'Cancel' });
   await expect(confirmButton).toHaveText('Delete this app');
   await expect(confirmButton).not.toHaveAttribute('aria-busy');
+
+  // MAJOR 2 of the review of pull request #428: the confirm button
+  // keeps the width of its longer, rest-state label, so Cancel does
+  // not move under the pointer once the pending label shrinks it.
+  const restConfirmBox = await confirmButton.boundingBox();
+  const restCancelBox = await cancelButton.boundingBox();
+  if (!restConfirmBox || !restCancelBox) {
+    throw new Error('The confirm button or the Cancel button has no box in the rest state.');
+  }
 
   await confirmButton.click();
   await expect(confirmButton).toHaveText('Deleting…');
   await expect(confirmButton).toHaveAttribute('aria-busy', 'true');
   await expect(confirmButton).toBeDisabled();
+
+  const pendingConfirmBox = await confirmButton.boundingBox();
+  const pendingCancelBox = await cancelButton.boundingBox();
+  if (!pendingConfirmBox || !pendingCancelBox) {
+    throw new Error('The confirm button or the Cancel button has no box in the pending state.');
+  }
+  console.log(
+    `issue #393, MAJOR 2: the confirm button width is ${restConfirmBox.width}px at rest ` +
+      `and ${pendingConfirmBox.width}px pending; the Cancel button left x is ` +
+      `${restCancelBox.x}px at rest and ${pendingCancelBox.x}px pending.`,
+  );
+  expect(Math.abs(pendingConfirmBox.width - restConfirmBox.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(pendingCancelBox.x - restCancelBox.x)).toBeLessThanOrEqual(1);
+
+  // MAJOR 3 of the review of pull request #428: the pending label
+  // stays at full opacity (lesson 24 of the frontend brief: a
+  // contrast check beside an explicit `opacity: 1` assertion, since
+  // `getComputedStyle` colors alone ignore a faded element).
+  await expect(confirmButton).toHaveCSS('opacity', '1');
+  const confirmColors = await confirmButton.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return { color: style.color, backgroundColor: style.backgroundColor };
+  });
+  const pendingContrast = contrastRatio(confirmColors.color, confirmColors.backgroundColor);
+  console.log(`issue #393, MAJOR 3: the pending label contrast is ${pendingContrast.toFixed(2)}:1.`);
+  expect(pendingContrast).toBeGreaterThanOrEqual(4.5);
 
   releaseDelete();
   await expect(row.locator('dialog[aria-labelledby^="delete-app-heading"]')).toBeHidden();

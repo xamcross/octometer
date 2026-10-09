@@ -210,6 +210,20 @@ describe('DeleteAppDialog', () => {
     expect(confirmButton.getAttribute('aria-busy')).toBeNull();
   });
 
+  it('announces "Deleting…" at the start of the delete request (review of pull request #428, MAJOR 1)', () => {
+    const announceSpy = vi.spyOn(announcer, 'announce');
+    openDialog();
+    typeConfirmName('traficio');
+
+    root().querySelector<HTMLButtonElement>('button.confirm-delete')!.click();
+
+    expect(announceSpy).toHaveBeenCalledWith('Deleting…');
+
+    httpMock
+      .expectOne({ url: '/api/apps/5', method: 'DELETE' })
+      .flush(null, { status: 204, statusText: 'No Content' });
+  });
+
   it('sends DELETE /api/apps/{id} with the header Content-Type: application/json', () => {
     openDialog();
     typeConfirmName('traficio');

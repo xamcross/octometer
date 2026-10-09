@@ -46,3 +46,26 @@ label {
 .delete-trigger {
   min-height: 44px;
 }
+
+/*
+ * The review of pull request #428, MAJOR 2: the pending label
+ * "Deleting…" is shorter than "Delete this app", and `.actions` packs
+ * each control against the right edge (`justify-content: flex-end`).
+ * With no floor width, the shrink of this button pushes Cancel to the
+ * right under the pointer. The floor fits the longer label (measured
+ * 144.53px, 9.03rem) at the default window width.
+ */
+.confirm-delete {
+  min-width: 9.25rem;
+}
+
+/*
+ * The review of pull request #428, MAJOR 3: `.btn[disabled]` of
+ * styles.css fades the pending label to a contrast of 2.07:1 (below
+ * the 4.5:1 floor). This rule keeps the pending text at full opacity;
+ * its specificity (0,2,1) beats `.btn[disabled]` (0,2,0). The other
+ * disabled cues stay (`box-shadow: none`, `cursor: default`).
+ */
+button.confirm-delete[aria-busy='true'] {
+  opacity: 1;
+}
