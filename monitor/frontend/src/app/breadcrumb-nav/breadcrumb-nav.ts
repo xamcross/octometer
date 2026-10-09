@@ -18,9 +18,6 @@ export class BreadcrumbNav {
   /** The breadcrumb trail, root first. The last entry is the current page. */
   items = input<BreadcrumbItem[]>([]);
 
-  /** False for the one top-level entry that repeats the page title. */
-  protected readonly showNav = computed(() => {
-    const list = this.items();
-    return !(list.length === 1 && list[0].path === null);
-  });
+  /** False for an empty trail, and false for the one top-level entry that repeats the page title. */
+  protected readonly showNav = computed(() => this.items().length > 1);
 }

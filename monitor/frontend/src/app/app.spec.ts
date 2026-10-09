@@ -275,13 +275,23 @@ describe('App', () => {
     });
   });
 
-  it('renders the breadcrumb nav for the active route', async () => {
+  it('renders the breadcrumb nav for a route with a trail of two items or more', async () => {
+    fixture.detectChanges();
+    await router.navigateByUrl('/apps/7/users');
+    await fixture.whenStable();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const current = compiled.querySelector('nav[aria-label="Breadcrumb"] [aria-current="page"]');
+    expect(current?.textContent).toContain('App 7');
+  });
+
+  it('renders no breadcrumb nav for a top-level route (issue #346)', async () => {
     fixture.detectChanges();
     await router.navigateByUrl('/apps');
     await fixture.whenStable();
 
-    const current = (fixture.nativeElement as HTMLElement).querySelector('[aria-current="page"]');
-    expect(current?.textContent).toContain('Apps');
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('nav[aria-label="Breadcrumb"]')).toBeNull();
   });
 
   it('reserves a height for the banner slot before any monitor API error', () => {

@@ -43,6 +43,14 @@ describe('BreadcrumbNav', () => {
     expect(fixture.nativeElement.textContent?.trim()).toBe('');
   });
 
+  it('renders no nav for an empty trail, before the first route data arrives (issue #346)', () => {
+    fixture.componentRef.setInput('items', []);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('nav')).toBeNull();
+    expect(fixture.nativeElement.textContent?.trim()).toBe('');
+  });
+
   it('renders a link for a middle entry with a path', () => {
     const items = setItems([
       { label: 'Apps', path: '/apps' },
