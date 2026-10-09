@@ -89,8 +89,9 @@ a:hover{text-decoration-thickness:3px}
 
 /* 3. the three levels */
 .levels{display:grid;gap:var(--space-5)}
-.frame{display:grid;gap:var(--space-3);padding:var(--space-4);background:var(--paper);border:var(--line-panel);border-radius:var(--radius-panel);box-shadow:var(--shadow-panel);margin:0}
+.frame{display:grid;align-content:start;grid-template-rows:auto 1fr auto;gap:var(--space-3);padding:var(--space-4);background:var(--paper);border:var(--line-panel);border-radius:var(--radius-panel);box-shadow:var(--shadow-panel);margin:0}
 .frame h3{font-size:var(--text-l)}
+.frame picture{align-self:end}
 .frame figcaption{max-width:50ch}
 .ph{font-size:var(--text-s);color:var(--ink-soft)}
 .tbl{overflow-x:auto;background:var(--shallows);border:var(--line-control);border-radius:var(--radius-control)}
