@@ -1,4 +1,4 @@
-import type { APIRequestContext, Page } from '@playwright/test';
+import type { APIRequestContext, Locator, Page } from '@playwright/test';
 
 import { expect, test } from '../fixtures';
 import { AppsPage } from '../pages/apps-page';
@@ -32,6 +32,40 @@ async function captionTopPaddingPx(page: Page, captionId: string): Promise<numbe
     .locator(`#${captionId}`)
     .evaluate((element) => getComputedStyle(element).paddingTop);
   return parseFloat(value);
+}
+
+/**
+ * The WCAG 2.x contrast ratio of the text color against the background
+ * color of one element (issue #384, finding D25: the disabled Delete
+ * button measured about 2.07:1 at `opacity: 0.55`). The locator
+ * evaluate reads the two resolved `rgb(...)` strings of the real
+ * browser; the ratio math runs here in Node.
+ */
+async function disabledButtonContrastRatio(button: Locator): Promise<number> {
+  const [textColor, backgroundColor] = (await button.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [style.color, style.backgroundColor];
+  })) as [string, string];
+  return contrastRatio(textColor, backgroundColor);
+}
+
+function contrastRatio(colorA: string, colorB: string): number {
+  const luminanceA = relativeLuminance(colorA);
+  const luminanceB = relativeLuminance(colorB);
+  const lighter = Math.max(luminanceA, luminanceB);
+  const darker = Math.min(luminanceA, luminanceB);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function relativeLuminance(rgbColor: string): number {
+  const channels = rgbColor.match(/[\d.]+/g);
+  if (!channels) {
+    throw new Error(`"${rgbColor}" is not an rgb(...) color.`);
+  }
+  const [red, green, blue] = channels.slice(0, 3).map((value) => Number(value) / 255);
+  const linear = (value: number): number =>
+    value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue);
 }
 
 /**
@@ -75,6 +109,19 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
     await page.setViewportSize({ width: 1280, height: 720 });
+
+    // Issue #384, finding D25: the disabled Delete button shows a dashed
+    // border and no opacity change, and its text stays at 4.5:1 or more
+    // against its fill. The dialog closes with Cancel, so the demo app
+    // of this serial file stays for every later scenario.
+    const demoManageRow = manage.row('demo');
+    await manage.openDeleteDialog(demoManageRow);
+    const confirmDeleteButton = manage.deleteConfirmButton(demoManageRow);
+    await expect(confirmDeleteButton).toBeDisabled();
+    await expect(confirmDeleteButton).toHaveCSS('border-style', 'dashed');
+    await expect(confirmDeleteButton).toHaveCSS('opacity', '1');
+    expect(await disabledButtonContrastRatio(confirmDeleteButton)).toBeGreaterThanOrEqual(4.5);
+    await manage.cancelDeleteDialog(demoManageRow);
 
     // The app id comes from `GET /api/apps`, through the request context
     // of the test, never from the page response of the POST (correction

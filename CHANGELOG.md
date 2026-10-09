@@ -119,6 +119,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Hide the pager of the users view, the first-pages view, and the anonymous-sessions
   view for a one-page result, remove the misused `aria-current` from the page-label
   span, and give the page-count announcement the same rule. (#387)
+- Give a disabled button a shallows fill, ink-soft text, and a dashed border, in place
+  of the opacity rule; the text now measures 7.83:1 on its fill. (#384)
 
 ### CI
 
