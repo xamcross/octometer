@@ -29,6 +29,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   above the 12 px floor. (#344)
 - Raise the token `--text-s` from 12.8 px to 14 px, so the hero note, the flow caption,
   and both form hints read larger. (#357)
+- Add a dark color scheme: a dark value for each surface and ink token under
+  `prefers-color-scheme: dark`, and `color-scheme: light dark`. (#366)
 
 ### Contract
 
