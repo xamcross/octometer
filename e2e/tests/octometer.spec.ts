@@ -119,6 +119,7 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     const confirmDeleteButton = manage.deleteConfirmButton(demoManageRow);
     await expect(confirmDeleteButton).toBeDisabled();
     await expect(confirmDeleteButton).toHaveCSS('border-style', 'dashed');
+    await expect(confirmDeleteButton).toHaveCSS('opacity', '1');
     expect(await disabledButtonContrastRatio(confirmDeleteButton)).toBeGreaterThanOrEqual(4.5);
     await manage.cancelDeleteDialog(demoManageRow);
 
