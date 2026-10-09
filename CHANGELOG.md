@@ -78,6 +78,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Spare an identified request from the D43 request count: a new pre-lookup gate takes
   the per-address check before the app lookup, and the D43 count now runs after the
   parse, for an anonymous batch only. (#335)
+- Send a signed-in visitor of the plain `/signin` route to `/apps`, after one
+  `GET /api/me` check; the confirm page keeps its own behaviour. (#347)
 
 ### CI
 

@@ -479,6 +479,12 @@ session:
 curl https://app.0ct0meter.com/healthz
 ```
 
+A signed-in visitor of `/signin` (no `token` query parameter) lands on
+`/apps`: the page calls `GET /api/me` once, and a `200` navigates away
+(issue #347). The confirm page (`/signin?token=...`) keeps its own
+behaviour: it stays open to a mail scanner, with no session check
+(D52).
+
 ### The Atlas access list
 
 A Fly machine has no fixed address. Choose one:
