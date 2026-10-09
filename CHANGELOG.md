@@ -103,6 +103,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Remove the blank reserved band under the header: the banner slot keeps no reserved
   height. A banner that shows sits in the page flow. It pushes the breadcrumb down by
   its own height, so a user can always reach the breadcrumb. (#375)
+- Keep the "First pages" header and link text on one line in the apps table, at a
+  narrow width too. (#394)
 
 ### CI
 
