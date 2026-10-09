@@ -9,11 +9,21 @@ caption {
   margin-bottom: 0.5rem;
 }
 
+table {
+  min-width: 56rem;
+}
+
 th,
 td {
   padding: 0.5rem 0.75rem;
   text-align: left;
   vertical-align: top;
+}
+
+/* The actions cell keeps its own width (#362): it never stretches. */
+td.actions {
+  width: 1%;
+  white-space: nowrap;
 }
 
 th[scope='row'],
@@ -38,7 +48,7 @@ th[scope='row'] {
 
 .action-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.5rem;
   align-items: flex-start;
 }
@@ -81,9 +91,10 @@ th[scope='row'] {
 .add-app {
   max-width: 32rem;
   margin-top: var(--space-6);
-  padding: 16px;
+  padding: var(--space-5);
 }
 
 .add-app h2 {
   font-size: var(--text-l);
+  margin-top: 0;
 }

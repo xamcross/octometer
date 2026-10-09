@@ -80,6 +80,61 @@ a:hover {
   max-width: 60ch;
 }
 
+/*
+ * 0. The top bar (issue #367, the audit finding L2): the mark and the
+ * wordmark sit on the left, the links sit on the right; the bar scrolls
+ * with the page (no fixed position). Every color comes from a token, so
+ * the dark scheme of issue #366 colors the bar too, with no literal
+ * here.
+ */
+.topbar {
+  background: var(--paper);
+  border-bottom: var(--line-control);
+}
+.topbar-inner {
+  max-width: 76rem;
+  margin-inline: auto;
+  padding-inline: var(--space-4);
+  padding-block: var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.topbar-mark {
+  width: 32px;
+  height: 32px;
+}
+.topbar-brand .word {
+  display: none;
+}
+.topbar-links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+/* Under 48rem the bar keeps only the mark and "Sign in" (the last link):
+   the hidden links also leave the Tab order. */
+.topbar-links li:not(:last-child) {
+  display: none;
+}
+@media (min-width: 48rem) {
+  .topbar-inner {
+    padding-inline: var(--space-6);
+  }
+  .topbar-brand .word {
+    display: inline;
+  }
+  .topbar-links li:not(:last-child) {
+    display: inline;
+  }
+}
+
 /* 1. The hero: the one bold place of the page. */
 .hero {
   display: flex;
@@ -475,10 +530,10 @@ label {
 :focus-visible {
   outline: 3px solid var(--sunny);
   outline-offset: 2px;
-  box-shadow: 0 0 0 7px var(--ink);
+  box-shadow: 0 0 0 7px var(--on-bright);
 }
 .btn:focus-visible {
-  box-shadow: var(--shadow-control), 0 0 0 7px var(--ink);
+  box-shadow: var(--shadow-control), 0 0 0 7px var(--on-bright);
 }
 /*
  * The scroll reveal of the flow illustration (issue #289). This rule
