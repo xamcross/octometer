@@ -650,3 +650,25 @@ test('the manage table has no bottom margin below the last row (issue #377)', as
   await manage.goto();
   await expect(manage.tableScroll()).toHaveCSS('margin-bottom', '0px');
 });
+
+// Issue #389, finding D29 of the UI audit: the gap above the add-app
+// heading matches the gap below the submit button, within 2px.
+test('the add-app heading has no top margin (issue #389)', async ({ page }) => {
+  const manage = new ManagePage(page);
+  await manage.goto();
+  await expect(manage.addAppHeading()).toHaveCSS('margin-top', '0px');
+
+  const gaps = await page.evaluate(() => {
+    const panel = document.querySelector('.add-app') as HTMLElement;
+    const heading = panel.querySelector('h2') as HTMLElement;
+    const button = panel.querySelector('button[type="submit"]') as HTMLElement;
+    const panelRect = panel.getBoundingClientRect();
+    const headingRect = heading.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+    return {
+      topGap: headingRect.top - panelRect.top,
+      bottomGap: panelRect.bottom - buttonRect.bottom,
+    };
+  });
+  expect(Math.abs(gaps.topGap - gaps.bottomGap)).toBeLessThanOrEqual(2);
+});

@@ -200,6 +200,11 @@ export class ManagePage {
     return this.page.locator('.table-scroll');
   }
 
+  /** The heading of the add-app panel (issue #389, finding D29). */
+  addAppHeading() {
+    return this.page.getByRole('heading', { name: 'Add an app' });
+  }
+
   /**
    * Clicks "New secret key" on the row, confirms the rotation, and
    * gives the dialog's own secret key field back (issue #296, D51).
