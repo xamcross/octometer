@@ -27,6 +27,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   build, and crop each one to its content, with 24 px below the table. (#343)
 - Raise the flow figure's sub-label size from 11.5 px to 13 px, so each one sits at or
   above the 12 px floor. (#344)
+- Raise the token `--text-s` from 12.8 px to 14 px, so the hero note, the flow caption,
+  and both form hints read larger. (#357)
 
 ### Contract
 
@@ -89,6 +91,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Put the sign-in form into the cartoon card, with the sentence "We send you a mail
   with a link. The link works for 15 minutes." under the title. (#349)
 - Give each table caption 12 px of top padding, clear of the panel border. (#376)
+- Remove the bottom margin of `.table-scroll` on the manage view, so no empty strip
+  sits between the table and the panel border. (#377)
 
 ### CI
 
