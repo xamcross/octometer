@@ -35,6 +35,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   beside the step text, with a gap of about 50 px at 1280 px. (#355)
 - Add a dark color scheme: a dark value for each surface and ink token under
   `prefers-color-scheme: dark`, and `color-scheme: light dark`. (#366)
+- Give the waitlist section heading and submit button their own labels: "Get an
+  invite" and "Send me the link". (#358)
 
 ### Contract
 
