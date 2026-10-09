@@ -587,7 +587,13 @@ label {
     padding-inline: var(--space-6);
   }
   .how {
-    grid-template-columns: 1fr 20rem;
+    grid-template-columns: minmax(0, 36rem) 1fr;
+  }
+  .steps p {
+    max-width: none;
+  }
+  .flow {
+    justify-self: start;
   }
   .levels {
     grid-template-columns: 1fr 1fr;

@@ -31,6 +31,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   and both form hints read larger. (#357)
 - Pack the users card and the elements card at the top of their grid row, so the
   stretch rule no longer opens a gap above a shorter card's figcaption. (#382)
+- Bound the steps column of the "How it works" grid at 36rem. Put the flow diagram
+  beside the step text, with a gap of about 50 px at 1280 px. (#355)
 - Add a top navigation bar with the mark, the wordmark, and a "Sign in" link to
   `app.0ct0meter.com/signin`, above the hero. (#367)
 
