@@ -84,6 +84,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   `GET /api/me` check; the confirm page keeps its own behaviour. (#347)
 - Hide the breadcrumb on a top-level page: the apps page, the manage page, and the
   not-found page no longer show a one-item trail that repeats the heading. (#346)
+- Show the not-found card in the users, the first-pages, the elements, and the sessions
+  view of an app id that is not registered, in place of the loading sentence; the poll
+  stops, and the breadcrumb drops the app crumb. (#348)
 
 ### CI
 
