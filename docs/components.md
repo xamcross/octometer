@@ -243,6 +243,10 @@ band.
   page and carries no link. A Sessions item of the elements trail links to the sessions
   view with the query parameter `anonymous=true` (`breadcrumb-nav.html:9`, the
   `[queryParams]` binding beside `[routerLink]`).
+- The not-found case of a level 2 or a level 3 view (issue #348): a 404 answer of the
+  app-name request drops the app-crumb item, in place of the fallback label "App <id>".
+  The users view then shows no breadcrumb at all, because the trail falls to one item
+  (`app.ts`, `withResolvedName`, `breadcrumbItems`).
 
 **States.**
 

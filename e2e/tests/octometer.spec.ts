@@ -1,3 +1,5 @@
+import type { Page } from '@playwright/test';
+
 import { expect, test } from '../fixtures';
 import { AppsPage } from '../pages/apps-page';
 import { BreadcrumbPart } from '../pages/breadcrumb-part';
@@ -17,6 +19,20 @@ import { UsersPage } from '../pages/users-page';
  * bound, never a fixed sleep (acceptance criterion 3 of issue #175).
  */
 const CHAIN_WAIT_MS = 30_000;
+
+/**
+ * The top padding of a table caption, in CSS px (issue #376, finding D8:
+ * `.panel caption` gave `0` top padding, so the caption text sat on the
+ * 3px panel border). This suite runs in real Chromium, so
+ * `getComputedStyle` gives back a plain px string here (lesson 1 of the
+ * frontend brief is for jsdom, not this suite).
+ */
+async function captionTopPaddingPx(page: Page, captionId: string): Promise<number> {
+  const value = await page
+    .locator(`#${captionId}`)
+    .evaluate((element) => getComputedStyle(element).paddingTop);
+  return parseFloat(value);
+}
 
 /**
  * One serial file, one shared app (decision 5). The scenarios run in
@@ -50,6 +66,15 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await manage.goto();
     // D8: the first poll cycle can run inside this same wait.
     await manage.expectStatusOneOf('demo', ['Not polled yet', 'OK'], CHAIN_WAIT_MS);
+
+    // Issue #376: the manage table caption keeps clear space above its
+    // text, at a desktop width and at a narrow width. No media query
+    // touches `.panel caption` (styles.css), so the same number holds
+    // at both.
+    expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     // The app id comes from `GET /api/apps`, through the request context
     // of the test, never from the page response of the POST (correction
@@ -95,6 +120,10 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     const apps = new AppsPage(page);
     await apps.goto();
     await apps.expectStatus('demo', 'OK', CHAIN_WAIT_MS);
+
+    // Issue #376: the apps table caption keeps clear space above its
+    // text (the acceptance criterion's own end-to-end assertion).
+    expect(await captionTopPaddingPx(page, 'apps-caption')).toBeGreaterThanOrEqual(12);
 
     // Issue #346: the apps page shows one breadcrumb item that repeats
     // the "Apps" heading, so the component hides the whole nav here.
@@ -152,6 +181,9 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await users.expectRow('amy', { clicks: 2, sessions: 1, uniqueElements: 2 }, CHAIN_WAIT_MS);
     await users.expectRow('ben', { clicks: 1, sessions: 1, uniqueElements: 1 }, CHAIN_WAIT_MS);
     expect(await users.rowCount()).toBe(2);
+
+    // Issue #376: the users table caption keeps clear space above its text.
+    expect(await captionTopPaddingPx(page, 'users-caption')).toBeGreaterThanOrEqual(12);
 
     // Issue #346: the users view keeps its two-item breadcrumb, with a
     // link back to the apps page.
@@ -239,6 +271,12 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await elements.expectRow('demo.button-one', { clicks: 1, sessions: 1 }, CHAIN_WAIT_MS);
     await elements.expectRow('demo.button-two', { clicks: 1, sessions: 1 }, CHAIN_WAIT_MS);
     expect(await elements.rowCount()).toBe(2);
+
+    // Issue #376: the elements table caption keeps clear space above its
+    // text, at a narrow width too (390px, the issue's own check width).
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await captionTopPaddingPx(page, 'elements-caption')).toBeGreaterThanOrEqual(12);
+    await page.setViewportSize({ width: 1280, height: 720 });
   });
 
   test('the erasure of user B through the API route removes it from both views', async ({
@@ -390,6 +428,10 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
       const firstPages = new FirstPagesPage(page);
       await firstPages.goto(appId);
       await firstPages.expectSessions('/items/:id', 1, CHAIN_WAIT_MS);
+
+      // Issue #376: the first-pages table caption keeps clear space
+      // above its text.
+      expect(await captionTopPaddingPx(page, 'first-pages-caption')).toBeGreaterThanOrEqual(12);
     },
   );
 
@@ -402,6 +444,27 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
   // model. This removes the two scenarios; #277 and #304 record the
   // closure.
 });
+
+// Issue #348: the users view of an app id that no app ever used. This
+// scenario names no app of its own, so it needs no serial order against
+// the "demo" app chain above.
+test(
+  'the users view of an unknown app shows the not-found card, and the breadcrumb carries no App <id> label (issue #348)',
+  async ({ page }) => {
+    const users = new UsersPage(page);
+    await users.goto(999);
+
+    await expect(page.getByText('The app is not registered.')).toBeVisible();
+    const link = page.getByRole('link', { name: 'Go to the apps' });
+    await expect(link).toBeVisible();
+
+    const breadcrumb = new BreadcrumbPart(page);
+    await breadcrumb.expectAbsent(CHAIN_WAIT_MS);
+
+    await link.click();
+    await expect(page).toHaveURL(/\/apps$/);
+  },
+);
 
 // Issue #296 (D51, D52, D57): the hosted registration path. This
 // scenario names its own app, so it needs no serial order against the
@@ -455,4 +518,12 @@ test('an app is registered and its keys show one time (issue #296)', async ({ pa
     throw new Error(`The app "${appName}" is absent from the answer of GET /api/apps.`);
   }
   expect(createdRow).not.toHaveProperty('secretKey');
+});
+
+// Issue #377, finding D9 of the UI audit: the table sits close to the
+// panel border, with no empty strip below the last row.
+test('the manage table has no bottom margin below the last row (issue #377)', async ({ page }) => {
+  const manage = new ManagePage(page);
+  await manage.goto();
+  await expect(manage.tableScroll()).toHaveCSS('margin-bottom', '0px');
 });
