@@ -18,8 +18,14 @@ import { readState } from '../setup/state';
 // Issue #301, D52: this file runs with no storage state of its own, so
 // each test signs in on its own, never as the shared owner account of
 // the global setup.
+//
+// Issue #349 correction: `storageState: undefined` is a no-op in
+// Playwright; the merge keeps the project value (the owner's cookie),
+// so the default `page` loaded `/signin` already signed in. An empty
+// state object is the real way to clear it (a trace of a failed run
+// showed the owner's `octometer_session` cookie on the first request).
 test.describe('Sign-in accounts (issue #301)', () => {
-  test.use({ storageState: undefined });
+  test.use({ storageState: { cookies: [], origins: [] } });
 
   test('two accounts see two different app lists', async ({ page, request, newTrackedContext }) => {
     const dir = mailDir();
@@ -158,5 +164,16 @@ test.describe('Sign-in accounts (issue #301)', () => {
     await expect(page.getByRole('button', { name: 'Send me a link' })).toBeVisible({
       timeout: WAIT_BOUND_MS,
     });
+
+    // Issue #349: the form sits in the cartoon card, with the sentence
+    // that tells the visitor what happens next. The locator scopes the
+    // button check to the card, so a card-less page fails this check
+    // too, not only the sentence check.
+    const card = page.locator('.signin-card');
+    await expect(card).toBeVisible();
+    await expect(
+      card.getByText('We send you a mail with a link. The link works for 15 minutes.'),
+    ).toBeVisible();
+    await expect(card.getByRole('button', { name: 'Send me a link' })).toBeVisible();
   });
 });
