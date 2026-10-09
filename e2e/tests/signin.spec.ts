@@ -154,7 +154,11 @@ test.describe('Sign-in accounts (issue #301)', () => {
 
     // The visitor with no session: the default page of this describe
     // block carries no storage state, so /signin still shows the form.
+    // The explicit bound covers a cold Angular bootstrap plus the
+    // GET /api/me round trip, on a loaded CI runner.
     await page.goto('/signin');
-    await expect(page.getByRole('button', { name: 'Send me a link' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Send me a link' })).toBeVisible({
+      timeout: WAIT_BOUND_MS,
+    });
   });
 });
