@@ -1,6 +1,5 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, effect, inject, input } from '@angular/core';
-import { Router } from '@angular/router';
 
 import { EmptyState } from '../empty-state/empty-state';
 import { createPollStore } from '../poll/poll-store';
@@ -54,9 +53,9 @@ export function buildElementsRequestParams(
  * with no reset, because the rows of the same app stay meaningful
  * until the fresh answer arrives.
  *
- * A 404 answer means the app is not registered. The view then goes to
- * the parent view `/apps`, with the app id in the query parameter
- * `notFoundAppId` (D30).
+ * A 404 answer means the app is not registered. The view then shows the
+ * not-found card in place of the table, and the poll stops, the same way
+ * `users.ts` does (issue #348).
  */
 @Component({
   selector: 'app-elements',
@@ -66,7 +65,6 @@ export function buildElementsRequestParams(
 })
 export class Elements {
   private readonly http = inject(HttpClient);
-  private readonly router = inject(Router);
 
   /** The `appId` path parameter, bound by the router. */
   readonly appId = input.required<string>();
@@ -99,6 +97,17 @@ export class Elements {
 
   /** The zone name for the "Last interaction" column header (D31). */
   protected readonly zoneName = readZoneName();
+
+  /**
+   * True when the last data request failed with a 404 answer: the app id
+   * of the route is not registered (issue #348). The template then shows
+   * the not-found card in place of the table, and the constructor below
+   * stops the poll.
+   */
+  protected readonly appNotFound = computed(() => {
+    const error = this.store.dataError();
+    return error instanceof HttpErrorResponse && error.status === 404;
+  });
 
   /** The poll store of the element list of this app and this filter. */
   protected readonly store = createPollStore<ElementsResponse>(() =>
@@ -134,7 +143,15 @@ export class Elements {
       this.previousFilterKey = key;
     });
 
-    effect(() => this.redirectOnAppNotFound());
+    // Stops the poll on a 404 answer (issue #348): the app id of the
+    // route is not registered, so a further request would only repeat
+    // the same answer. A later change of appId resets the store first,
+    // and that reset opens the gate again for the new target.
+    effect(() => {
+      if (this.appNotFound()) {
+        this.store.stop();
+      }
+    });
   }
 
   /** The text of a count cell. */
@@ -145,19 +162,5 @@ export class Elements {
   /** The text of the last-interaction cell, in local time (D31). */
   protected formatDateTime(iso: string): string {
     return formatLocalDateTime(iso);
-  }
-
-  /**
-   * Goes to the parent view `/apps` on a 404 answer (D30). The app id
-   * travels in the query parameter `notFoundAppId`, so the parent view
-   * can show a message. It fires on the first load and on a later 404,
-   * for example a deleted app, or a change of appId to an app id that
-   * does not exist.
-   */
-  private redirectOnAppNotFound(): void {
-    const error = this.store.dataError();
-    if (error instanceof HttpErrorResponse && error.status === 404) {
-      void this.router.navigate(['/apps'], { queryParams: { notFoundAppId: this.appId() } });
-    }
   }
 }

@@ -74,6 +74,15 @@
       </button>
     </nav>
   }
+} @else if (appNotFound()) {
+  <section class="panel">
+    <app-empty-state
+      text="The app is not registered."
+      linkText="Go to the apps"
+      linkPath="/apps"
+      textAfter="."
+    />
+  </section>
 } @else {
   <p>Octometer reads the anonymous session list.</p>
 }

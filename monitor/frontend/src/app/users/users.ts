@@ -47,10 +47,11 @@ const NETWORK_FAILURE_TEXT = 'Octometer cannot reach the API. Check the network 
  * tags each request with a generation number, and it drops an answer of
  * an older generation.
  *
- * A 404 answer means the app is not registered. The view then goes to
- * the parent view `/apps`, with the app id in the query parameter
- * `notFoundAppId` (D30). This check runs on the first load and on a
- * later 404, for example after the appId change above.
+ * A 404 answer means the app is not registered. The view then shows the
+ * not-found card in place of the table, and the poll stops (issue #348).
+ * This check runs on the first load and on a later 404, for example
+ * after the appId change above. The shell's breadcrumb drops the app
+ * crumb once `app-names.ts` confirms the same 404 of its own request.
  */
 @Component({
   selector: 'app-users',
@@ -93,6 +94,17 @@ export class Users {
   /** The text of the filter field. It mirrors `qValue`, and the user can edit it. */
   protected readonly filterDraft = signal('');
 
+  /**
+   * True when the last data request failed with a 404 answer: the app id
+   * of the route is not registered (issue #348). The template then shows
+   * the not-found card in place of the table, and the constructor below
+   * stops the poll.
+   */
+  protected readonly appNotFound = computed(() => {
+    const error = this.store.dataError();
+    return error instanceof HttpErrorResponse && error.status === 404;
+  });
+
   /** The poll store of the user list of this app. */
   protected readonly store = createPollStore<UserTotalsResponse>(() =>
     this.http.get<UserTotalsResponse>(`/api/apps/${this.appId()}/users`, {
@@ -125,7 +137,7 @@ export class Users {
     }
     if (error instanceof HttpErrorResponse) {
       if (error.status === 404) {
-        return null; // redirectOnAppNotFound() moves the view away instead.
+        return null; // The not-found card shows instead (appNotFound()).
       }
       if (error.status === 400) {
         const body = error.error as { error?: string } | null;
@@ -208,7 +220,15 @@ export class Users {
       }
     });
 
-    effect(() => this.redirectOnAppNotFound());
+    // Stops the poll on a 404 answer (issue #348): the app id of the
+    // route is not registered, so a further request would only repeat
+    // the same answer. A later change of appId resets the store first,
+    // and that reset opens the gate again for the new target.
+    effect(() => {
+      if (this.appNotFound()) {
+        this.store.stop();
+      }
+    });
 
     toObservable(this.filterDraft)
       .pipe(debounceTime(FILTER_DEBOUNCE_MS), distinctUntilChanged(), takeUntilDestroyed())
@@ -326,22 +346,6 @@ export class Users {
       return '1 user matches.';
     }
     return `${count} users match.`;
-  }
-
-  /**
-   * Goes to the parent view `/apps` on a 404 answer (D30). The app id
-   * travels in the query parameter `notFoundAppId`, so the parent view
-   * can show a message. It reads `dataError` alone, so a failed health
-   * request never triggers this redirect. It fires on the first load and
-   * on a later 404, for example a deleted app, or a change of appId to
-   * an app id that does not exist (MAJOR 2 of the correction round 1 of
-   * pull request #159).
-   */
-  private redirectOnAppNotFound(): void {
-    const error = this.store.dataError();
-    if (error instanceof HttpErrorResponse && error.status === 404) {
-      void this.router.navigate(['/apps'], { queryParams: { notFoundAppId: this.appId() } });
-    }
   }
 
   /** The request parameters of the page: page always, q only when it holds a value. */
