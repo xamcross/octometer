@@ -36,4 +36,12 @@ export class BreadcrumbPart {
   linkNamed(name: string): Locator {
     return this.nav.getByRole('link', { name });
   }
+
+  /**
+   * Waits for the nav to leave the DOM: a top-level page with one
+   * breadcrumb item, which would only repeat the heading (issue #346).
+   */
+  async expectAbsent(timeoutMs: number): Promise<void> {
+    await expect(this.nav).toHaveCount(0, { timeout: timeoutMs });
+  }
 }
