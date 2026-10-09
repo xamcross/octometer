@@ -100,15 +100,13 @@ test.describe('Sign-in accounts (issue #301)', () => {
     await appsPageB.goto();
     expect(await appsPageB.rowCount()).toBe(0);
 
-    // B opens the URL of the app of A and gets the not-found state
-    // (D30, the existing 404 redirect of the users view, now driven by
-    // the account filter instead of an unknown id). The view clears the
-    // query parameter from the URL right after it shows the message
-    // (D30), so this asserts the message and the final path, not the
-    // transient query string.
+    // B opens the URL of the app of A and gets the not-found card
+    // (issue #348, D30): the account filter answers 404 for an app
+    // that exists but is not B's, the same 404 as an unknown id. The
+    // view shows the card in place, and sends no redirect.
     await pageB.goto(`/apps/${appOfA.appId}/users`);
-    await expect(pageB.getByText(`App ${appOfA.appId} is not registered.`)).toBeVisible();
-    await expect(pageB).toHaveURL(/\/apps$/, { timeout: WAIT_BOUND_MS });
+    await expect(pageB.getByText('The app is not registered.')).toBeVisible();
+    await expect(pageB).toHaveURL(new RegExp(`/apps/${appOfA.appId}/users$`));
 
     // An unlisted address gets the same "Check your mail." text, and no
     // mail file.
