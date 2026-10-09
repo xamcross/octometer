@@ -25,6 +25,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   through Resend. (#291)
 - Re-capture the three dashboard screenshots of the landing page from the current
   build, and crop each one to its content, with 24 px below the table. (#343)
+- Center the flow figure of the "How it works" grid, and bound the steps column
+  width, so no wide gap sits between the two at 1280 px. (#355)
 
 ### Contract
 

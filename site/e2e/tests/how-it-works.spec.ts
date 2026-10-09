@@ -31,6 +31,19 @@ test('the three sections render with their images and texts, and nothing moves u
     'Your dashboard',
   ]);
 
+  // Issue #355: at 1280 px, the gap between the steps column and the
+  // flow figure must not pass 48 px (the issue's step 5 and acceptance
+  // criterion). The pull request text states the measured number
+  // before and after the fix.
+  const stepsBox = await page.locator('.steps').boundingBox();
+  const flowBox = await page.locator('figure.flow').boundingBox();
+  if (!stepsBox || !flowBox) {
+    throw new Error('the steps column or the flow figure has no box');
+  }
+  const stepsToFlowGap = flowBox.x - (stepsBox.x + stepsBox.width);
+  console.log(`issue #355 gap at 1280 px: ${stepsToFlowGap}px`);
+  expect(stepsToFlowGap).toBeLessThanOrEqual(48);
+
   const nodes = page.locator('.node');
   // MAJOR 1 of the review of pull request #324: a loop of "nodeCount"
   // passes on zero nodes with no count assertion. This line fails the
