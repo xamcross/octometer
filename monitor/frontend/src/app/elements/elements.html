@@ -1,7 +1,16 @@
 <h1 tabindex="-1">{{ heading() }}</h1>
 <app-refresh-bar />
 
-@if (store.data(); as page) {
+@if (appNotFound()) {
+  <section class="panel">
+    <app-empty-state
+      text="The app is not registered."
+      linkText="Go to the apps"
+      linkPath="/apps"
+      textAfter="."
+    />
+  </section>
+} @else if (store.data(); as page) {
   @if (page.rows.length === 0) {
     <section class="panel">
       <app-empty-state text="No events yet." />
