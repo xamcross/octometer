@@ -357,12 +357,16 @@
          the native "dialog" behaviour) on the Escape key. Correction round
          of pull request #424, MAJOR 4: ".lightbox-pan" holds the pan, not
          the dialog itself, so the close button (a direct child of the
-         dialog, outside the pan) stays in view through the whole pan. -->
+         dialog, outside the pan) stays in view through the whole pan.
+         Third correction round, MAJOR 6: ".lightbox-pan" now takes
+         "tabindex" and "role", so the Tab key reaches it and a key can
+         pan it. Tab order: the close button first, then the pan
+         region, the same order as the visual layout. -->
     <dialog class="lightbox" id="screenshot-lightbox" aria-label="The dashboard screenshot at full size">
       <button type="button" class="lightbox-close" aria-label="Close">
         <span aria-hidden="true">&times;</span>
       </button>
-      <div class="lightbox-pan">
+      <div class="lightbox-pan" tabindex="0" role="region" aria-label="The dashboard screenshot">
         <img class="lightbox-img" id="lightbox-img" src="" alt="" />
       </div>
     </dialog>

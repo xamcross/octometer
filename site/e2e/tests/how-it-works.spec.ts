@@ -385,4 +385,39 @@ test('a click on a card opens the screenshot at full size, and each control clos
   expect(closeBox.y).toBeGreaterThanOrEqual(0);
   expect(closeBox.x + closeBox.width).toBeLessThanOrEqual(viewport.width);
   expect(closeBox.y + closeBox.height).toBeLessThanOrEqual(viewport.height);
+
+  // MAJOR 6 of the confirmation of pull request #424: a key, not only a
+  // pointer, must pan the dialog. The gate of this part is the markup,
+  // not the key: a probe of this Chromium build (1.63.0) found that it
+  // gives a scrollable region keyboard focus and a scroll from the
+  // arrow keys on its own, with no "tabindex" and no "role" (a Firefox
+  // or a Safari visitor gets no such help, and the reviewer's own
+  // measurement names a browser with the old, strict behaviour). This
+  // line asserts the markup itself, so a removed "tabindex" fails this
+  // test on every browser, not only on the strict ones.
+  await expect(pan).toHaveAttribute('tabindex', '0');
+  await expect(pan).toHaveAttribute('role', 'region');
+  const panLabel = await pan.getAttribute('aria-label');
+  expect(panLabel).toBeTruthy();
+
+  // The keyboard still must pan the region. This resets the pan, moves
+  // the focus onto the close button, and presses Tab once to reach the
+  // pan region (the Tab order of the dialog: the close button first,
+  // then the pan). The key is "ArrowRight", not "End": the same probe
+  // found that this Chromium build moves no scrollable element on an
+  // "End" press except the document itself, while "ArrowRight" moves a
+  // focused region. "scrollLeft" must move past 0.
+  await pan.evaluate((el) => {
+    el.scrollLeft = 0;
+    el.scrollTop = 0;
+  });
+  await page.locator('.lightbox-close').focus();
+  await page.keyboard.press('Tab');
+  await expect(pan).toBeFocused();
+  for (let i = 0; i < 30; i += 1) {
+    await page.keyboard.press('ArrowRight');
+  }
+  const scrollLeftAfterKeys = await pan.evaluate((el) => el.scrollLeft);
+  console.log(`issue #359 pan scrollLeft after 30x keyboard ArrowRight at 390 px: ${scrollLeftAfterKeys}`);
+  expect(scrollLeftAfterKeys).toBeGreaterThan(0);
 });
