@@ -123,6 +123,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   span, and give the page-count announcement the same rule. (#387)
 - Give a disabled button a shallows fill, ink-soft text, and a dashed border, in place
   of the opacity rule; the text now measures 7.83:1 on its fill. (#384)
+- Keep the "First pages" header and link text on one line in the apps table, at a
+  narrow width too. (#394)
 
 ### CI
 

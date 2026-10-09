@@ -69,6 +69,21 @@ function relativeLuminance(rgbColor: string): number {
 }
 
 /**
+ * The count of visual lines of an element's text, through a `Range` over
+ * its contents (issue #394, finding D19). `Range.getClientRects` gives
+ * one rect for each line of the text itself, unlike `Element.getClientRects`,
+ * which gives one rect for the element's own box, also on a flex container
+ * or a table cell whose text wraps inside it.
+ */
+async function lineCount(locator: Locator): Promise<number> {
+  return locator.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    return range.getClientRects().length;
+  });
+}
+
+/**
  * One serial file, one shared app (decision 5). The scenarios run in
  * this fixed order because each one reads the state that an earlier one
  * wrote: the app id of scenario (a), the click totals of scenario (b).
@@ -356,6 +371,25 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
       { clicks: 2, uniqueUsers: 1, uniqueSessions: 1 },
       CHAIN_WAIT_MS,
     );
+
+    // Issue #394, finding D19: the "First pages" header and link stay on
+    // one line, at the issue's own narrow width (390px). `lineCount` reads
+    // a `Range` of the text (one rect for one line), not the element's own
+    // box, because the header is a table cell and the link is a flex
+    // container: `Element.getClientRects` gives one rect for either kind
+    // of box even while its text wraps inside it.
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await lineCount(apps.firstPagesHeader)).toBe(1);
+    expect(await lineCount(apps.firstPagesLinkOf('demo'))).toBe(1);
+
+    // Issue #394, implementation step 3: the table still scrolls
+    // sideways at this narrow width, instead of shrinking the column.
+    const scrollWidths = await page
+      .locator('.table-scroll')
+      .evaluate((element) => [element.scrollWidth, element.clientWidth]);
+    expect(scrollWidths[0]).toBeGreaterThan(scrollWidths[1]);
+
+    await page.setViewportSize({ width: 1280, height: 720 });
   });
 
   test('the not-found page shows its sentence and the link to the apps', async ({ page }) => {
