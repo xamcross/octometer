@@ -88,10 +88,14 @@ a:hover{text-decoration-thickness:3px}
 .in-ink .glyph *{stroke:var(--ink)}
 
 /* 3. the three levels */
-.levels{display:grid;gap:var(--space-5)}
+/* issue #359 (UI audit L1): auto-fit with a 32rem floor keeps each
+   two-column card at 480px of image width or more, and drops to one
+   column under that floor. */
+.levels{display:grid;gap:var(--space-5);grid-template-columns:repeat(auto-fit,minmax(min(32rem,100%),1fr))}
+.levels>:first-child{grid-column:1/-1}
 .frame{display:grid;align-content:start;grid-template-rows:auto 1fr auto;gap:var(--space-3);padding:var(--space-4);background:var(--paper);border:var(--line-panel);border-radius:var(--radius-panel);box-shadow:var(--shadow-panel);margin:0}
 .frame h3{font-size:var(--text-l)}
-.frame picture{align-self:end}
+.frame-open{align-self:end}
 .frame figcaption{max-width:50ch}
 .ph{font-size:var(--text-s);color:var(--ink-soft)}
 .tbl{overflow-x:auto;background:var(--shallows);border:var(--line-control);border-radius:var(--radius-control)}
@@ -157,8 +161,6 @@ label{font-weight:700}
   .steps p{max-width:none}
   .flow{justify-self:start}
   .wl{grid-template-columns:minmax(0,26rem) 1fr;gap:var(--space-6)}
-  .levels{grid-template-columns:1fr 1fr}
-  .levels>:first-child{grid-column:1/-1}
 }
 </style>
 <div class="page">

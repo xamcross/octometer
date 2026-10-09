@@ -286,9 +286,19 @@ a:hover {
 }
 
 /* 3. The three levels (issue #289, the mockup rules verbatim). */
+/* Issue #359 (the UI audit finding L1): "auto-fit" with a 32rem (512px)
+   floor keeps each card of the two-column row at 480px of image width or
+   more (512px minus the frame padding of --space-4 on each side). Below
+   that floor the row drops to one column, so the image never shrinks
+   past its readable size; "min(32rem, 100%)" stops the one-column floor
+   from forcing a sideways scroll on a narrow phone. */
 .levels {
   display: grid;
   gap: var(--space-5);
+  grid-template-columns: repeat(auto-fit, minmax(min(32rem, 100%), 1fr));
+}
+.levels > :first-child {
+  grid-column: 1 / -1;
 }
 .frame {
   display: grid;
@@ -305,17 +315,98 @@ a:hover {
 .frame h3 {
   font-size: var(--text-l);
 }
-.frame picture {
-  align-self: end;
-}
 .frame figcaption {
   max-width: 50ch;
 }
-/* Correction m3 of the brief review: the frame image never grows past it. */
+/* Correction m3 of the brief review: the frame image never grows past
+   its frame. Issue #359: "width: 100%" (in place of "max-width: 100%")
+   fills the apps card, which spans both grid columns and so is wider
+   than the capture's own declared size; the card no longer keeps a
+   blank strip beside a capture that stops at its declared width. */
 .frame img {
-  max-width: 100%;
+  width: 100%;
   height: auto;
   display: block;
+}
+
+/* Issue #359 (the UI audit finding L1): the button that opens one
+   screenshot at full size. It replaces "picture" as the direct child of
+   ".frame" that the grid-template-rows of ".frame" pins to the bottom
+   row, so "align-self: end" moves here. */
+.frame-open {
+  position: relative;
+  align-self: end;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: zoom-in;
+}
+/* The hint sits over the top-left corner of the capture (the Octometer
+   mark and wordmark, the same spot on every capture), never over a
+   table row or the "Apps"/"Manage apps" links at the top right; the
+   image keeps its own bottom edge against the figcaption above it (the
+   gap that the pull request of issue #382 measures). */
+.frame-open-hint {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line-control);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-s);
+  box-shadow: var(--shadow-control);
+}
+
+/* The full-size dialog of issue #359. The native "dialog" element traps
+   the focus and closes on Escape on its own; "main.ts" adds the close
+   button and the click outside the image. */
+.lightbox {
+  /* "position: fixed" repeats the browser default of "dialog:modal", so
+     the dialog still centers at the middle of the screen; it also gives
+     ".lightbox-close" its positioned ancestor. */
+  position: fixed;
+  max-width: min(94vw, 1400px);
+  max-height: 90vh;
+  margin: auto;
+  padding: var(--space-5);
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line-panel);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+}
+.lightbox::backdrop {
+  background: var(--backdrop);
+}
+.lightbox-img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(90vh - 2 * var(--space-5));
+}
+.lightbox-close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: var(--text-l);
+  line-height: 1;
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line-control);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-control);
+  cursor: pointer;
 }
 
 /* 4. What we keep (issue #290, the mockup rules verbatim). */
@@ -518,6 +609,8 @@ label {
   .btn,
   .frame,
   .panel,
+  .frame-open,
+  .lightbox,
   input {
     outline: 2px solid;
     outline-offset: 0;
@@ -539,12 +632,6 @@ label {
   }
   .flow {
     justify-self: start;
-  }
-  .levels {
-    grid-template-columns: 1fr 1fr;
-  }
-  .levels > :first-child {
-    grid-column: 1 / -1;
   }
   .wl .panel {
     max-width: 26rem;

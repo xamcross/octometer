@@ -35,6 +35,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   beside the step text, with a gap of about 50 px at 1280 px. (#355)
 - Add a dark color scheme: a dark value for each surface and ink token under
   `prefers-color-scheme: dark`, and `color-scheme: light dark`. (#366)
+- Re-capture the three dashboard screenshots at a narrower source width (about 720 px
+  for the users view and the elements view, about 920 px for the apps view), keep each
+  "Three levels" card at 480 px of image width or more inside the two-column grid, and
+  add a button that opens one capture at full size, with a close control and the
+  Escape key. (#359)
 
 ### Contract
 

@@ -98,11 +98,20 @@ test('the three sections render with their images and texts, and nothing moves u
   //
   // Issue #343: the old images kept one fixed, tall ratio (height /
   // width = 1600 / 2400, about 0.667) below each short table, with an
-  // empty area below it. The bound of 0.6 passes each new, cropped
-  // image (the tallest, the users view, gives about 0.51) and fails
-  // the old ratio (the break proof of the pull request text states
-  // both numbers).
-  const MAX_HEIGHT_TO_WIDTH_RATIO = 0.6;
+  // empty area below it.
+  //
+  // Issue #359: one shared bound no longer fits every view, now that
+  // the apps view captures at a wider viewport (about 920 px, the full
+  // width of its own seven-column table) than the users view and the
+  // elements view (about 720 px each), in place of 1200 px for every
+  // view before. A narrower capture shrinks the width more than the
+  // height, so each tightly cropped image now gives a higher ratio on
+  // its own: apps about 0.54, users about 0.96, elements about 0.68
+  // (the pull request text states each number). Each bound below still
+  // passes its own cropped image and still fails an uncropped shot of
+  // the same capture viewport (height 800 over the capture width: about
+  // 0.87 for apps, about 1.11 for users and for elements).
+  const MAX_HEIGHT_TO_WIDTH_RATIO = [0.7, 1.05, 0.8];
   const images = page.locator('.frame img');
   await expect(images).toHaveCount(3);
   const imageCount = await images.count();
@@ -117,9 +126,39 @@ test('the three sections render with their images and texts, and nothing moves u
         height: el.naturalHeight,
       }));
       expect(naturalSize.width).toBeGreaterThan(0);
-      expect(naturalSize.height / naturalSize.width).toBeLessThan(MAX_HEIGHT_TO_WIDTH_RATIO);
+      expect(naturalSize.height / naturalSize.width).toBeLessThan(MAX_HEIGHT_TO_WIDTH_RATIO[i]);
     }).toPass();
   }
+
+  // Issue #359 (the UI audit finding L1): the rendered width of the
+  // two-column cards against the viewport of 1280 px. Site.css keeps
+  // ".levels" at a floor of 480 px of image width per card (a 32rem
+  // grid track minus the frame padding) until the row drops to one
+  // column; below 1280 px this is the first width where two columns
+  // fit two 480 px cards plus the row gap.
+  const usersImageWidthAt1280 = (await images.nth(1).boundingBox())!.width;
+  const elementsImageWidthAt1280 = (await images.nth(2).boundingBox())!.width;
+  console.log(
+    `issue #359 image width at 1280 px: users ${usersImageWidthAt1280}px, ` +
+      `elements ${elementsImageWidthAt1280}px`,
+  );
+  expect(usersImageWidthAt1280).toBeGreaterThanOrEqual(480);
+  expect(elementsImageWidthAt1280).toBeGreaterThanOrEqual(480);
+
+  // Issue #359: the apps card spans both columns of ".levels", so at
+  // 1280 px it is wider than its own capture (about 920 px declared).
+  // "width: 100%" (site.css, in place of "max-width: 100%") fills the
+  // card; the image keeps no blank strip beside a capture that stopped
+  // at its own declared size.
+  const appsWidths = await images.nth(0).evaluate((el: HTMLImageElement) => ({
+    image: el.getBoundingClientRect().width,
+    button: (el.closest('.frame-open') as HTMLElement).getBoundingClientRect().width,
+  }));
+  console.log(
+    `issue #359 apps image width at 1280 px: ${appsWidths.image}px of its card's ` +
+      `${appsWidths.button}px`,
+  );
+  expect(Math.abs(appsWidths.image - appsWidths.button)).toBeLessThan(1);
 
   // BLOCKER 1 of the review of pull request #399, issue #382. At 1280 px
   // the users card and the elements card share one grid row. Criterion 1
@@ -230,4 +269,56 @@ test('the three sections render with their images and texts, and nothing moves u
     client: document.documentElement.clientWidth,
   }));
   expect(at1440.scroll).toBeLessThanOrEqual(at1440.client);
+});
+
+// The full-size view of a dashboard screenshot (issue #359, the UI audit
+// finding L1, acceptance criterion 2). A click opens the dialog with the
+// full capture; the close button and the Escape key each close it.
+test('a click on a card opens the screenshot at full size, and each control closes it', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+
+  const openButton = page.locator('.frame-open').first();
+  const fullSrc = await openButton.getAttribute('data-full-src');
+  expect(fullSrc).toBeTruthy();
+  const dialog = page.locator('#screenshot-lightbox');
+  const lightboxImage = page.locator('#lightbox-img');
+
+  // Closed at rest. The "toPass" guard of the frontend brief (lesson 18)
+  // does not apply here: "toHaveJSProperty" polls on its own.
+  await expect(dialog).toHaveJSProperty('open', false);
+
+  // A click opens the dialog with the same capture as the card (the
+  // full-size variant of the apps view, the "data-full-src" of its
+  // button, not a thumbnail of a different view).
+  await openButton.click();
+  await expect(dialog).toHaveJSProperty('open', true);
+  await expect(lightboxImage).toHaveAttribute('src', fullSrc!);
+  const naturalWidth = await lightboxImage.evaluate((el: HTMLImageElement) => el.naturalWidth);
+  expect(naturalWidth).toBeGreaterThan(0);
+
+  // The Escape key closes the dialog (the native behaviour of "dialog",
+  // issue #359 step 5).
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveJSProperty('open', false);
+
+  // The close button closes the dialog too.
+  await openButton.click();
+  await expect(dialog).toHaveJSProperty('open', true);
+  await page.locator('.lightbox-close').click();
+  await expect(dialog).toHaveJSProperty('open', false);
+
+  // A click on the backdrop, outside the image, closes the dialog; a
+  // click on the image itself does not (lesson 22 of the frontend brief:
+  // a loop over a located list proves nothing on an empty list, so the
+  // count assertion above on the located buttons still stands as the
+  // guard for this click too).
+  await openButton.click();
+  await expect(dialog).toHaveJSProperty('open', true);
+  await lightboxImage.click();
+  await expect(dialog).toHaveJSProperty('open', true);
+  await dialog.click({ position: { x: 5, y: 5 } });
+  await expect(dialog).toHaveJSProperty('open', false);
 });
