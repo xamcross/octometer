@@ -103,6 +103,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Remove the blank reserved band under the header: the banner slot keeps no reserved
   height. A banner that shows sits in the page flow. It pushes the breadcrumb down by
   its own height, so a user can always reach the breadcrumb. (#375)
+- Raise the token `--text-s` from 12.8 px to 14 px, so the table caption, the status
+  badge, the gap line, the "Data from" line, the account email, the refresh-bar text,
+  `.btn-small`, and each form hint read larger. (#380)
 
 ### CI
 
