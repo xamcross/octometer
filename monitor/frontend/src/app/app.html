@@ -11,15 +11,17 @@
 
     @if (!isSigninRoute()) {
       <app-main-nav />
-
-      @if (me.email(); as email) {
-        <div class="account-status">
-          <span class="account-email">{{ email }}</span>
-          <button type="button" class="btn" (click)="onSignOutClick()">Sign out</button>
-        </div>
-      }
     }
   </div>
+
+  @if (!isSigninRoute()) {
+    @if (me.email(); as email) {
+      <div class="account-menu" role="group" aria-label="Account">
+        <span class="account-email">{{ email }}</span>
+        <button type="button" class="btn" (click)="onSignOutClick()">Sign out</button>
+      </div>
+    }
+  }
 </header>
 
 <app-banner [apiError]="monitorApiError()" />

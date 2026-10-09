@@ -119,6 +119,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Hide the pager of the users view, the first-pages view, and the anonymous-sessions
   view for a one-page result, remove the misused `aria-current` from the page-label
   span, and give the page-count announcement the same rule. (#387)
+- Move "Sign out" into its own account menu, clear of the row of nav pills, so the
+  button look and the pill look never mix in one row. (#360)
 
 ### CI
 
