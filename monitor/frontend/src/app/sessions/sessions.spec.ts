@@ -462,6 +462,13 @@ describe('Sessions', () => {
   });
 
   describe('the pager', () => {
+    it('shows no pager for a one-page result (D15 of the UI audit of 2026-10-09, MAJOR 1 and MAJOR 2 of the review of #405)', () => {
+      startStore();
+      flushSessions(buildPage({ page: 1, pageCount: 1 }));
+
+      expect(root().querySelector('nav.pager')).toBeNull();
+    });
+
     it('shows "Previous", "Next", and "Page 2 of 100"', () => {
       startStore();
       flushSessions(buildPage({ page: 2, pageCount: 100 }));
@@ -474,7 +481,7 @@ describe('Sessions', () => {
 
     it('gives the pager landmark a name that says what it is', () => {
       startStore();
-      flushSessions(buildPage());
+      flushSessions(buildPage({ pageCount: 5 }));
 
       const nav = root().querySelector('nav.pager') as HTMLElement;
       expect(nav.getAttribute('aria-label')).toBe('Pages of the anonymous session list');
@@ -575,6 +582,22 @@ describe('Sessions', () => {
       vi.advanceTimersByTime(200);
 
       expect(announcer.message()).toBe('2 anonymous sessions. Page 2 of 5.');
+    });
+
+    it('announces no page part when the fresh answer has one page, so the spoken text agrees with the hidden pager (MAJOR 3 of the review of #405)', () => {
+      startStore();
+      flushSessions(buildPage({ page: 1, pageCount: 5 }));
+      const announcer = TestBed.inject(Announcer);
+
+      fixture.componentRef.setInput('page', '2');
+      fixture.detectChanges();
+      httpMock
+        .expectOne('/api/apps/7/sessions?anonymous=true&page=2')
+        .flush(buildPage({ page: 1, pageCount: 1 }));
+      fixture.detectChanges();
+      vi.advanceTimersByTime(200);
+
+      expect(announcer.message()).toBe('1 anonymous session.');
     });
 
     it('gives the pager buttons a minimum target size of 24 by 24 CSS px', () => {

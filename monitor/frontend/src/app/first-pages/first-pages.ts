@@ -218,12 +218,14 @@ export class FirstPages {
 
   /**
    * Announces the row count of a fresh answer, plus the page it belongs
-   * to (MAJOR 1 of the review of pull request #216).
+   * to (MAJOR 1 of the review of pull request #216). The page part
+   * stays out of the text for a one-page answer, because the pager does
+   * not render then (MAJOR 3 of the review of pull request #405): the
+   * spoken text and the visible text then agree.
    */
   private announceResult(page: FirstPagesResponse): void {
-    this.announcer.announce(
-      `${this.rowCountText(page.rows.length)} Page ${page.page} of ${page.pageCount}.`,
-    );
+    const pagePart = page.pageCount > 1 ? ` Page ${page.page} of ${page.pageCount}.` : '';
+    this.announcer.announce(`${this.rowCountText(page.rows.length)}${pagePart}`);
   }
 
   /** The count part of the announce text: "No first page." or "N first pages." */

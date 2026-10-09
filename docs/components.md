@@ -611,8 +611,10 @@ the last success, or the last error text.
   button, each `class="btn btn-small"` (`users.html:68`, `:77`), plus a plain
   `<span>Page X of Y</span>`, with no `aria-current` attribute (`users.html:66-84`).
 - The `@if` block shows the pager only when the list holds more than one page
-  (`users.ts`, `first-pages.ts`, D15 of the UI audit of 2026-10-09, issue #387). A
-  one-page result shows no pager and no pair of disabled buttons.
+  (`users.ts`, `first-pages.ts`, `sessions.ts`, D15 of the UI audit of 2026-10-09, issue
+  #387). A one-page result shows no pager and no pair of disabled buttons. The
+  maintainer's decision on the review of pull request #405 widens the rule to the
+  anonymous-sessions view, the third pager of the dashboard.
 
 **States.**
 
@@ -633,7 +635,8 @@ the last success, or the last error text.
   after each page change. The focus stays on the button that the user pressed. The
   announced text is then the only feedback for a screen reader (rule: "one place for one
   control", D33; `users.ts:309-318`, fixed finding of PR #159 and PR #216 per the module
-  brief).
+  brief). The page part stays out of the announced text for a one-page answer, so the
+  spoken text agrees with the hidden pager (MAJOR 3 of the review of pull request #405).
 
 **Rules.**
 - Do keep `aria-disabled`, not the native `disabled` attribute, on a boundary pager

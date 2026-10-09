@@ -80,6 +80,14 @@ export class Sessions {
   protected readonly pageCount = computed(() => this.store.data()?.pageCount ?? 1);
 
   /**
+   * True when the list has more than one page. The pager shows only then,
+   * so a one-page result shows no pair of disabled buttons (D15 of the UI
+   * audit of 2026-10-09, issue #387; correction round of pull request
+   * #405, MAJOR 1: the maintainer's decision widens the rule to this view).
+   */
+  protected readonly showPager = computed(() => this.pageCount() > 1);
+
+  /**
    * The current page. It reads the `page` field of the last good answer,
    * because the API can clamp an out-of-range page (D13). It falls back
    * to the route value before the first answer arrives.
@@ -232,13 +240,15 @@ export class Sessions {
   }
 
   /**
-   * Announces the row count of a fresh answer, plus the page it
-   * belongs to (lesson 6 of the frontend brief).
+   * Announces the row count of a fresh answer, plus the page it belongs
+   * to (lesson 6 of the frontend brief). The page part stays out of the
+   * text for a one-page answer, because the pager does not render then
+   * (MAJOR 3 of the review of pull request #405): the spoken text and
+   * the visible text then agree.
    */
   private announceResult(page: SessionsResponse): void {
-    this.announcer.announce(
-      `${this.rowCountText(page.rows.length)} Page ${page.page} of ${page.pageCount}.`,
-    );
+    const pagePart = page.pageCount > 1 ? ` Page ${page.page} of ${page.pageCount}.` : '';
+    this.announcer.announce(`${this.rowCountText(page.rows.length)}${pagePart}`);
   }
 
   /** The count part of the announce text: "No anonymous session." or "N anonymous sessions." */

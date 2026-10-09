@@ -1,3 +1,5 @@
+import type { APIRequestContext } from '@playwright/test';
+
 import { expect, test } from '../fixtures';
 import { AppsPage } from '../pages/apps-page';
 import { BreadcrumbPart } from '../pages/breadcrumb-part';
@@ -393,57 +395,79 @@ function pagerSessionId(marker: number): string {
 }
 
 /**
- * Issue #387 (D15 of the UI audit of 2026-10-09): the pager of the
- * users view and of the first-pages view shows only above one page.
- * This scenario writes real rows through the collector route (never a
- * mock), so the page count comes from the store.
- *
- * One request gives one user row (a click event, kind 0) and one
- * first-pages row (a session-start event, kind 1) at once, each with
- * its own id and path, so the same 51 requests fill both views above
- * the 50-row page size (`UserTotalsRoute.kt`, `FirstPagesRoute.kt`).
- * A user row needs a real click: a session-start event alone gives
- * that user no row at all (`UserTotalsRouteTest.kt`, "a user with only
- * a session-start row gets no row at all").
+ * Registers one fresh app for a pager scenario. Each of the two split
+ * scenarios below calls this once, with its own app name, so neither
+ * scenario reads a row count that the other scenario wrote (MAJOR 4 of
+ * the review of pull request #405: the split removes the shared state
+ * that the one combined scenario held).
  */
-test('the pager hides for one page and shows for two pages (issue #387, D15)', async ({
-  page,
-  request,
-}) => {
-  const monitorUrl = process.env.E2E_MONITOR_URL;
-  if (!monitorUrl) {
-    throw new Error('E2E_MONITOR_URL is absent. The global setup did not run, or it failed.');
-  }
+async function registerPagerApp(
+  request: APIRequestContext,
+  monitorUrl: string,
+  namePrefix: string,
+): Promise<{ appId: number; appKey: string; origin: string }> {
   const origin = 'https://pager-e2e.example';
-  const appName = `pager-app-${Date.now()}`;
+  const appName = `${namePrefix}-${Date.now()}`;
   const createResponse = await request.post('/api/apps', {
     headers: { Origin: monitorUrl },
     data: { name: appName, origins: [origin] },
   });
   expect(createResponse.status()).toBe(201);
   const created = (await createResponse.json()) as { appId: number; appKey: string };
-  const { appId, appKey } = created;
-  const collectorUrl = `${monitorUrl}/collect`;
+  return { appId: created.appId, appKey: created.appKey, origin };
+}
 
-  async function sendUserAndPage(marker: number): Promise<void> {
-    const response = await request.fetch(collectorUrl, {
-      method: 'POST',
-      headers: { Origin: origin, 'Content-Type': 'application/json', 'X-Octometer-Key': appKey },
-      data: JSON.stringify({
-        sessionId: pagerSessionId(marker),
-        userId: `pager-user-${marker}`,
-        clicks: [
-          { element: 'octo:session-start', ageMs: 0, path: `/pager-page-${marker}` },
-          { element: 'pager-probe.click', ageMs: 0 },
-        ],
-      }),
-    });
-    expect(response.status()).toBe(204);
+/**
+ * Sends one request that gives one user row (a click event, kind 0) and
+ * one first-pages row (a session-start event, kind 1) at once, through
+ * the collector route (never a mock), the same way `collector.spec.ts`
+ * does. A user row needs a real click: a session-start event alone
+ * gives that user no row at all (`UserTotalsRouteTest.kt`, "a user with
+ * only a session-start row gets no row at all").
+ */
+async function sendUserAndPage(
+  request: APIRequestContext,
+  monitorUrl: string,
+  origin: string,
+  appKey: string,
+  marker: number,
+): Promise<void> {
+  const response = await request.fetch(`${monitorUrl}/collect`, {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json', 'X-Octometer-Key': appKey },
+    data: JSON.stringify({
+      sessionId: pagerSessionId(marker),
+      userId: `pager-user-${marker}`,
+      clicks: [
+        { element: 'octo:session-start', ageMs: 0, path: `/pager-page-${marker}` },
+        { element: 'pager-probe.click', ageMs: 0 },
+      ],
+    }),
+  });
+  expect(response.status()).toBe(204);
+}
+
+/** Reads `E2E_MONITOR_URL`, or fails with a clear reason. */
+function readMonitorUrl(): string {
+  const monitorUrl = process.env.E2E_MONITOR_URL;
+  if (!monitorUrl) {
+    throw new Error('E2E_MONITOR_URL is absent. The global setup did not run, or it failed.');
   }
+  return monitorUrl;
+}
 
-  // One row: the users view and the first-pages view each hold one
-  // page. The pager shows on neither view (acceptance criterion 1).
-  await sendUserAndPage(1);
+/**
+ * Issue #387 (D15 of the UI audit of 2026-10-09): the pager of the
+ * users view, the first-pages view, and the anonymous-sessions view
+ * shows only above one page. This scenario writes one real row through
+ * the collector route (never a mock), so the page count comes from the
+ * store. The two-page scenario below is a separate test (MAJOR 4 of the
+ * review of pull request #405), so this one keeps a small time budget.
+ */
+test('the pager hides for a one-page result (issue #387, D15)', async ({ page, request }) => {
+  const monitorUrl = readMonitorUrl();
+  const { appId, appKey, origin } = await registerPagerApp(request, monitorUrl, 'pager-one-app');
+  await sendUserAndPage(request, monitorUrl, origin, appKey, 1);
 
   const users = new UsersPage(page);
   await users.goto(appId);
@@ -454,19 +478,34 @@ test('the pager hides for one page and shows for two pages (issue #387, D15)', a
   await firstPages.goto(appId);
   await firstPages.expectSessions('/pager-page-1', 1, CHAIN_WAIT_MS);
   await expect(page.locator('nav.pager')).toHaveCount(0);
+});
 
-  // 50 more rows: 51 distinct users and 51 distinct first pages give a
-  // page count of 2 (the page size is 50 rows). The pager shows on
-  // both views, with no aria-current on the page-label span (acceptance
-  // criterion 2 and 3).
-  for (let marker = 2; marker <= 51; marker += 1) {
-    await sendUserAndPage(marker);
+/**
+ * Issue #387 (D15 of the UI audit of 2026-10-09): 51 distinct users and
+ * 51 distinct first pages give a page count of 2 (the page size is 50
+ * rows, `UserTotalsRoute.kt`, `FirstPagesRoute.kt`). The pager then
+ * shows on the users view and on the first-pages view, with no
+ * `aria-current` on the page-label span. A split scenario of its own
+ * (MAJOR 4 of the review of pull request #405) keeps the 51 requests
+ * and the two `toContainText` waits inside one 60 s test budget, with no
+ * one-page work ahead of them.
+ */
+test('the pager shows for a two-page result, with no aria-current (issue #387, D15)', async ({
+  page,
+  request,
+}) => {
+  const monitorUrl = readMonitorUrl();
+  const { appId, appKey, origin } = await registerPagerApp(request, monitorUrl, 'pager-two-app');
+  for (let marker = 1; marker <= 51; marker += 1) {
+    await sendUserAndPage(request, monitorUrl, origin, appKey, marker);
   }
 
+  const users = new UsersPage(page);
   await users.goto(appId);
   await expect(page.locator('nav.pager')).toContainText('Page 1 of 2', { timeout: CHAIN_WAIT_MS });
   await expect(page.locator('nav.pager [aria-current]')).toHaveCount(0);
 
+  const firstPages = new FirstPagesPage(page);
   await firstPages.goto(appId);
   await expect(page.locator('nav.pager')).toContainText('Page 1 of 2', { timeout: CHAIN_WAIT_MS });
   await expect(page.locator('nav.pager [aria-current]')).toHaveCount(0);

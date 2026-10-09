@@ -379,6 +379,13 @@ describe('FirstPages', () => {
   });
 
   describe('the pager', () => {
+    it('shows no pager for a one-page result (D15 of the UI audit of 2026-10-09, MAJOR 2 of the review of #405)', () => {
+      startStore();
+      flushFirstPages(buildPage({ page: 1, pageCount: 1 }));
+
+      expect(root().querySelector('nav.pager')).toBeNull();
+    });
+
     it('shows "Previous", "Next", and "Page X of Y" at page 1', () => {
       startStore();
       flushFirstPages(buildPage({ page: 1, pageCount: 5 }));
@@ -499,6 +506,22 @@ describe('FirstPages', () => {
       vi.advanceTimersByTime(200);
 
       expect(announcer.message()).toBe('2 first pages. Page 2 of 5.');
+    });
+
+    it('announces no page part when the fresh answer has one page, so the spoken text agrees with the hidden pager (MAJOR 3 of the review of #405)', () => {
+      startStore();
+      flushFirstPages(buildPage({ page: 1, pageCount: 5 }));
+      const announcer = TestBed.inject(Announcer);
+
+      fixture.componentRef.setInput('page', '2');
+      fixture.detectChanges();
+      httpMock
+        .expectOne('/api/apps/7/first-pages?page=2')
+        .flush(buildPage({ page: 1, pageCount: 1 }));
+      fixture.detectChanges();
+      vi.advanceTimersByTime(200);
+
+      expect(announcer.message()).toBe('1 first page.');
     });
 
     it('gives the pager buttons a minimum target size of 24 by 24 CSS px', () => {
