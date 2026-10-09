@@ -35,6 +35,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   beside the step text, with a gap of about 50 px at 1280 px. (#355)
 - Add a dark color scheme: a dark value for each surface and ink token under
   `prefers-color-scheme: dark`, and `color-scheme: light dark`. (#366)
+- Add a top navigation bar with the mark, the wordmark, and a "Sign in" link to
+  `app.0ct0meter.com/signin`, above the hero. (#367)
 
 ### Contract
 
@@ -110,6 +112,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   the submit button. (#389)
 - Keep the three Manage actions in one row at each width from 390 px up; the table
   scrolls inside `.table-scroll` instead of wrapping the row. (#362)
+- Hide the pager of the users view, the first-pages view, and the anonymous-sessions
+  view for a one-page result, remove the misused `aria-current` from the page-label
+  span, and give the page-count announcement the same rule. (#387)
 - Change the Users filter form to a grid: the filter input and the Filter button stay
   on one row from 360 px wide up, and the input keeps its 44 px minimum height. (#374)
 

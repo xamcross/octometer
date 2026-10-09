@@ -62,7 +62,11 @@ test('the hero shows the promise and the button reaches the form', async ({ page
   // the box-shadow, because the 80ms box-shadow transition of ".btn" still
   // holds its rest value at the moment the test reads it. This stop runs
   // before the click below, so the click does not consume the Tab stop.
-  await page.keyboard.press('Tab');
+  // Issue #367 adds the top bar with its three links before the hero, so
+  // four Tab presses, not one, reach this button now.
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.press('Tab');
+  }
   await expect(button).toBeFocused();
   await expect(button).toHaveCSS('outline', 'rgb(255, 217, 61) solid 3px');
   await expect(button).toHaveCSS('outline-offset', '2px');
@@ -139,7 +143,11 @@ test.describe('the dark color scheme (issue #366, the UI audit finding L16)', ()
     // mid-transition read is not the rest value (review MAJOR 2 of pull
     // request #321).
     const button = page.getByRole('link', { name: 'Join the waitlist' });
-    await page.keyboard.press('Tab');
+    // Issue #367 adds the top bar with its three links before the hero, so
+    // four Tab presses, not one, reach this button now.
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press('Tab');
+    }
     await expect(button).toBeFocused();
     let rawShadow = '';
     for (let i = 0; i < 20; i += 1) {
