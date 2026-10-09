@@ -37,6 +37,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   `prefers-color-scheme: dark`, and `color-scheme: light dark`. (#366)
 - Add a top navigation bar with the mark, the wordmark, and a "Sign in" link to
   `app.0ct0meter.com/signin`, above the hero. (#367)
+- Give the waitlist section heading and submit button their own labels: "Get an
+  invite" and "Send me the link". (#358)
 
 ### Contract
 
