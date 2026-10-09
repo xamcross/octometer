@@ -33,7 +33,6 @@ th[scope='row'] {
 .table-scroll {
   position: relative;
   overflow-x: auto;
-  margin-bottom: 2rem;
   border-radius: inherit;
 }
 
@@ -75,10 +74,9 @@ th[scope='row'] {
  */
 
 /*
- * The 3px border of `.panel` stops the bottom margin of a child
- * (`.table-scroll`) from collapsing past the panel edge, so that margin
- * gives no gap after the panel. This margin-top on the second panel gives
- * the 32px gap between the list panel and the add-app panel instead.
+ * `.table-scroll` has no bottom margin (issue #377), so the table sits
+ * close to the panel border. This margin-top on the second panel alone
+ * gives the gap between the list panel and the add-app panel.
  */
 .add-app {
   max-width: 32rem;
