@@ -93,6 +93,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Give each table caption 12 px of top padding, clear of the panel border. (#376)
 - Remove the bottom margin of `.table-scroll` on the manage view, so no empty strip
   sits between the table and the panel border. (#377)
+- Give a disabled button a shallows fill, ink-soft text, and a dashed border, in place
+  of the opacity rule; the text now measures 7.83:1 on its fill. (#384)
 
 ### CI
 
