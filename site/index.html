@@ -354,12 +354,17 @@
     <!-- #359: the full-size view of one dashboard screenshot. "main.ts"
          opens it on a click of a ".frame-open" button; the dialog closes
          on the close button, on a click outside the image, and (through
-         the native "dialog" behaviour) on the Escape key. -->
+         the native "dialog" behaviour) on the Escape key. Correction round
+         of pull request #424, MAJOR 4: ".lightbox-pan" holds the pan, not
+         the dialog itself, so the close button (a direct child of the
+         dialog, outside the pan) stays in view through the whole pan. -->
     <dialog class="lightbox" id="screenshot-lightbox" aria-label="The dashboard screenshot at full size">
       <button type="button" class="lightbox-close" aria-label="Close">
         <span aria-hidden="true">&times;</span>
       </button>
-      <img class="lightbox-img" id="lightbox-img" src="" alt="" />
+      <div class="lightbox-pan">
+        <img class="lightbox-img" id="lightbox-img" src="" alt="" />
+      </div>
     </dialog>
 
     <script type="module" src="/src/main.ts"></script>

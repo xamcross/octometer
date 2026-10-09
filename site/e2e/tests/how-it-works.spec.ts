@@ -329,15 +329,18 @@ test('a click on a card opens the screenshot at full size, and each control clos
   // guard for this click too).
   await openButton.click();
   await expect(dialog).toHaveJSProperty('open', true);
+  const pan = page.locator('.lightbox-pan');
   await lightboxImage.click();
   await expect(dialog).toHaveJSProperty('open', true);
-  // MAJOR 1 of the review of pull request #424: the dialog now holds the
+  // MAJOR 1 of the review of pull request #424: the dialog holds the
   // capture at its natural width, past the viewport, so a click on the
-  // image scrolls the dialog box (the actionability step of this click
+  // image scrolls the pan box (the actionability step of this click
   // tool). This line sets the scroll back to the top-left corner, so the
   // point (5, 5) below sits in the dialog's own padding ring again, not
-  // on the scrolled-in image.
-  await dialog.evaluate((el) => {
+  // on the scrolled-in image. MAJOR 4 of the confirmation of pull request
+  // #424: the pan sits on ".lightbox-pan", not on the dialog itself, so
+  // this line reads that element.
+  await pan.evaluate((el) => {
     el.scrollTop = 0;
     el.scrollLeft = 0;
   });
@@ -349,7 +352,7 @@ test('a click on a card opens the screenshot at full size, and each control clos
   // (no "max-width" rule shrinks it), with a pan for the part past the
   // screen. This asserts the rendered width of the dialog image equals
   // its own "naturalWidth" (site.css: ".lightbox-img" carries no
-  // "max-width" and no "max-height"; ".lightbox" carries "overflow:
+  // "max-width" and no "max-height"; ".lightbox-pan" carries "overflow:
   // auto" instead).
   await page.setViewportSize({ width: 390, height: 844 });
   await openButton.click();
@@ -363,4 +366,23 @@ test('a click on a card opens the screenshot at full size, and each control clos
       `natural ${dialogSize.natural}px`,
   );
   expect(dialogSize.rendered).toBe(dialogSize.natural);
+
+  // MAJOR 4 of the confirmation of pull request #424: a pan must not
+  // carry the close control away with the image. This scrolls the pan
+  // to its end (the bottom-right corner of the capture) and asserts the
+  // close button's own box still sits inside the 390 px viewport.
+  await pan.evaluate((el) => {
+    el.scrollLeft = el.scrollWidth;
+    el.scrollTop = el.scrollHeight;
+  });
+  const closeBox = (await page.locator('.lightbox-close').boundingBox())!;
+  const viewport = page.viewportSize()!;
+  console.log(
+    `issue #359 close control after a full pan at 390 px: x ${closeBox.x}, ` +
+      `y ${closeBox.y}, width ${closeBox.width}, height ${closeBox.height}`,
+  );
+  expect(closeBox.x).toBeGreaterThanOrEqual(0);
+  expect(closeBox.y).toBeGreaterThanOrEqual(0);
+  expect(closeBox.x + closeBox.width).toBeLessThanOrEqual(viewport.width);
+  expect(closeBox.y + closeBox.height).toBeLessThanOrEqual(viewport.height);
 });
