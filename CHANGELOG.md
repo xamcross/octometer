@@ -35,6 +35,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   beside the step text, with a gap of about 50 px at 1280 px. (#355)
 - Add a dark color scheme: a dark value for each surface and ink token under
   `prefers-color-scheme: dark`, and `color-scheme: light dark`. (#366)
+- Add a top navigation bar with the mark, the wordmark, and a "Sign in" link to
+  `app.0ct0meter.com/signin`, above the hero. (#367)
 
 ### Contract
 
