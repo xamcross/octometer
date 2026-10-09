@@ -63,6 +63,13 @@ export interface PollStore<T> {
    * component instance.
    */
   reset(): void;
+  /**
+   * Closes the gate for the automatic tick alone, for the current target
+   * (issue #348). The store sends no further scheduled request until a
+   * call of `reset()` opens the gate again for a fresh target. A call of
+   * `refresh()` still sends its own request, the same as a paused store.
+   */
+  stop(): void;
 }
 
 /** Returns true while the document focus sits inside a table body. */
@@ -115,6 +122,13 @@ export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
   const manualRefresh$ = new Subject<void>();
 
   /**
+   * True after a call of `stop()`, local to this one store (issue #348),
+   * not shared the way `paused` is. `reset()` clears it, for a fresh
+   * target.
+   */
+  const stopped = signal(false);
+
+  /**
    * The generation of the current target. `reset()` raises it. A request
    * started under an older generation carries that generation with its
    * answer, so the subscriber below can tell a stale answer from a fresh
@@ -152,20 +166,22 @@ export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
   });
   destroyRef.onDestroy(() => intervalState.scheduleDataErrorClear());
 
-  const canPoll = (): boolean => !paused() && !document.hidden && !isFocusInTbody();
+  const canPoll = (): boolean => !stopped() && !paused() && !document.hidden && !isFocusInTbody();
 
   /**
    * Gives the current value of `canPoll()` after each event that can change
-   * a stop condition: a visibility change, a focus change, or a pause
-   * change. `auditTime(0)` waits one tick, so the browser moves the focus
-   * first. `startWith(null)` stands before `map`, so the first value reads
-   * `canPoll()` at the subscription, and not at the pipe build.
+   * a stop condition: a visibility change, a focus change, a pause change,
+   * or a `stop()` call (issue #348). `auditTime(0)` waits one tick, so the
+   * browser moves the focus first. `startWith(null)` stands before `map`,
+   * so the first value reads `canPoll()` at the subscription, and not at
+   * the pipe build.
    */
   const gateOpen$ = merge(
     fromEvent(document, 'visibilitychange'),
     fromEvent(document, 'focusin'),
     fromEvent(document, 'focusout'),
     toObservable(paused),
+    toObservable(stopped),
   ).pipe(
     auditTime(0),
     startWith(null),
@@ -266,6 +282,8 @@ export function createPollStore<T>(request: () => Observable<T>): PollStore<T> {
       data.set(undefined);
       dataError.set(undefined);
       firstLoadPending.set(true);
+      stopped.set(false);
     },
+    stop: () => stopped.set(true),
   };
 }
