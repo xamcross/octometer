@@ -110,6 +110,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   the submit button. (#389)
 - Keep the three Manage actions in one row at each width from 390 px up; the table
   scrolls inside `.table-scroll` instead of wrapping the row. (#362)
+- Hide the pager of the users view, the first-pages view, and the anonymous-sessions
+  view for a one-page result, remove the misused `aria-current` from the page-label
+  span, and give the page-count announcement the same rule. (#387)
 
 ### CI
 

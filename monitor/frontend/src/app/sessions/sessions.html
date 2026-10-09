@@ -63,25 +63,27 @@
       </div>
     </section>
 
-    <nav class="pager" aria-label="Pages of the anonymous session list">
-      <button
-        class="btn btn-small"
-        type="button"
-        (click)="onPreviousPage()"
-        [attr.aria-disabled]="currentPage() <= 1 ? 'true' : null"
-      >
-        Previous
-      </button>
-      <span>Page {{ currentPage() }} of {{ page.pageCount }}</span>
-      <button
-        class="btn btn-small"
-        type="button"
-        (click)="onNextPage()"
-        [attr.aria-disabled]="currentPage() >= page.pageCount ? 'true' : null"
-      >
-        Next
-      </button>
-    </nav>
+    @if (showPager()) {
+      <nav class="pager" aria-label="Pages of the anonymous session list">
+        <button
+          class="btn btn-small"
+          type="button"
+          (click)="onPreviousPage()"
+          [attr.aria-disabled]="currentPage() <= 1 ? 'true' : null"
+        >
+          Previous
+        </button>
+        <span>Page {{ currentPage() }} of {{ page.pageCount }}</span>
+        <button
+          class="btn btn-small"
+          type="button"
+          (click)="onNextPage()"
+          [attr.aria-disabled]="currentPage() >= page.pageCount ? 'true' : null"
+        >
+          Next
+        </button>
+      </nav>
+    }
   }
 } @else {
   <p>Octometer reads the anonymous session list.</p>
