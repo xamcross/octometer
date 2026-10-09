@@ -39,6 +39,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   `app.0ct0meter.com/signin`, above the hero. (#367)
 - Give the waitlist section heading and submit button their own labels: "Get an
   invite" and "Send me the link". (#358)
+- Name the domain "0ct0meter.com" next to the contact line in the footer, and mark
+  the zeros once. (#365)
 - Add a product-shot preview to the right side of the hero at 48rem and above, built
   as an HTML table in the visual family of `.frame`, so no empty strip sits past the
   copy. (#372)
