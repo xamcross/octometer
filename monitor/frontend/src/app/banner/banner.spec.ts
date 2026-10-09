@@ -21,7 +21,7 @@ describe('Banner', () => {
     expect(slot.querySelector('.banner-text')).toBeNull();
   });
 
-  it('overlays the error text on a failed monitor API, with no reserved height (issue #375)', () => {
+  it('shows the error text in the normal flow, with no absolute position (issue #375)', () => {
     fixture.componentRef.setInput('apiError', 'The monitor API did not answer.');
     fixture.detectChanges();
 
@@ -29,7 +29,7 @@ describe('Banner', () => {
     expect(getComputedStyle(slot).minHeight).toBe('0px');
     const text = slot.querySelector('.banner-text') as HTMLElement;
     expect(text?.textContent).toContain('The monitor API did not answer.');
-    expect(getComputedStyle(text).position).toBe('absolute');
+    expect(getComputedStyle(text).position).toBe('static');
   });
 
   it('carries no live-region role, because the announcer holds the one status region', () => {

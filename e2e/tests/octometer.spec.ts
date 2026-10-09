@@ -161,32 +161,73 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
   });
 
   test(
-    'the error banner overlays the page: the breadcrumb keeps the same offset ' +
-      '(issue #375, D7, the measured numbers are in the pull request text)',
+    'the banner reserves no band when it is empty, and keeps the breadcrumb clickable ' +
+      'when it shows (issue #375, the audit finding D7, the correction round of ' +
+      'pull request #404)',
     async ({ page }) => {
       const users = new UsersPage(page);
       const breadcrumb = new BreadcrumbPart(page);
 
       await users.goto(appId);
       await breadcrumb.expectLabels(['Apps', 'demo'], CHAIN_WAIT_MS);
-      const offsetWithNoBanner = await breadcrumb.topOffset();
+
+      // The gap between the header band and the breadcrumb, with no error:
+      // acceptance criterion 1 asks for no blank band.
+      const gapWithNoBanner = await page.evaluate(() => {
+        const band = document.querySelector('header.band')!.getBoundingClientRect();
+        const nav = document
+          .querySelector('nav[aria-label="Breadcrumb"]')!
+          .getBoundingClientRect();
+        return nav.top - band.bottom;
+      });
+      console.log(
+        `issue #375: the gap between the header band and the breadcrumb is ` +
+          `${gapWithNoBanner}px with no banner.`,
+      );
+      expect(gapWithNoBanner).toBeLessThanOrEqual(8);
+
+      const navTopWithNoBanner = await breadcrumb.topOffset();
 
       // Forces the monitor API error for the next page load only: GET
       // /api/health answers 503, so the banner shows at once.
       await page.route('**/api/health', (route) => route.fulfill({ status: 503, body: '' }));
       await users.goto(appId);
-      await expect(page.getByText('The monitor API did not answer.')).toBeVisible({
-        timeout: CHAIN_WAIT_MS,
-      });
+      const bannerText = page.getByText('The monitor API did not answer.');
+      await expect(bannerText).toBeVisible({ timeout: CHAIN_WAIT_MS });
       await breadcrumb.expectLabels(['Apps', 'demo'], CHAIN_WAIT_MS);
-      const offsetWithBanner = await breadcrumb.topOffset();
+      const navTopWithBanner = await breadcrumb.topOffset();
+      const bannerHeight = await page
+        .locator('.banner-text')
+        .evaluate((el) => el.getBoundingClientRect().height);
       await page.unroute('**/api/health');
 
       console.log(
-        `issue #375: the breadcrumb offset is ${offsetWithNoBanner}px with no banner ` +
-          `and ${offsetWithBanner}px with a banner.`,
+        `issue #375: the breadcrumb nav top moves from ${navTopWithNoBanner}px to ` +
+          `${navTopWithBanner}px when the banner shows, a shift of ` +
+          `${navTopWithBanner - navTopWithNoBanner}px; the banner height is ` +
+          `${bannerHeight}px.`,
       );
-      expect(offsetWithBanner).toBe(offsetWithNoBanner);
+      // A banner that shows moves the content below it down by its own
+      // height (the maintainer decision of the correction round), not by
+      // the old 48 px band.
+      expect(navTopWithBanner - navTopWithNoBanner).toBeCloseTo(bannerHeight, 0);
+
+      // The "Apps" link stays the element at its own centre point, and it
+      // stays clickable, with the banner present (BLOCKER-2 of the review
+      // of pull request #404).
+      const appsLink = breadcrumb.linkNamed('Apps');
+      const linkIsOnTop = await appsLink.evaluate((el) => {
+        const box = el.getBoundingClientRect();
+        const topElement = document.elementFromPoint(
+          box.left + box.width / 2,
+          box.top + box.height / 2,
+        );
+        return topElement === el;
+      });
+      expect(linkIsOnTop).toBe(true);
+
+      await appsLink.click();
+      await expect(page).toHaveURL(/\/apps$/);
     },
   );
 
