@@ -130,12 +130,19 @@ const NONTEXT = [
  * dark`. `--coral`, `--sunny`, `--seaweed`, and `--on-bright` keep the light value of
  * the lists above; `--ink`, `--ink-soft`, `--paper`, `--paper-raised`, `--shallows`,
  * `--shallows-deep`, and `--octo` take the dark value of `styles.css`.
+ *
+ * `.band` and its mascot read none of those dark values (the correction round of
+ * pull request #435). `.band` sets its own `--ink`, `--paper`, and `--line-control`;
+ * each one stays its light-scheme value in the dark scheme too. The rows below for
+ * the nav pill, the "Sign out" button, the nav pill edge, and the mascot's eye model
+ * `.band`'s own fill and text, not the global dark tokens.
  */
 const DARK_TEXT = [
   ['each page', 'the skip link on focus', '#241f3d', '#ffd93d', 16, 400],
   ['each page', 'the wordmark on the band', '#241f3d', '#9b7be5', 25, 600],
   ['each page', 'the current nav pill', '#241f3d', '#ffd93d', 16, 600],
-  ['each page', 'the other nav pill', '#ece9ff', '#1d1a33', 16, 600],
+  ['each page', 'the other nav pill', '#241f3d', '#ffffff', 16, 600],
+  ['each page', 'the "Sign out" button', '#241f3d', '#ffffff', 16, 600],
   ['each page', 'the breadcrumb link and text', '#ece9ff', '#14122a', 16, 400],
   ['each page', 'the breadcrumb current item', '#ece9ff', '#14122a', 16, 700],
   ['each page', 'the page title h1', '#ece9ff', '#14122a', 25, 600],
@@ -180,6 +187,7 @@ const DARK_NONTEXT = [
   ['each page', 'the control edge on the page background', '#ece9ff', '#14122a'],
   ['each page', 'the control edge on the paper', '#ece9ff', '#1d1a33'],
   ['the band', 'the nav pill edge on the octo band', '#241f3d', '#9b7be5'],
+  ['main', "the mascot's eye on the octo head (the first-load mark)", '#241f3d', '#9b7be5'],
   ['each page', 'the panel edge on the page background', '#ece9ff', '#14122a'],
   ['each table', 'the head cell edge on the head fill', '#ece9ff', '#2c2850'],
   ['apps', 'the badge edge on the badge fill (seaweed)', '#241f3d', '#6ee7b7'],

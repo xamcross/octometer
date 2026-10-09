@@ -141,14 +141,20 @@ fill (a badge, a button, the band) keeps its ink text in each scheme.
 | `--ink-soft` | `#4B4763` | `#B9B4D6` |
 | `--paper` | `#FFFFFF` | `#1D1A33` |
 | `--paper-raised` | `#FFFFFF` | `#312B57` |
+| `--paper-bright` | `#FFFFFF` | `#FFFFFF` |
 | `--shallows` | `#E6F3FF` | `#14122A` |
 | `--shallows-deep` | `#BFDFFF` | `#2C2850` |
 | `--octo` | `#A78BFA` | `#9B7BE5` |
 
 `.band` of `monitor/frontend/src/app/app.css` no longer sets `--ink: #241f3d;` and
-`--paper: #ffffff;` as hex literals; it sets `--ink: var(--on-bright)` and
-`--paper: var(--paper-raised)`, so the band text and the mascot's head fill stay the same
-in each scheme.
+`--paper: #ffffff;` as hex literals. It sets `--ink: var(--on-bright)` and
+`--paper: var(--paper-bright)`. It also sets its own `--line-control`. Each rule keeps
+the band text, the mascot's head fill, and the band edge the same in each scheme.
+
+`--paper-bright` is a correction of pull request #435. `.band` once read
+`--paper-raised`, and the dark value of `--paper-raised` (`#312B57`) then made the band
+dark on dark: the nav pill label and the "Sign out" label read 1.21:1, under the floor of
+4.5:1. `--paper-bright` keeps `#FFFFFF` in each scheme, so the band stays bright on dark.
 
 The audit draft of issue #361 names `#5B45B0` for the dark `--octo`, with no dark value for
 `--paper-raised`. Each measured under the WCAG 1.4.3 floor:

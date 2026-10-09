@@ -818,6 +818,29 @@ test('the dashboard shell uses the dark tokens under prefers-color-scheme: dark 
   const bodyColor = await body.evaluate((element) => getComputedStyle(element).color);
   expect(ratio(toHex(bodyColor), '#14122a')).toBeGreaterThanOrEqual(4.5);
 
+  // The band label pair (MAJOR 1 of the review of pull request #435):
+  // `--paper-bright` keeps the plain nav pill ("Manage apps") readable
+  // on the octo band in the dark scheme too, not dark text on a dark
+  // fill.
+  const manageAppsPill = page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Manage apps' });
+  await expect(manageAppsPill).toBeVisible();
+  await expect(manageAppsPill).toHaveCSS('opacity', '1');
+  const pillColors = await manageAppsPill.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { fg: style.color, bg: style.backgroundColor, edge: style.borderTopColor };
+  });
+  expect(ratio(toHex(pillColors.fg), toHex(pillColors.bg))).toBeGreaterThanOrEqual(4.5);
+
+  // The control edge pair (MAJOR 3 of the review): `.band` sets its own
+  // `--line-control`, so the pill edge still reads 3:1 on the octo band
+  // fill in the dark scheme, not the page's own dark `--ink`.
+  const bandFill = await page
+    .locator('header.band')
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(ratio(toHex(pillColors.edge), toHex(bandFill))).toBeGreaterThanOrEqual(3);
+
   // The "demo" app badge: the mark and the word of status-format.ts keep
   // 4.5:1 on their fill in the dark scheme too (the badge text is
   // `--text-s`, never a large text).
