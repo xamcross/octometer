@@ -35,6 +35,10 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   beside the step text, with a gap of about 50 px at 1280 px. (#355)
 - Add a dark color scheme: a dark value for each surface and ink token under
   `prefers-color-scheme: dark`, and `color-scheme: light dark`. (#366)
+- Add a top navigation bar with the mark, the wordmark, and a "Sign in" link to
+  `app.0ct0meter.com/signin`, above the hero. (#367)
+- Give the waitlist section heading and submit button their own labels: "Get an
+  invite" and "Send me the link". (#358)
 - Re-capture the three dashboard screenshots at a narrower source width (about 720 px
   for the users view and the elements view, about 920 px for the apps view), keep each
   "Three levels" card at 480 px of image width or more inside the two-column grid, and
@@ -113,6 +117,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Even the padding of the add-app panel: a zero top margin on the heading and a
   24 px padding on each side, so the gap above the heading matches the gap below
   the submit button. (#389)
+- Keep the three Manage actions in one row at each width from 390 px up; the table
+  scrolls inside `.table-scroll` instead of wrapping the row. (#362)
+- Hide the pager of the users view, the first-pages view, and the anonymous-sessions
+  view for a one-page result, remove the misused `aria-current` from the page-label
+  span, and give the page-count announcement the same rule. (#387)
 
 ### CI
 
