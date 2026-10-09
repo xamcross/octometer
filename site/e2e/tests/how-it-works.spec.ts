@@ -109,6 +109,28 @@ test('the three sections render with their images and texts, and nothing moves u
     await expect(nodes.nth(i)).toHaveCSS('opacity', '1');
   }
 
+  // The sub-label size (issue #344): no sub-label of the flow figure sits
+  // below the 12 px floor, and the longest one, "app.0ct0meter.com",
+  // still renders on one line at a 390 px viewport. The old rule set
+  // this text to 11.5 px, so both checks below fail against it (the
+  // break proof of the pull request text).
+  await page.setViewportSize({ width: 390, height: 800 });
+  const subLabels = page.locator('.flow .ns');
+  await expect(subLabels).toHaveCount(4);
+  const subLabelFontSize = await subLabels
+    .first()
+    .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(subLabelFontSize).toBeGreaterThanOrEqual(12);
+
+  // A bounding box of one line sits near the single-line height of the
+  // new size (about 18 px); the old, smaller size gives about 16 px, and
+  // a wrap to a second line would give about double. The range below
+  // accepts the new size and rejects both.
+  const longestLabelBox = await subLabels.nth(3).boundingBox();
+  expect(longestLabelBox).not.toBeNull();
+  expect(longestLabelBox!.height).toBeGreaterThanOrEqual(17);
+  expect(longestLabelBox!.height).toBeLessThan(26);
+
   // The quality floor (issue #288, hero.spec.ts:70-85): no sideways scroll
   // at 360 px and at 1440 px, now that both sections render.
   await page.setViewportSize({ width: 360, height: 800 });
