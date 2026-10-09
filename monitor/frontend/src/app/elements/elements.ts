@@ -1,6 +1,7 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, effect, inject, input } from '@angular/core';
 
+import { Announcer } from '../announcer';
 import { EmptyState } from '../empty-state/empty-state';
 import { createPollStore } from '../poll/poll-store';
 import { RefreshBar } from '../refresh-bar/refresh-bar';
@@ -65,6 +66,7 @@ export function buildElementsRequestParams(
 })
 export class Elements {
   private readonly http = inject(HttpClient);
+  private readonly announcer = inject(Announcer);
 
   /** The `appId` path parameter, bound by the router. */
   readonly appId = input.required<string>();
@@ -146,10 +148,15 @@ export class Elements {
     // Stops the poll on a 404 answer (issue #348): the app id of the
     // route is not registered, so a further request would only repeat
     // the same answer. A later change of appId resets the store first,
-    // and that reset opens the gate again for the new target.
+    // and that reset opens the gate again for the new target. The
+    // announce call reaches the shared status region (MAJOR 2 of the
+    // review of pull request #396), the same way the old
+    // `notFoundAppId` path did (correction round 1 of pull request
+    // #159, accessibility MAJOR 1).
     effect(() => {
       if (this.appNotFound()) {
         this.store.stop();
+        this.announcer.announce('The app is not registered.');
       }
     });
   }

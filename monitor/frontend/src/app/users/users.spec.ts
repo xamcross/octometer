@@ -739,6 +739,37 @@ describe('Users', () => {
       vi.advanceTimersByTime(30_000);
       httpMock.expectNone('/api/apps/7/users?page=1');
     });
+
+    it('shows the card, drops the stale table, and stops the poll on a later 404 of the same app (MAJOR 1 of the review of pull request #396)', () => {
+      startStore(10);
+      flushUsers(buildPage({ rows: [buildRow({ userId: 'app-7-user' })] }));
+
+      vi.advanceTimersByTime(10_000);
+      httpMock
+        .expectOne('/api/apps/7/users?page=1')
+        .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+
+      expect(root().querySelector('table')).toBeNull();
+      expect(root().textContent).toContain('The app is not registered.');
+      expect(root().textContent).not.toContain('app-7-user');
+
+      vi.advanceTimersByTime(30_000);
+      httpMock.expectNone('/api/apps/7/users?page=1');
+    });
+
+    it('announces the not-found message through the shared status region (MAJOR 2 of the review of pull request #396)', () => {
+      const announcer = TestBed.inject(Announcer);
+      startStore();
+
+      httpMock
+        .expectOne('/api/apps/7/users?page=1')
+        .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+      vi.advanceTimersByTime(200);
+
+      expect(announcer.message()).toBe('The app is not registered.');
+    });
   });
 
   describe('a failed data request (MAJOR 1 of the Angular review of #159)', () => {

@@ -19,7 +19,16 @@
   <p class="error-text" role="status">{{ text }}</p>
 }
 
-@if (store.data(); as page) {
+@if (appNotFound()) {
+  <section class="panel">
+    <app-empty-state
+      text="The app is not registered."
+      linkText="Go to the apps"
+      linkPath="/apps"
+      textAfter="."
+    />
+  </section>
+} @else if (store.data(); as page) {
   @if (page.rows.length === 0) {
     <section class="panel">
       <app-empty-state [text]="emptyText()" />
@@ -83,15 +92,6 @@
       </button>
     </nav>
   }
-} @else if (appNotFound()) {
-  <section class="panel">
-    <app-empty-state
-      text="The app is not registered."
-      linkText="Go to the apps"
-      linkPath="/apps"
-      textAfter="."
-    />
-  </section>
 } @else {
   <p>Octometer reads the user list.</p>
 }
