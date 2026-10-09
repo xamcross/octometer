@@ -100,6 +100,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Show the not-found card in the users, the first-pages, the elements, and the sessions
   view of an app id that is not registered, in place of the loading sentence; the poll
   stops, and the breadcrumb drops the app crumb. (#348)
+- Remove the blank reserved band under the header: the banner slot keeps no reserved
+  height. A banner that shows sits in the page flow. It pushes the breadcrumb down by
+  its own height, so a user can always reach the breadcrumb. (#375)
 - Even the padding of the add-app panel: a zero top margin on the heading and a
   24 px padding on each side, so the gap above the heading matches the gap below
   the submit button. (#389)
@@ -112,6 +115,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   Free plan minutes. (#306)
 - Give the deploy job the e2e job's own built distribution, as a one-day artifact, in
   place of a second Gradle build; add `jitpack.yml` to the e2e path filter. (#297)
+
+### Tests
+
+- Give each clone its own Docker Compose project in the end-to-end harness, derived
+  from the clone's path, with `OCTOMETER_E2E_PROJECT` as the override. (#406)
 
 ### Documentation
 
