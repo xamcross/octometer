@@ -325,22 +325,22 @@ same cartoon shape.
 | Rest | Paper fill, ink border, hard shadow | `var(--paper)`, `var(--line-control)`, `var(--shadow-control)` (`styles.css:293-301`) |
 | Focus | Its own shadow plus the 7px ink ring, combined | `var(--shadow-control)` (`styles.css:338-342`) |
 | Active | Moved 3px, no shadow | (no token; `styles.css:308-311`) |
-| Disabled | Lower opacity, no shadow, no pointer | (no token; `styles.css:332-336`) |
+| Disabled | Shallows fill, ink-soft text, a dashed border, no shadow, no pointer | `var(--shallows)`, `var(--ink-soft)` (`styles.css:341-347`) |
 
 **Accessibility.**
 - Role: `button` (native `<button>`).
 - Accessible name: the button text ("Add app", "Save", "Cancel", "Delete this app", …).
 - Second cue beside color: the ink border and the hard shadow, on every fill
-  (`styles.css:299-301`).
+  (`styles.css:299-301`); the dashed border, on the disabled fill (`styles.css:341-347`).
 - Target size: `min-height: 44px` (`styles.css:295`).
 
 **Rules.**
 - Do give `.btn:focus-visible` a combined `box-shadow`: its own control shadow, then the
   7px ink ring. A control with its own shadow then does not replace the shared ring
   (rule: "a state rule that sets `box-shadow` repeats the focus ring", `styles.css:338-342`).
-- Do not leave `.btn[disabled]` at `opacity: 0.55`; on the coral fill the ink label then
-  measures about 2.1:1, under the WCAG 1.4.3 floor (open finding of `minor_issues/258.md`,
-  `styles.css:332-336`).
+- Do keep the dashed border of `.btn[disabled]`. It carries the disabled state without
+  the hue, also in forced colors (fixed finding of `minor_issues/258.md`,
+  `styles.css:341-347`).
 
 ## The input and the textarea
 
@@ -679,7 +679,7 @@ app form (issue #364, D3) and the new-secret-key confirmation share the same nat
 | --- | --- | --- |
 | Rest (open) | Paper-raised fill over a dimmed backdrop, hard shadow | `var(--paper-raised)`, `var(--backdrop)`, `var(--shadow-panel)` (`delete-app-dialog.css:1-13`) |
 | Focus | The shared 3px sunny outline plus the 7px ink ring | `var(--sunny)` (`monitor/frontend/src/styles.css:131-135`) |
-| Disabled (confirm button) | Lower opacity, until the typed name matches | (no token; `delete-app-dialog.html:38`) |
+| Disabled (confirm button) | Shallows fill, ink-soft text, a dashed border, until the typed name matches | `var(--shallows)`, `var(--ink-soft)` (`styles.css:341-347`) |
 
 **Accessibility.**
 - Role: `dialog`, `aria-modal="true"` implied by the native `<dialog>` element.
