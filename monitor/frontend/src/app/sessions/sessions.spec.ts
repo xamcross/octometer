@@ -315,7 +315,7 @@ describe('Sessions', () => {
       expect(navigateSpy).not.toHaveBeenCalled();
     });
 
-    it('shows the start time with a <time> element bound through the dateTime property, in the fixed local format', () => {
+    it('shows the start time with a <time> element bound through the dateTime property, in the fixed local format, with no seconds (issue #390)', () => {
       startStore();
       flushSessions(buildPage({ rows: [buildRow({ startTime: '2026-09-21T09:05:03.000Z' })] }));
 
@@ -324,18 +324,18 @@ describe('Sessions', () => {
 
       const date = new Date('2026-09-21T09:05:03.000Z');
       const pad = (n: number): string => n.toString().padStart(2, '0');
-      const expected = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+      const expected = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
       expect(time.textContent?.trim()).toBe(expected);
     });
 
-    it('formats the start time in a fixed zone against a literal string, not against a mirror of the code', () => {
+    it('formats the start time in a fixed zone against a literal string, with no seconds (issue #390)', () => {
       vi.stubEnv('TZ', 'UTC');
       try {
         startStore();
         flushSessions(buildPage({ rows: [buildRow({ startTime: '2026-09-21T09:05:03.000Z' })] }));
 
         const time = root().querySelector('tbody time') as HTMLTimeElement;
-        expect(time.textContent?.trim()).toBe('2026-09-21 09:05:03');
+        expect(time.textContent?.trim()).toBe('2026-09-21 09:05');
       } finally {
         vi.unstubAllEnvs();
       }

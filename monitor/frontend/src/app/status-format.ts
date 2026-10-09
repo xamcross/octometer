@@ -40,19 +40,38 @@ function pad(value: number): string {
   return value.toString().padStart(2, '0');
 }
 
-/** Formats an ISO time in local time, as D31 states: `yyyy-MM-dd HH:mm:ss`. */
+/**
+ * Formats an ISO time in local time: `yyyy-MM-dd HH:mm` (issue #390, the
+ * title of the "Last updated" cell). The text drops the seconds.
+ */
 export function formatLocalDateTime(iso: string): string {
   const date = new Date(iso);
   return (
     `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    `${pad(date.getHours())}:${pad(date.getMinutes())}`
   );
 }
 
-/** Formats an ISO time in local time, the time part only: `HH:mm:ss`. */
-export function formatLocalTime(iso: string): string {
-  const date = new Date(iso);
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+/**
+ * Formats an ISO time as a short relative text against the current time,
+ * for example "just now", "3 min ago", "2 hours ago", or "5 days ago"
+ * (issue #390, the "Last updated" cell text).
+ */
+export function formatRelativeTime(iso: string): string {
+  const diffMs = Math.max(0, Date.now() - new Date(iso).getTime());
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) {
+    return 'just now';
+  }
+  if (minutes < 60) {
+    return `${minutes} min ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? 'day' : 'days'} ago`;
 }
 
 /** Formats an ISO time in local time, the date part only: `yyyy-MM-dd` (D16, the gap text). */

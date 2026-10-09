@@ -125,6 +125,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   of the opacity rule; the text now measures 7.83:1 on its fill. (#384)
 - Keep the "First pages" header and link text on one line in the apps table, at a
   narrow width too. (#394)
+- Rename the "Data time" column of the apps table to "Last updated". The cell now
+  shows a relative time, with the full time in its title; the status cell drops the
+  "Data from" line. (#390)
 
 ### CI
 

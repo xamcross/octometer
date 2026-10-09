@@ -13,9 +13,8 @@ import {
   STATUS_LABEL,
   formatLocalDate,
   formatLocalDateTime,
-  formatLocalTime,
+  formatRelativeTime,
   numberFormat,
-  readZoneName,
 } from '../status-format';
 import type { AppRow, AppStatus, Gap } from './app-row';
 
@@ -48,9 +47,6 @@ export class Apps {
 
   /** The poll store of the app list. */
   protected readonly store = createPollStore<AppRow[]>(() => this.http.get<AppRow[]>('/api/apps'));
-
-  /** The zone name for the "Data time" column header (D31). */
-  protected readonly zoneName = readZoneName();
 
   /**
    * The "Totals of the last <n> days." text (D13, D15, issue #66). Null
@@ -97,12 +93,14 @@ export class Apps {
     return row.status === 'NEVER_POLLED' ? '–' : numberFormat.format(value);
   }
 
+  /** The title of the "Last updated" cell: the full local date and time (issue #390). */
   protected formatDateTime(iso: string): string {
     return formatLocalDateTime(iso);
   }
 
-  protected formatTime(iso: string): string {
-    return formatLocalTime(iso);
+  /** The text of the "Last updated" cell: a short relative time (issue #390). */
+  protected lastUpdatedText(iso: string): string {
+    return formatRelativeTime(iso);
   }
 
   /** The text of one gap row of D16 (issue #62): the date part only, in local time. */

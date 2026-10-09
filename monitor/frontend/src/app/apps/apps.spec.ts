@@ -271,7 +271,7 @@ describe('Apps', () => {
       expect(statusCell.textContent).toContain('Unreachable');
     });
 
-    it('keeps the numbers of a failed app, and shows "Data from HH:mm:ss" and the visible lastError', () => {
+    it('keeps the numbers of a failed app, shows no "Data from" line, and shows the visible lastError (issue #390)', () => {
       startStore();
       flushApps([
         buildRow({
@@ -286,11 +286,8 @@ describe('Apps', () => {
       const clicksCell = rowCells[0] as HTMLElement;
       expect(clicksCell.textContent?.trim()).toBe(new Intl.NumberFormat().format(500));
 
-      const date = new Date('2026-09-21T09:05:03.000Z');
-      const pad = (n: number): string => n.toString().padStart(2, '0');
-      const expectedTime = `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-
-      expect(root().textContent).toContain(`Data from ${expectedTime}`);
+      expect(root().textContent).not.toContain('Data from');
+      expect(root().querySelector('.data-from')).toBeNull();
       expect(root().textContent).toContain('The server did not answer.');
     });
 
@@ -327,30 +324,69 @@ describe('Apps', () => {
       expect(root().querySelector('.gap-text')).toBeNull();
     });
 
-    it('shows the data time of an OK app with the local date and time, and a <time> element', () => {
+    it('shows the "Last updated" cell of an OK app as a relative time, with the full local date and time in the title (issue #390)', () => {
+      vi.setSystemTime(new Date('2026-09-21T09:08:03.000Z'));
       startStore();
       flushApps([buildRow({ status: 'OK', lastSuccessAt: '2026-09-21T09:05:03.000Z' })]);
 
       const time = root().querySelector('td.data-time time') as HTMLTimeElement;
       expect(time.getAttribute('datetime')).toBe('2026-09-21T09:05:03.000Z');
+      expect(time.textContent?.trim()).toBe('3 min ago');
 
       const date = new Date('2026-09-21T09:05:03.000Z');
       const pad = (n: number): string => n.toString().padStart(2, '0');
-      const expected = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-      expect(time.textContent?.trim()).toBe(expected);
+      const expectedTitle = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+      expect(time.getAttribute('title')).toBe(expectedTitle);
     });
 
-    it('formats the data time in a fixed zone against a literal string, not against a mirror of the code', () => {
+    it('formats the title in a fixed zone against a literal string, with no seconds (issue #390)', () => {
       vi.stubEnv('TZ', 'UTC');
       try {
+        vi.setSystemTime(new Date('2026-09-21T09:08:03.000Z'));
         startStore();
         flushApps([buildRow({ status: 'OK', lastSuccessAt: '2026-09-21T09:05:03.000Z' })]);
 
         const time = root().querySelector('td.data-time time') as HTMLTimeElement;
-        expect(time.textContent?.trim()).toBe('2026-09-21 09:05:03');
+        expect(time.getAttribute('title')).toBe('2026-09-21 09:05');
       } finally {
         vi.unstubAllEnvs();
       }
+    });
+
+    it('shows "just now" in the "Last updated" cell inside the first minute (issue #390)', () => {
+      vi.setSystemTime(new Date('2026-09-21T09:05:30.000Z'));
+      startStore();
+      flushApps([buildRow({ status: 'OK', lastSuccessAt: '2026-09-21T09:05:03.000Z' })]);
+
+      const time = root().querySelector('td.data-time time') as HTMLTimeElement;
+      expect(time.textContent?.trim()).toBe('just now');
+    });
+
+    it('shows "1 hour ago" in the "Last updated" cell, with no plural, for one full hour (issue #390)', () => {
+      vi.setSystemTime(new Date('2026-09-21T10:05:03.000Z'));
+      startStore();
+      flushApps([buildRow({ status: 'OK', lastSuccessAt: '2026-09-21T09:05:03.000Z' })]);
+
+      const time = root().querySelector('td.data-time time') as HTMLTimeElement;
+      expect(time.textContent?.trim()).toBe('1 hour ago');
+    });
+
+    it('shows "2 hours ago" in the "Last updated" cell, with the plural, for two full hours (issue #390)', () => {
+      vi.setSystemTime(new Date('2026-09-21T11:05:03.000Z'));
+      startStore();
+      flushApps([buildRow({ status: 'OK', lastSuccessAt: '2026-09-21T09:05:03.000Z' })]);
+
+      const time = root().querySelector('td.data-time time') as HTMLTimeElement;
+      expect(time.textContent?.trim()).toBe('2 hours ago');
+    });
+
+    it('shows "2 days ago" in the "Last updated" cell for two full days (issue #390)', () => {
+      vi.setSystemTime(new Date('2026-09-23T09:05:03.000Z'));
+      startStore();
+      flushApps([buildRow({ status: 'OK', lastSuccessAt: '2026-09-21T09:05:03.000Z' })]);
+
+      const time = root().querySelector('td.data-time time') as HTMLTimeElement;
+      expect(time.textContent?.trim()).toBe('2 days ago');
     });
 
     it('shows 0 for an OK app with zero events, not a dash', () => {
@@ -379,7 +415,7 @@ describe('Apps', () => {
       expect(time.getAttribute('datetime')).toBe('2026-09-21T09:05:03.000Z');
     });
 
-    it('shows a dash with a hidden text in the "Data time" cell of a row with no lastSuccessAt', () => {
+    it('shows a dash with a hidden text in the "Last updated" cell of a row with no lastSuccessAt', () => {
       startStore();
       flushApps([buildRow({ status: 'NEVER_POLLED', lastSuccessAt: null })]);
 
@@ -389,18 +425,14 @@ describe('Apps', () => {
       expect(cell.querySelector('[aria-hidden="true"]')?.textContent?.trim()).toBe('–');
     });
 
-    it('names the time zone in the "Data time" column header', () => {
+    it('names the "Last updated" column header, with no "Data time" text left (issue #390)', () => {
       startStore();
       flushApps([buildRow()]);
 
-      const expectedZone =
-        new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
-          .formatToParts(new Date())
-          .find((part) => part.type === 'timeZoneName')?.value ?? '';
-
       const headers = Array.from(root().querySelectorAll('thead th'));
-      const dataTimeHeader = headers.find((h) => h.textContent?.includes('Data time'));
-      expect(dataTimeHeader?.textContent).toContain(expectedZone);
+      const lastUpdatedHeader = headers.find((h) => h.textContent?.trim() === 'Last updated');
+      expect(lastUpdatedHeader).toBeTruthy();
+      expect(headers.some((h) => h.textContent?.includes('Data time'))).toBe(false);
     });
 
     it('opens the name-cell link on a click on a different cell of the row', () => {
@@ -601,10 +633,8 @@ describe('Apps', () => {
       const badge = statusCell.querySelector('.badge') as HTMLElement;
       expect(badge.querySelector('[aria-hidden="true"]')).toBeTruthy();
       expect(badge.textContent).toContain('Error');
-      expect(badge.querySelector('.data-from')).toBeNull();
       expect(badge.querySelector('.error-text')).toBeNull();
       expect(badge.querySelector('.gap-text')).toBeNull();
-      expect(statusCell.querySelector('.data-from')).toBeTruthy();
       expect(statusCell.querySelector('.error-text')).toBeTruthy();
       expect(statusCell.querySelector('.gap-text')).toBeTruthy();
     });
