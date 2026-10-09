@@ -609,7 +609,10 @@ the last success, or the last error text.
 **Anatomy.**
 - `<nav aria-label="Pages of the user list">` holds a "Previous" button and a "Next"
   button, each `class="btn btn-small"` (`users.html:68`, `:77`), plus a plain
-  `<span aria-current="true">Page X of Y</span>` (`users.html:66-84`).
+  `<span>Page X of Y</span>`, with no `aria-current` attribute (`users.html:66-84`).
+- The `@if` block shows the pager only when the list holds more than one page
+  (`users.ts`, `first-pages.ts`, D15 of the UI audit of 2026-10-09, issue #387). A
+  one-page result shows no pager and no pair of disabled buttons.
 
 **States.**
 

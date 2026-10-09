@@ -68,6 +68,13 @@ export class FirstPages {
   protected readonly pageCount = computed(() => this.store.data()?.pageCount ?? 1);
 
   /**
+   * True when the list has more than one page. The pager shows only then,
+   * so a one-page result shows no pair of disabled buttons (D15 of the UI
+   * audit of 2026-10-09, issue #387).
+   */
+  protected readonly showPager = computed(() => this.pageCount() > 1);
+
+  /**
    * The current page. It reads the `page` field of the last good answer,
    * because the API can clamp an out-of-range page (D13). It falls back
    * to the route value before the first answer arrives.

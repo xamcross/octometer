@@ -391,7 +391,7 @@ describe('FirstPages', () => {
 
     it('gives the pager landmark a name that says what it is', () => {
       startStore();
-      flushFirstPages(buildPage());
+      flushFirstPages(buildPage({ pageCount: 5 }));
 
       const nav = root().querySelector('nav.pager') as HTMLElement;
       expect(nav.getAttribute('aria-label')).toBe('Pages of the first page list');
