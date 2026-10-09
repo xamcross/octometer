@@ -92,6 +92,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   with a link. The link works for 15 minutes." under the title. (#349)
 - Remove the bottom margin of `.table-scroll` on the manage view, so no empty strip
   sits between the table and the panel border. (#377)
+- Keep the three Manage actions in one row at each width from 390 px up; the table
+  scrolls inside `.table-scroll` instead of wrapping the row. (#362)
 
 ### CI
 
