@@ -230,9 +230,12 @@ test('the panel fills its row at 1280 px, and the form stays usable at 390 px', 
   if (!rowBox || !panelBox) {
     throw new Error('The row or the panel has no box at 1280 px.');
   }
-  // The panel fills the row (the old rule capped it near one third of
-  // the row; audit finding L6).
-  expect(panelBox.width / rowBox.width).toBeGreaterThan(0.9);
+  // The panel reaches the new cap of 48rem (768 px), far more than the
+  // old cap of 26rem (416 px); audit finding L6. The pilot list of
+  // step 5 takes the rest of the row, so the row itself has no gap.
+  expect(panelBox.width).toBeGreaterThan(750);
+  expect(panelBox.width).toBeLessThan(790);
+  expect(panelBox.width / rowBox.width).toBeGreaterThan(0.6);
 
   const inputBox = await input.boundingBox();
   const buttonBox = await button.boundingBox();

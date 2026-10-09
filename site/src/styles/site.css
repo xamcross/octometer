@@ -463,6 +463,17 @@ label {
   color: var(--ink-soft);
   max-width: 44ch;
 }
+/* Issue #381, step 5: a short list of pilot details, beside the form
+ * at 48rem and above. */
+.wl-pilot {
+  display: grid;
+  gap: var(--space-2);
+  align-self: center;
+}
+.wl-pilot li {
+  font-size: var(--text-s);
+  color: var(--ink-soft);
+}
 /* The honeypot field (the maintainer's notes): hidden from a visitor and
  * from a screen reader; "tabindex=-1" also keeps it out of the Tab
  * order, so no real visitor ever reaches it. */
@@ -606,11 +617,16 @@ label {
   .levels > :first-child {
     grid-column: 1 / -1;
   }
-  /* Issue #381, audit finding L6: the rule "max-width: 26rem" left
-   * about two-thirds of the row empty. The panel now fills the row,
-   * the same width as the other sections of the page. */
+  /* Issue #381, audit finding L6, step 1 and step 2: the old rule
+   * "max-width: 26rem" left about two-thirds of the row empty. The new
+   * cap of 48rem matches the mockup (site/design/mockup.html), with the
+   * pilot list of step 5 beside the form in the second column. */
+  .wl {
+    grid-template-columns: minmax(0, 48rem) 1fr;
+    gap: var(--space-6);
+  }
   /* The field and the button sit on one row: column 1 holds the field,
-   * column 2 holds the button. The hint, the consent text, and the
+   * column 2 holds the button. The button's own paragraph and the
    * status region each span the full row, on their own row. */
   .panel-body {
     grid-template-columns: 1fr auto;
@@ -622,17 +638,13 @@ label {
     grid-row: 1;
   }
   .panel-body > p:nth-of-type(1) {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-  .panel-body > p:nth-of-type(2) {
     grid-column: 2;
     grid-row: 1;
     align-self: center;
   }
-  .panel-body > p:nth-of-type(3) {
+  .panel-body > p:nth-of-type(2) {
     grid-column: 1 / -1;
-    grid-row: 3;
+    grid-row: 2;
   }
   .panel-body .btn {
     width: auto;
