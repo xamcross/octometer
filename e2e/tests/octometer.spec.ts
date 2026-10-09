@@ -374,6 +374,27 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
   // closure.
 });
 
+// Issue #348: the users view of an app id that no app ever used. This
+// scenario names no app of its own, so it needs no serial order against
+// the "demo" app chain above.
+test(
+  'the users view of an unknown app shows the not-found card, and the breadcrumb carries no App <id> label (issue #348)',
+  async ({ page }) => {
+    const users = new UsersPage(page);
+    await users.goto(999);
+
+    await expect(page.getByText('The app is not registered.')).toBeVisible();
+    const link = page.getByRole('link', { name: 'Go to the apps' });
+    await expect(link).toBeVisible();
+
+    const breadcrumb = new BreadcrumbPart(page);
+    await breadcrumb.expectAbsent(CHAIN_WAIT_MS);
+
+    await link.click();
+    await expect(page).toHaveURL(/\/apps$/);
+  },
+);
+
 // Issue #296 (D51, D52, D57): the hosted registration path. This
 // scenario names its own app, so it needs no serial order against the
 // "demo" app chain above.

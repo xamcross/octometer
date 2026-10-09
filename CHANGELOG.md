@@ -93,6 +93,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Give each table caption 12 px of top padding, clear of the panel border. (#376)
 - Remove the bottom margin of `.table-scroll` on the manage view, so no empty strip
   sits between the table and the panel border. (#377)
+- Show the not-found card in the users, the first-pages, the elements, and the sessions
+  view of an app id that is not registered, in place of the loading sentence; the poll
+  stops, and the breadcrumb drops the app crumb. (#348)
 
 ### CI
 
