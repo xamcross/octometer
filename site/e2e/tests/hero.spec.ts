@@ -14,9 +14,25 @@ test('the hero shows the promise and the button reaches the form', async ({ page
   await expect(page.locator('.lead')).toHaveText(
     'Octometer counts each click in your web app. One script tag, one dashboard, no cookie banner.',
   );
-  await expect(page.locator('.hero-text p.small')).toHaveText(
+  const heroNote = page.locator('.hero-text p.small');
+  await expect(heroNote).toHaveText(
     'Octometer is in a pilot. Join the waitlist, and we invite you.',
   );
+
+  // The audit finding L12 (issue #357): "--text-s" rises from 12.8 px
+  // (0.8rem) to 14 px (0.875rem). The check runs at the default 1280 px
+  // width and again at 390 px, the two widths of the issue text.
+  const noteFontSize1280 = await heroNote.evaluate(
+    (el) => parseFloat(getComputedStyle(el).fontSize),
+  );
+  expect(noteFontSize1280).toBe(14);
+
+  await page.setViewportSize({ width: 390, height: 800 });
+  const noteFontSize390 = await heroNote.evaluate(
+    (el) => parseFloat(getComputedStyle(el).fontSize),
+  );
+  expect(noteFontSize390).toBe(14);
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   const button = page.getByRole('link', { name: 'Join the waitlist' });
   await expect(button).toHaveAttribute('href', '#waitlist-email');
