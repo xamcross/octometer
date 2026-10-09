@@ -92,6 +92,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   with a link. The link works for 15 minutes." under the title. (#349)
 - Remove the bottom margin of `.table-scroll` on the manage view, so no empty strip
   sits between the table and the panel border. (#377)
+- Even the padding of the add-app panel: a zero top margin on the heading and a
+  24 px padding on each side, so the gap above the heading matches the gap below
+  the submit button. (#389)
 
 ### CI
 
