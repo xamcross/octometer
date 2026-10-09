@@ -33,6 +33,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   stretch rule no longer opens a gap above a shorter card's figcaption. (#382)
 - Bound the steps column of the "How it works" grid at 36rem. Put the flow diagram
   beside the step text, with a gap of about 50 px at 1280 px. (#355)
+- Add a dark color scheme: a dark value for each surface and ink token under
+  `prefers-color-scheme: dark`, and `color-scheme: light dark`. (#366)
 - Add a top navigation bar with the mark, the wordmark, and a "Sign in" link to
   `app.0ct0meter.com/signin`, above the hero. (#367)
 
@@ -102,6 +104,12 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Show the not-found card in the users, the first-pages, the elements, and the sessions
   view of an app id that is not registered, in place of the loading sentence; the poll
   stops, and the breadcrumb drops the app crumb. (#348)
+- Remove the blank reserved band under the header: the banner slot keeps no reserved
+  height. A banner that shows sits in the page flow. It pushes the breadcrumb down by
+  its own height, so a user can always reach the breadcrumb. (#375)
+- Even the padding of the add-app panel: a zero top margin on the heading and a
+  24 px padding on each side, so the gap above the heading matches the gap below
+  the submit button. (#389)
 
 ### CI
 
@@ -111,6 +119,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   Free plan minutes. (#306)
 - Give the deploy job the e2e job's own built distribution, as a one-day artifact, in
   place of a second Gradle build; add `jitpack.yml` to the e2e path filter. (#297)
+
+### Tests
+
+- Give each clone its own Docker Compose project in the end-to-end harness, derived
+  from the clone's path, with `OCTOMETER_E2E_PROJECT` as the override. (#406)
 
 ### Documentation
 

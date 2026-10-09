@@ -3,9 +3,10 @@
  * D45). Each name matches the mockup (site/design/mockup.html). A rule of
  * site.css reads a token here; it holds no color literal of its own.
  *
- * The dark mode blocks of the mockup stay out of this file (issue #287,
- * correction M4; the owner's scope note of 2026-10-01). A later story adds
- * the dark values, with its own contrast proof.
+ * The dark color scheme (issue #366) sets a dark value for each surface
+ * and ink token under `prefers-color-scheme: dark`. The bright fill tokens
+ * (`--coral`, `--sunny`, `--seaweed`, `--octo`, `--on-bright`) stay the
+ * same in both schemes; each pair still meets a 4.5:1 contrast ratio.
  */
 :root {
   --ink: #241f3d;
@@ -47,5 +48,21 @@
   --text-3xl: 2.441rem;
   --text-4xl: 3.0518rem;
 
-  color-scheme: light;
+  color-scheme: light dark;
+}
+
+/* The dark color scheme (issue #366, the UI audit finding L16). A visitor
+ * with a dark system preference gets this block; the bright fill tokens
+ * are absent here on purpose, so they keep their light value in both
+ * schemes (step 6 of the issue).
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f4f1ff;
+    --ink-soft: #b3add4;
+    --paper: #241f3d;
+    --paper-raised: #312b57;
+    --shallows: #17142b;
+    --shallows-deep: #232b45;
+  }
 }
