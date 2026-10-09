@@ -43,6 +43,20 @@ a:hover{text-decoration-thickness:3px}
 .sec>h2{font-size:var(--text-2xl)}
 .sec-lead{max-width:60ch}
 
+/* 0. the top bar (issue #367, the audit finding L2) */
+.topbar{background:var(--paper);border-bottom:var(--line-control)}
+.topbar-inner{max-width:76rem;margin-inline:auto;padding-inline:var(--space-4);padding-block:var(--space-3);display:flex;align-items:center;justify-content:space-between;gap:var(--space-4)}
+.topbar-brand{display:flex;align-items:center;gap:var(--space-2)}
+.topbar-mark{width:32px;height:32px}
+.topbar-brand .word{display:none}
+.topbar-links{display:flex;align-items:center;gap:var(--space-4)}
+.topbar-links li:not(:last-child){display:none}
+@media (min-width:48rem){
+  .topbar-inner{padding-inline:var(--space-6)}
+  .topbar-brand .word{display:inline}
+  .topbar-links li:not(:last-child){display:inline}
+}
+
 /* 1. the hero: the one bold place of the page */
 .hero{display:flex;gap:var(--space-4) var(--space-6);align-items:flex-start;flex-wrap:wrap}
 .hero-text{flex:1 1 18rem;display:grid;gap:var(--space-4);justify-items:start}
@@ -159,6 +173,23 @@ label{font-weight:700}
   .levels>:first-child{grid-column:1/-1}
 }
 </style>
+<nav class="topbar" aria-label="Site navigation">
+  <div class="topbar-inner">
+    <div class="topbar-brand">
+      <svg class="mark topbar-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <circle class="head" cx="16" cy="13" r="9"/>
+        <circle class="eye" cx="12.6" cy="11.5" r="1.6"/><circle class="eye" cx="19.4" cy="11.5" r="1.6"/>
+        <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2"/>
+      </svg>
+      <span class="word">Octometer</span>
+    </div>
+    <ul class="topbar-links">
+      <li><a href="#how-title">How it works</a></li>
+      <li><a href="#privacy-title">Privacy</a></li>
+      <li><a class="btn btn-primary" href="https://app.0ct0meter.com/signin">Sign in</a></li>
+    </ul>
+  </div>
+</nav>
 <div class="page">
 
   <header class="hero">

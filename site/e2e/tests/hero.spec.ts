@@ -62,7 +62,11 @@ test('the hero shows the promise and the button reaches the form', async ({ page
   // the box-shadow, because the 80ms box-shadow transition of ".btn" still
   // holds its rest value at the moment the test reads it. This stop runs
   // before the click below, so the click does not consume the Tab stop.
-  await page.keyboard.press('Tab');
+  // Issue #367 adds the top bar with its three links before the hero, so
+  // four Tab presses, not one, reach this button now.
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.press('Tab');
+  }
   await expect(button).toBeFocused();
   await expect(button).toHaveCSS('outline', 'rgb(255, 217, 61) solid 3px');
   await expect(button).toHaveCSS('outline-offset', '2px');
