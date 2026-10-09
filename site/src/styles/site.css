@@ -293,6 +293,7 @@ a:hover {
 .frame {
   display: grid;
   align-content: start;
+  grid-template-rows: auto 1fr auto;
   gap: var(--space-3);
   padding: var(--space-4);
   background: var(--paper);
@@ -304,9 +305,11 @@ a:hover {
 .frame h3 {
   font-size: var(--text-l);
 }
+.frame picture {
+  align-self: end;
+}
 .frame figcaption {
   max-width: 50ch;
-  align-self: end;
 }
 /* Correction m3 of the brief review: the frame image never grows past it. */
 .frame img {
