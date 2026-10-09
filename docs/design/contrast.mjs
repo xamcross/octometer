@@ -51,16 +51,16 @@ export const composite = (front, alpha, back) => {
   return '#' + mix.map((v) => v.toString(16).padStart(2, '0')).join('');
 };
 
-// The disabled confirm button of the dialog carries `opacity: 0.55`.
-const COetc = { alpha: 0.55, coral: '#ff6b6b', ink: '#241f3d', paper: '#ffffff' };
-const DISABLED_FILL = composite(COetc.coral, COetc.alpha, COetc.paper);
-const DISABLED_INK = composite(COetc.ink, COetc.alpha, DISABLED_FILL);
+// The disabled confirm button of the dialog (issue #384, #410): a
+// `--shallows` fill and an `--ink-soft` text, with no opacity rule
+// (`composite` stays exported for a future pair that does carry one).
+const DISABLED_FILL = '#e6f3ff';
+const DISABLED_INK = '#4b4763';
 
 // The dark color scheme (issue #361). `--coral`, `--sunny`, `--seaweed`,
 // and `--on-bright` keep their light value in the dark scheme too.
-const DK = { alpha: 0.55, coral: '#ff6b6b', ink: '#ece9ff', paper: '#1d1a33' };
-const DARK_DISABLED_FILL = composite(DK.coral, DK.alpha, DK.paper);
-const DARK_DISABLED_INK = composite(DK.ink, DK.alpha, DARK_DISABLED_FILL);
+const DARK_DISABLED_FILL = '#14122a';
+const DARK_DISABLED_INK = '#b9b4d6';
 
 // [the page, the element kind, the text colour, the background, the px, the weight]
 const TEXT = [
@@ -104,7 +104,7 @@ const TEXT = [
   ['dialog', 'the dialog sentence', '#241f3d', '#ffffff', 16, 400],
   ['dialog', 'the dialog strong text', '#241f3d', '#ffffff', 16, 700],
   ['dialog', 'the Cancel button', '#241f3d', '#ffffff', 16, 600],
-  ['dialog', 'the disabled confirm button (opacity 0.55)', DISABLED_INK, DISABLED_FILL, 16, 600],
+  ['dialog', 'the disabled confirm button', DISABLED_INK, DISABLED_FILL, 16, 600],
 ];
 
 // [the page, the edge or the ring, the colour, the neighbour]
@@ -172,7 +172,7 @@ const DARK_TEXT = [
   ['dialog', 'the dialog sentence', '#ece9ff', '#312b57', 16, 400],
   ['dialog', 'the dialog strong text', '#ece9ff', '#312b57', 16, 700],
   ['dialog', 'the Cancel button', '#ece9ff', '#1d1a33', 16, 600],
-  ['dialog', 'the disabled confirm button (opacity 0.55)', DARK_DISABLED_INK, DARK_DISABLED_FILL, 16, 600],
+  ['dialog', 'the disabled confirm button', DARK_DISABLED_INK, DARK_DISABLED_FILL, 16, 600],
 ];
 
 // [the page, the edge or the ring, the colour, the neighbour]
@@ -199,7 +199,7 @@ const big = (px, weight) => px >= 24 || (px >= 18.66 && weight >= 700);
 const f1 = (x) => (Math.round(x * 10) / 10).toFixed(1);
 
 let fails = 0;
-console.log('The composite of the disabled confirm button: ' + DISABLED_INK + ' on ' + DISABLED_FILL);
+console.log('The disabled confirm button (#410): ' + DISABLED_INK + ' on ' + DISABLED_FILL);
 console.log('');
 console.log('| Page | Text | Colour | Background | Ratio | Floor | Result |');
 console.log('| --- | --- | --- | --- | --- | --- | --- |');
@@ -224,7 +224,7 @@ for (const [page, kind, a, b] of NONTEXT) {
 console.log('');
 console.log('The dark scheme (issue #361, prefers-color-scheme: dark):');
 console.log(
-  'The composite of the disabled confirm button: ' + DARK_DISABLED_INK + ' on ' + DARK_DISABLED_FILL,
+  'The disabled confirm button (#410): ' + DARK_DISABLED_INK + ' on ' + DARK_DISABLED_FILL,
 );
 console.log('');
 console.log('| Page | Text | Colour | Background | Ratio | Floor | Result |');

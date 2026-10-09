@@ -372,7 +372,9 @@ a {
 }
 
 .btn[disabled] {
-  opacity: 0.55;
+  background: var(--shallows);
+  color: var(--ink-soft);
+  border-style: dashed;
   box-shadow: none;
   cursor: default;
 }
