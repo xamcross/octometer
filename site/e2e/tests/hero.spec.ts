@@ -97,3 +97,39 @@ test('the hero shows the promise and the button reaches the form', async ({ page
   }));
   expect(at1440.scroll).toBeLessThanOrEqual(at1440.client);
 });
+
+test.describe('the dark color scheme (issue #366, the UI audit finding L16)', () => {
+  test.use({ colorScheme: 'dark' });
+
+  test('a dark system preference gives the dark token values', async ({ page }) => {
+    await page.goto('/');
+
+    const body = await page.evaluate(() => {
+      const style = getComputedStyle(document.body);
+      return { background: style.backgroundColor, color: style.color };
+    });
+
+    // The light values of "--shallows" and "--ink" (tokens.css), so the
+    // dark-mode read must differ from each one.
+    expect(body.background).not.toBe('rgb(230, 243, 255)');
+    expect(body.color).not.toBe('rgb(36, 31, 61)');
+
+    // The contrast ratio of the body text against the body background,
+    // the formula of WCAG 2.1 (relative luminance, then the ratio of the
+    // two luminance values plus 0.05).
+    const toLinear = (channel: number) => {
+      const c = channel / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    const relativeLuminance = (rgb: string) => {
+      const [r, g, b] = rgb.match(/\d+/g)!.map(Number);
+      return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+    };
+    const lumText = relativeLuminance(body.color);
+    const lumBackground = relativeLuminance(body.background);
+    const [lighter, darker] =
+      lumText > lumBackground ? [lumText, lumBackground] : [lumBackground, lumText];
+    const contrast = (lighter + 0.05) / (darker + 0.05);
+    expect(contrast).toBeGreaterThanOrEqual(4.5);
+  });
+});
