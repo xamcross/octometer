@@ -110,6 +110,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   the submit button. (#389)
 - Keep the three Manage actions in one row at each width from 390 px up; the table
   scrolls inside `.table-scroll` instead of wrapping the row. (#362)
+- Align the Manage table with the shared `.panel` style: the shared caption and cell
+  padding, a `.badge` Status cell, and a right-aligned Patterns column. (#379)
 
 ### CI
 

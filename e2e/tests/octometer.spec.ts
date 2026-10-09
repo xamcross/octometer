@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 import { expect, test } from '../fixtures';
 import { AppsPage } from '../pages/apps-page';
@@ -31,6 +31,17 @@ async function captionTopPaddingPx(page: Page, captionId: string): Promise<numbe
   const value = await page
     .locator(`#${captionId}`)
     .evaluate((element) => getComputedStyle(element).paddingTop);
+  return parseFloat(value);
+}
+
+/**
+ * The left padding of a table cell, in CSS px (issue #379, finding D10:
+ * the Manage table used a local `th, td { padding: 0.5rem 0.75rem }`
+ * rule, 12px on the left, instead of the shared `.panel th, .panel td`
+ * rule of styles.css, 16px on the left).
+ */
+async function cellPaddingLeftPx(locator: Locator): Promise<number> {
+  const value = await locator.evaluate((element) => getComputedStyle(element).paddingLeft);
   return parseFloat(value);
 }
 
@@ -74,6 +85,19 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    // Issue #379, finding D10: the Manage table cell padding, the Status
+    // badge, and the Patterns alignment now match the apps table, at a
+    // desktop width and at a narrow width. `demoRow` is the row this
+    // scenario just created above.
+    const demoManageRow = manage.row('demo');
+    await expect(manage.statusBadge(demoManageRow)).toHaveCount(1);
+    expect(await cellPaddingLeftPx(manage.patternsCell(demoManageRow))).toBe(16);
+    await expect(manage.patternsCell(demoManageRow)).toHaveCSS('text-align', 'right');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(manage.statusBadge(demoManageRow)).toHaveCount(1);
+    expect(await cellPaddingLeftPx(manage.patternsCell(demoManageRow))).toBe(16);
     await page.setViewportSize({ width: 1280, height: 720 });
 
     // The app id comes from `GET /api/apps`, through the request context
