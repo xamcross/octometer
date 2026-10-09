@@ -200,6 +200,11 @@ export class ManagePage {
     return this.page.locator('.table-scroll');
   }
 
+  /** The heading of the add-app panel (issue #389, finding D29). */
+  addAppHeading() {
+    return this.page.getByRole('heading', { name: 'Add an app' });
+  }
+
   /**
    * The `app-delete-app-dialog` host of one row. Both the trigger button
    * and the dialog of this issue sit inside it, so a scoped locator
