@@ -398,6 +398,11 @@ label {
   border-radius: var(--radius-control);
   scroll-margin-top: 6rem;
 }
+/* Issue #381: the submit button fills its row below 48rem. The wide
+ * layout at 48rem sets the width back to "auto", beside the field. */
+.panel-body .btn {
+  width: 100%;
+}
 .hint {
   font-size: var(--text-s);
   color: var(--ink-soft);
@@ -546,7 +551,35 @@ label {
   .levels > :first-child {
     grid-column: 1 / -1;
   }
-  .wl .panel {
-    max-width: 26rem;
+  /* Issue #381, audit finding L6: the rule "max-width: 26rem" left
+   * about two-thirds of the row empty. The panel now fills the row,
+   * the same width as the other sections of the page. */
+  /* The field and the button sit on one row: column 1 holds the field,
+   * column 2 holds the button. The hint, the consent text, and the
+   * status region each span the full row, on their own row. */
+  .panel-body {
+    grid-template-columns: 1fr auto;
+    align-items: start;
+    column-gap: var(--space-4);
+  }
+  .panel-body > .field:not(.hp) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .panel-body > p:nth-of-type(1) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .panel-body > p:nth-of-type(2) {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+  }
+  .panel-body > p:nth-of-type(3) {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+  .panel-body .btn {
+    width: auto;
   }
 }
