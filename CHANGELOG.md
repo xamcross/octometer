@@ -33,6 +33,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   stretch rule no longer opens a gap above a shorter card's figcaption. (#382)
 - Bound the steps column of the "How it works" grid at 36rem. Put the flow diagram
   beside the step text, with a gap of about 50 px at 1280 px. (#355)
+- Add a dark color scheme: a dark value for each surface and ink token under
+  `prefers-color-scheme: dark`, and `color-scheme: light dark`. (#366)
 
 ### Contract
 
@@ -103,6 +105,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Remove the blank reserved band under the header: the banner slot keeps no reserved
   height. A banner that shows sits in the page flow. It pushes the breadcrumb down by
   its own height, so a user can always reach the breadcrumb. (#375)
+- Even the padding of the add-app panel: a zero top margin on the heading and a
+  24 px padding on each side, so the gap above the heading matches the gap below
+  the submit button. (#389)
 - Raise the token `--text-s` from 12.8 px to 14 px, so the table caption, the status
   badge, the gap line, the "Data from" line, the account email, the refresh-bar text,
   `.btn-small`, and each form hint read larger. (#380)
