@@ -319,6 +319,11 @@ secret (the app name is not sensitive). The deploy job passes it to
 secrets folder, the log folder, and the backup folder land under
 `/data` too, so each one survives a deploy (design decision D56).
 
+The base image comes from the Amazon ECR Public mirror
+(`public.ecr.aws/docker/library/eclipse-temurin`), not from Docker
+Hub, for the same reason as the demo app's MongoDB image: Docker Hub
+refuses an anonymous pull past its daily limit.
+
 ### The collector
 
 `POST /collect` (design decision D50, issue #297) takes a click of an
@@ -518,6 +523,12 @@ job `e2e` sets it to the fixed name `octometer-e2e`, so its own output
 stays stable between runs. The suite never touches the owner's own
 containers: the demo app container of a manual run, `demo-app-mongo-1`
 on port 27117, belongs to a different project.
+
+`tools/demo-app/docker-compose.yml` pulls the MongoDB image from the
+Amazon ECR Public mirror (`public.ecr.aws/docker/library/mongo`), not
+from Docker Hub. Docker Hub refuses an anonymous pull past its daily
+limit, and this is the image that each e2e run and each manual demo
+run pulls.
 
 <!--
 Sources:

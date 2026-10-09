@@ -122,6 +122,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### CI
 
+- Upload `e2e/.run/*.log` as the artifact `e2e-run-logs` on a failure of the `e2e`
+  job, with a retention of 3 days. (#418)
+- Pull the demo app's MongoDB image and the monitor's base image from the Amazon
+  ECR Public mirror, not from Docker Hub, so the anonymous pull limit never fails
+  the `e2e` job. (#418)
 - Give the secret scan job the `pull-requests: read` permission, so it passes on the
   private repository. (#308)
 - Remove the Windows job and the weekly run, so the private repository stays inside the
