@@ -2,11 +2,36 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
+import { readFileSync } from 'node:fs';
 
 import { Announcer } from '../announcer';
 import { RefreshIntervalState } from '../poll/refresh-interval-state';
 import type { UserRow, UserTotalsResponse } from './user-row';
 import { Users } from './users';
+
+/**
+ * The `min-height` value of the global `.btn` rule of `styles.css`
+ * (issue #368, D4). Vitest links `styles.css` to `document.styleSheets`
+ * only in browser mode (the pattern of `apps.spec.ts`, "sets no
+ * overflow hidden on .panel"), so this helper reads the rule as plain
+ * text and walks the parsed CSSOM by hand.
+ */
+function btnMinHeightPx(): number {
+  const stylesCssText = readFileSync('src/styles.css', 'utf8');
+  const controlsBlockMarker = '/* The controls (#248) */';
+  const controlsBlockText = stylesCssText.slice(stylesCssText.indexOf(controlsBlockMarker));
+  const style = document.createElement('style');
+  style.textContent = controlsBlockText;
+  document.head.appendChild(style);
+  const rules = Array.from(style.sheet?.cssRules ?? []);
+  document.head.removeChild(style);
+  const btnRule = rules.find((rule) => (rule as CSSStyleRule).selectorText === '.btn') as
+    CSSStyleRule | undefined;
+  if (!btnRule) {
+    throw new Error('The .btn rule is absent from styles.css.');
+  }
+  return parseFloat(btnRule.style.minHeight);
+}
 
 /** Builds one page answer. Each test overrides only the fields it checks. */
 function buildPage(overrides: Partial<UserTotalsResponse> = {}): UserTotalsResponse {
@@ -494,11 +519,12 @@ describe('Users', () => {
       vi.advanceTimersByTime(500);
     });
 
-    it('gives the filter button a minimum target size of 24 by 24 CSS px', () => {
+    it('gives the filter button a minimum width of 24 CSS px, and a minimum height of 44 CSS px or more through the global .btn rule (issue #368, D4)', () => {
       const button = root().querySelector('.filter-form button') as HTMLElement;
+      expect(button.classList.contains('btn')).toBe(true);
       const style = getComputedStyle(button);
       expect(style.minWidth).toBe('24px');
-      expect(style.minHeight).toBe('24px');
+      expect(btnMinHeightPx()).toBeGreaterThanOrEqual(44);
     });
 
     it('gives the filter field a minimum height of 24 CSS px (MAJOR 3 of the accessibility review of #159)', () => {

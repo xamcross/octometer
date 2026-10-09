@@ -724,6 +724,103 @@ test('the pager shows for a two-page result, with no aria-current (issue #387, D
   await expect(page.locator('nav.pager [aria-current]')).toHaveCount(0);
 });
 
+/** A fixed, well-formed UUID for one anonymous-session marker (issue #368, D4). */
+function anonymousSessionId(marker: number): string {
+  const hex = (marker + 0x10000).toString(16).padStart(8, '0');
+  return `${hex}-0000-4000-8000-000000000000`;
+}
+
+/**
+ * Sends one session-start event with no user id, so the session counts
+ * as anonymous (`SessionsRoute.kt`). It reuses the path of the matching
+ * `sendUserAndPage` marker, so the first-pages view still counts 51
+ * distinct paths, not 102 (issue #368, D4).
+ */
+async function sendAnonymousSessionOfSamePath(
+  request: APIRequestContext,
+  monitorUrl: string,
+  origin: string,
+  appKey: string,
+  marker: number,
+): Promise<void> {
+  const response = await request.fetch(`${monitorUrl}/collect`, {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json', 'X-Octometer-Key': appKey },
+    data: JSON.stringify({
+      sessionId: anonymousSessionId(marker),
+      clicks: [{ element: 'octo:session-start', ageMs: 0, path: `/pager-page-${marker}` }],
+    }),
+  });
+  expect(response.status()).toBe(204);
+}
+
+/**
+ * The rendered height of one control, in CSS px (issue #368, D4). This
+ * suite runs in real Chromium, so a bounding box gives the painted
+ * height, the number of a real touch target, not only the declared
+ * `min-height` value.
+ */
+async function controlHeightPx(locator: Locator): Promise<number> {
+  const box = await locator.boundingBox();
+  if (box === null) {
+    throw new Error('The control has no bounding box; it is not visible.');
+  }
+  return box.height;
+}
+
+/**
+ * Issue #368 (D4 of the UI audit of 2026-10-09): the Filter button of
+ * the users view, and each pager button of the users view, the sessions
+ * view, and the first-pages view, render at a minimum height of 44 px.
+ * The audit measured about 27 px before the fix: `.filter-form button`
+ * and `.pager button` each carried a `min-height: 24px` rule of a
+ * higher selector specificity than `.btn`. This scenario checks the
+ * 1280 px width and the 390 px width, the issue's own two check widths.
+ */
+test('the Filter button and the pager buttons meet the 44px minimum height (issue #368, D4)', async ({
+  page,
+  request,
+}) => {
+  const monitorUrl = readMonitorUrl();
+  const { appId, appKey, origin } = await registerPagerApp(request, monitorUrl, 'control-height-app');
+  for (let marker = 1; marker <= 51; marker += 1) {
+    await sendUserAndPage(request, monitorUrl, origin, appKey, marker);
+    await sendAnonymousSessionOfSamePath(request, monitorUrl, origin, appKey, marker);
+  }
+
+  const users = new UsersPage(page);
+  const sessions = new SessionsPage(page);
+  const firstPages = new FirstPagesPage(page);
+  const pagerButtons = page.locator('nav.pager button');
+
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+
+    await users.goto(appId);
+    await expect(page.locator('nav.pager')).toContainText('Page 1 of 2', { timeout: CHAIN_WAIT_MS });
+    const filterHeight = await controlHeightPx(page.getByRole('button', { name: 'Filter' }));
+    expect(filterHeight).toBeGreaterThanOrEqual(44);
+    await expect(pagerButtons).toHaveCount(2);
+    for (const button of await pagerButtons.all()) {
+      expect(await controlHeightPx(button)).toBeGreaterThanOrEqual(44);
+    }
+
+    await sessions.goto(appId);
+    await expect(page.locator('nav.pager')).toContainText('Page 1 of 2', { timeout: CHAIN_WAIT_MS });
+    await expect(pagerButtons).toHaveCount(2);
+    for (const button of await pagerButtons.all()) {
+      expect(await controlHeightPx(button)).toBeGreaterThanOrEqual(44);
+    }
+
+    await firstPages.goto(appId);
+    await expect(page.locator('nav.pager')).toContainText('Page 1 of 2', { timeout: CHAIN_WAIT_MS });
+    await expect(pagerButtons).toHaveCount(2);
+    for (const button of await pagerButtons.all()) {
+      expect(await controlHeightPx(button)).toBeGreaterThanOrEqual(44);
+    }
+  }
+});
+
 // Issue #377, finding D9 of the UI audit: the table sits close to the
 // panel border, with no empty strip below the last row.
 test('the manage table has no bottom margin below the last row (issue #377)', async ({ page }) => {
