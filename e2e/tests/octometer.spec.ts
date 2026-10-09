@@ -551,3 +551,51 @@ test('the manage table has no bottom margin below the last row (issue #377)', as
   await manage.goto();
   await expect(manage.tableScroll()).toHaveCSS('margin-bottom', '0px');
 });
+
+// Issue #362, finding D2 of the UI audit: the three Manage actions sit in
+// one row at a narrow width, with no stack into separate rows. The table
+// scrolls inside `.table-scroll` instead.
+test('the manage actions cell holds one row at 390px width (issue #362)', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const row = manage.row('demo');
+  const actionRow = manage.actionRow(row);
+  const box = await actionRow.boundingBox();
+  if (!box) {
+    throw new Error('The action row of the "demo" row has no box.');
+  }
+  // One row of 44px-tall buttons, plus padding, stays under 60px; three
+  // stacked rows measure about 160px (the audit number of finding D2).
+  expect(box.height).toBeLessThan(60);
+
+  // The table scrolls inside `.table-scroll` instead of shrinking its
+  // columns, so `.table-scroll` holds more content than it shows.
+  const scrollWidths = await manage.tableScroll().evaluate((el) => ({
+    scrollWidth: el.scrollWidth,
+    clientWidth: el.clientWidth,
+  }));
+  expect(scrollWidths.scrollWidth).toBeGreaterThan(scrollWidths.clientWidth);
+});
+
+// Issue #389, finding D29 of the UI audit: the gap above the add-app
+// heading matches the gap below the submit button, within 2px.
+test('the add-app heading has no top margin (issue #389)', async ({ page }) => {
+  const manage = new ManagePage(page);
+  await manage.goto();
+  await expect(manage.addAppHeading()).toHaveCSS('margin-top', '0px');
+
+  const gaps = await page.evaluate(() => {
+    const panel = document.querySelector('.add-app') as HTMLElement;
+    const heading = panel.querySelector('h2') as HTMLElement;
+    const button = panel.querySelector('button[type="submit"]') as HTMLElement;
+    const panelRect = panel.getBoundingClientRect();
+    const headingRect = heading.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+    return {
+      topGap: headingRect.top - panelRect.top,
+      bottomGap: panelRect.bottom - buttonRect.bottom,
+    };
+  });
+  expect(Math.abs(gaps.topGap - gaps.bottomGap)).toBeLessThanOrEqual(2);
+});
