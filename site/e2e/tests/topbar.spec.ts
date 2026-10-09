@@ -25,6 +25,14 @@ test('the top bar carries the mark, the wordmark, and the links, and fits at 128
   await expect(signInLink).toBeVisible();
   await expect(signInLink).toHaveAttribute('href', 'https://app.0ct0meter.com/signin');
 
+  // MAJOR a1 of the review of pull request #413: the board draws the
+  // "Sign in" button white (the plain ".btn"), not the sunny primary
+  // color of the hero's own "Join the waitlist" button.
+  const signInBackground = await signInLink.evaluate(
+    (el) => getComputedStyle(el).backgroundColor,
+  );
+  expect(signInBackground).toBe('rgb(255, 255, 255)');
+
   // The audit finding L2: the page held no "nav" element before this fix
   // (a bar height of 0 px). The bar now measures a real height, with no
   // sideways scroll at 1280 px.
