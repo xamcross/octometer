@@ -221,6 +221,10 @@ test('the panel fills its row at 1280 px, and the form stays usable at 390 px', 
   const input = page.locator('#waitlist-email');
   const button = page.locator('form.waitlist-form button[type="submit"]');
 
+  // Issue #381, acceptance criterion 2: the email field shows the
+  // placeholder "you@company.com".
+  await expect(input).toHaveAttribute('placeholder', 'you@company.com');
+
   const rowBox = await row.boundingBox();
   const panelBox = await panel.boundingBox();
   if (!rowBox || !panelBox) {
