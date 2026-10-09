@@ -185,6 +185,31 @@ describe('DeleteAppDialog', () => {
     expect(dialog.textContent).not.toContain('0');
   });
 
+  it('shows "Deleting…" with aria-busy="true" while the delete request is pending, and restores the label on an error (issue #393, D30)', () => {
+    openDialog();
+    typeConfirmName('traficio');
+    const confirmButton = root().querySelector<HTMLButtonElement>('button.confirm-delete')!;
+    expect(confirmButton.textContent?.trim()).toBe('Delete this app');
+    expect(confirmButton.getAttribute('aria-busy')).toBeNull();
+
+    confirmButton.click();
+    fixture.detectChanges();
+    expect(confirmButton.textContent?.trim()).toBe('Deleting…');
+    expect(confirmButton.getAttribute('aria-busy')).toBe('true');
+    expect(confirmButton.disabled).toBe(true);
+
+    httpMock
+      .expectOne({ url: '/api/apps/5', method: 'DELETE' })
+      .flush(
+        { error: 'The secret store is not available. Try again.' },
+        { status: 503, statusText: 'Service Unavailable' },
+      );
+    fixture.detectChanges();
+
+    expect(confirmButton.textContent?.trim()).toBe('Delete this app');
+    expect(confirmButton.getAttribute('aria-busy')).toBeNull();
+  });
+
   it('sends DELETE /api/apps/{id} with the header Content-Type: application/json', () => {
     openDialog();
     typeConfirmName('traficio');

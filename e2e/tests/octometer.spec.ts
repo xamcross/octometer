@@ -698,3 +698,62 @@ test('the add-app heading has no top margin (issue #389)', async ({ page }) => {
   });
   expect(Math.abs(gaps.topGap - gaps.bottomGap)).toBeLessThanOrEqual(2);
 });
+
+// Issue #393, finding D30 of the UI audit: the delete-confirm button
+// shows "Deleting…" with aria-busy="true" while the delete request is
+// in flight. The route below holds the DELETE answer open, so the
+// pending state stays visible long enough for the assertions; the real
+// request can finish in under one render frame.
+test('the delete-confirm button shows a Deleting label while the request is pending (issue #393, D30)', async ({
+  page,
+  request,
+}) => {
+  const monitorUrl = readMonitorUrl();
+  const appName = `delete-pending-app-${Date.now()}`;
+  const createResponse = await request.post('/api/apps', {
+    headers: { Origin: monitorUrl },
+    data: { name: appName, origins: ['https://delete-pending.example'] },
+  });
+  expect(createResponse.status()).toBe(201);
+
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const row = manage.row(appName);
+  await expect(row).toBeVisible();
+
+  let releaseDelete = () => {};
+  const deleteHeld = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+  await page.route('**/api/apps/*', async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fallback();
+      return;
+    }
+    await deleteHeld;
+    const response = await route.fetch();
+    await route.fulfill({ response });
+  });
+
+  await manage.deleteTrigger(row).click();
+  await manage.deleteConfirmNameField(row).fill(appName);
+  const confirmButton = manage.deleteConfirmButton(row);
+  await expect(confirmButton).toHaveText('Delete this app');
+  await expect(confirmButton).not.toHaveAttribute('aria-busy');
+
+  await confirmButton.click();
+  await expect(confirmButton).toHaveText('Deleting…');
+  await expect(confirmButton).toHaveAttribute('aria-busy', 'true');
+  await expect(confirmButton).toBeDisabled();
+
+  releaseDelete();
+  await expect(row.locator('dialog[aria-labelledby^="delete-app-heading"]')).toBeHidden();
+  await page.unroute('**/api/apps/*');
+
+  // Reads the stored state, not only the page text: the app is truly
+  // gone from the registry's own answer (lesson 19 of the frontend
+  // brief).
+  const afterResponse = await request.get('/api/apps');
+  const afterRows = (await afterResponse.json()) as ReadonlyArray<{ name: string }>;
+  expect(afterRows.some((r) => r.name === appName)).toBe(false);
+});

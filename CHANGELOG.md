@@ -117,6 +117,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Hide the pager of the users view, the first-pages view, and the anonymous-sessions
   view for a one-page result, remove the misused `aria-current` from the page-label
   span, and give the page-count announcement the same rule. (#387)
+- Show a "Deleting…" label with `aria-busy="true"` on the delete-confirm button while
+  the delete request is in flight; the label returns on an error. (#393)
 
 ### CI
 

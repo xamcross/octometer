@@ -210,6 +210,26 @@ export class ManagePage {
     return this.page.getByRole('heading', { name: 'Add an app' });
   }
 
+  /** The "Delete" trigger button of one row's delete dialog (issue #393). */
+  deleteTrigger(row: ReturnType<ManagePage['row']>) {
+    return row.getByRole('button', { name: 'Delete', exact: true });
+  }
+
+  /**
+   * The "Type the app name to confirm" field of one row's delete
+   * dialog (issue #393). Scoped to `row`: every row keeps its own
+   * dialog mounted, closed or not, so a page-wide lookup of this label
+   * matches one input per row.
+   */
+  deleteConfirmNameField(row: ReturnType<ManagePage['row']>) {
+    return row.getByLabel('Type the app name to confirm');
+  }
+
+  /** The confirm button of one row's delete dialog (issue #393, finding D30). */
+  deleteConfirmButton(row: ReturnType<ManagePage['row']>) {
+    return row.locator('button.confirm-delete');
+  }
+
   /**
    * Clicks "New secret key" on the row, confirms the rotation, and
    * gives the dialog's own secret key field back (issue #296, D51).
