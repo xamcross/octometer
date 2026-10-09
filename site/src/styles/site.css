@@ -264,7 +264,12 @@ a:hover {
   font: 600 15px / 1 var(--display);
 }
 .flow .ns {
-  font: 400 11.5px / 1 var(--body);
+  /* 0.8125rem (13px) keeps this text at or above the 12px floor (issue
+     #344). The node width of 260 user units (the node rect, line 76)
+     keeps room for the longest sub-label, "app.0ct0meter.com", at this
+     size: a measured bounding-box width of about 108 px against a
+     budget of about 184 px to the right edge of the node. */
+  font: 400 0.8125rem / 1 var(--body);
 }
 .on,
 .on text {
