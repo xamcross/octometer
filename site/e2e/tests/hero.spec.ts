@@ -19,6 +19,23 @@ test('the hero shows the promise and the button reaches the form', async ({ page
     'Octometer is in a pilot. Join the waitlist, and we invite you.',
   );
 
+  // The audit finding L3 (issue #372): the product shot fills the empty
+  // right side of the hero at 1280 px. The check measures the empty
+  // width to the right of the preview, the audit's own number (the
+  // finding states the empty strip, not a ratio).
+  const heroPreview = page.locator('.hero-preview');
+  await expect(heroPreview).toBeVisible();
+  const heroPreviewTable = heroPreview.locator('.hero-preview-table tbody tr');
+  await expect(heroPreviewTable).toHaveCount(3);
+  const gapAt1280 = await page.evaluate(() => {
+    const hero = document.querySelector('.hero');
+    const preview = document.querySelector('.hero-preview');
+    return (
+      hero!.getBoundingClientRect().right - preview!.getBoundingClientRect().right
+    );
+  });
+  expect(gapAt1280).toBeLessThanOrEqual(1);
+
   // The audit finding L12 (issue #357): "--text-s" rises from 12.8 px
   // (0.8rem) to 14 px (0.875rem). The check runs at the default 1280 px
   // width and again at 390 px, the two widths of the issue text.
@@ -32,6 +49,19 @@ test('the hero shows the promise and the button reaches the form', async ({ page
     (el) => parseFloat(getComputedStyle(el).fontSize),
   );
   expect(noteFontSize390).toBe(14);
+
+  // The audit finding L3 (issue #372): at 390 px the preview sits below
+  // the copy, with no sideways scroll.
+  await expect(heroPreview).toBeVisible();
+  const layoutAt390 = await page.evaluate(() => ({
+    previewTop: document.querySelector('.hero-preview')!.getBoundingClientRect().top,
+    textBottom: document.querySelector('.hero-text')!.getBoundingClientRect().bottom,
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(layoutAt390.previewTop).toBeGreaterThanOrEqual(layoutAt390.textBottom);
+  expect(layoutAt390.scrollWidth).toBeLessThanOrEqual(layoutAt390.clientWidth);
+
   await page.setViewportSize({ width: 1280, height: 720 });
 
   const button = page.getByRole('link', { name: 'Join the waitlist' });
