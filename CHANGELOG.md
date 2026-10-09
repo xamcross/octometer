@@ -119,6 +119,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Hide the pager of the users view, the first-pages view, and the anonymous-sessions
   view for a one-page result, remove the misused `aria-current` from the page-label
   span, and give the page-count announcement the same rule. (#387)
+- Add a dark color scheme: a `prefers-color-scheme: dark` block of dark tokens, and the
+  band's ink and paper as token values, not hex literals. (#361)
 
 ### CI
 

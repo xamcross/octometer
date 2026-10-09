@@ -56,6 +56,12 @@ const COetc = { alpha: 0.55, coral: '#ff6b6b', ink: '#241f3d', paper: '#ffffff' 
 const DISABLED_FILL = composite(COetc.coral, COetc.alpha, COetc.paper);
 const DISABLED_INK = composite(COetc.ink, COetc.alpha, DISABLED_FILL);
 
+// The dark color scheme (issue #361). `--coral`, `--sunny`, `--seaweed`,
+// and `--on-bright` keep their light value in the dark scheme too.
+const DK = { alpha: 0.55, coral: '#ff6b6b', ink: '#ece9ff', paper: '#1d1a33' };
+const DARK_DISABLED_FILL = composite(DK.coral, DK.alpha, DK.paper);
+const DARK_DISABLED_INK = composite(DK.ink, DK.alpha, DARK_DISABLED_FILL);
+
 // [the page, the element kind, the text colour, the background, the px, the weight]
 const TEXT = [
   ['each page', 'the skip link on focus', '#241f3d', '#ffd93d', 16, 400],
@@ -119,6 +125,74 @@ const NONTEXT = [
   ['manage', 'the invalid field ring on the field fill', '#ff6b6b', '#ffffff'],
 ];
 
+/*
+ * The dark color scheme (issue #361, the audit finding D1), `prefers-color-scheme:
+ * dark`. `--coral`, `--sunny`, `--seaweed`, and `--on-bright` keep the light value of
+ * the lists above; `--ink`, `--ink-soft`, `--paper`, `--paper-raised`, `--shallows`,
+ * `--shallows-deep`, and `--octo` take the dark value of `styles.css`.
+ */
+const DARK_TEXT = [
+  ['each page', 'the skip link on focus', '#241f3d', '#ffd93d', 16, 400],
+  ['each page', 'the wordmark on the band', '#241f3d', '#9b7be5', 25, 600],
+  ['each page', 'the current nav pill', '#241f3d', '#ffd93d', 16, 600],
+  ['each page', 'the other nav pill', '#ece9ff', '#1d1a33', 16, 600],
+  ['each page', 'the breadcrumb link and text', '#ece9ff', '#14122a', 16, 400],
+  ['each page', 'the breadcrumb current item', '#ece9ff', '#14122a', 16, 700],
+  ['each page', 'the page title h1', '#ece9ff', '#14122a', 25, 600],
+  ['each data page', 'the refresh note', '#b9b4d6', '#14122a', 12.8, 400],
+  ['apps', 'the retention note', '#ece9ff', '#14122a', 16, 400],
+  ['each data page', 'the pause pill', '#ece9ff', '#1d1a33', 16, 600],
+  ['each table', 'the panel caption', '#b9b4d6', '#1d1a33', 12.8, 400],
+  ['manage', 'the panel caption (bold)', '#b9b4d6', '#1d1a33', 12.8, 700],
+  ['each table', 'the table head cell', '#ece9ff', '#2c2850', 16, 600],
+  ['each table', 'the cell on the paper row', '#ece9ff', '#1d1a33', 16, 400],
+  ['each table', 'the row header on the paper row', '#ece9ff', '#1d1a33', 16, 700],
+  ['each table', 'the link in the paper row', '#ece9ff', '#1d1a33', 16, 400],
+  ['each table', 'the cell on the zebra row', '#ece9ff', '#14122a', 16, 400],
+  ['each table', 'the link in the zebra row', '#ece9ff', '#14122a', 16, 700],
+  ['each table', 'the time cell', '#ece9ff', '#1d1a33', 16, 400],
+  ['apps', 'the badge OK', '#241f3d', '#6ee7b7', 12.8, 700],
+  ['apps', 'the badge warn (sunny)', '#241f3d', '#ffd93d', 12.8, 700],
+  ['apps', 'the badge bad (coral)', '#241f3d', '#ff6b6b', 12.8, 700],
+  ['apps', 'the badge not polled', '#ece9ff', '#2c2850', 12.8, 700],
+  ['users', 'the filter label', '#ece9ff', '#14122a', 16, 400],
+  ['users', 'the filter button', '#ece9ff', '#1d1a33', 12.8, 600],
+  ['users', 'the disabled pager button', '#b9b4d6', '#14122a', 12.8, 600],
+  ['users, sessions, not-found', 'the empty state sentence', '#ece9ff', '#1d1a33', 16, 400],
+  ['sessions', 'the first-load sentence', '#ece9ff', '#14122a', 16, 400],
+  ['manage', 'the Edit and Delete buttons', '#ece9ff', '#1d1a33', 12.8, 600],
+  ['manage', 'the form heading h2', '#ece9ff', '#1d1a33', 20, 600],
+  ['manage', 'the field label', '#ece9ff', '#1d1a33', 16, 700],
+  ['manage', 'the field hint', '#b9b4d6', '#1d1a33', 12.8, 400],
+  ['manage', 'the hint example code', '#b9b4d6', '#1d1a33', 12.8, 400],
+  ['manage', 'the form error text', '#ece9ff', '#1d1a33', 16, 700],
+  ['manage', 'the primary button', '#241f3d', '#ffd93d', 16, 600],
+  ['manage', 'the status cell', '#ece9ff', '#1d1a33', 16, 400],
+  ['dialog', 'the dialog heading h2', '#ece9ff', '#312b57', 20, 600],
+  ['dialog', 'the dialog sentence', '#ece9ff', '#312b57', 16, 400],
+  ['dialog', 'the dialog strong text', '#ece9ff', '#312b57', 16, 700],
+  ['dialog', 'the Cancel button', '#ece9ff', '#1d1a33', 16, 600],
+  ['dialog', 'the disabled confirm button (opacity 0.55)', DARK_DISABLED_INK, DARK_DISABLED_FILL, 16, 600],
+];
+
+// [the page, the edge or the ring, the colour, the neighbour]
+const DARK_NONTEXT = [
+  ['each page', 'the control edge on the page background', '#ece9ff', '#14122a'],
+  ['each page', 'the control edge on the paper', '#ece9ff', '#1d1a33'],
+  ['the band', 'the nav pill edge on the octo band', '#241f3d', '#9b7be5'],
+  ['each page', 'the panel edge on the page background', '#ece9ff', '#14122a'],
+  ['each table', 'the head cell edge on the head fill', '#ece9ff', '#2c2850'],
+  ['apps', 'the badge edge on the badge fill (seaweed)', '#241f3d', '#6ee7b7'],
+  ['apps', 'the badge edge on the badge fill (coral)', '#241f3d', '#ff6b6b'],
+  ['apps', 'the badge edge on the badge fill (sunny)', '#241f3d', '#ffd93d'],
+  ['each page', 'the focus ring: the ink halo on the page background', '#ece9ff', '#14122a'],
+  ['each page', 'the focus ring: the ink halo on the paper', '#ece9ff', '#1d1a33'],
+  ['the band', 'the focus ring: the ink halo on the octo band', '#241f3d', '#9b7be5'],
+  ['each page', 'the focus ring: the sunny line on the ink halo', '#ffd93d', '#ece9ff'],
+  ['users', 'the disabled pager edge on the page background', '#b9b4d6', '#14122a'],
+  ['manage', 'the invalid field ring on the field fill', '#ff6b6b', '#1d1a33'],
+];
+
 /** True for a large text: 24 px, or 18.66 px at the weight 700. */
 const big = (px, weight) => px >= 24 || (px >= 18.66 && weight >= 700);
 
@@ -148,4 +222,35 @@ for (const [page, kind, a, b] of NONTEXT) {
   console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${ok ? 'pass' : 'fail'} |`);
 }
 console.log('');
-console.log('pairs=' + (TEXT.length + NONTEXT.length) + ' fails=' + fails);
+console.log('The dark scheme (issue #361, prefers-color-scheme: dark):');
+console.log(
+  'The composite of the disabled confirm button: ' + DARK_DISABLED_INK + ' on ' + DARK_DISABLED_FILL,
+);
+console.log('');
+console.log('| Page | Text | Colour | Background | Ratio | Floor | Result |');
+console.log('| --- | --- | --- | --- | --- | --- | --- |');
+for (const [page, kind, fg, bg, px, weight] of DARK_TEXT) {
+  const r = ratio(fg, bg);
+  const floor = big(px, weight) ? 3 : 4.5;
+  const ok = r >= floor;
+  if (!ok) fails += 1;
+  console.log(
+    `| ${page} | ${kind} (${px} px ${weight}) | \`${fg}\` | \`${bg}\` | ${f1(r)}:1 | ${floor}:1 | ${ok ? 'pass' : 'fail'} |`,
+  );
+}
+console.log('');
+console.log('| Page | Edge or ring | Colour | Neighbour | Ratio | Floor | Result |');
+console.log('| --- | --- | --- | --- | --- | --- | --- |');
+for (const [page, kind, a, b] of DARK_NONTEXT) {
+  const r = ratio(a, b);
+  const ok = r >= 3;
+  if (!ok) fails += 1;
+  console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${ok ? 'pass' : 'fail'} |`);
+}
+console.log('');
+console.log(
+  'pairs=' +
+    (TEXT.length + NONTEXT.length + DARK_TEXT.length + DARK_NONTEXT.length) +
+    ' fails=' +
+    fails,
+);

@@ -45,12 +45,14 @@
 
 /*
  * The band: the one bold element of the cartoon look (D45). It keeps a
- * light ink and a light paper of its own, so the text and the mark stay
- * dark on the octo fill.
+ * dark ink and a light paper of its own, so the text and the mark stay
+ * dark on the octo fill in each color scheme (issue #361: `--on-bright`
+ * and `--paper-raised` keep their light-scheme value in the dark scheme
+ * too, so the band text and the mark fill do not change).
  */
 .band {
-  --ink: #241f3d;
-  --paper: #ffffff;
+  --ink: var(--on-bright);
+  --paper: var(--paper-raised);
   background: var(--octo);
   color: var(--ink);
   border-bottom: var(--line-panel);

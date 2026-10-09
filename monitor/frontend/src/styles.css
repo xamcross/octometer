@@ -62,6 +62,39 @@
   --space-5: 24px;
   --space-6: 32px;
   --space-7: 48px;
+
+  color-scheme: light dark;
+}
+
+/*
+ * The dark color scheme (issue #361, the UI audit finding D1). A user with
+ * a dark system preference gets this block. Each bright fill token
+ * (`--coral`, `--sunny`, `--seaweed`, `--on-bright`) stays out of this
+ * block on purpose, so it keeps its light value in both schemes (step 3
+ * of the issue): `--on-bright` stays dark text on each bright fill.
+ *
+ * `--octo` gets a lighter dark value than the audit draft (`#5b45b0`):
+ * `--on-bright` text on that fill measured 2.18:1 on the band (the account
+ * email, `--text-s`), under the WCAG 1.4.3 floor of 4.5:1. `#9b7be5` raises
+ * the pair to 4.75:1 (step 5 of the issue: raise a token value when a pair
+ * falls under the floor).
+ *
+ * `--paper-raised` is absent from the audit draft, so it kept its light
+ * value (`#ffffff`); `--ink` text on that fill then measured 1.19:1 in a
+ * dialog (delete-app-dialog.css, new-secret-key-dialog.css), far under the
+ * floor. `#312b57` (the site's own dark `--paper-raised`, issue #366)
+ * raises the pair to 10.95:1.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #ece9ff;
+    --ink-soft: #b9b4d6;
+    --paper: #1d1a33;
+    --paper-raised: #312b57;
+    --shallows: #14122a;
+    --shallows-deep: #2c2850;
+    --octo: #9b7be5;
+  }
 }
 
 *,
