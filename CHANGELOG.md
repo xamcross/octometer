@@ -27,6 +27,12 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   build, and crop each one to its content, with 24 px below the table. (#343)
 - Raise the flow figure's sub-label size from 11.5 px to 13 px, so each one sits at or
   above the 12 px floor. (#344)
+- Raise the token `--text-s` from 12.8 px to 14 px, so the hero note, the flow caption,
+  and both form hints read larger. (#357)
+- Pack the users card and the elements card at the top of their grid row, so the
+  stretch rule no longer opens a gap above a shorter card's figcaption. (#382)
+- Bound the steps column of the "How it works" grid at 36rem. Put the flow diagram
+  beside the step text, with a gap of about 50 px at 1280 px. (#355)
 
 ### Contract
 
@@ -88,6 +94,12 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   not-found page no longer show a one-item trail that repeats the heading. (#346)
 - Put the sign-in form into the cartoon card, with the sentence "We send you a mail
   with a link. The link works for 15 minutes." under the title. (#349)
+- Give each table caption 12 px of top padding, clear of the panel border. (#376)
+- Remove the bottom margin of `.table-scroll` on the manage view, so no empty strip
+  sits between the table and the panel border. (#377)
+- Show the not-found card in the users, the first-pages, the elements, and the sessions
+  view of an app id that is not registered, in place of the loading sentence; the poll
+  stops, and the breadcrumb drops the app crumb. (#348)
 - Hide the pager of the users view, the first-pages view, and the anonymous-sessions
   view for a one-page result, remove the misused `aria-current` from the page-label
   span, and give the page-count announcement the same rule. (#387)
@@ -100,6 +112,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   Free plan minutes. (#306)
 - Give the deploy job the e2e job's own built distribution, as a one-day artifact, in
   place of a second Gradle build; add `jitpack.yml` to the e2e path filter. (#297)
+
+### Tests
+
+- Give each clone its own Docker Compose project in the end-to-end harness, derived
+  from the clone's path, with `OCTOMETER_E2E_PROJECT` as the override. (#406)
 
 ### Documentation
 

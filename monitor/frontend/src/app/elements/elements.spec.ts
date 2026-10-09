@@ -1,8 +1,9 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Router, provideRouter } from '@angular/router';
+import { provideRouter } from '@angular/router';
 
+import { Announcer } from '../announcer';
 import { RefreshIntervalState } from '../poll/refresh-interval-state';
 import type { ElementRow, ElementsResponse } from './element-row';
 import { Elements, buildElementsRequestParams } from './elements';
@@ -53,7 +54,6 @@ describe('buildElementsRequestParams', () => {
 describe('Elements', () => {
   let fixture: ComponentFixture<Elements>;
   let httpMock: HttpTestingController;
-  let router: Router;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -62,7 +62,6 @@ describe('Elements', () => {
     }).compileComponents();
 
     httpMock = TestBed.inject(HttpTestingController);
-    router = TestBed.inject(Router);
     // Issue #301, brief review B4: the health poll waits for the start
     // gate. This suite tests the view alone, with no App shell to open
     // it, so it opens the gate itself.
@@ -364,18 +363,62 @@ describe('Elements', () => {
     });
   });
 
-  describe('a 404 on the app', () => {
-    it('navigates to /apps with the app id, and does not render a table', () => {
+  describe('a 404 on the app (issue #348)', () => {
+    it('shows the not-found card with a link to the apps view, and renders no table', () => {
       startStore();
-      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
 
       httpMock
         .expectOne('/api/apps/7/elements?userId=42')
         .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
       fixture.detectChanges();
 
-      expect(navigateSpy).toHaveBeenCalledWith(['/apps'], { queryParams: { notFoundAppId: '7' } });
       expect(root().querySelector('table')).toBeNull();
+      expect(root().textContent).toContain('The app is not registered.');
+      const link = root().querySelector('.empty-link a') as HTMLAnchorElement;
+      expect(link.getAttribute('href')).toBe('/apps');
+    });
+
+    it('stops the poll: no further request after the next interval tick', () => {
+      startStore(10);
+
+      httpMock
+        .expectOne('/api/apps/7/elements?userId=42')
+        .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+
+      vi.advanceTimersByTime(30_000);
+      httpMock.expectNone('/api/apps/7/elements?userId=42');
+    });
+
+    it('shows the card, drops the stale table, and stops the poll on a later 404 of the same app (MAJOR 1 of the review of pull request #396)', () => {
+      startStore(10);
+      flushElements(buildResponse({ rows: [buildRow({ element: 'app-7-element' })] }));
+
+      vi.advanceTimersByTime(10_000);
+      httpMock
+        .expectOne('/api/apps/7/elements?userId=42')
+        .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+
+      expect(root().querySelector('table')).toBeNull();
+      expect(root().textContent).toContain('The app is not registered.');
+      expect(root().textContent).not.toContain('app-7-element');
+
+      vi.advanceTimersByTime(30_000);
+      httpMock.expectNone('/api/apps/7/elements?userId=42');
+    });
+
+    it('announces the not-found message through the shared status region (MAJOR 2 of the review of pull request #396)', () => {
+      const announcer = TestBed.inject(Announcer);
+      startStore();
+
+      httpMock
+        .expectOne('/api/apps/7/elements?userId=42')
+        .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+      vi.advanceTimersByTime(200);
+
+      expect(announcer.message()).toBe('The app is not registered.');
     });
   });
 
@@ -419,10 +462,9 @@ describe('Elements', () => {
       expect(root().textContent).toContain('user-99-element');
     });
 
-    it('redirects to /apps when a 404 answer arrives for the new app', () => {
+    it('shows the not-found card when a 404 answer arrives for the new app (issue #348)', () => {
       startStore(10);
       flushElements(buildResponse({ rows: [buildRow({ element: 'app-7-element' })] }));
-      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
 
       fixture.componentRef.setInput('appId', '8');
       fixture.detectChanges();
@@ -432,7 +474,8 @@ describe('Elements', () => {
         .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
       fixture.detectChanges();
 
-      expect(navigateSpy).toHaveBeenCalledWith(['/apps'], { queryParams: { notFoundAppId: '8' } });
+      expect(root().textContent).toContain('The app is not registered.');
+      expect(root().querySelector('table')).toBeNull();
     });
   });
 });

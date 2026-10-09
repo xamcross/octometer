@@ -537,18 +537,62 @@ describe('FirstPages', () => {
     });
   });
 
-  describe('a 404 on the app', () => {
-    it('navigates to /apps with the app id, and does not render a table', () => {
+  describe('a 404 on the app (issue #348)', () => {
+    it('shows the not-found card with a link to the apps view, and renders no table', () => {
       startStore();
-      const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
 
       httpMock
         .expectOne('/api/apps/7/first-pages?page=1')
         .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
       fixture.detectChanges();
 
-      expect(navigateSpy).toHaveBeenCalledWith(['/apps'], { queryParams: { notFoundAppId: '7' } });
       expect(root().querySelector('table')).toBeNull();
+      expect(root().textContent).toContain('The app is not registered.');
+      const link = root().querySelector('.empty-link a') as HTMLAnchorElement;
+      expect(link.getAttribute('href')).toBe('/apps');
+    });
+
+    it('stops the poll: no further request after the next interval tick', () => {
+      startStore(10);
+
+      httpMock
+        .expectOne('/api/apps/7/first-pages?page=1')
+        .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+
+      vi.advanceTimersByTime(30_000);
+      httpMock.expectNone('/api/apps/7/first-pages?page=1');
+    });
+
+    it('shows the card, drops the stale table, and stops the poll on a later 404 of the same app (MAJOR 1 of the review of pull request #396)', () => {
+      startStore(10);
+      flushFirstPages(buildPage({ rows: [buildRow({ path: '/app-7-path' })] }));
+
+      vi.advanceTimersByTime(10_000);
+      httpMock
+        .expectOne('/api/apps/7/first-pages?page=1')
+        .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+
+      expect(root().querySelector('table')).toBeNull();
+      expect(root().textContent).toContain('The app is not registered.');
+      expect(root().textContent).not.toContain('app-7-path');
+
+      vi.advanceTimersByTime(30_000);
+      httpMock.expectNone('/api/apps/7/first-pages?page=1');
+    });
+
+    it('announces the not-found message through the shared status region (MAJOR 2 of the review of pull request #396)', () => {
+      const announcer = TestBed.inject(Announcer);
+      startStore();
+
+      httpMock
+        .expectOne('/api/apps/7/first-pages?page=1')
+        .flush({ error: 'The app is not registered.' }, { status: 404, statusText: 'Not Found' });
+      fixture.detectChanges();
+      vi.advanceTimersByTime(200);
+
+      expect(announcer.message()).toBe('The app is not registered.');
     });
   });
 
