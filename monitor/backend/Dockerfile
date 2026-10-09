@@ -5,7 +5,13 @@
 # "./gradlew :monitor:backend:installDist". A two-stage Gradle build
 # inside the image would repeat that work; this image build stays
 # under one minute instead.
-FROM eclipse-temurin:21-jre
+#
+# Issue #418: the image comes from the Amazon ECR Public mirror, not
+# from Docker Hub. The e2e job of this same workflow hit the Docker
+# Hub anonymous pull limit ("429 Too Many Requests") on this exact
+# image, after the mongo image moved off Docker Hub. The tag stays
+# 21-jre (the rule of 2026-10-09: no version change).
+FROM public.ecr.aws/docker/library/eclipse-temurin:21-jre
 
 # octometer:octometer owns /data. A Fly volume mounts as root, with
 # the mode 0755, so a Dockerfile USER instruction has no effect there

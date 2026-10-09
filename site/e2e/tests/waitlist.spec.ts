@@ -64,6 +64,13 @@ test('an address joins the list, confirms through the link, and can remove itsel
   const status = page.locator('#waitlist-status');
 
   await page.goto('/');
+
+  // Issue #358: the hero CTA, the section heading, and the submit button
+  // show three different labels, each by its own role and name.
+  await expect(page.getByRole('link', { name: 'Join the waitlist' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Get an invite' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send me the link' })).toBeVisible();
+
   await joinWithAddress(page, address);
   await expect(status).toHaveText(SUCCESS_TEXT);
 
