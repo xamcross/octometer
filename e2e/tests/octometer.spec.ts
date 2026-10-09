@@ -385,3 +385,11 @@ test('an app is registered and its keys show one time (issue #296)', async ({ pa
   }
   expect(createdRow).not.toHaveProperty('secretKey');
 });
+
+// Issue #377, finding D9 of the UI audit: the table sits close to the
+// panel border, with no empty strip below the last row.
+test('the manage table has no bottom margin below the last row (issue #377)', async ({ page }) => {
+  const manage = new ManagePage(page);
+  await manage.goto();
+  await expect(manage.tableScroll()).toHaveCSS('margin-bottom', '0px');
+});

@@ -195,6 +195,11 @@ export class ManagePage {
     return this.page.locator('#add-app-script-tag');
   }
 
+  /** The scroll container of the app table (issue #377, finding D9). */
+  tableScroll() {
+    return this.page.locator('.table-scroll');
+  }
+
   /**
    * Clicks "New secret key" on the row, confirms the rotation, and
    * gives the dialog's own secret key field back (issue #296, D51).

@@ -90,6 +90,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   not-found page no longer show a one-item trail that repeats the heading. (#346)
 - Put the sign-in form into the cartoon card, with the sentence "We send you a mail
   with a link. The link works for 15 minutes." under the title. (#349)
+- Remove the bottom margin of `.table-scroll` on the manage view, so no empty strip
+  sits between the table and the panel border. (#377)
 
 ### CI
 
