@@ -110,6 +110,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Give the deploy job the e2e job's own built distribution, as a one-day artifact, in
   place of a second Gradle build; add `jitpack.yml` to the e2e path filter. (#297)
 
+### Tests
+
+- Give each clone its own Docker Compose project in the end-to-end harness, derived
+  from the clone's path, with `OCTOMETER_E2E_PROJECT` as the override. (#406)
+
 ### Documentation
 
 - Record the hosted model (D50 to D58) in the design document, with the closure notes, the
