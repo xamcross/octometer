@@ -82,6 +82,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   parse, for an anonymous batch only. (#335)
 - Send a signed-in visitor of the plain `/signin` route to `/apps`, after one
   `GET /api/me` check; the confirm page keeps its own behaviour. (#347)
+- Hide the breadcrumb on a top-level page: the apps page, the manage page, and the
+  not-found page no longer show a one-item trail that repeats the heading. (#346)
 
 ### CI
 

@@ -222,14 +222,18 @@ band.
 **Anatomy.**
 - `<nav aria-label="Breadcrumb"><ol><li>` for each item; the last item is a plain `<span
   aria-current="page">`, an earlier item with a path is a link, else a plain span
-  (`breadcrumb-nav.html:1-15`).
+  (`breadcrumb-nav.html:1-19`).
+- No `nav` element at all when the trail holds one item with `path: null`: the current
+  page alone, which would only repeat the `<h1>` below it (issue #346). The apps page,
+  the manage page, and the not-found page show no breadcrumb; a users view, a sessions
+  view, a first-pages view, and an elements view keep theirs.
 - The app-name item (issue #270): the second item of a level 2 or a level 3 trail shows
   the app name, not the app id. `app-names.ts` holds the name of each app id, and the
   shell (`app.ts`) resolves the label of this item through the store, with the fallback
   text "App <id>" until the name arrives. The item links to the users view of that app
   (`/apps/<id>/users`), except on the users view itself, where the item is the current
   page and carries no link. A Sessions item of the elements trail links to the sessions
-  view with the query parameter `anonymous=true` (`breadcrumb-nav.html:8`, the
+  view with the query parameter `anonymous=true` (`breadcrumb-nav.html:9`, the
   `[queryParams]` binding beside `[routerLink]`).
 
 **States.**
@@ -243,7 +247,7 @@ band.
 **Accessibility.**
 - Role: `navigation`, named "Breadcrumb".
 - Accessible name of the current item: the item text; `aria-current="page"` on a plain
-  `<span>`, not on a link (`breadcrumb-nav.html:5-6`).
+  `<span>`, not on a link (`breadcrumb-nav.html:6-7`).
 - Second cue beside color: the bold weight of the current item (`breadcrumb-nav.css:39-42`).
 - Target size: `min-width: 24px; min-height: 24px` on each link (`breadcrumb-nav.css:32-37`).
 
@@ -252,7 +256,7 @@ band.
   ''`, so the separator stays out of the accessibility tree (rule: "a pseudo-element
   separator keeps the `/ ''` alternative text", `breadcrumb-nav.css:25-30`).
 - Do not give the current item a link; a plain `<span aria-current="page">` marks the
-  page without a control that goes nowhere (`breadcrumb-nav.html:5-6`).
+  page without a control that goes nowhere (`breadcrumb-nav.html:6-7`).
 
 ## The refresh line and the pause pill
 

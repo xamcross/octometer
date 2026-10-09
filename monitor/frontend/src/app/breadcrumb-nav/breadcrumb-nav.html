@@ -1,15 +1,19 @@
-<nav aria-label="Breadcrumb">
-  <ol>
-    @for (item of items(); track $index; let last = $last) {
-      <li>
-        @if (last) {
-          <span aria-current="page">{{ item.label }}</span>
-        } @else if (item.path !== null) {
-          <a [routerLink]="item.path" [queryParams]="item.queryParams ?? null">{{ item.label }}</a>
-        } @else {
-          <span>{{ item.label }}</span>
-        }
-      </li>
-    }
-  </ol>
-</nav>
+@if (showNav()) {
+  <nav aria-label="Breadcrumb">
+    <ol>
+      @for (item of items(); track $index; let last = $last) {
+        <li>
+          @if (last) {
+            <span aria-current="page">{{ item.label }}</span>
+          } @else if (item.path !== null) {
+            <a [routerLink]="item.path" [queryParams]="item.queryParams ?? null">{{
+              item.label
+            }}</a>
+          } @else {
+            <span>{{ item.label }}</span>
+          }
+        </li>
+      }
+    </ol>
+  </nav>
+}
