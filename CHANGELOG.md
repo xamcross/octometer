@@ -100,6 +100,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Show the not-found card in the users, the first-pages, the elements, and the sessions
   view of an app id that is not registered, in place of the loading sentence; the poll
   stops, and the breadcrumb drops the app crumb. (#348)
+- Remove the blank reserved band under the header: the banner slot keeps no reserved
+  height. A banner that shows sits in the page flow. It pushes the breadcrumb down by
+  its own height, so a user can always reach the breadcrumb. (#375)
 - Hide the pager of the users view, the first-pages view, and the anonymous-sessions
   view for a one-page result, remove the misused `aria-current` from the page-label
   span, and give the page-count announcement the same rule. (#387)

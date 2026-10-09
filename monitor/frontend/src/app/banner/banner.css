@@ -1,11 +1,24 @@
+/*
+ * The slot keeps no reserved height (issue #375, the audit finding D7):
+ * a view with no error shows no blank band under the header.
+ */
 .banner-slot {
-  min-height: 3rem;
-  overflow-y: auto;
+  min-height: 0;
 }
 
+/*
+ * The error text sits in the normal flow (the correction round of pull
+ * request #404): it pushes the breadcrumb and the page content down by
+ * its own height, so a pointer user and a keyboard user both reach the
+ * breadcrumb at all times. The maximum height repeats the `max-width`
+ * value of `main` (76rem); a message past that height scrolls inside
+ * the banner, so it never grows over the page.
+ */
 .banner-text {
   width: 100%;
   margin: 0;
+  max-height: 76rem;
+  overflow-y: auto;
   background: var(--coral);
   color: var(--on-bright);
   border-bottom: var(--line-control);
