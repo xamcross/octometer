@@ -31,6 +31,41 @@ test('the three sections render with their images and texts, and nothing moves u
     'Your dashboard',
   ]);
 
+  // Issue #355: at 1280 px, the gap between the right edge of the step
+  // paragraph text and the left edge of the flow diagram must not pass
+  // 56 px (the issue's 48 px bound plus the maintainer's 8 px
+  // tolerance, the review of pull request #401). A `Range` over each
+  // step paragraph gives the right edge of the rendered text, not the
+  // grid column box, so a change of the column gap alone cannot pass
+  // this assertion (BLOCKER 2 of the review).
+  const stepTextRight = await page.locator('.steps').evaluate((steps) => {
+    let maxRight = 0;
+    for (const p of steps.querySelectorAll('p')) {
+      const range = document.createRange();
+      range.selectNodeContents(p);
+      for (const rect of Array.from(range.getClientRects())) {
+        if (rect.right > maxRight) {
+          maxRight = rect.right;
+        }
+      }
+    }
+    return maxRight;
+  });
+  const diagramBox = await page.locator('figure.flow svg').boundingBox();
+  if (!diagramBox) {
+    throw new Error('the flow svg has no box');
+  }
+  const textToDiagramGap = diagramBox.x - stepTextRight;
+  console.log(`issue #355 text-to-diagram gap at 1280 px: ${textToDiagramGap}px`);
+  expect(textToDiagramGap).toBeLessThanOrEqual(56);
+
+  // No sideways scroll at 1280 px, the width of the measurement above.
+  const at1280 = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+  }));
+  expect(at1280.scroll).toBeLessThanOrEqual(at1280.client);
+
   const nodes = page.locator('.node');
   // MAJOR 1 of the review of pull request #324: a loop of "nodeCount"
   // passes on zero nodes with no count assertion. This line fails the
@@ -86,6 +121,38 @@ test('the three sections render with their images and texts, and nothing moves u
     }).toPass();
   }
 
+  // BLOCKER 1 of the review of pull request #399, issue #382. At 1280 px
+  // the users card and the elements card share one grid row. Criterion 1
+  // asks for a small gap below each image. Criterion 2 asks for one
+  // shared bottom edge of the two figcaption boxes. The fix adds
+  // "grid-template-rows: auto 1fr auto" to ".frame". The picture row then
+  // takes the leftover height of the shorter card. The rule
+  // ".frame picture { align-self: end }" pins the image to the bottom of
+  // that row. The free space opens between the heading and the image,
+  // not below the caption (the break proof of the pull request text
+  // states each measured number).
+  const frames = page.locator('.frame');
+  await expect(frames).toHaveCount(3);
+  const usersFrame = frames.nth(1);
+  const elementsFrame = frames.nth(2);
+  const measure = (frame: Element) => {
+    const image = frame.querySelector('img') as HTMLElement;
+    const caption = frame.querySelector('figcaption') as HTMLElement;
+    return {
+      gap: caption.getBoundingClientRect().top - image.getBoundingClientRect().bottom,
+      captionBottom: caption.getBoundingClientRect().bottom,
+    };
+  };
+  const usersMeasure = await usersFrame.evaluate(measure);
+  const elementsMeasure = await elementsFrame.evaluate(measure);
+  // Criterion 1: the gap of each card stays near the design gap token
+  // (--space-3, 12 px), at most 16 px.
+  expect(usersMeasure.gap).toBeLessThan(16);
+  expect(elementsMeasure.gap).toBeLessThan(16);
+  // Criterion 2: the two figcaption boxes share one bottom edge, within
+  // 1 px.
+  expect(Math.abs(elementsMeasure.captionBottom - usersMeasure.captionBottom)).toBeLessThan(1);
+
   // State 3: under reduced motion, a reload shows each node at once, with
   // no transition (lesson 17 of the frontend brief guards against a false
   // pass here too: the computed style, not the animation name, proves it).
@@ -130,6 +197,13 @@ test('the three sections render with their images and texts, and nothing moves u
   expect(longestLabelBox).not.toBeNull();
   expect(longestLabelBox!.height).toBeGreaterThanOrEqual(17);
   expect(longestLabelBox!.height).toBeLessThan(26);
+
+  // No sideways scroll at 390 px, the width of the sub-label check above.
+  const at390 = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+  }));
+  expect(at390.scroll).toBeLessThanOrEqual(at390.client);
 
   // The quality floor (issue #288, hero.spec.ts:70-85): no sideways scroll
   // at 360 px and at 1440 px, now that both sections render.
