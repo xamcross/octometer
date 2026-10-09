@@ -319,6 +319,11 @@ secret (the app name is not sensitive). The deploy job passes it to
 secrets folder, the log folder, and the backup folder land under
 `/data` too, so each one survives a deploy (design decision D56).
 
+The base image comes from the Amazon ECR Public mirror
+(`public.ecr.aws/docker/library/eclipse-temurin`), not from Docker
+Hub, for the same reason as the demo app's MongoDB image: Docker Hub
+refuses an anonymous pull past its daily limit.
+
 ### The collector
 
 `POST /collect` (design decision D50, issue #297) takes a click of an
