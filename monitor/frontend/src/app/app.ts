@@ -66,10 +66,14 @@ export class App {
    * The breadcrumb trail of the active route (issue #270). Each entry
    * with an `appId` gets the resolved app name as its label, through the
    * app-name store; it keeps the fallback label of the route data until
-   * the name arrives.
+   * the name arrives. An entry whose app id a 404 answer confirmed as
+   * not registered drops out of the trail instead (issue #348): the
+   * breadcrumb then shows no "App <id>" label for it.
    */
   protected readonly breadcrumbItems = computed<BreadcrumbItem[]>(() =>
-    this.rawBreadcrumbItems().map((item) => this.withResolvedName(item)),
+    this.rawBreadcrumbItems()
+      .filter((item) => item.appId === undefined || !this.appNames.isNotFound(item.appId))
+      .map((item) => this.withResolvedName(item)),
   );
 
   /** The path part of the previous URL. Null before the first navigation ends. */
