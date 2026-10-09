@@ -58,10 +58,10 @@ a:hover{text-decoration-thickness:3px}
 }
 
 /* 1. the hero: the one bold place of the page (the audit finding L3: a
-   two-column grid at 48rem and above puts the preview beside the copy) */
+   two-column grid at 56rem and above puts the preview beside the copy) */
 .hero{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4) var(--space-6)}
 .hero-text{display:grid;gap:var(--space-4);justify-items:start}
-@media (min-width:48rem){
+@media (min-width:56rem){
   .hero{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center}
   .hero>.mark{grid-column:1;grid-row:1}
   .hero-text{grid-column:1;grid-row:2}
@@ -86,7 +86,7 @@ a:hover{text-decoration-thickness:3px}
 .hero-preview-brand{font:600 var(--text-m)/1 var(--display)}
 .hero-preview-tabs{display:flex;gap:var(--space-2)}
 .hero-preview-tab{font:600 var(--text-s)/1 var(--display);padding:var(--space-1) var(--space-3);background:var(--paper);color:var(--ink);border:var(--line-control);border-radius:var(--radius-pill)}
-.hero-preview-tab.is-active{background:var(--sunny)}
+.hero-preview-tab.is-active{background:var(--sunny);color:var(--on-bright);border-color:var(--on-bright)}
 .hero-preview-body{padding:var(--space-4);display:grid;gap:var(--space-3)}
 .hero-preview-title-row{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:var(--space-2)}
 .hero-preview-title{font:600 var(--text-l)/1 var(--display)}
@@ -95,8 +95,8 @@ a:hover{text-decoration-thickness:3px}
 .hero-preview-table thead th{background:var(--shallows-deep);font-weight:700}
 .hero-preview-table tbody td{border-top:1px solid var(--shallows-deep)}
 .hero-preview-status{display:inline-block;padding:2px var(--space-2);font-weight:700;border:var(--line-control);border-radius:var(--radius-pill)}
-.hero-preview-status.is-ok{background:var(--seaweed)}
-.hero-preview-status.is-slow{background:var(--sunny)}
+.hero-preview-status.is-ok{background:var(--seaweed);color:var(--on-bright);border-color:var(--on-bright)}
+.hero-preview-status.is-slow{background:var(--sunny);color:var(--on-bright);border-color:var(--on-bright)}
 .hero-preview-caption{margin:0;padding:var(--space-3) var(--space-4);color:var(--ink-soft);border-top:var(--line-control)}
 
 /* controls */

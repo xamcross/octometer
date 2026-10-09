@@ -137,8 +137,8 @@ a:hover {
 
 /*
  * 1. The hero: the one bold place of the page. The audit finding L3: a
- * one-column grid under 48rem keeps the document order (the mark, the
- * copy, then the preview); a two-column grid at 48rem and above puts the
+ * one-column grid under 56rem keeps the document order (the mark, the
+ * copy, then the preview); a two-column grid at 56rem and above puts the
  * mark and the copy in column 1 and the preview in column 2, so the
  * preview fills the empty right side of the first screen.
  */
@@ -152,7 +152,7 @@ a:hover {
   gap: var(--space-4);
   justify-items: start;
 }
-@media (min-width: 48rem) {
+@media (min-width: 56rem) {
   .hero {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: center;
@@ -271,6 +271,8 @@ a:hover {
 }
 .hero-preview-tab.is-active {
   background: var(--sunny);
+  color: var(--on-bright);
+  border-color: var(--on-bright);
 }
 .hero-preview-body {
   padding: var(--space-4);
@@ -317,9 +319,13 @@ a:hover {
 }
 .hero-preview-status.is-ok {
   background: var(--seaweed);
+  color: var(--on-bright);
+  border-color: var(--on-bright);
 }
 .hero-preview-status.is-slow {
   background: var(--sunny);
+  color: var(--on-bright);
+  border-color: var(--on-bright);
 }
 .hero-preview-caption {
   margin: 0;
