@@ -23,6 +23,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add the waitlist form: the Worker handler of `POST /api/waitlist`, `GET`/`POST
   /confirm`, and `GET`/`POST /remove`, the D1 migration, and the confirmation mail
   through Resend. (#291)
+- Re-capture the three dashboard screenshots of the landing page from the current
+  build, and crop each one to its content, with 24 px below the table. (#343)
 
 ### Contract
 
