@@ -160,6 +160,36 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await expect(breadcrumb.linkNamed('Apps')).toHaveAttribute('href', /\/apps$/);
   });
 
+  test(
+    'the error banner overlays the page: the breadcrumb keeps the same offset ' +
+      '(issue #375, D7, the measured numbers are in the pull request text)',
+    async ({ page }) => {
+      const users = new UsersPage(page);
+      const breadcrumb = new BreadcrumbPart(page);
+
+      await users.goto(appId);
+      await breadcrumb.expectLabels(['Apps', 'demo'], CHAIN_WAIT_MS);
+      const offsetWithNoBanner = await breadcrumb.topOffset();
+
+      // Forces the monitor API error for the next page load only: GET
+      // /api/health answers 503, so the banner shows at once.
+      await page.route('**/api/health', (route) => route.fulfill({ status: 503, body: '' }));
+      await users.goto(appId);
+      await expect(page.getByText('The monitor API did not answer.')).toBeVisible({
+        timeout: CHAIN_WAIT_MS,
+      });
+      await breadcrumb.expectLabels(['Apps', 'demo'], CHAIN_WAIT_MS);
+      const offsetWithBanner = await breadcrumb.topOffset();
+      await page.unroute('**/api/health');
+
+      console.log(
+        `issue #375: the breadcrumb offset is ${offsetWithNoBanner}px with no banner ` +
+          `and ${offsetWithBanner}px with a banner.`,
+      );
+      expect(offsetWithBanner).toBe(offsetWithNoBanner);
+    },
+  );
+
   test('the level 3 elements view of user A lists two elements with one click each', async ({
     page,
   }) => {

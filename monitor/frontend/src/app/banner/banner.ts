@@ -2,7 +2,8 @@ import { Component, input } from '@angular/core';
 
 /**
  * Shows the banner for a failed monitor API call (D30).
- * The slot keeps a reserved height, so the error text causes no layout shift.
+ * The slot keeps no reserved height; the error text overlays the page
+ * below it, so no view shifts when the banner opens or closes (issue #375).
  * The banner is plain text. The one status region of the shell announces the transition.
  * The shell (`app.ts`) sets `apiError` from `RefreshIntervalState`.
  */

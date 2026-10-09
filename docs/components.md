@@ -189,15 +189,16 @@ band.
 **Purpose.** The banner reports a failed monitor API call across the whole app.
 
 **Anatomy.**
-- `.banner-slot` reserves the height; `.banner-text` shows a `⚠` mark and the message
-  inside `.banner-row` when `apiError()` holds a value (`banner.html:1-10`).
+- `.banner-slot` keeps no reserved height (issue #375, D7); `.banner-text` shows a `⚠`
+  mark and the message inside `.banner-row`, as an overlay above the page, when
+  `apiError()` holds a value (`banner.html:1-10`).
 
 **States.**
 
 | State | Cue | Token |
 | --- | --- | --- |
-| Empty | No fill, a 3rem reserved height | (no token; `banner.css:1-4`) |
-| Shown | Full-width coral fill, ink text and border, text on the page column | `var(--coral)`, `var(--on-bright)`, `var(--line-control)` (`banner.css:6-24`) |
+| Empty | No fill, no reserved height | (no token; `banner.css:6-9`) |
+| Shown | Full-width coral fill, ink text and border, over the page below it, text on the page column | `var(--coral)`, `var(--on-bright)`, `var(--line-control)` (`banner.css:16-30`) |
 
 **Accessibility.**
 - Role: none of its own; the text sits in a plain `<p>`, outside each landmark (an open
@@ -215,6 +216,9 @@ band.
 - Do not give the banner its own live region. The one status region of the shell already
   announces each transition. A second region would announce the same fact twice
   (`app.html:31`, `app.ts:114-123`).
+- Do keep the banner as an overlay (`position: absolute` on `.banner-text`, over a
+  `.banner-slot` with no reserved height), so the breadcrumb and the page content keep
+  the same offset whether the banner shows or not (issue #375, D7).
 
 ## The breadcrumb
 

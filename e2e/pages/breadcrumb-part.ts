@@ -38,6 +38,19 @@ export class BreadcrumbPart {
   }
 
   /**
+   * The top offset of the nav, in CSS pixels from the top of the page
+   * (issue #375, D7). A caller uses this to compare the offset with no
+   * banner and with a banner, to prove the banner causes no layout shift.
+   */
+  async topOffset(): Promise<number> {
+    const box = await this.nav.boundingBox();
+    if (!box) {
+      throw new Error('The breadcrumb nav has no bounding box; it is not visible.');
+    }
+    return box.y;
+  }
+
+  /**
    * Waits for the nav to leave the DOM: a top-level page with one
    * breadcrumb item, which would only repeat the heading (issue #346).
    */

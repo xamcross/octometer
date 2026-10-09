@@ -294,15 +294,14 @@ describe('App', () => {
     expect(compiled.querySelector('nav[aria-label="Breadcrumb"]')).toBeNull();
   });
 
-  it('reserves a height for the banner slot before any monitor API error', () => {
+  it('reserves no height for the banner slot before any monitor API error (issue #375)', () => {
     fixture.detectChanges();
     const slot = (fixture.nativeElement as HTMLElement).querySelector(
       '.banner-slot',
     ) as HTMLElement;
-    // The CSS sets min-height to 3rem. jsdom 30 resolves a computed length
-    // to a pixel value, the same as a real browser, so the value here is
-    // 48px (3rem at the default 16px font size).
-    expect(getComputedStyle(slot).minHeight).toBe('48px');
+    // jsdom 30 resolves a computed length to a pixel value, the same as a
+    // real browser; the slot keeps no reserved height (issue #375, D7).
+    expect(getComputedStyle(slot).minHeight).toBe('0px');
   });
 
   it('keeps one permanent role="status" region, empty until a user action', () => {

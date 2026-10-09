@@ -86,6 +86,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   not-found page no longer show a one-item trail that repeats the heading. (#346)
 - Put the sign-in form into the cartoon card, with the sentence "We send you a mail
   with a link. The link works for 15 minutes." under the title. (#349)
+- Remove the blank reserved band under the header: the banner slot keeps no reserved
+  height, and the error text overlays the page, so the breadcrumb keeps the same offset
+  with the banner and with no banner. (#375)
 
 ### CI
 

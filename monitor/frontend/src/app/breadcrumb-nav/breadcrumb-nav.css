@@ -1,7 +1,9 @@
+/* padding-block-start keeps clear space from the band now that the banner slot reserves no height (issue #375, D7). */
 nav {
   max-width: 76rem;
   margin-inline: auto;
   padding-inline: 16px;
+  padding-block-start: 16px;
 }
 
 @media (min-width: 48rem) {

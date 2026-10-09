@@ -1,9 +1,23 @@
+/*
+ * The slot keeps no reserved height (issue #375, D7): a view with no
+ * error shows no blank band under the header. The slot stays the
+ * positioning context of the overlay rule below.
+ */
 .banner-slot {
-  min-height: 3rem;
-  overflow-y: auto;
+  position: relative;
+  min-height: 0;
 }
 
+/*
+ * The error text sits above the breadcrumb and the page content
+ * instead of pushing them down, so a view keeps the same breadcrumb
+ * offset with the banner and with no banner (issue #375, D7).
+ */
 .banner-text {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: 10;
   width: 100%;
   margin: 0;
   background: var(--coral);
