@@ -33,6 +33,7 @@ repeats a hex value.
 | The first-load row | `.first-load-row` | `monitor/frontend/src/app/app.css` | #250 |
 | The keys panel | `.keys-panel`, `.key-row` | `monitor/frontend/src/app/manage/add-app-form.*` | #296 |
 | The new-secret-key confirmation | `app-new-secret-key-dialog` | `monitor/frontend/src/app/manage/new-secret-key-dialog.*` | #296 |
+| The sign-in card | `.signin-card` | `monitor/frontend/src/app/signin/signin.*` | #349 |
 
 ## The band
 
@@ -738,6 +739,40 @@ typed name.
 - Do not reuse the trigger's accessible name ("New secret key") for the confirm
   button inside the dialog; "Replace the secret key" keeps the two controls distinct
   for an assistive technology and for a test.
+
+## The sign-in card
+
+**Purpose.** The card puts the sign-in form into the same comic panel as every other
+form of the dashboard, and tells the visitor what the "Send me a link" button does
+(issue #349).
+
+**Anatomy.**
+- `<section class="panel signin-card">` wraps the sentence "We send you a mail with a
+  link. The link works for 15 minutes.", then the email form, the sent-state badge, and
+  the form error (`signin.html`).
+- `.signin-card` adds the padding and the 28rem width, the same way `.add-app` adds them
+  to the manage panel (`manage.css`); `.panel` is the global class (`styles.css`).
+- The title "Sign in" and the skip-link target stay outside the card, above it
+  (`signin.html`).
+
+**States.**
+
+| State | Cue |
+| --- | --- |
+| The plain form | The email field and the "Send me a link" button, inside the card |
+| After a submit | The badge "Check your mail.", inside the card, in place of the form |
+| A failed submit | The form stays, with `.form-error` under the field, inside the card |
+
+**Accessibility.**
+- Role: none beyond the native `<section>`, `<form>`, `<input>`, and `<button>` roles.
+- The `h1` keeps `tabindex="-1"`, so a route change still moves focus to the page title,
+  above the card (`signin.ts`).
+
+**Rules.**
+- Do keep every text of the form, the sent state, and the error state; the card changes
+  the layout, not the words (issue #349).
+- Do not put the confirm-token view (the "Sign in" button after a visitor opens the
+  mail link) into this card; that view is a different step of the flow.
 
 ## The empty state
 

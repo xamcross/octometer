@@ -13,6 +13,24 @@ h1 {
   margin-top: var(--space-2);
 }
 
+/*
+ * The card of issue #349 (docs/components.md, "The panel and the scroll
+ * region"). `.panel` is the global class (`styles.css`); this rule adds the
+ * padding and the width, the same way `.add-app` does for the manage panel
+ * (`manage.css`). jsdom links no global sheet in a unit test (lesson 9 of
+ * `brief-frontend.md`), so a spec reads the class name only, never the
+ * `.panel` computed style.
+ */
+.signin-card {
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: var(--space-4);
+}
+
+.signin-card p:first-child {
+  margin-top: 0;
+}
+
 /* The field, the label, and the error, the same rules as add-app-form.css:
    Angular scopes a component stylesheet to its own template only, so a
    plain form here needs its own copy, not a global class. */
