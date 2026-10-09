@@ -24,12 +24,23 @@ describe('BreadcrumbNav', () => {
   }
 
   it('renders a nav landmark labelled "Breadcrumb" with an ordered list', () => {
-    fixture.componentRef.setInput('items', [{ label: 'Apps', path: null }]);
+    fixture.componentRef.setInput('items', [
+      { label: 'Apps', path: '/apps' },
+      { label: 'App 7', path: null },
+    ]);
     fixture.detectChanges();
 
     const nav = fixture.nativeElement.querySelector('nav');
     expect(nav?.getAttribute('aria-label')).toBe('Breadcrumb');
     expect(nav?.querySelector('ol')).toBeTruthy();
+  });
+
+  it('renders no nav when the trail holds one item with no path (issue #346)', () => {
+    fixture.componentRef.setInput('items', [{ label: 'Apps', path: null }]);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('nav')).toBeNull();
+    expect(fixture.nativeElement.textContent?.trim()).toBe('');
   });
 
   it('renders a link for a middle entry with a path', () => {

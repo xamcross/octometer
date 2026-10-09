@@ -95,6 +95,11 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     const apps = new AppsPage(page);
     await apps.goto();
     await apps.expectStatus('demo', 'OK', CHAIN_WAIT_MS);
+
+    // Issue #346: the apps page shows one breadcrumb item that repeats
+    // the "Apps" heading, so the component hides the whole nav here.
+    const breadcrumb = new BreadcrumbPart(page);
+    await breadcrumb.expectAbsent(CHAIN_WAIT_MS);
   });
 
   test(
@@ -147,6 +152,12 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await users.expectRow('amy', { clicks: 2, sessions: 1, uniqueElements: 2 }, CHAIN_WAIT_MS);
     await users.expectRow('ben', { clicks: 1, sessions: 1, uniqueElements: 1 }, CHAIN_WAIT_MS);
     expect(await users.rowCount()).toBe(2);
+
+    // Issue #346: the users view keeps its two-item breadcrumb, with a
+    // link back to the apps page.
+    const breadcrumb = new BreadcrumbPart(page);
+    await breadcrumb.expectLabels(['Apps', 'demo'], CHAIN_WAIT_MS);
+    await expect(breadcrumb.linkNamed('Apps')).toHaveAttribute('href', /\/apps$/);
   });
 
   test('the level 3 elements view of user A lists two elements with one click each', async ({

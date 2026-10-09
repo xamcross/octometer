@@ -328,7 +328,9 @@ describe('App', () => {
 
     it('shows a nav landmark labelled "Main", different from the nav labelled "Breadcrumb"', async () => {
       fixture.detectChanges();
-      await router.navigateByUrl('/apps');
+      // A deeper route, not /apps: the breadcrumb nav of a top-level page
+      // with one item renders nothing (issue #346).
+      await router.navigateByUrl('/apps/7/users');
       await fixture.whenStable();
 
       const compiled = fixture.nativeElement as HTMLElement;
