@@ -71,6 +71,24 @@ export class Signin {
         this.errorMessage.set(null);
       }
     });
+
+    // Issue #347: on the plain route (no `token` query parameter), ask
+    // once if the visitor already holds a session, and skip the form
+    // for that visitor. The confirm page keeps its own behaviour (D52):
+    // a mail scanner must stay able to fetch it with no side effect.
+    if (this.route.snapshot.queryParamMap.get('token') === null) {
+      this.checkExistingSession();
+    }
+  }
+
+  /** Issue #347: `GET /api/me` once, on the plain `/signin` route. */
+  private checkExistingSession(): void {
+    this.http.get('/api/me').subscribe({
+      next: () => void this.router.navigate(['/apps']),
+      // A 401 is the normal state before sign-in: the form already
+      // shows by default, so this branch does nothing.
+      error: () => undefined,
+    });
   }
 
   protected onEmailInput(event: Event): void {
