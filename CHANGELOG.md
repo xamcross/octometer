@@ -33,6 +33,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   stretch rule no longer opens a gap above a shorter card's figcaption. (#382)
 - Bound the steps column of the "How it works" grid at 36rem. Put the flow diagram
   beside the step text, with a gap of about 50 px at 1280 px. (#355)
+- Add a dark color scheme: a dark value for each surface and ink token under
+  `prefers-color-scheme: dark`, and `color-scheme: light dark`. (#366)
 
 ### Contract
 
