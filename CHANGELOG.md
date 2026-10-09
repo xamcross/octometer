@@ -23,6 +23,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add the waitlist form: the Worker handler of `POST /api/waitlist`, `GET`/`POST
   /confirm`, and `GET`/`POST /remove`, the D1 migration, and the confirmation mail
   through Resend. (#291)
+- Re-capture the three dashboard screenshots of the landing page from the current
+  build, and crop each one to its content, with 24 px below the table. (#343)
 
 ### Contract
 
@@ -78,6 +80,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Spare an identified request from the D43 request count: a new pre-lookup gate takes
   the per-address check before the app lookup, and the D43 count now runs after the
   parse, for an anonymous batch only. (#335)
+- Send a signed-in visitor of the plain `/signin` route to `/apps`, after one
+  `GET /api/me` check; the confirm page keeps its own behaviour. (#347)
 - Hide the breadcrumb on a top-level page: the apps page, the manage page, and the
   not-found page no longer show a one-item trail that repeats the heading. (#346)
 

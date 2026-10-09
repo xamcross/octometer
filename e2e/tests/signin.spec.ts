@@ -10,6 +10,7 @@ import {
   mailDir,
   mailFileCount,
   newestMailFile,
+  signInNewContext,
   waitForNewMail,
 } from '../setup/mail';
 import { readState } from '../setup/state';
@@ -128,5 +129,36 @@ test.describe('Sign-in accounts (issue #301)', () => {
     await expect(pageB).toHaveURL(/\/signin$/, { timeout: WAIT_BOUND_MS });
     const meResponse = await contextB.request.get('/api/me');
     expect(meResponse.status()).toBe(401);
+  });
+
+  test('a signed-in visitor of /signin lands on /apps; a visitor with no session sees the form (issue #347)', async ({
+    page,
+    newTrackedContext,
+  }) => {
+    const monitorUrl = process.env.E2E_MONITOR_URL;
+    if (!monitorUrl) {
+      throw new Error('E2E_MONITOR_URL is absent. The global setup did not run, or it failed.');
+    }
+    const email = 'e2e-347@example.com';
+    const state = readState();
+    runInviteCommand(state, email);
+
+    // The signed-in visitor: a fresh context signs in, then a new page
+    // of that same context opens the plain /signin route again and
+    // must land on /apps with no form in sight.
+    const signedInContext = await signInNewContext(newTrackedContext, monitorUrl, email);
+    const signedInPage = await signedInContext.newPage();
+    await signedInPage.goto('/signin');
+    await expect(signedInPage).toHaveURL(/\/apps$/, { timeout: WAIT_BOUND_MS });
+    await expect(signedInPage.getByRole('heading', { name: 'Apps' })).toBeVisible();
+
+    // The visitor with no session: the default page of this describe
+    // block carries no storage state, so /signin still shows the form.
+    // The explicit bound covers a cold Angular bootstrap plus the
+    // GET /api/me round trip, on a loaded CI runner.
+    await page.goto('/signin');
+    await expect(page.getByRole('button', { name: 'Send me a link' })).toBeVisible({
+      timeout: WAIT_BOUND_MS,
+    });
   });
 });
