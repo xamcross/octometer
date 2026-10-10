@@ -2086,8 +2086,14 @@ test('a failed first load shows the error state, and "Try again" reloads the lis
   }
 
   // Step 2 of the implementation: the error state keeps 4.5:1 in both
-  // colour schemes. The apps view stands for the four views; they share
-  // the one `.list-error` rule of styles.css.
+  // colour schemes. The apps view stands for the five views; they share
+  // the one `.list-error` rule of styles.css. Issue #453 adds the
+  // `opacity: 1` check beside the contrast check (lesson 24 of the
+  // frontend brief, the review of issue #410): a contrast ratio read
+  // from `getComputedStyle` colours alone ignores a faded element.
+  // Issue #453 also reads the border-left colour: the plain `var(--coral)`
+  // border read 2.46:1 on the light page background, under the 3:1 floor
+  // of WCAG 1.4.11; `--coral-edge` is the fix.
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
     let hits = 0;
@@ -2098,10 +2104,26 @@ test('a failed first load shows the error state, and "Try again" reloads the lis
     await page.goto('/apps');
     const errorParagraph = page.locator('p.list-error');
     await expect(errorParagraph).toBeVisible({ timeout: CHAIN_WAIT_MS });
+    await expect(errorParagraph).toHaveCSS('opacity', '1');
     const colors = await paintedColors(errorParagraph);
     const contrast = ratio(toHex(colors.fg), toHex(colors.bg));
-    console.log(`issue #373, D6: the list-error text contrast in ${colorScheme} mode is ${contrast.toFixed(2)}:1.`);
+    console.log(
+      `issue #453: the list-error text contrast in ${colorScheme} mode is ${contrast.toFixed(2)}:1, ` +
+        `with opacity 1.`,
+    );
     expect(contrast).toBeGreaterThanOrEqual(4.5);
+
+    const [borderColor, pageBackground] = await errorParagraph.evaluate((element) => [
+      getComputedStyle(element).borderLeftColor,
+      getComputedStyle(document.body).backgroundColor,
+    ]);
+    const borderContrast = contrastRatio(borderColor, pageBackground);
+    console.log(
+      `issue #453: the list-error left border is "${borderColor}" on "${pageBackground}", ` +
+        `${borderContrast.toFixed(2)}:1 in ${colorScheme} mode.`,
+    );
+    expect(borderContrast).toBeGreaterThanOrEqual(3);
+
     await page.unroute('**/api/apps');
   }
   await page.emulateMedia({ colorScheme: 'light' });
