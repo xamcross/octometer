@@ -78,6 +78,9 @@ const TEXT = [
   ['each page', 'the wordmark on the band', '#241f3d', '#a78bfa', 25, 600],
   ['each page', 'the current nav pill', '#241f3d', '#ffd93d', 16, 600],
   ['each page', 'the other nav pill', '#241f3d', '#ffffff', 16, 600],
+  // Issue #454: the hovered nav pill pair, outside pull request #445.
+  // `--shallows-bright` keeps `#e6f3ff` in each scheme.
+  ['each page', 'the hovered nav pill', '#241f3d', '#e6f3ff', 16, 600],
   ['each page', 'the breadcrumb link and text', '#241f3d', '#e6f3ff', 16, 400],
   ['each page', 'the breadcrumb current item', '#241f3d', '#e6f3ff', 16, 700],
   ['each page', 'the page title h1', '#241f3d', '#e6f3ff', 25, 600],
@@ -168,6 +171,9 @@ const DARK_TEXT = [
   ['each page', 'the wordmark on the band', '#241f3d', '#9b7be5', 25, 600],
   ['each page', 'the current nav pill', '#241f3d', '#ffd93d', 16, 600],
   ['each page', 'the other nav pill', '#241f3d', '#ffffff', 16, 600],
+  // Issue #454: the hovered nav pill pair, outside pull request #445.
+  // `--shallows-bright` keeps `#e6f3ff` in each scheme.
+  ['each page', 'the hovered nav pill', '#241f3d', '#e6f3ff', 16, 600],
   ['each page', 'the "Sign out" button', '#241f3d', '#ffffff', 16, 600],
   ['each page', 'the breadcrumb link and text', '#ece9ff', '#14122a', 16, 400],
   ['each page', 'the breadcrumb current item', '#ece9ff', '#14122a', 16, 700],
@@ -175,6 +181,9 @@ const DARK_TEXT = [
   ['each data page', 'the refresh note', '#b9b4d6', '#14122a', 12.8, 400],
   ['apps', 'the retention note', '#ece9ff', '#14122a', 16, 400],
   ['each data page', 'the pause pill', '#ece9ff', '#1d1a33', 16, 600],
+  // Issue #454: `--shallows-hover` is the new fill of the hovered pill,
+  // in the dark scheme only (the light value stays `#e6f3ff`).
+  ['each data page', 'the hovered pause pill', '#ece9ff', '#3d3570', 16, 600],
   ['each table', 'the panel caption', '#b9b4d6', '#1d1a33', 12.8, 400],
   ['manage', 'the panel caption (bold)', '#b9b4d6', '#1d1a33', 12.8, 700],
   ['each table', 'the table head cell', '#ece9ff', '#2c2850', 16, 600],
