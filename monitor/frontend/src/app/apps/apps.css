@@ -14,7 +14,6 @@ table {
  * character for each line.
  */
 th[scope='row'],
-.data-from,
 .error-text,
 .gap-text {
   overflow-wrap: anywhere;
@@ -53,7 +52,7 @@ th[scope='row'] a,
   white-space: nowrap;
 }
 
-/* .data-from and .gap-text get the shared rule of styles.css (#249); .error-text keeps its own line spacing. */
+/* .gap-text gets the shared rule of styles.css (#249); .error-text keeps its own line spacing. */
 .error-text {
   margin: 0.25rem 0 0;
 }
