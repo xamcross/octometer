@@ -1,5 +1,6 @@
 import type { APIRequestContext, Locator, Page } from '@playwright/test';
 
+import { ratio } from '../../docs/design/contrast.mjs';
 import { expect, test } from '../fixtures';
 import { AppsPage } from '../pages/apps-page';
 import { BreadcrumbPart } from '../pages/breadcrumb-part';
@@ -32,6 +33,21 @@ async function captionTopPaddingPx(page: Page, captionId: string): Promise<numbe
     .locator(`#${captionId}`)
     .evaluate((element) => getComputedStyle(element).paddingTop);
   return parseFloat(value);
+}
+
+/** The `#rrggbb` value of a `getComputedStyle` colour string (`rgb(r, g, b)`). */
+function toHex(rgbColor: string): string {
+  const channels = rgbColor.match(/\d+(\.\d+)?/g);
+  if (!channels || channels.length < 3) {
+    throw new Error(`"${rgbColor}" is not an rgb() colour.`);
+  }
+  return (
+    '#' +
+    channels
+      .slice(0, 3)
+      .map((channel) => Math.round(Number(channel)).toString(16).padStart(2, '0'))
+      .join('')
+  );
 }
 
 /**
@@ -117,6 +133,31 @@ async function pageOverflowsX(page: Page): Promise<boolean> {
 async function cellPaddingLeftPx(locator: Locator): Promise<number> {
   const value = await locator.evaluate((element) => getComputedStyle(element).paddingLeft);
   return parseFloat(value);
+}
+
+/**
+ * Waits, through `GET /api/apps`, for the status of the named app to
+ * leave `NEVER_POLLED` (issue #364, D3). It checks the API, never the
+ * rendered badge: a view that reads the list one time, and again only
+ * on an action, can hold a stale badge long after the backend answer
+ * changes.
+ */
+async function waitForFirstPoll(
+  request: APIRequestContext,
+  name: string,
+  timeoutMs: number,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const response = await request.get('/api/apps');
+        expect(response.status()).toBe(200);
+        const rows = (await response.json()) as ReadonlyArray<{ name: string; status: string }>;
+        return rows.find((row) => row.name === name)?.status ?? 'NEVER_POLLED';
+      },
+      { timeout: timeoutMs },
+    )
+    .not.toBe('NEVER_POLLED');
 }
 
 /**
@@ -237,6 +278,17 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     const apps = new AppsPage(page);
     await apps.goto();
     await apps.expectStatus('demo', 'OK', CHAIN_WAIT_MS);
+
+    // Issue #390, finding D16 of the UI audit: the "Last updated" column
+    // shows a short relative time, with the full local date and time (no
+    // seconds) in the title of the <time> element, and the header carries
+    // no zone name any more.
+    await expect(apps.lastUpdatedHeader).toHaveText('Last updated');
+    const lastUpdatedTime = apps.rowOf('demo').lastUpdated.locator('time');
+    await expect(lastUpdatedTime).toBeVisible({ timeout: CHAIN_WAIT_MS });
+    await expect(lastUpdatedTime).toHaveText(/^(just now|\d+ (min|hours?|days?) ago)$/);
+    const lastUpdatedTitle = await lastUpdatedTime.getAttribute('title');
+    expect(lastUpdatedTitle).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
 
     // Issue #376: the apps table caption keeps clear space above its
     // text (the acceptance criterion's own end-to-end assertion).
@@ -693,6 +745,121 @@ test('an app is registered and its keys show one time (issue #296)', async ({ pa
     throw new Error(`The app "${appName}" is absent from the answer of GET /api/apps.`);
   }
   expect(createdRow).not.toHaveProperty('secretKey');
+});
+
+// Issue #364, finding D3 of the UI audit: Edit app opened an inline form
+// inside the Actions cell, which grew the row height and pushed each row
+// below it down by the same amount. The form now opens in a native
+// `<dialog>`, over the top layer, so a row keeps its own height and the
+// row below keeps its own position. This scenario measures both numbers
+// in a real Chromium layout, before and during the open dialog, and
+// again after a save.
+//
+// Each app registers through the legacy connection-string path (D32),
+// against the harness's own compose mongo, the same path test "the
+// manage form registers the demo app" uses for "demo": a real,
+// reachable database gives the status "Not polled yet" or "OK", with
+// no error-text line. The origins path leaves the app with no real
+// database; a later poll then flags it "Overprivileged" with an
+// error-text line, which grows the row for a reason that has nothing
+// to do with the dialog (found while this scenario was written: the
+// first version used the origins path and failed on that unrelated
+// growth).
+test('Edit app opens a dialog, with no row growth and no shift of the row below (issue #364, D3)', async ({
+  page,
+  request,
+}) => {
+  const mongoPort = process.env.E2E_MONGO_PORT;
+  const monitorUrl = process.env.E2E_MONITOR_URL;
+  if (!mongoPort) {
+    throw new Error('E2E_MONGO_PORT is absent. The global setup did not run, or it failed.');
+  }
+  if (!monitorUrl) {
+    throw new Error('E2E_MONITOR_URL is absent. The global setup did not run, or it failed.');
+  }
+
+  const manage = new ManagePage(page);
+  const marker = Date.now();
+  const firstName = `edit-dialog-a-${marker}`;
+  const secondName = `edit-dialog-b-${marker}`;
+  await manage.addAppWithConnectionString(
+    request,
+    monitorUrl,
+    firstName,
+    `mongodb://127.0.0.1:${mongoPort}/exampledb_edit_dialog_a_${marker}`,
+  );
+  await manage.addAppWithConnectionString(
+    request,
+    monitorUrl,
+    secondName,
+    `mongodb://127.0.0.1:${mongoPort}/exampledb_edit_dialog_b_${marker}`,
+  );
+
+  // Waits, through the API, for the first poll cycle of each app to
+  // answer (issue #364 confound). The manage view reads the list one
+  // time on load, and again only after an action (the edit save counts
+  // as one); it runs no poll timer of its own. A wait on the rendered
+  // badge text would never resolve here: the page shows the "Not
+  // polled yet" text of the load it already did, with no later
+  // refetch to update it. The edit save below does trigger one
+  // refetch; without this wait first, that refetch can still turn
+  // "Not polled yet" into a different status for a row, change its
+  // badge, and move the row below for a reason outside the dialog.
+  // The harness's own compose Mongo gives each app the status
+  // OVERPRIVILEGED (no per-app credential, so the connection reaches
+  // every database); once the first poll sets that status, each later
+  // poll of the same connection string gives the same verdict, so the
+  // status, and the badge, stay the same for the rest of the scenario.
+  await waitForFirstPoll(request, firstName, CHAIN_WAIT_MS);
+  await waitForFirstPoll(request, secondName, CHAIN_WAIT_MS);
+
+  await manage.goto();
+  const firstRow = manage.row(firstName);
+  const secondRow = manage.row(secondName);
+  await expect(firstRow).toBeVisible();
+  await expect(secondRow).toBeVisible();
+  await expect(manage.statusBadge(firstRow)).not.toHaveText(/Not polled yet/);
+  await expect(manage.statusBadge(secondRow)).not.toHaveText(/Not polled yet/);
+
+  const firstRowBoxBefore = await firstRow.boundingBox();
+  const secondRowBoxBefore = await secondRow.boundingBox();
+  if (!firstRowBoxBefore || !secondRowBoxBefore) {
+    throw new Error('A row of the manage table has no box.');
+  }
+
+  // Opens the dialog of the first row, and proves it is a real modal
+  // dialog (`showModal()`, not a plain `open` attribute toggle): the CSS
+  // pseudo-class `:modal` matches only the top layer, modal case.
+  await manage.openEditForm(firstRow);
+  await expect(page.locator('dialog:modal')).toHaveCount(1);
+  await expect(manage.editDialog(firstRow)).toHaveCount(1);
+
+  const firstRowBoxDuring = await firstRow.boundingBox();
+  const secondRowBoxDuring = await secondRow.boundingBox();
+  if (!firstRowBoxDuring || !secondRowBoxDuring) {
+    throw new Error('A row of the manage table has no box, with the dialog open.');
+  }
+  console.log(
+    `issue #364: the row height is ${firstRowBoxBefore.height}px before the dialog opens ` +
+      `and ${firstRowBoxDuring.height}px while it is open; the row below sits at ` +
+      `${secondRowBoxBefore.y}px before and ${secondRowBoxDuring.y}px while the dialog is open.`,
+  );
+  expect(firstRowBoxDuring.height).toBe(firstRowBoxBefore.height);
+  expect(secondRowBoxDuring.y).toBe(secondRowBoxBefore.y);
+
+  // The rename keeps the exact same length as firstName: a longer name
+  // can wrap onto a second line in the narrow App column, which would
+  // grow the row for a reason that has nothing to do with the dialog.
+  const renamedTo = firstName.replace('edit-dialog-a-', 'edit-dialog-r-');
+  await manage.renameAndSave(firstRow, renamedTo);
+  const renamedRow = manage.row(renamedTo);
+  await expect(renamedRow).toBeVisible();
+
+  const secondRowBoxAfter = await secondRow.boundingBox();
+  if (!secondRowBoxAfter) {
+    throw new Error('The row below has no box after the save.');
+  }
+  expect(secondRowBoxAfter.y).toBe(secondRowBoxBefore.y);
 });
 
 /** A fixed, well-formed UUID for one test request's `sessionId` field (the form of `collector.spec.ts`). */
@@ -1156,6 +1323,81 @@ test('the nav pills, the "Pause refresh" pill, and the action buttons each keep 
     throw new Error('The nav pill or the "Sign out" button has no box.');
   }
   expect(signOutBox.y).toBeGreaterThanOrEqual(navBox.y + navBox.height);
+});
+
+// Issue #361, finding D1 of the UI audit: the dashboard shell uses the
+// dark tokens under `prefers-color-scheme: dark`, not the bright page.
+// Each contrast assertion sits beside an `opacity` assertion (lesson 24
+// of the frontend brief): a faded control passes a naive contrast
+// check, so this test reads the real `opacity` value next to each
+// contrast measurement, never the contrast alone.
+test('the dashboard shell uses the dark tokens under prefers-color-scheme: dark (issue #361)', async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+
+  const apps = new AppsPage(page);
+  await apps.goto();
+
+  // The body keeps the dark `--shallows` token (#14122a), not the
+  // bright page (#e6f3ff).
+  const body = page.locator('body');
+  await expect(body).toHaveCSS('background-color', 'rgb(20, 18, 42)');
+  await expect(body).toHaveCSS('opacity', '1');
+  const bodyColor = await body.evaluate((element) => getComputedStyle(element).color);
+  expect(ratio(toHex(bodyColor), '#14122a')).toBeGreaterThanOrEqual(4.5);
+
+  // The band label pair (MAJOR 1 of the review of pull request #435):
+  // `--paper-bright` keeps the plain nav pill ("Manage apps") readable
+  // on the octo band in the dark scheme too, not dark text on a dark
+  // fill.
+  const manageAppsPill = page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Manage apps' });
+  await expect(manageAppsPill).toBeVisible();
+  await expect(manageAppsPill).toHaveCSS('opacity', '1');
+  const pillColors = await manageAppsPill.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { fg: style.color, bg: style.backgroundColor, edge: style.borderTopColor };
+  });
+  expect(ratio(toHex(pillColors.fg), toHex(pillColors.bg))).toBeGreaterThanOrEqual(4.5);
+
+  // The control edge pair (MAJOR 3 of the review): `.band` sets its own
+  // `--line-control`, so the pill edge still reads 3:1 on the octo band
+  // fill in the dark scheme, not the page's own dark `--ink`.
+  const bandFill = await page
+    .locator('header.band')
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(ratio(toHex(pillColors.edge), toHex(bandFill))).toBeGreaterThanOrEqual(3);
+
+  // The "demo" app badge: the mark and the word of status-format.ts keep
+  // 4.5:1 on their fill in the dark scheme too (the badge text is
+  // `--text-s`, never a large text).
+  const badge = apps.rowOf('demo').status.locator('.badge');
+  await expect(badge).toBeVisible();
+  await expect(badge).toHaveCSS('opacity', '1');
+  const badgeColors = await badge.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { fg: style.color, bg: style.backgroundColor };
+  });
+  expect(ratio(toHex(badgeColors.fg), toHex(badgeColors.bg))).toBeGreaterThanOrEqual(4.5);
+
+  // The disabled "Delete this app" button of the delete dialog
+  // (`.btn[disabled]`, issue #384/#410): a shallows fill, an ink-soft
+  // text, a dashed border, and no opacity change. This reads the real
+  // `opacity` (it must stay `1`, not a faded value) next to the
+  // contrast of the dark-scheme pair.
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const row = manage.row('demo');
+  await manage.openDeleteDialog(row);
+  const confirmButton = manage.deleteConfirmButton(row);
+  await expect(confirmButton).toBeVisible();
+  await expect(confirmButton).toBeDisabled();
+  await expect(confirmButton).toHaveCSS('border-style', 'dashed');
+  await expect(confirmButton).toHaveCSS('opacity', '1');
+  expect(await disabledButtonContrastRatio(confirmButton)).toBeGreaterThanOrEqual(4.5);
+  await manage.cancelDeleteDialog(row);
 });
 
 /**

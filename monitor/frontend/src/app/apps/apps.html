@@ -30,7 +30,7 @@
               <th scope="col" class="num">Unique sessions</th>
               <th scope="col" class="first-pages-header">First pages</th>
               <th scope="col">Status</th>
-              <th scope="col">Data time ({{ zoneName }})</th>
+              <th scope="col">Last updated</th>
             </tr>
           </thead>
           <tbody>
@@ -70,14 +70,6 @@
                     <span aria-hidden="true">{{ statusIcon(row.status) }}</span>
                     {{ statusLabel(row.status) }}
                   </span>
-                  @if (isFailed(row.status) && row.lastSuccessAt) {
-                    <p class="data-from">
-                      Data from
-                      <time [attr.datetime]="row.lastSuccessAt">{{
-                        formatTime(row.lastSuccessAt)
-                      }}</time>
-                    </p>
-                  }
                   @if (isFailed(row.status) && row.lastError) {
                     <p class="error-text">{{ row.lastError }}</p>
                   }
@@ -87,9 +79,11 @@
                 </td>
                 <td class="data-time" (click)="onRowCellClick(row, $event)">
                   @if (row.lastSuccessAt) {
-                    <time [attr.datetime]="row.lastSuccessAt">{{
-                      formatDateTime(row.lastSuccessAt)
-                    }}</time>
+                    <time
+                      [attr.datetime]="row.lastSuccessAt"
+                      [attr.title]="formatDateTime(row.lastSuccessAt)"
+                      >{{ lastUpdatedText(row.lastSuccessAt) }}</time
+                    >
                   } @else {
                     <span class="visually-hidden">No data</span><span aria-hidden="true">–</span>
                   }

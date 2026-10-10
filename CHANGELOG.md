@@ -54,6 +54,22 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Let the full-size dialog hold the capture at its own natural width, with a pan, so
   the row text reads at 12.8 px at 390 px too. (#359, the correction round of pull
   request #424)
+- Rewrite the hero note, the waitlist lead, and the footer labels in plain language.
+  Each fact stays the same. (#356)
+- Fold the footer notice into a collapsed "Waitlist privacy notice", with a link
+  beside the waitlist form. Add one footer row: the mark, the copyright line, the
+  contact address, and "Sign in". (#388)
+- Run the waitlist end-to-end scenario with reduced motion, so the page scroll makes
+  no click of the scenario fail at random. (#426)
+- Move the hero mark into the top bar under 48rem, beside the wordmark, so it does
+  not sit alone above the heading on a phone. (#370)
+- Raise the link underline and the focus halo to a 3:1 contrast against the page in
+  the light scheme, with the new tokens `--link-underline` and `--focus-halo`; the
+  focus outline keeps the brand sunny colour in both schemes. (#409)
+- Set the small text token of the design mock to 14 px, the same size as the site
+  token. (#425)
+- Add a dark-scheme row for each light pair of the contrast script, so a dark-scheme
+  regression now shows in the script output. (#429)
 
 ### Contract
 
@@ -151,6 +167,15 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   button look and the pill look never mix in one row. (#360)
 - Give the Filter button and each pager button the 44 px minimum height of a
   button, on the users, the sessions, and the first-pages view. (#368)
+- Add a dark color scheme: a `prefers-color-scheme: dark` block of dark tokens, and the
+  band's ink and paper as token values, not hex literals. (#361)
+- Rename the "Data time" column of the apps table to "Last updated". The cell now
+  shows a relative time, with the full time in its title; the status cell drops the
+  "Data from" line. The cell reads its own 30 s clock, so the relative text stays
+  fresh with no new poll answer. The Sessions "Start time" column and the Elements
+  "Last interaction" column keep their seconds. (#390)
+- Open the Edit app form in a dialog, like the delete dialog and the new-secret-key
+  dialog; the table row keeps its own height. (#364)
 - Center the "Pause refresh" label inside its pill; show a pause icon or a play icon
   next to the label, in place of the hidden check mark. (#363)
 - Keep the brand mark, the nav pills, and an account control on one row at a phone
@@ -190,6 +215,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   served-tracker section to `docs/run-guide.md`. (#298)
 - Add the "Your users" section to `docs/add-octometer.md`, and the pseudonymous id and
   erasure paragraph to `docs/privacy.md`. (#300)
+- Pull the local-service MongoDB image from the Amazon ECR Public mirror, not from
+  Docker Hub, so a manual start never hits the anonymous pull limit. (#430)
 
 ## 0.3.0 - 2026-09-28
 

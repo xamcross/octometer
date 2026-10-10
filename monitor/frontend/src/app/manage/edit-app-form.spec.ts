@@ -8,6 +8,39 @@ import type { AppDetail } from './app-registry-api';
 import { EditAppForm } from './edit-app-form';
 
 /**
+ * `jsdom` (the runner of this suite) has no working `HTMLDialogElement`
+ * (see `delete-app-dialog.spec.ts`). This adds the same minimal
+ * stand-in for this file only, and removes it in `afterEach`. The HTML
+ * Standard fires the `close` event from a queued task, and not at once
+ * ("close the dialog", the last step); a real `setTimeout` schedules
+ * the event on a later task here too (issue #364).
+ */
+function installDialogPolyfill(): void {
+  const proto = HTMLDialogElement.prototype as unknown as {
+    showModal?: (this: HTMLDialogElement) => void;
+    close?: (this: HTMLDialogElement, returnValue?: string) => void;
+  };
+  proto.showModal = function (this: HTMLDialogElement): void {
+    this.setAttribute('open', '');
+  };
+  proto.close = function (this: HTMLDialogElement): void {
+    this.removeAttribute('open');
+    setTimeout(() => this.dispatchEvent(new Event('close')), 0);
+  };
+}
+
+function removeDialogPolyfill(): void {
+  const proto = HTMLDialogElement.prototype as unknown as Record<string, unknown>;
+  delete proto['showModal'];
+  delete proto['close'];
+}
+
+/** Waits for one queued task, so a `setTimeout(..., 0)` of the dialog polyfill runs. */
+function flushQueuedTask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
  * Finds the first loaded CSS rule with the given selector text (the
  * pattern of apps.spec.ts). Angular appends its own content attribute
  * to a selector of an emulated component, so this function strips that
@@ -107,6 +140,7 @@ describe('EditAppForm', () => {
   let announcer: Announcer;
 
   beforeEach(async () => {
+    installDialogPolyfill();
     await TestBed.configureTestingModule({
       imports: [EditAppForm],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -121,7 +155,11 @@ describe('EditAppForm', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    httpMock.verify();
+    try {
+      httpMock.verify();
+    } finally {
+      removeDialogPolyfill();
+    }
   });
 
   function root(): HTMLElement {
@@ -163,10 +201,28 @@ describe('EditAppForm', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('shows only an "Edit app" button before the user opens the form', () => {
-    expect(root().querySelector('form')).toBeNull();
+  it('shows the "Edit app" button with the dialog closed, before the user opens it (issue #364)', () => {
     const toggle = root().querySelector('button.edit-toggle');
     expect(toggle?.textContent?.trim()).toBe('Edit app');
+    const dialog = root().querySelector('dialog')!;
+    expect(dialog.hasAttribute('open')).toBe(false);
+  });
+
+  it('opens the dialog on a click on the "Edit app" trigger (issue #364)', () => {
+    openEditor();
+
+    const dialog = root().querySelector('dialog')!;
+    expect(dialog.hasAttribute('open')).toBe(true);
+  });
+
+  it('gives the dialog an accessible name from its own heading (issue #364)', () => {
+    openEditor();
+
+    const dialog = root().querySelector('dialog')!;
+    const labelledBy = dialog.getAttribute('aria-labelledby');
+    const heading = document.getElementById(labelledBy ?? '');
+    expect(heading?.tagName).toBe('H2');
+    expect(heading?.textContent?.trim().length).toBeGreaterThan(0);
   });
 
   it('gives the Edit app, Save, and Cancel buttons their classes', () => {
@@ -409,7 +465,7 @@ describe('EditAppForm', () => {
   });
 
   describe('on a saved answer', () => {
-    it('closes the form, announces "App updated", and emits updated', () => {
+    it('closes the dialog, announces "App updated", and emits updated (issue #364)', () => {
       const announceSpy = vi.spyOn(announcer, 'announce');
       const updatedSpy = vi.fn();
       fixture.componentInstance.updated.subscribe(updatedSpy);
@@ -422,12 +478,13 @@ describe('EditAppForm', () => {
         .flush(buildDetail(), { status: 200, statusText: 'OK' });
       flushRoutesPut();
 
-      expect(root().querySelector('form')).toBeNull();
+      const dialog = root().querySelector('dialog')!;
+      expect(dialog.hasAttribute('open')).toBe(false);
       expect(announceSpy).toHaveBeenCalledWith('App updated');
       expect(updatedSpy).toHaveBeenCalled();
     });
 
-    it('moves the focus back to the "Edit app" button after a save', async () => {
+    it('moves the focus back to the "Edit app" button after a save', () => {
       openEditor();
       root()
         .querySelector('form')!
@@ -436,9 +493,23 @@ describe('EditAppForm', () => {
         .expectOne({ url: '/api/apps/3/origins', method: 'PUT' })
         .flush(buildDetail(), { status: 200, statusText: 'OK' });
       flushRoutesPut();
-      await fixture.whenStable();
 
       const toggle = root().querySelector<HTMLButtonElement>('button.edit-toggle')!;
+      expect(document.activeElement).toBe(toggle);
+    });
+
+    it('does not move the focus back to the trigger once the queued close event later arrives', async () => {
+      openEditor();
+      root()
+        .querySelector('form')!
+        .dispatchEvent(new Event('submit', { cancelable: true }));
+      httpMock
+        .expectOne({ url: '/api/apps/3/origins', method: 'PUT' })
+        .flush(buildDetail(), { status: 200, statusText: 'OK' });
+      flushRoutesPut();
+
+      const toggle = root().querySelector<HTMLButtonElement>('button.edit-toggle')!;
+      await flushQueuedTask();
       expect(document.activeElement).toBe(toggle);
     });
   });
@@ -480,7 +551,7 @@ describe('EditAppForm', () => {
     );
   });
 
-  it('closes the form and discards changes on Cancel', () => {
+  it('closes the dialog and discards changes on Cancel (issue #364)', () => {
     openEditor();
     const name = root().querySelector<HTMLInputElement>('input[id^="edit-app-name-"]')!;
     name.value = 'discarded';
@@ -489,7 +560,8 @@ describe('EditAppForm', () => {
     root().querySelector<HTMLButtonElement>('button.cancel')!.click();
     fixture.detectChanges();
 
-    expect(root().querySelector('form')).toBeNull();
+    const dialog = root().querySelector('dialog')!;
+    expect(dialog.hasAttribute('open')).toBe(false);
 
     openEditor();
     const reopenedName = root().querySelector<HTMLInputElement>('input[id^="edit-app-name-"]')!;
@@ -498,11 +570,14 @@ describe('EditAppForm', () => {
 
   it('moves the focus back to the "Edit app" button after Cancel', async () => {
     openEditor();
+    const toggle = root().querySelector<HTMLButtonElement>('button.edit-toggle')!;
+
     root().querySelector<HTMLButtonElement>('button.cancel')!.click();
     fixture.detectChanges();
-    await fixture.whenStable();
+    await flushQueuedTask();
 
-    const toggle = root().querySelector<HTMLButtonElement>('button.edit-toggle')!;
+    const dialog = root().querySelector('dialog')!;
+    expect(dialog.hasAttribute('open')).toBe(false);
     expect(document.activeElement).toBe(toggle);
   });
 

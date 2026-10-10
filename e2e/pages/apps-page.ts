@@ -9,6 +9,7 @@ export interface AppRowLocators {
   readonly uniqueUsers: Locator;
   readonly uniqueSessions: Locator;
   readonly status: Locator;
+  readonly lastUpdated: Locator;
 }
 
 export interface AppTotals {
@@ -42,7 +43,13 @@ export class AppsPage {
       uniqueUsers: cells.nth(1),
       uniqueSessions: cells.nth(2),
       status: cells.nth(4),
+      lastUpdated: cells.nth(5),
     };
+  }
+
+  /** The "Last updated" header cell of the table (issue #390). */
+  get lastUpdatedHeader(): Locator {
+    return this.page.getByRole('columnheader', { name: 'Last updated' });
   }
 
   /** The count of data rows of the table (the header row excluded), for issue #301. */

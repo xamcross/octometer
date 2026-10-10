@@ -42,7 +42,7 @@ ol {
 a {
   color: var(--ink);
   text-decoration: underline;
-  text-decoration-color: var(--coral);
+  text-decoration-color: var(--link-underline);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
 }
@@ -106,29 +106,30 @@ a:hover {
   align-items: center;
   gap: var(--space-2);
 }
+/*
+ * The MAJOR 1 correction of the review of pull request #440. The
+ * wordmark no longer hides under 48rem. The mark sits beside it at
+ * 390 px too. The mark grows from 32 px to 40 px, the size that issue
+ * #370 states. The "Sign in" link still sets the bar's height floor, so
+ * this change does not raise the bar.
+ */
 .topbar-mark {
-  width: 32px;
-  height: 32px;
-}
-.topbar-brand .word {
-  display: none;
+  width: 40px;
+  height: 40px;
 }
 .topbar-links {
   display: flex;
   align-items: center;
   gap: var(--space-4);
 }
-/* Under 48rem the bar keeps only the mark and "Sign in" (the last link):
-   the hidden links also leave the Tab order. */
+/* Under 48rem the bar keeps only the mark, the wordmark, and "Sign in"
+   (the last link): the hidden links also leave the Tab order. */
 .topbar-links li:not(:last-child) {
   display: none;
 }
 @media (min-width: 48rem) {
   .topbar-inner {
     padding-inline: var(--space-6);
-  }
-  .topbar-brand .word {
-    display: inline;
   }
   .topbar-links li:not(:last-child) {
     display: inline;
@@ -151,6 +152,30 @@ a:hover {
   display: grid;
   gap: var(--space-4);
   justify-items: start;
+}
+/*
+ * The audit finding L15 (issue #370), the MAJOR 1 correction of the
+ * review of pull request #440. Step 3 and step 4 of issue #370 move the
+ * mark into the top bar. The top bar carries the mark beside the
+ * wordmark under 48rem. So the hero's own mark and its own wordmark
+ * both hide under 48rem. Both show again at 48rem and above, in the
+ * place each held before issue #370. MINOR 1 of the review names the
+ * gap between 48rem and 56rem that this leaves. That finding stays
+ * open, in `minor_issues/440.md`.
+ */
+.hero > .mark {
+  display: none;
+}
+.hero-text > .word {
+  display: none;
+}
+@media (min-width: 48rem) {
+  .hero > .mark {
+    display: block;
+  }
+  .hero-text > .word {
+    display: block;
+  }
 }
 @media (min-width: 56rem) {
   .hero {
@@ -756,19 +781,27 @@ label {
   background: var(--coral);
 }
 
-/* 6. The footer with the notice (issue #290, the mockup rules verbatim). */
+/*
+ * 6. The footer. Issue #290 gave the plain rules; issue #388 (the audit
+ * finding L8) folds the notice into a "<details>" element, so it no
+ * longer weighs as much as the product, and ends the page on one real
+ * footer row (the mark, the copyright line, the contact address, and
+ * "Sign in").
+ */
 .foot {
   display: grid;
   gap: var(--space-4);
   padding-top: var(--space-5);
   border-top: var(--line-control);
 }
-.foot h2 {
-  font-size: var(--text-xl);
+.notice-details summary {
+  font: 600 var(--text-m) / 1.15 var(--display);
+  cursor: pointer;
 }
 .notice {
   display: grid;
   gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 .notice li {
   max-width: 60ch;
@@ -778,6 +811,21 @@ label {
   gap: var(--space-2);
   font-size: var(--text-s);
 }
+.foot-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: var(--line-control);
+}
+.foot-mark {
+  width: 28px;
+  height: 28px;
+}
+.foot-row .btn {
+  margin-left: auto;
+}
 
 /*
  * The quality floor (issue #287, issue #288): the focus ring of
@@ -785,12 +833,12 @@ label {
  * forced-colors answers for the hero and its controls.
  */
 :focus-visible {
-  outline: 3px solid var(--sunny);
+  outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
-  box-shadow: 0 0 0 7px var(--on-bright);
+  box-shadow: 0 0 0 7px var(--focus-halo);
 }
 .btn:focus-visible {
-  box-shadow: var(--shadow-control), 0 0 0 7px var(--on-bright);
+  box-shadow: var(--shadow-control), 0 0 0 7px var(--focus-halo);
 }
 /*
  * The scroll reveal of the flow illustration (issue #289). This rule
