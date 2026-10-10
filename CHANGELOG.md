@@ -43,6 +43,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   the zeros once. (#365)
 - Widen the waitlist panel to fill its row at 48rem and above, with the email
   field and the button on one row. (#381)
+- Add a product-shot preview to the right side of the hero at 56rem and above, built
+  as an HTML table in the visual family of `.frame`, so no empty strip sits past the
+  copy. (#372)
 - Add a button on each "Three levels" card that opens one dashboard capture at full
   size, with a close control and the Escape key. (#359)
 - Put each "Three levels" card on its own row at 1280 px, so the row text of each
