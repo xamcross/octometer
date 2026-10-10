@@ -472,9 +472,19 @@ a:hover {
 }
 
 /* 3. The three levels (issue #289, the mockup rules verbatim). */
+/* Issue #359 correction round, criterion 1 (the owner's body edit of
+   2026-10-10): a two-column row at 1280px gave each small card about
+   526px of image width, below the 12px text floor of the users capture
+   and the elements capture (720px wide). The users table and the
+   elements table do not fit a narrower capture of 560px or less (the
+   scroll guard of "screenshots.mjs" throws on both), so this fix keeps
+   the capture width and puts each card on its own row instead. Each
+   image then renders near the full "page" width, at or above the 12px
+   floor. */
 .levels {
   display: grid;
   gap: var(--space-5);
+  grid-template-columns: 1fr;
 }
 .frame {
   display: grid;
@@ -491,17 +501,117 @@ a:hover {
 .frame h3 {
   font-size: var(--text-l);
 }
-.frame picture {
-  align-self: end;
-}
 .frame figcaption {
   max-width: 50ch;
 }
-/* Correction m3 of the brief review: the frame image never grows past it. */
+/* Correction m3 of the brief review: the frame image never grows past
+   its frame. Issue #359: "width: 100%" (in place of "max-width: 100%")
+   fills each card, now one per row at a width past the capture's own
+   declared size; the card keeps no blank strip beside a capture that
+   stops at its declared width. */
 .frame img {
-  max-width: 100%;
+  width: 100%;
   height: auto;
   display: block;
+}
+
+/* Issue #359 (the UI audit finding L1): the button that opens one
+   screenshot at full size. It replaces "picture" as the direct child of
+   ".frame" that the grid-template-rows of ".frame" pins to the bottom
+   row, so "align-self: end" moves here. */
+.frame-open {
+  position: relative;
+  align-self: end;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: zoom-in;
+}
+/* The hint sits over the top-left corner of the capture (the Octometer
+   mark and wordmark, the same spot on every capture), never over a
+   table row or the "Apps"/"Manage apps" links at the top right; the
+   image keeps its own bottom edge against the figcaption above it (the
+   gap that the pull request of issue #382 measures). */
+.frame-open-hint {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line-control);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-s);
+  box-shadow: var(--shadow-control);
+}
+
+/* The full-size dialog of issue #359. The native "dialog" element traps
+   the focus and closes on Escape on its own; "main.ts" adds the close
+   button and the click outside the image. */
+/* Correction round of pull request #424, MAJOR 1: at 390px the old
+   "max-width: 100%" on ".lightbox-img" shrank the image below the
+   card's own capture, so the dialog gave no gain over the card. The
+   dialog now holds the capture at its own natural width (no "max-width"
+   rule on the image), and ".lightbox-pan" lets the visitor pan to the
+   part that does not fit the screen. The card itself stays as it is. */
+/* Second correction round, MAJOR 4: the old "overflow: auto" sat on
+   ".lightbox" itself, so a pan carried ".lightbox-close" away with the
+   image (it is a child of the scroll box). The pan now sits on
+   ".lightbox-pan" alone; ".lightbox" stays put at the size of the
+   viewport, with no scroll of its own, so the close button (a sibling
+   of ".lightbox-pan", not inside it) stays in view through the whole
+   pan. This form also answers MINOR row 1 of minor_issues/424.md: a
+   click inside ".lightbox" but outside ".lightbox-pan" is a real click
+   on the dialog's own background, not a click inside a padding ring
+   that a scroll has carried the image behind. */
+.lightbox {
+  /* "position: fixed" repeats the browser default of "dialog:modal", so
+     the dialog still centers at the middle of the screen; it also gives
+     ".lightbox-close" its positioned ancestor. */
+  position: fixed;
+  max-width: 100vw;
+  max-height: 100vh;
+  margin: auto;
+  padding: var(--space-5);
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line-panel);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+}
+.lightbox::backdrop {
+  background: var(--backdrop);
+}
+.lightbox-pan {
+  overflow: auto;
+  max-width: calc(100vw - 2 * var(--space-5));
+  max-height: calc(100vh - 2 * var(--space-5));
+}
+.lightbox-img {
+  display: block;
+}
+.lightbox-close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: var(--text-l);
+  line-height: 1;
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line-control);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-control);
+  cursor: pointer;
 }
 
 /* 4. What we keep (issue #290, the mockup rules verbatim). */
@@ -720,6 +830,8 @@ label {
   .btn,
   .frame,
   .panel,
+  .frame-open,
+  .lightbox,
   input {
     outline: 2px solid;
     outline-offset: 0;
@@ -741,12 +853,6 @@ label {
   }
   .flow {
     justify-self: start;
-  }
-  .levels {
-    grid-template-columns: 1fr 1fr;
-  }
-  .levels > :first-child {
-    grid-column: 1 / -1;
   }
   /* Issue #381, audit finding L6, step 1 and step 2: the old rule
    * "max-width: 26rem" left about two-thirds of the row empty. The new
@@ -780,4 +886,10 @@ label {
   .panel-body .btn {
     width: auto;
   }
+  /* Issue #359, the correction round of pull request #424, MAJOR 3: the
+   * media query of issue #381 (above) is not the place for ".levels".
+   * The row text of the users card and the elements card fails the 12px
+   * floor in a two-column row at 1280px (the review of pull request
+   * #424); ".levels" above site/src/styles/site.css:353 keeps one column
+   * at every width, with no override here. */
 }
