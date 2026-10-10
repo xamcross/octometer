@@ -31,16 +31,7 @@ h1 {
   margin-top: 0;
 }
 
-/* The field, the label, and the error, the same rules as add-app-form.css:
-   Angular scopes a component stylesheet to its own template only, so a
-   plain form here needs its own copy, not a global class. */
-.field {
-  margin-bottom: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  max-width: 32rem;
-}
+/* The `.field` rule is global (`styles.css`, #385); this file adds none. */
 
 label {
   font-weight: bold;
@@ -70,7 +61,7 @@ label {
 
 .form-error {
   padding-left: 12px;
-  border-left: 3px solid var(--coral);
+  border-left: 3px solid var(--coral-edge);
   font-weight: 700;
   overflow-wrap: anywhere;
   margin: 8px 0 0;

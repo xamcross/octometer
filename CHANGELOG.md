@@ -182,6 +182,13 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   dialog; the table row keeps its own height. (#364)
 - Add a hover state to the `.btn` class, the nav pill, the Pause refresh pill, and
   the global link style. (#369)
+- Hoist the `.field`, `.form-hint`, and base `dialog` rules of the manage forms and the
+  sign-in form into one shared stylesheet; each form and dialog renders the same.
+  (#385)
+- Darken the `.form-error` left border from `--coral` to `--coral-deep`, and add a
+  leading "⚠" glyph to each error message. (#383)
+- Correct the invalid-field ring pair of `docs/design/contrast.mjs` to the real token
+  value, `--coral-deep`; the pair now reads 4.5:1, at or above the 3:1 floor. (#438)
 - Show an error state with a "Try again" button on the apps view, the users view, the
   sessions view, and the first-pages view, when the first list request fails; the
   perpetual loading sentence no longer shows. (#373)
