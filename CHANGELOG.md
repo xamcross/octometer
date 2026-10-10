@@ -145,6 +145,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   padding, a `.badge` Status cell, and a right-aligned Patterns column. (#379)
 - Bind the Elements table caption to the selected view: it names "this session", "an
   anonymous visit", or "this user". (#392)
+- Show a "Deleting…" label with `aria-busy="true"` on the delete-confirm button while
+  the delete request is in flight; the label returns on an error. (#393)
 - Add a hover state to the `.btn` class, the nav pill, the Pause refresh pill, and
   the global link style. (#369)
 

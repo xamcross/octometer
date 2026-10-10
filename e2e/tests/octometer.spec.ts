@@ -37,9 +37,11 @@ async function captionTopPaddingPx(page: Page, captionId: string): Promise<numbe
 /**
  * The WCAG 2.x contrast ratio of the text color against the background
  * color of one element (issue #384, finding D25: the disabled Delete
- * button measured about 2.07:1 at `opacity: 0.55`). The locator
- * evaluate reads the two resolved `rgb(...)` strings of the real
- * browser; the ratio math runs here in Node.
+ * button measured about 2.07:1 at `opacity: 0.55`; issue #393, MAJOR 3
+ * of the review of pull request #428: the pending delete label reused
+ * the same floor). The locator evaluate reads the two resolved
+ * `rgb(...)` strings of the real browser; the ratio math runs here in
+ * Node.
  */
 async function disabledButtonContrastRatio(button: Locator): Promise<number> {
   const [textColor, backgroundColor] = (await button.evaluate((element) => {
@@ -936,6 +938,100 @@ test('the add-app heading has no top margin (issue #389)', async ({ page }) => {
     };
   });
   expect(Math.abs(gaps.topGap - gaps.bottomGap)).toBeLessThanOrEqual(2);
+});
+
+// Issue #393, finding D30 of the UI audit: the delete-confirm button
+// shows "Deleting…" with aria-busy="true" while the delete request is
+// in flight. The route below holds the DELETE answer open, so the
+// pending state stays visible long enough for the assertions; the real
+// request can finish in under one render frame.
+test('the delete-confirm button shows a Deleting label while the request is pending (issue #393, D30)', async ({
+  page,
+  request,
+}) => {
+  const monitorUrl = readMonitorUrl();
+  const appName = `delete-pending-app-${Date.now()}`;
+  const createResponse = await request.post('/api/apps', {
+    headers: { Origin: monitorUrl },
+    data: { name: appName, origins: ['https://delete-pending.example'] },
+  });
+  expect(createResponse.status()).toBe(201);
+
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const row = manage.row(appName);
+  await expect(row).toBeVisible();
+
+  let releaseDelete = () => {};
+  const deleteHeld = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+  await page.route('**/api/apps/*', async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fallback();
+      return;
+    }
+    await deleteHeld;
+    const response = await route.fetch();
+    await route.fulfill({ response });
+  });
+
+  await manage.openDeleteDialog(row);
+  await manage.deleteConfirmNameField(row).fill(appName);
+  const confirmButton = manage.deleteConfirmButton(row);
+  const cancelButton = row.getByRole('button', { name: 'Cancel' });
+  await expect(confirmButton).toHaveText('Delete this app');
+  await expect(confirmButton).not.toHaveAttribute('aria-busy');
+
+  // MAJOR 2 of the review of pull request #428: the confirm button
+  // keeps the width of its longer, rest-state label, so Cancel does
+  // not move under the pointer once the pending label shrinks it.
+  const restConfirmBox = await confirmButton.boundingBox();
+  const restCancelBox = await cancelButton.boundingBox();
+  if (!restConfirmBox || !restCancelBox) {
+    throw new Error('The confirm button or the Cancel button has no box in the rest state.');
+  }
+
+  await confirmButton.click();
+  await expect(confirmButton).toHaveText('Deleting…');
+  await expect(confirmButton).toHaveAttribute('aria-busy', 'true');
+  await expect(confirmButton).toBeDisabled();
+
+  const pendingConfirmBox = await confirmButton.boundingBox();
+  const pendingCancelBox = await cancelButton.boundingBox();
+  if (!pendingConfirmBox || !pendingCancelBox) {
+    throw new Error('The confirm button or the Cancel button has no box in the pending state.');
+  }
+  console.log(
+    `issue #393, MAJOR 2: the confirm button width is ${restConfirmBox.width}px at rest ` +
+      `and ${pendingConfirmBox.width}px pending; the Cancel button left x is ` +
+      `${restCancelBox.x}px at rest and ${pendingCancelBox.x}px pending.`,
+  );
+  expect(Math.abs(pendingConfirmBox.width - restConfirmBox.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(pendingCancelBox.x - restCancelBox.x)).toBeLessThanOrEqual(1);
+
+  // MAJOR 3 of the review of pull request #428: pull request #410
+  // gives `.btn[disabled]` the shallows fill and the ink-soft text, in
+  // place of the old opacity rule, so the pending label stays at an
+  // accessible contrast with no rule of its own. The `opacity: 1`
+  // check documents that #410 state (lesson 24 of the frontend brief:
+  // a contrast check beside an explicit opacity assertion, since
+  // `getComputedStyle` colors alone ignore a faded element).
+  await expect(confirmButton).toHaveCSS('opacity', '1');
+  const pendingContrast = await disabledButtonContrastRatio(confirmButton);
+  console.log(`issue #393, MAJOR 3: the pending label contrast is ${pendingContrast.toFixed(2)}:1.`);
+  expect(pendingContrast).toBeGreaterThanOrEqual(4.5);
+
+  releaseDelete();
+  await expect(row.locator('dialog[aria-labelledby^="delete-app-heading"]')).toBeHidden();
+  await page.unroute('**/api/apps/*');
+
+  // Reads the stored state, not only the page text: the app is truly
+  // gone from the registry's own answer (lesson 19 of the frontend
+  // brief).
+  const afterResponse = await request.get('/api/apps');
+  const afterRows = (await afterResponse.json()) as ReadonlyArray<{ name: string }>;
+  expect(afterRows.some((r) => r.name === appName)).toBe(false);
 });
 
 /**
