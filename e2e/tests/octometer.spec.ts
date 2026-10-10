@@ -107,6 +107,17 @@ async function pageOverflowsX(page: Page): Promise<boolean> {
 }
 
 /**
+ * The left padding of a table cell, in CSS px (issue #379, finding D10:
+ * the Manage table used a local `th, td { padding: 0.5rem 0.75rem }`
+ * rule, 12px on the left, instead of the shared `.panel th, .panel td`
+ * rule of styles.css, 16px on the left).
+ */
+async function cellPaddingLeftPx(locator: Locator): Promise<number> {
+  const value = await locator.evaluate((element) => getComputedStyle(element).paddingLeft);
+  return parseFloat(value);
+}
+
+/**
  * One serial file, one shared app (decision 5). The scenarios run in
  * this fixed order because each one reads the state that an earlier one
  * wrote: the app id of scenario (a), the click totals of scenario (b).
@@ -158,7 +169,8 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     // Issue #384, finding D25: the disabled Delete button shows a dashed
     // border and no opacity change, and its text stays at 4.5:1 or more
     // against its fill. The dialog closes with Cancel, so the demo app
-    // of this serial file stays for every later scenario.
+    // of this serial file stays for every later scenario. `demoManageRow`
+    // is the row this scenario just created above.
     const demoManageRow = manage.row('demo');
     await manage.openDeleteDialog(demoManageRow);
     const confirmDeleteButton = manage.deleteConfirmButton(demoManageRow);
@@ -167,6 +179,17 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await expect(confirmDeleteButton).toHaveCSS('opacity', '1');
     expect(await disabledButtonContrastRatio(confirmDeleteButton)).toBeGreaterThanOrEqual(4.5);
     await manage.cancelDeleteDialog(demoManageRow);
+
+    // Issue #379, finding D10: the Manage table cell padding, the Status
+    // badge, and the Patterns alignment now match the apps table, at a
+    // desktop width and at a narrow width.
+    await expect(manage.statusBadge(demoManageRow)).toHaveCount(1);
+    expect(await cellPaddingLeftPx(manage.patternsCell(demoManageRow))).toBe(16);
+    await expect(manage.patternsCell(demoManageRow)).toHaveCSS('text-align', 'right');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(manage.statusBadge(demoManageRow)).toHaveCount(1);
+    expect(await cellPaddingLeftPx(manage.patternsCell(demoManageRow))).toBe(16);
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     // The app id comes from `GET /api/apps`, through the request context
     // of the test, never from the page response of the POST (correction
