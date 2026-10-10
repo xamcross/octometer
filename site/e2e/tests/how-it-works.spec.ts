@@ -98,11 +98,27 @@ test('the three sections render with their images and texts, and nothing moves u
   //
   // Issue #343: the old images kept one fixed, tall ratio (height /
   // width = 1600 / 2400, about 0.667) below each short table, with an
-  // empty area below it. The bound of 0.6 passes each new, cropped
-  // image (the tallest, the users view, gives about 0.51) and fails
-  // the old ratio (the break proof of the pull request text states
-  // both numbers).
-  const MAX_HEIGHT_TO_WIDTH_RATIO = 0.6;
+  // empty area below it.
+  //
+  // Issue #359: one shared bound no longer fits every view, now that
+  // the apps view captures at a wider viewport (about 920 px, the full
+  // width of its own seven-column table) than the users view and the
+  // elements view (about 720 px each), in place of 1200 px for every
+  // view before. A narrower capture shrinks the width more than the
+  // height, so each tightly cropped image now gives a higher ratio on
+  // its own: apps about 0.54, users about 0.96, elements about 0.68
+  // (the pull request text states each number). Each bound below still
+  // passes its own cropped image and still fails an uncropped shot of
+  // the same capture viewport (height 800 over the capture width: about
+  // 0.87 for apps, about 1.11 for users and for elements).
+  const MAX_HEIGHT_TO_WIDTH_RATIO = [0.7, 1.05, 0.8];
+  // MAJOR 2 of the review of pull request #424: the ratio bound alone
+  // misses a capture at the wrong viewport (the regression of issue
+  // #343). Each capture file is 2x the viewport, so this bound checks
+  // the raw pixel width of the committed file against that viewport:
+  // 1840 px for the apps view (920 px x 2), 1440 px for the users view
+  // and the elements view (720 px x 2 each).
+  const CAPTURE_WIDTH_AT_2X = [1840, 1440, 1440];
   const images = page.locator('.frame img');
   await expect(images).toHaveCount(3);
   const imageCount = await images.count();
@@ -117,20 +133,59 @@ test('the three sections render with their images and texts, and nothing moves u
         height: el.naturalHeight,
       }));
       expect(naturalSize.width).toBeGreaterThan(0);
-      expect(naturalSize.height / naturalSize.width).toBeLessThan(MAX_HEIGHT_TO_WIDTH_RATIO);
+      expect(naturalSize.height / naturalSize.width).toBeLessThan(MAX_HEIGHT_TO_WIDTH_RATIO[i]);
+      expect(naturalSize.width).toBe(CAPTURE_WIDTH_AT_2X[i]);
     }).toPass();
   }
 
-  // BLOCKER 1 of the review of pull request #399, issue #382. At 1280 px
-  // the users card and the elements card share one grid row. Criterion 1
-  // asks for a small gap below each image. Criterion 2 asks for one
-  // shared bottom edge of the two figcaption boxes. The fix adds
-  // "grid-template-rows: auto 1fr auto" to ".frame". The picture row then
-  // takes the leftover height of the shorter card. The rule
-  // ".frame picture { align-self: end }" pins the image to the bottom of
-  // that row. The free space opens between the heading and the image,
-  // not below the caption (the break proof of the pull request text
-  // states each measured number).
+  // MAJOR 3 of the review of pull request #424, criterion 1: the
+  // rendered width against the viewport, alone, does not state the
+  // apparent text size. This asserts the apparent size instead: the
+  // rendered width over the "width" attribute (the capture's own
+  // viewport), times the smallest text token of the capture (12.8 px,
+  // "--text-s" of monitor/frontend/src/styles.css:50), at or above the
+  // 12 px floor, for each of the three cards at 1280 px. The owner's
+  // body edit of 2026-10-10 moved this check from the old 480 px floor
+  // of a two-column row: the users table and the elements table do not
+  // fit a narrower capture (the scroll guard of "screenshots.mjs"
+  // throws on both at 560 px), so ".levels" now puts one card per row
+  // instead (site.css).
+  const TEXT_TOKEN_PX = 12.8;
+  for (let i = 0; i < imageCount; i++) {
+    const image = images.nth(i);
+    const widthAttr = Number(await image.getAttribute('width'));
+    const renderedWidth = (await image.boundingBox())!.width;
+    const apparentTextPx = (renderedWidth / widthAttr) * TEXT_TOKEN_PX;
+    console.log(
+      `issue #359 card ${i} at 1280 px: capture ${widthAttr}px, rendered ` +
+        `${renderedWidth}px, apparent text ${apparentTextPx.toFixed(2)}px`,
+    );
+    expect(apparentTextPx).toBeGreaterThanOrEqual(12);
+  }
+
+  // Issue #359: each card now fills its own row of ".levels" (one
+  // column). "width: 100%" (site.css, in place of "max-width: 100%")
+  // fills the card; the image keeps no blank strip beside a capture
+  // that stopped at its own declared size.
+  const appsWidths = await images.nth(0).evaluate((el: HTMLImageElement) => ({
+    image: el.getBoundingClientRect().width,
+    button: (el.closest('.frame-open') as HTMLElement).getBoundingClientRect().width,
+  }));
+  console.log(
+    `issue #359 apps image width at 1280 px: ${appsWidths.image}px of its card's ` +
+      `${appsWidths.button}px`,
+  );
+  expect(Math.abs(appsWidths.image - appsWidths.button)).toBeLessThan(1);
+
+  // BLOCKER 1 of the review of pull request #399, issue #382, criterion 1:
+  // a small gap sits below each image, above the figcaption. The fix adds
+  // "grid-template-rows: auto 1fr auto" to ".frame", so the middle row
+  // takes any leftover height and the free space never opens below the
+  // caption. Criterion 2 of that review (one shared bottom edge of the
+  // users figcaption and the elements figcaption) no longer applies: the
+  // correction round of pull request #424 puts each card on its own row
+  // of ".levels" (site.css), so the two cards no longer share one grid
+  // row to stretch to one height.
   const frames = page.locator('.frame');
   await expect(frames).toHaveCount(3);
   const usersFrame = frames.nth(1);
@@ -140,7 +195,6 @@ test('the three sections render with their images and texts, and nothing moves u
     const caption = frame.querySelector('figcaption') as HTMLElement;
     return {
       gap: caption.getBoundingClientRect().top - image.getBoundingClientRect().bottom,
-      captionBottom: caption.getBoundingClientRect().bottom,
     };
   };
   const usersMeasure = await usersFrame.evaluate(measure);
@@ -149,9 +203,6 @@ test('the three sections render with their images and texts, and nothing moves u
   // (--space-3, 12 px), at most 16 px.
   expect(usersMeasure.gap).toBeLessThan(16);
   expect(elementsMeasure.gap).toBeLessThan(16);
-  // Criterion 2: the two figcaption boxes share one bottom edge, within
-  // 1 px.
-  expect(Math.abs(elementsMeasure.captionBottom - usersMeasure.captionBottom)).toBeLessThan(1);
 
   // State 3: under reduced motion, a reload shows each node at once, with
   // no transition (lesson 17 of the frontend brief guards against a false
@@ -230,4 +281,143 @@ test('the three sections render with their images and texts, and nothing moves u
     client: document.documentElement.clientWidth,
   }));
   expect(at1440.scroll).toBeLessThanOrEqual(at1440.client);
+});
+
+// The full-size view of a dashboard screenshot (issue #359, the UI audit
+// finding L1, acceptance criterion 2). A click opens the dialog with the
+// full capture; the close button and the Escape key each close it.
+test('a click on a card opens the screenshot at full size, and each control closes it', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+
+  const openButton = page.locator('.frame-open').first();
+  const fullSrc = await openButton.getAttribute('data-full-src');
+  expect(fullSrc).toBeTruthy();
+  const dialog = page.locator('#screenshot-lightbox');
+  const lightboxImage = page.locator('#lightbox-img');
+
+  // Closed at rest. The "toPass" guard of the frontend brief (lesson 18)
+  // does not apply here: "toHaveJSProperty" polls on its own.
+  await expect(dialog).toHaveJSProperty('open', false);
+
+  // A click opens the dialog with the same capture as the card (the
+  // full-size variant of the apps view, the "data-full-src" of its
+  // button, not a thumbnail of a different view).
+  await openButton.click();
+  await expect(dialog).toHaveJSProperty('open', true);
+  await expect(lightboxImage).toHaveAttribute('src', fullSrc!);
+  const naturalWidth = await lightboxImage.evaluate((el: HTMLImageElement) => el.naturalWidth);
+  expect(naturalWidth).toBeGreaterThan(0);
+
+  // The Escape key closes the dialog (the native behaviour of "dialog",
+  // issue #359 step 5).
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveJSProperty('open', false);
+
+  // The close button closes the dialog too.
+  await openButton.click();
+  await expect(dialog).toHaveJSProperty('open', true);
+  await page.locator('.lightbox-close').click();
+  await expect(dialog).toHaveJSProperty('open', false);
+
+  // A click on the backdrop, outside the image, closes the dialog; a
+  // click on the image itself does not (lesson 22 of the frontend brief:
+  // a loop over a located list proves nothing on an empty list, so the
+  // count assertion above on the located buttons still stands as the
+  // guard for this click too).
+  await openButton.click();
+  await expect(dialog).toHaveJSProperty('open', true);
+  const pan = page.locator('.lightbox-pan');
+  await lightboxImage.click();
+  await expect(dialog).toHaveJSProperty('open', true);
+  // MAJOR 1 of the review of pull request #424: the dialog holds the
+  // capture at its natural width, past the viewport, so a click on the
+  // image scrolls the pan box (the actionability step of this click
+  // tool). This line sets the scroll back to the top-left corner, so the
+  // point (5, 5) below sits in the dialog's own padding ring again, not
+  // on the scrolled-in image. MAJOR 4 of the confirmation of pull request
+  // #424: the pan sits on ".lightbox-pan", not on the dialog itself, so
+  // this line reads that element.
+  await pan.evaluate((el) => {
+    el.scrollTop = 0;
+    el.scrollLeft = 0;
+  });
+  await dialog.click({ position: { x: 5, y: 5 } });
+  await expect(dialog).toHaveJSProperty('open', false);
+
+  // MAJOR 1 and MAJOR 3 of the review of pull request #424, criterion 1
+  // at 390 px: the dialog shows the capture at its own natural width
+  // (no "max-width" rule shrinks it), with a pan for the part past the
+  // screen. This asserts the rendered width of the dialog image equals
+  // its own "naturalWidth" (site.css: ".lightbox-img" carries no
+  // "max-width" and no "max-height"; ".lightbox-pan" carries "overflow:
+  // auto" instead).
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openButton.click();
+  await expect(dialog).toHaveJSProperty('open', true);
+  const dialogSize = await lightboxImage.evaluate((el: HTMLImageElement) => ({
+    rendered: el.getBoundingClientRect().width,
+    natural: el.naturalWidth,
+  }));
+  console.log(
+    `issue #359 dialog image at 390 px: rendered ${dialogSize.rendered}px, ` +
+      `natural ${dialogSize.natural}px`,
+  );
+  expect(dialogSize.rendered).toBe(dialogSize.natural);
+
+  // MAJOR 4 of the confirmation of pull request #424: a pan must not
+  // carry the close control away with the image. This scrolls the pan
+  // to its end (the bottom-right corner of the capture) and asserts the
+  // close button's own box still sits inside the 390 px viewport.
+  await pan.evaluate((el) => {
+    el.scrollLeft = el.scrollWidth;
+    el.scrollTop = el.scrollHeight;
+  });
+  const closeBox = (await page.locator('.lightbox-close').boundingBox())!;
+  const viewport = page.viewportSize()!;
+  console.log(
+    `issue #359 close control after a full pan at 390 px: x ${closeBox.x}, ` +
+      `y ${closeBox.y}, width ${closeBox.width}, height ${closeBox.height}`,
+  );
+  expect(closeBox.x).toBeGreaterThanOrEqual(0);
+  expect(closeBox.y).toBeGreaterThanOrEqual(0);
+  expect(closeBox.x + closeBox.width).toBeLessThanOrEqual(viewport.width);
+  expect(closeBox.y + closeBox.height).toBeLessThanOrEqual(viewport.height);
+
+  // MAJOR 6 of the confirmation of pull request #424: a key, not only a
+  // pointer, must pan the dialog. The gate of this part is the markup,
+  // not the key: a probe of this Chromium build (1.63.0) found that it
+  // gives a scrollable region keyboard focus and a scroll from the
+  // arrow keys on its own, with no "tabindex" and no "role" (a Firefox
+  // or a Safari visitor gets no such help, and the reviewer's own
+  // measurement names a browser with the old, strict behaviour). This
+  // line asserts the markup itself, so a removed "tabindex" fails this
+  // test on every browser, not only on the strict ones.
+  await expect(pan).toHaveAttribute('tabindex', '0');
+  await expect(pan).toHaveAttribute('role', 'region');
+  const panLabel = await pan.getAttribute('aria-label');
+  expect(panLabel).toBeTruthy();
+
+  // The keyboard still must pan the region. This resets the pan, moves
+  // the focus onto the close button, and presses Tab once to reach the
+  // pan region (the Tab order of the dialog: the close button first,
+  // then the pan). The key is "ArrowRight", not "End": the same probe
+  // found that this Chromium build moves no scrollable element on an
+  // "End" press except the document itself, while "ArrowRight" moves a
+  // focused region. "scrollLeft" must move past 0.
+  await pan.evaluate((el) => {
+    el.scrollLeft = 0;
+    el.scrollTop = 0;
+  });
+  await page.locator('.lightbox-close').focus();
+  await page.keyboard.press('Tab');
+  await expect(pan).toBeFocused();
+  for (let i = 0; i < 30; i += 1) {
+    await page.keyboard.press('ArrowRight');
+  }
+  const scrollLeftAfterKeys = await pan.evaluate((el) => el.scrollLeft);
+  console.log(`issue #359 pan scrollLeft after 30x keyboard ArrowRight at 390 px: ${scrollLeftAfterKeys}`);
+  expect(scrollLeftAfterKeys).toBeGreaterThan(0);
 });

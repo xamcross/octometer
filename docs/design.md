@@ -57,7 +57,7 @@ own column width.
 
 | Token | Value |
 | --- | --- |
-| `--text-s` | `0.8rem` (12.8px) |
+| `--text-s` | `0.875rem` (14px) |
 | `--text-m` | `1rem` (16px) |
 | `--text-l` | `1.25rem` (20px) |
 | `--text-xl` | `1.5625rem` (25px) |
@@ -65,8 +65,9 @@ own column width.
 | `--text-3xl` | `2.441rem` (39.06px) |
 | `--text-4xl` | `3.0518rem` (48.83px) |
 
-The scale keeps a ratio of 1.25 on a 16px base. Body text keeps a line height of 1.5; a
-heading keeps a line height of 1.15.
+The scale keeps a ratio of 1.25 on a 16px base, except for the small step at 0.875rem
+(14px). Body text keeps a line height of 1.5; a heading keeps a line height of 1.15. The
+dashboard text keeps a floor of 14 px (the audit finding D23).
 
 - `Fredoka` 600 (`--display`): the wordmark, the page title, the panel caption, the nav
   pills, the button text. It gives the UI its cartoon voice.

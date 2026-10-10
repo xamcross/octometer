@@ -67,17 +67,26 @@ tbody tr:focus-within > * {
   }
 }
 
+/*
+ * A grid, not a flex row (D14): the input column stays at a readable
+ * 24rem, so the Filter button keeps its place next to the input. With
+ * auto-placement alone the label and the input share row 1 and the
+ * button falls to row 2 alone, so the label gets its own rule below to
+ * span both columns and push the input and the button onto row 2
+ * together. `justify-content: start` stops the button's auto column
+ * from stretching to the full page width on a wide viewport.
+ */
 .filter-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 24rem) auto;
+  justify-content: start;
+  align-items: end;
+  gap: 8px;
   margin: 0.75rem 0;
 }
 
-.filter-form input {
-  min-height: 24px;
-  box-sizing: border-box;
+.filter-form label {
+  grid-column: 1 / -1;
 }
 
 .filter-form button,
@@ -86,7 +95,6 @@ tbody tr:focus-within > * {
   align-items: center;
   justify-content: center;
   min-width: 24px;
-  min-height: 24px;
   padding: 0.25rem 0.75rem;
 }
 

@@ -36,9 +36,10 @@
       type="button"
       class="btn btn-danger confirm-delete"
       [disabled]="!canConfirm() || pending()"
+      [attr.aria-busy]="pending() ? 'true' : null"
       (click)="confirmDelete()"
     >
-      Delete this app
+      {{ pending() ? 'Deleting…' : 'Delete this app' }}
     </button>
   </div>
 </dialog>

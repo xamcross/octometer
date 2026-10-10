@@ -54,7 +54,7 @@
   --body: 'Nunito', 'Segoe UI', sans-serif;
 
   /* Type scale (ratio 1.25 on 16px) */
-  --text-s: 0.8rem;
+  --text-s: 0.875rem;
   --text-m: 1rem;
   --text-l: 1.25rem;
   --text-xl: 1.5625rem;
@@ -382,7 +382,7 @@ a {
 
 .btn-small {
   font-size: var(--text-s);
-  padding: 4px 12px;
+  padding: 8px 12px;
 }
 
 .btn[disabled] {

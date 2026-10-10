@@ -43,6 +43,17 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   the zeros once. (#365)
 - Widen the waitlist panel to fill its row at 48rem and above, with the email
   field and the button on one row. (#381)
+- Add a product-shot preview to the right side of the hero at 56rem and above, built
+  as an HTML table in the visual family of `.frame`, so no empty strip sits past the
+  copy. (#372)
+- Add a button on each "Three levels" card that opens one dashboard capture at full
+  size, with a close control and the Escape key. (#359)
+- Put each "Three levels" card on its own row at 1280 px, so the row text of each
+  capture reads at 12.8 px or more, with no zoom. (#359, the correction round of pull
+  request #424)
+- Let the full-size dialog hold the capture at its own natural width, with a pan, so
+  the row text reads at 12.8 px at 390 px too. (#359, the correction round of pull
+  request #424)
 
 ### Contract
 
@@ -125,6 +136,21 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   of the opacity rule; the text now measures 7.83:1 on its fill. (#384)
 - Keep the "First pages" header and link text on one line in the apps table, at a
   narrow width too. (#394)
+- Change the Users filter form to a grid: the filter input and the Filter button stay
+  on one row from 360 px wide up, and the input keeps its 44 px minimum height. (#374)
+- Raise the token `--text-s` from 12.8 px to 14 px, so the table caption, the status
+  badge, the gap line, the "Data from" line, the account email, the refresh-bar text,
+  `.btn-small`, and each form hint read larger. (#380)
+- Align the Manage table with the shared `.panel` style: the shared caption and cell
+  padding, a `.badge` Status cell, and a right-aligned Patterns column. (#379)
+- Bind the Elements table caption to the selected view: it names "this session", "an
+  anonymous visit", or "this user". (#392)
+- Show a "Deleting…" label with `aria-busy="true"` on the delete-confirm button while
+  the delete request is in flight; the label returns on an error. (#393)
+- Move "Sign out" into its own account menu, clear of the row of nav pills, so the
+  button look and the pill look never mix in one row. (#360)
+- Give the Filter button and each pager button the 44 px minimum height of a
+  button, on the users, the sessions, and the first-pages view. (#368)
 - Add a dark color scheme: a `prefers-color-scheme: dark` block of dark tokens, and the
   band's ink and paper as token values, not hex literals. (#361)
 
