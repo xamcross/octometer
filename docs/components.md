@@ -42,8 +42,10 @@ repeats a hex value.
 element of each page (design principle 3, `docs/design.md:75`).
 
 **Anatomy.**
-- `<header class="band">` holds `.band-row` (`app.html:5-14`).
+- `<header class="band">` holds `.band-row` and `.account-menu` (`app.html:5-25`).
 - `.band-row` holds `.brand` (the mark and the wordmark) and `<app-main-nav>`.
+- `.account-menu` holds `.account-email` and the "Sign out" button, in its own
+  row below `.band-row` (issue #360, `app.html:17-24`).
 
 **States.**
 

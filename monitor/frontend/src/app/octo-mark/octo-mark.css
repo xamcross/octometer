@@ -2,6 +2,13 @@
  * The octopus mascot mark (D45): a round head, two eyes, a smile, and
  * eight short arms. The octo fill of the head vanishes on the octo band,
  * so `styles.css` gives the head the paper fill in that one context.
+ *
+ * The eye fill and the smile stroke sit on the head fill, never on the
+ * arms' own background (the correction round of pull request #435).
+ * `--on-bright` reads 3:1 or more on the head fill of each context, in
+ * each color scheme: the band's `--paper-bright`, and the plain `--octo`
+ * head of the first-load mark. The arms keep the page's own `--ink`,
+ * because an arm sits on the page background, not on the head.
  */
 :host {
   display: inline-flex;
@@ -20,6 +27,10 @@ svg {
 }
 
 .eye {
-  fill: var(--ink);
+  fill: var(--on-bright);
   stroke: none;
+}
+
+.smile {
+  stroke: var(--on-bright);
 }
