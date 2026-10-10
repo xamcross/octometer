@@ -816,6 +816,32 @@ test('the pager shows for a two-page result, with no aria-current (issue #387, D
   await expect(page.locator('nav.pager [aria-current]')).toHaveCount(0);
 });
 
+// Issue #392 (D18 of the UI audit of 2026-10-09): the elements caption
+// names the subject of the selected view. This scenario writes one real
+// click through the collector route (never a mock), with a known
+// sessionId, and opens the elements view filtered to that session.
+test('the elements caption names "this session" on a session view (issue #392, D18)', async ({
+  page,
+  request,
+}) => {
+  const monitorUrl = readMonitorUrl();
+  const { appId, appKey, origin } = await registerPagerApp(
+    request,
+    monitorUrl,
+    'session-caption-app',
+  );
+  const marker = 392;
+  await sendUserAndPage(request, monitorUrl, origin, appKey, marker);
+
+  const elements = new ElementsPage(page);
+  await elements.gotoBySession(appId, pagerSessionId(marker));
+  await elements.expectRow('pager-probe.click', { clicks: 1, sessions: 1 }, CHAIN_WAIT_MS);
+  await expect(elements.caption()).toHaveText(
+    'The elements that this session touched, with the click totals of each element.',
+    { timeout: CHAIN_WAIT_MS },
+  );
+});
+
 // Issue #377, finding D9 of the UI audit: the table sits close to the
 // panel border, with no empty strip below the last row.
 test('the manage table has no bottom margin below the last row (issue #377)', async ({ page }) => {

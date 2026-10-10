@@ -19,6 +19,16 @@ export class ElementsPage {
     await this.page.goto(`/apps/${appId}/elements?userId=${encodeURIComponent(userId)}`);
   }
 
+  /** Opens the view filtered to one session (issue #392, D18). */
+  async gotoBySession(appId: number, sessionId: string): Promise<void> {
+    await this.page.goto(`/apps/${appId}/elements?sessionId=${encodeURIComponent(sessionId)}`);
+  }
+
+  /** The table caption element. */
+  caption(): Locator {
+    return this.page.locator('#elements-caption');
+  }
+
   rowOf(element: string): ElementRowLocators {
     const row = this.page.getByRole('row', { name: new RegExp(`\\b${escapeRegExp(element)}\\b`) });
     const cells = row.getByRole('cell');
