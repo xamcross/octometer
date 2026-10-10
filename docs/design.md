@@ -43,6 +43,8 @@ the base rules.
 | `--shadow-control` | `3px 3px 0 var(--ink)` | The hard shadow of a control. |
 | `--focus-ring` | `var(--sunny)` | The site's focus ring outline; it keeps the sunny color in each scheme (issue #409, pull request #441). |
 | `--focus-halo` | `var(--ink)` light, `#7B74B3` dark | The 7px halo of the focus ring; its own token, not plain `--ink` (issue #451). `.band` overrides it with `--on-bright` (pull request #462). |
+| `--display` | `'Fredoka', 'Trebuchet MS', sans-serif` | The display face: the wordmark, the page title, the panel caption, the nav pill, the button text. |
+| `--body` | `'Nunito', 'Segoe UI', sans-serif` | The body face: the body text, the table, the form, the hint. |
 | `--space-1` | `4px` | The space scale, a 4px base. |
 | `--space-2` | `8px` | The space scale. |
 | `--space-3` | `12px` | The space scale. |
