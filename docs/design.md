@@ -18,11 +18,15 @@ the base rules.
 | `--ink-soft` | `#4B4763` | Hint text. |
 | `--paper` | `#FFFFFF` | The panel and control fill. |
 | `--paper-raised` | `#FFFFFF` | The dialog fill, one step above the paper. |
+| `--paper-bright` | `#FFFFFF` | The `.band` fill; it keeps white in each scheme (pull request #435). |
 | `--shallows` | `#E6F3FF` | The page background, the zebra row tint. |
+| `--shallows-bright` | `#E6F3FF` | The hovered nav pill fill in `.band`; it keeps the light value in each scheme (pull request #445, issue #369). |
 | `--shallows-deep` | `#BFDFFF` | The table head, the neutral status fill. |
+| `--shallows-hover` | `#99C6FF` light, `#3D3570` dark | The hovered Pause refresh pill fill, outside `.band` (issue #454, issue #468). |
 | `--coral` | `#FF6B6B` | The danger fill, the link underline. |
 | `--coral-deep` | `#D93A3A` | The invalid field ring; keeps 3:1 or more on `--paper` and on `--shallows` (WCAG 1.4.11, issue #264 and issue #438). |
 | `--coral-edge` | `#D93A3A` light, `#FF6B6B` dark | The `.form-error` and `.list-error` left border; keeps 3:1 or more on `--paper`, `--shallows`, and `--paper-raised` (WCAG 1.4.11, issue #383, issue #450, and issue #453). |
+| `--link-underline` | `#D93F3F` light, `var(--coral)` dark | The site's link underline; keeps 3:1 or more on `--paper` and `--shallows` (WCAG 1.4.11, issue #409). |
 | `--sunny` | `#FFD93D` | The primary fill, the current nav pill, the focus ring, the warning fill. |
 | `--seaweed` | `#6EE7B7` | The OK fill. |
 | `--octo` | `#A78BFA` | The header band, the mascot body. Never a text background. |
@@ -37,7 +41,10 @@ the base rules.
 | `--line-control` | `2px solid var(--ink)` | The outline of a control. |
 | `--shadow-panel` | `6px 6px 0 var(--ink)` | The hard shadow of a panel. |
 | `--shadow-control` | `3px 3px 0 var(--ink)` | The hard shadow of a control. |
+| `--focus-ring` | `var(--sunny)` | The site's focus ring outline; it keeps the sunny color in each scheme (issue #409, pull request #441). |
 | `--focus-halo` | `var(--ink)` light, `#7B74B3` dark | The 7px halo of the focus ring; its own token, not plain `--ink` (issue #451). `.band` overrides it with `--on-bright` (pull request #462). |
+| `--display` | `'Fredoka', 'Trebuchet MS', sans-serif` | The display face: the wordmark, the page title, the panel caption, the nav pill, the button text. |
+| `--body` | `'Nunito', 'Segoe UI', sans-serif` | The body face: the body text, the table, the form, the hint. |
 | `--space-1` | `4px` | The space scale, a 4px base. |
 | `--space-2` | `8px` | The space scale. |
 | `--space-3` | `12px` | The space scale. |
@@ -190,13 +197,13 @@ fill (a badge, a button, the band) keeps its ink text in each scheme.
 | `--ink-soft` | `#4B4763` | `#B9B4D6` |
 | `--paper` | `#FFFFFF` | `#1D1A33` |
 | `--paper-raised` | `#FFFFFF` | `#312B57` |
-| `--paper-bright` | `#FFFFFF` | `#FFFFFF` |
 | `--shallows` | `#E6F3FF` | `#14122A` |
-| `--shallows-bright` | `#E6F3FF` | `#E6F3FF` |
 | `--shallows-deep` | `#BFDFFF` | `#2C2850` |
-| `--shallows-hover` | `#99C6FF` | `#3D3570` |
 | `--octo` | `#A78BFA` | `#9B7BE5` |
 | `--focus-halo` | `var(--ink)` (`#241F3D`) | `#7B74B3` |
+
+The token table above holds `--paper-bright`, `--shallows-bright`, and `--shallows-hover`;
+this table does not repeat them.
 
 `.band` of `monitor/frontend/src/app/app.css` no longer sets `--ink: #241f3d;` and
 `--paper: #ffffff;` as hex literals. It sets `--ink: var(--on-bright)` and
