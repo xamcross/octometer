@@ -199,6 +199,7 @@ const DARK_NONTEXT = [
   ['each page', 'the control edge on the paper', '#ece9ff', '#1d1a33'],
   ['the band', 'the nav pill edge on the octo band', '#241f3d', '#9b7be5'],
   ['main', "the mascot's eye on the octo head (the first-load mark)", '#241f3d', '#9b7be5'],
+  ['the band', 'the mascot head fill on the octo band', '#423a57', '#9b7be5'],
   ['each page', 'the panel edge on the page background', '#ece9ff', '#14122a'],
   ['each table', 'the head cell edge on the head fill', '#ece9ff', '#2c2850'],
   ['apps', 'the badge edge on the badge fill (seaweed)', '#241f3d', '#6ee7b7'],
