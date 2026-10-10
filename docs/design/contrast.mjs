@@ -1,6 +1,7 @@
 /*
  * The contrast tool of issue #251. It computes the WCAG 2.x contrast ratio of
- * each pair of `docs/design/verification-2026-09-27.md`.
+ * each pair of `docs/design/verification-2026-09-27.md`, the record of the
+ * dashboard at `http://127.0.0.1:7431/`.
  *
  * Run it with `node docs/design/contrast.mjs`. It needs no dependency.
  *
@@ -9,6 +10,15 @@
  * with an `opacity` value below 1 goes through `composite` first. Keep the two
  * lists equal to the tables of the record. Add a row here when the UI adds a
  * text pair or a control edge.
+ *
+ * Issue #429 adds a site section below the dashboard section (the correction
+ * round of pull request #441, MAJOR 3): one row for each text-on-fill pair
+ * and each edge of `site/src/styles/site.css`, in the light scheme and in
+ * the dark scheme (live since issue #366). The `SITE_TOKENS` map holds the
+ * light and the dark value of each site token; a site row names a token,
+ * not a hex value, so it reads the right pair for its own scheme (MAJOR 1
+ * of that round, for the site rows that this merge adds; the dashboard rows
+ * below come from issue #361, now merged, with their own measured values).
  */
 
 /** The linear value of one sRGB channel. */
@@ -201,13 +211,81 @@ const DARK_NONTEXT = [
   ['manage', 'the invalid field ring on the field fill', '#ff6b6b', '#1d1a33'],
 ];
 
+/*
+ * The site section (issue #429, MAJOR 3 of the correction round of pull
+ * request #441): one row for each text-on-fill pair and each edge of
+ * `site/src/styles/site.css`, so the site itself has cover, not only the
+ * dashboard record above. `SITE_TOKENS` holds the light and the dark hex
+ * of each site token (`site/src/styles/tokens.css`); the site's own `--ink`
+ * and `--on-bright` do differ in the dark scheme, so each row below names
+ * the token, not a hex value (MAJOR 1 of that round).
+ */
+const SITE_TOKENS = {
+  ink: { light: '#241f3d', dark: '#f4f1ff' },
+  inkSoft: { light: '#4b4763', dark: '#b3add4' },
+  paper: { light: '#ffffff', dark: '#241f3d' },
+  shallows: { light: '#e6f3ff', dark: '#17142b' },
+  shallowsDeep: { light: '#bfdfff', dark: '#232b45' },
+  coral: { light: '#ff6b6b', dark: '#ff6b6b' },
+  sunny: { light: '#ffd93d', dark: '#ffd93d' },
+  seaweed: { light: '#6ee7b7', dark: '#6ee7b7' },
+  octo: { light: '#a78bfa', dark: '#a78bfa' },
+  onBright: { light: '#241f3d', dark: '#241f3d' },
+  linkUnderline: { light: '#d93f3f', dark: '#ff6b6b' },
+  focusRing: { light: '#ffd93d', dark: '#ffd93d' },
+  focusHalo: { light: '#241f3d', dark: '#f4f1ff' },
+};
+
+/** The hex value of a site token, in one scheme ('light' or 'dark'). */
+const siteHex = (token, scheme) => SITE_TOKENS[token][scheme];
+
+// [the page, the element kind, the text token, the background token, the px, the weight]
+const SITE_TEXT = [
+  ['topbar', 'the "How it works" and "Privacy" links', 'ink', 'paper', 16, 400],
+  ['hero preview', 'the preview bar brand text on the octo band', 'onBright', 'octo', 16, 600],
+  ['hero preview', 'the inactive tab text', 'ink', 'paper', 14, 600],
+  ['hero preview', 'the active tab text', 'onBright', 'sunny', 14, 600],
+  ['hero preview', 'the table head cell', 'ink', 'shallowsDeep', 14, 700],
+  ['hero preview', 'the table cell', 'ink', 'paper', 14, 400],
+  ['hero preview', 'the status OK badge', 'onBright', 'seaweed', 14, 700],
+  ['hero preview', 'the status slow badge (sunny)', 'onBright', 'sunny', 14, 700],
+  ['hero preview', 'the caption', 'inkSoft', 'paper', 14, 400],
+  ['steps', 'the step number marker', 'onBright', 'sunny', 16, 600],
+  ['waitlist status', 'the ok status text', 'onBright', 'seaweed', 16, 700],
+  ['waitlist status', 'the bad status text', 'onBright', 'coral', 16, 700],
+];
+
+// [the page, the edge or the ring, the colour token, the neighbour token]
+const SITE_NONTEXT = [
+  ['hero preview', 'the preview window edge on the page background', 'ink', 'shallows'],
+  ['hero preview', 'the inactive tab edge on its own paper fill', 'ink', 'paper'],
+  ['hero preview', 'the active tab edge on the sunny fill', 'onBright', 'sunny'],
+  ['hero preview', 'the status OK edge on the seaweed fill', 'onBright', 'seaweed'],
+  ['hero preview', 'the status slow edge on the sunny fill', 'onBright', 'sunny'],
+  ['steps', 'the step marker edge on the sunny fill', 'onBright', 'sunny'],
+  ['waitlist status', 'the ok edge on the seaweed fill', 'onBright', 'seaweed'],
+  ['waitlist status', 'the bad edge on the coral fill', 'onBright', 'coral'],
+  ['the panel', 'the panel edge on the page background', 'ink', 'shallows'],
+  ['the panel', 'the panel edge on the paper', 'ink', 'paper'],
+  ['topbar', 'the link underline on the paper', 'linkUnderline', 'paper'],
+  ['topbar', 'the link underline on the page background', 'linkUnderline', 'shallows'],
+  ['each page', 'the focus ring: the line on the halo', 'focusRing', 'focusHalo'],
+  ['each page', 'the focus ring: the halo on the page background', 'focusHalo', 'shallows'],
+  ['each page', 'the focus ring: the halo on the paper', 'focusHalo', 'paper'],
+  ['the band', 'the focus ring: the halo on the octo band', 'focusHalo', 'octo'],
+];
+
 /** True for a large text: 24 px, or 18.66 px at the weight 700. */
 const big = (px, weight) => px >= 24 || (px >= 18.66 && weight >= 700);
 
 const f1 = (x) => (Math.round(x * 10) / 10).toFixed(1);
 
 let fails = 0;
+let pairs = 0;
+
 console.log('The disabled confirm button (#410): ' + DISABLED_INK + ' on ' + DISABLED_FILL);
+console.log('');
+console.log('## The dashboard, the light scheme');
 console.log('');
 console.log('| Page | Text | Colour | Background | Ratio | Floor | Result |');
 console.log('| --- | --- | --- | --- | --- | --- | --- |');
@@ -215,6 +293,7 @@ for (const [page, kind, fg, bg, px, weight] of TEXT) {
   const r = ratio(fg, bg);
   const floor = big(px, weight) ? 3 : 4.5;
   const ok = r >= floor;
+  pairs += 1;
   if (!ok) fails += 1;
   console.log(
     `| ${page} | ${kind} (${px} px ${weight}) | \`${fg}\` | \`${bg}\` | ${f1(r)}:1 | ${floor}:1 | ${ok ? 'pass' : 'fail'} |`,
@@ -226,11 +305,12 @@ console.log('| --- | --- | --- | --- | --- | --- | --- |');
 for (const [page, kind, a, b] of NONTEXT) {
   const r = ratio(a, b);
   const ok = r >= 3;
+  pairs += 1;
   if (!ok) fails += 1;
   console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${ok ? 'pass' : 'fail'} |`);
 }
 console.log('');
-console.log('The dark scheme (issue #361, prefers-color-scheme: dark):');
+console.log('## The dashboard, the dark scheme (issue #361, prefers-color-scheme: dark)');
 console.log(
   'The disabled confirm button (#410): ' + DARK_DISABLED_INK + ' on ' + DARK_DISABLED_FILL,
 );
@@ -241,6 +321,7 @@ for (const [page, kind, fg, bg, px, weight] of DARK_TEXT) {
   const r = ratio(fg, bg);
   const floor = big(px, weight) ? 3 : 4.5;
   const ok = r >= floor;
+  pairs += 1;
   if (!ok) fails += 1;
   console.log(
     `| ${page} | ${kind} (${px} px ${weight}) | \`${fg}\` | \`${bg}\` | ${f1(r)}:1 | ${floor}:1 | ${ok ? 'pass' : 'fail'} |`,
@@ -252,13 +333,55 @@ console.log('| --- | --- | --- | --- | --- | --- | --- |');
 for (const [page, kind, a, b] of DARK_NONTEXT) {
   const r = ratio(a, b);
   const ok = r >= 3;
+  pairs += 1;
   if (!ok) fails += 1;
   console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${ok ? 'pass' : 'fail'} |`);
 }
+
+/** Prints one site TEXT table, in one scheme, with one page-label suffix. */
+function printSiteText(scheme, suffix) {
+  console.log('| Page | Text | Colour | Background | Ratio | Floor | Result |');
+  console.log('| --- | --- | --- | --- | --- | --- | --- |');
+  for (const [page, kind, fgToken, bgToken, px, weight] of SITE_TEXT) {
+    const fg = siteHex(fgToken, scheme);
+    const bg = siteHex(bgToken, scheme);
+    const r = ratio(fg, bg);
+    const floor = big(px, weight) ? 3 : 4.5;
+    const ok = r >= floor;
+    pairs += 1;
+    if (!ok) fails += 1;
+    console.log(
+      `| ${page}${suffix} | ${kind} (${px} px ${weight}) | \`${fg}\` | \`${bg}\` | ${f1(r)}:1 | ${floor}:1 | ${ok ? 'pass' : 'fail'} |`,
+    );
+  }
+}
+
+/** Prints one site NONTEXT table, in one scheme, with one page-label suffix. */
+function printSiteNontext(scheme, suffix) {
+  console.log('| Page | Edge or ring | Colour | Neighbour | Ratio | Floor | Result |');
+  console.log('| --- | --- | --- | --- | --- | --- | --- |');
+  for (const [page, kind, aToken, bToken] of SITE_NONTEXT) {
+    const a = siteHex(aToken, scheme);
+    const b = siteHex(bToken, scheme);
+    const r = ratio(a, b);
+    const ok = r >= 3;
+    pairs += 1;
+    if (!ok) fails += 1;
+    console.log(`| ${page}${suffix} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${ok ? 'pass' : 'fail'} |`);
+  }
+}
+
 console.log('');
-console.log(
-  'pairs=' +
-    (TEXT.length + NONTEXT.length + DARK_TEXT.length + DARK_NONTEXT.length) +
-    ' fails=' +
-    fails,
-);
+console.log('## The site, the light scheme');
+console.log('');
+printSiteText('light', '');
+console.log('');
+printSiteNontext('light', '');
+console.log('');
+console.log('## The site, the dark scheme (live: issue #366)');
+console.log('');
+printSiteText('dark', ' (dark)');
+console.log('');
+printSiteNontext('dark', ' (dark)');
+console.log('');
+console.log('pairs=' + pairs + ' fails=' + fails);
