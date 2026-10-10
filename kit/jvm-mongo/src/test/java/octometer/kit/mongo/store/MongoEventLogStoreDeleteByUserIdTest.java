@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.MongoDBContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
 import java.util.List;
@@ -30,7 +31,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class MongoEventLogStoreDeleteByUserIdTest {
 
     @Container
-    private static final MongoDBContainer MONGO = new MongoDBContainer("mongo:7.0");
+    private static final MongoDBContainer MONGO = new MongoDBContainer(
+            DockerImageName.parse("public.ecr.aws/docker/library/mongo:7.0").asCompatibleSubstituteFor("mongo"));
 
     private MongoClient client;
     private MongoDatabase database;
