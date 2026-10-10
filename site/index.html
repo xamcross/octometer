@@ -65,6 +65,64 @@
           <a class="btn btn-primary" href="#waitlist-email">Join the waitlist</a>
           <p class="small soft">Octometer is in a pilot. Join the waitlist, and we invite you.</p>
         </div>
+        <!-- The audit finding L3: a product shot built in HTML, not a
+             screenshot, so it stays legible at every width. It repeats no
+             information that the copy does not already give, so it stays
+             out of the accessibility tree. -->
+        <figure class="hero-preview" aria-hidden="true">
+          <div class="hero-preview-window">
+            <div class="hero-preview-bar">
+              <span class="hero-preview-brand">Octometer</span>
+              <span class="hero-preview-tabs">
+                <span class="hero-preview-tab is-active">Apps</span>
+                <span class="hero-preview-tab">Manage apps</span>
+              </span>
+            </div>
+            <div class="hero-preview-body">
+              <div class="hero-preview-title-row">
+                <span class="hero-preview-title">Apps</span>
+                <span class="small soft">Last 30 days · refreshes each minute</span>
+              </div>
+              <table class="hero-preview-table">
+                <thead>
+                  <tr>
+                    <th scope="col">App</th>
+                    <th scope="col">Clicks</th>
+                    <th scope="col">Users</th>
+                    <th scope="col">Sessions</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>[app one]</td>
+                    <td>[n]</td>
+                    <td>[n]</td>
+                    <td>[n]</td>
+                    <td><span class="hero-preview-status is-ok">OK</span></td>
+                  </tr>
+                  <tr>
+                    <td>[app two]</td>
+                    <td>[n]</td>
+                    <td>[n]</td>
+                    <td>[n]</td>
+                    <td><span class="hero-preview-status is-ok">OK</span></td>
+                  </tr>
+                  <tr>
+                    <td>[app three]</td>
+                    <td>[n]</td>
+                    <td>[n]</td>
+                    <td>[n]</td>
+                    <td><span class="hero-preview-status is-slow">Slow</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <figcaption class="hero-preview-caption small">
+              The apps view: click a row to open its users, then a user to open the elements.
+            </figcaption>
+          </div>
+        </figure>
       </header>
 
       <section class="sec" aria-labelledby="how-title">
@@ -157,48 +215,72 @@
         <div class="levels">
           <figure class="frame" id="level-apps">
             <h3>The apps view</h3>
-            <picture>
-              <source srcset="/screens/apps-600.png" media="(max-width: 48rem)" />
-              <img
-                src="/screens/apps-1200.png"
-                alt="The apps view: the app name, the clicks, the unique users, the unique sessions, the first pages, the status, and the data time."
-                width="1200"
-                height="452"
-                loading="lazy"
-              />
-            </picture>
+            <button
+              type="button"
+              class="frame-open"
+              data-full-src="/screens/apps-1200.png"
+              aria-label="Open the apps view screenshot at full size"
+            >
+              <picture>
+                <source srcset="/screens/apps-600.png" media="(max-width: 48rem)" />
+                <img
+                  src="/screens/apps-1200.png"
+                  alt="The apps view: the app name, the clicks, the unique users, the unique sessions, the first pages, the status, and the data time."
+                  width="920"
+                  height="494"
+                  loading="lazy"
+                />
+              </picture>
+              <span class="frame-open-hint" aria-hidden="true">Tap to open full size</span>
+            </button>
             <figcaption>
               Each app gives its totals: the clicks, the unique users, the unique sessions.
             </figcaption>
           </figure>
           <figure class="frame">
             <h3>The users view</h3>
-            <picture>
-              <source srcset="/screens/users-600.png" media="(max-width: 48rem)" />
-              <img
-                src="/screens/users-1200.png"
-                alt="The users view: the user id, the clicks, the sessions, and the unique elements."
-                width="1200"
-                height="612"
-                loading="lazy"
-              />
-            </picture>
+            <button
+              type="button"
+              class="frame-open"
+              data-full-src="/screens/users-1200.png"
+              aria-label="Open the users view screenshot at full size"
+            >
+              <picture>
+                <source srcset="/screens/users-600.png" media="(max-width: 48rem)" />
+                <img
+                  src="/screens/users-1200.png"
+                  alt="The users view: the user id, the clicks, the sessions, and the unique elements."
+                  width="720"
+                  height="689"
+                  loading="lazy"
+                />
+              </picture>
+              <span class="frame-open-hint" aria-hidden="true">Tap to open full size</span>
+            </button>
             <figcaption>
               One app row opens its users. A user id is pseudonymous, never an email address.
             </figcaption>
           </figure>
           <figure class="frame">
             <h3>The elements view</h3>
-            <picture>
-              <source srcset="/screens/elements-600.png" media="(max-width: 48rem)" />
-              <img
-                src="/screens/elements-1200.png"
-                alt="The elements view: the element, the clicks, the sessions, and the last interaction time."
-                width="1200"
-                height="449"
-                loading="lazy"
-              />
-            </picture>
+            <button
+              type="button"
+              class="frame-open"
+              data-full-src="/screens/elements-1200.png"
+              aria-label="Open the elements view screenshot at full size"
+            >
+              <picture>
+                <source srcset="/screens/elements-600.png" media="(max-width: 48rem)" />
+                <img
+                  src="/screens/elements-1200.png"
+                  alt="The elements view: the element, the clicks, the sessions, and the last interaction time."
+                  width="720"
+                  height="486"
+                  loading="lazy"
+                />
+              </picture>
+              <span class="frame-open-hint" aria-hidden="true">Tap to open full size</span>
+            </button>
             <figcaption>
               One user row opens each element that this user touched, with the newest click time.
             </figcaption>
@@ -326,6 +408,27 @@
         </div>
       </footer>
     </div>
+
+    <!-- #359: the full-size view of one dashboard screenshot. "main.ts"
+         opens it on a click of a ".frame-open" button; the dialog closes
+         on the close button, on a click outside the image, and (through
+         the native "dialog" behaviour) on the Escape key. Correction round
+         of pull request #424, MAJOR 4: ".lightbox-pan" holds the pan, not
+         the dialog itself, so the close button (a direct child of the
+         dialog, outside the pan) stays in view through the whole pan.
+         Third correction round, MAJOR 6: ".lightbox-pan" now takes
+         "tabindex" and "role", so the Tab key reaches it and a key can
+         pan it. Tab order: the close button first, then the pan
+         region, the same order as the visual layout. -->
+    <dialog class="lightbox" id="screenshot-lightbox" aria-label="The dashboard screenshot at full size">
+      <button type="button" class="lightbox-close" aria-label="Close">
+        <span aria-hidden="true">&times;</span>
+      </button>
+      <div class="lightbox-pan" tabindex="0" role="region" aria-label="The dashboard screenshot">
+        <img class="lightbox-img" id="lightbox-img" src="" alt="" />
+      </div>
+    </dialog>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
