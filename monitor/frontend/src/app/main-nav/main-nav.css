@@ -23,6 +23,11 @@ a {
   text-decoration: none;
 }
 
+/* The hover state of a nav pill (#369): a tint against the octo band. */
+a:hover {
+  background: var(--shallows);
+}
+
 /*
  * The current link gets the sunny fill, and keeps a second cue next to
  * the colour (WCAG 1.4.1): a 3px underline under the text.

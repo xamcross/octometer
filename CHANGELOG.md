@@ -128,6 +128,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   of the opacity rule; the text now measures 7.83:1 on its fill. (#384)
 - Keep the "First pages" header and link text on one line in the apps table, at a
   narrow width too. (#394)
+- Add a hover state to the `.btn` class, the nav pill, the Pause refresh pill, and
+  the global link style. (#369)
 
 ### CI
 

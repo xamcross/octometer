@@ -84,6 +84,36 @@ async function lineCount(locator: Locator): Promise<number> {
 }
 
 /**
+ * The style set of one hover check of issue #369 (finding D13 of the UI
+ * audit): the fill, the text colour, the shadow, the position, the
+ * underline, and the transition duration. This suite runs in real
+ * Chromium. `getComputedStyle` already resolves each `var()` token here
+ * (lesson 7 of the frontend brief is for jsdom, not this suite).
+ */
+interface HoverStyle {
+  readonly backgroundColor: string;
+  readonly color: string;
+  readonly boxShadow: string;
+  readonly transform: string;
+  readonly textDecorationThickness: string;
+  readonly transitionDuration: string;
+}
+
+async function hoverStyleOf(locator: Locator): Promise<HoverStyle> {
+  return locator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      backgroundColor: style.backgroundColor,
+      color: style.color,
+      boxShadow: style.boxShadow,
+      transform: style.transform,
+      textDecorationThickness: style.textDecorationThickness,
+      transitionDuration: style.transitionDuration,
+    };
+  });
+}
+
+/**
  * One serial file, one shared app (decision 5). The scenarios run in
  * this fixed order because each one reads the state that an earlier one
  * wrote: the app id of scenario (a), the click totals of scenario (b).
@@ -136,6 +166,16 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await expect(confirmDeleteButton).toHaveCSS('border-style', 'dashed');
     await expect(confirmDeleteButton).toHaveCSS('opacity', '1');
     expect(await disabledButtonContrastRatio(confirmDeleteButton)).toBeGreaterThanOrEqual(4.5);
+
+    // Issue #369: the hover rule excludes a disabled `.btn` (pull
+    // request #410). A hover over the disabled confirm button gives no
+    // shadow change and no shape change.
+    const restStyle = await hoverStyleOf(confirmDeleteButton);
+    await confirmDeleteButton.hover();
+    const hoverStyle = await hoverStyleOf(confirmDeleteButton);
+    expect(hoverStyle.transform).toBe(restStyle.transform);
+    expect(hoverStyle.boxShadow).toBe(restStyle.boxShadow);
+
     await manage.cancelDeleteDialog(demoManageRow);
 
     // The app id comes from `GET /api/apps`, through the request context
@@ -778,4 +818,80 @@ test('the add-app heading has no top margin (issue #389)', async ({ page }) => {
     };
   });
   expect(Math.abs(gaps.topGap - gaps.bottomGap)).toBeLessThanOrEqual(2);
+});
+
+/**
+ * Issue #369 (finding D13 of the UI audit of 2026-10-09): a button, a
+ * nav pill, the Pause refresh pill, and a text link had no `:hover`
+ * rule. Each check reads `opacity` as `1` first (lesson 24 of the
+ * frontend brief). It then reads the text contrast, so the ratio
+ * reads the true painted colour.
+ */
+test('a button, a nav pill, the pause pill, and a link each change under hover (issue #369)', async ({
+  page,
+}) => {
+  // The button: the "Add app" submit button of the manage view, a
+  // `.btn.btn-primary`.
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const addAppButton = page.getByRole('button', { name: 'Add app' });
+  await expect(addAppButton).toHaveCSS('opacity', '1');
+  const buttonRest = await hoverStyleOf(addAppButton);
+  await addAppButton.hover();
+  const buttonHover = await hoverStyleOf(addAppButton);
+  expect(buttonHover.transform).not.toBe(buttonRest.transform);
+  expect(buttonHover.boxShadow).not.toBe(buttonRest.boxShadow);
+  // The fill and the text colour stay the same. The text contrast of
+  // the button stays at its own ratio.
+  expect(buttonHover.backgroundColor).toBe(buttonRest.backgroundColor);
+  expect(buttonHover.color).toBe(buttonRest.color);
+  expect(contrastRatio(buttonHover.color, buttonHover.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+
+  // The nav pill: "Apps" is not the current link on the manage view.
+  const nav = page.getByRole('navigation', { name: 'Main' });
+  const appsPill = nav.getByRole('link', { name: 'Apps', exact: true });
+  await expect(appsPill).toHaveCSS('opacity', '1');
+  const pillRest = await hoverStyleOf(appsPill);
+  await appsPill.hover();
+  const pillHover = await hoverStyleOf(appsPill);
+  expect(pillHover.backgroundColor).not.toBe(pillRest.backgroundColor);
+  expect(contrastRatio(pillHover.color, pillHover.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+
+  // The Pause refresh pill, on the apps view (the refresh bar).
+  const apps = new AppsPage(page);
+  await apps.goto();
+  const pauseButton = page.getByRole('button', { name: 'Pause refresh' });
+  await expect(pauseButton).toHaveCSS('opacity', '1');
+  const pauseRest = await hoverStyleOf(pauseButton);
+  await pauseButton.hover();
+  const pauseHover = await hoverStyleOf(pauseButton);
+  expect(pauseHover.backgroundColor).not.toBe(pauseRest.backgroundColor);
+  expect(contrastRatio(pauseHover.color, pauseHover.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+
+  // The text link: "Go to the apps" of the not-found page, under the
+  // global `a` rule, with no pill and no band around it. The link
+  // sets no background of its own; it stays transparent. The
+  // contrast check below reads the `.panel` fill behind it instead.
+  await page.goto('/no-such-page');
+  const textLink = page.getByRole('link', { name: 'Go to the apps' });
+  const panelBackground = await page
+    .locator('.panel')
+    .first()
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
+  await expect(textLink).toHaveCSS('opacity', '1');
+  const linkRest = await hoverStyleOf(textLink);
+  await textLink.hover();
+  const linkHover = await hoverStyleOf(textLink);
+  expect(linkHover.textDecorationThickness).not.toBe(linkRest.textDecorationThickness);
+  expect(contrastRatio(linkHover.color, panelBackground)).toBeGreaterThanOrEqual(4.5);
+
+  // `prefers-reduced-motion: reduce` (step 5 of the issue): the
+  // transition of `.btn` yields to it. The hover shadow of the button
+  // above then applies with no animation.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await manage.goto();
+  const reducedAddAppButton = page.getByRole('button', { name: 'Add app' });
+  await reducedAddAppButton.hover();
+  const reducedStyle = await hoverStyleOf(reducedAddAppButton);
+  expect(reducedStyle.transitionDuration).toBe('0s');
 });

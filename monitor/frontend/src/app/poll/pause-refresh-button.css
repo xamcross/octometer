@@ -19,6 +19,11 @@ button {
   font: 600 var(--text-m) / 1.2 var(--display);
 }
 
+/* The hover state of the pill (#369), the same rule as the nav pill. */
+button:hover {
+  background: var(--shallows);
+}
+
 /* The check mark holds its space in both states, so the button keeps one size. */
 button::before {
   content: '\2713\00a0' / '';
