@@ -781,19 +781,27 @@ label {
   background: var(--coral);
 }
 
-/* 6. The footer with the notice (issue #290, the mockup rules verbatim). */
+/*
+ * 6. The footer. Issue #290 gave the plain rules; issue #388 (the audit
+ * finding L8) folds the notice into a "<details>" element, so it no
+ * longer weighs as much as the product, and ends the page on one real
+ * footer row (the mark, the copyright line, the contact address, and
+ * "Sign in").
+ */
 .foot {
   display: grid;
   gap: var(--space-4);
   padding-top: var(--space-5);
   border-top: var(--line-control);
 }
-.foot h2 {
-  font-size: var(--text-xl);
+.notice-details summary {
+  font: 600 var(--text-m) / 1.15 var(--display);
+  cursor: pointer;
 }
 .notice {
   display: grid;
   gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 .notice li {
   max-width: 60ch;
@@ -802,6 +810,21 @@ label {
   display: grid;
   gap: var(--space-2);
   font-size: var(--text-s);
+}
+.foot-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: var(--line-control);
+}
+.foot-mark {
+  width: 28px;
+  height: 28px;
+}
+.foot-row .btn {
+  margin-left: auto;
 }
 
 /*

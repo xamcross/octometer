@@ -54,6 +54,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Let the full-size dialog hold the capture at its own natural width, with a pan, so
   the row text reads at 12.8 px at 390 px too. (#359, the correction round of pull
   request #424)
+- Rewrite the hero note, the waitlist lead, and the footer labels in plain language.
+  Each fact stays the same. (#356)
+- Fold the footer notice into a collapsed "Waitlist privacy notice", with a link
+  beside the waitlist form. Add one footer row: the mark, the copyright line, the
+  contact address, and "Sign in". (#388)
 - Move the hero mark into the top bar under 48rem, beside the wordmark, so it does
   not sit alone above the heading on a phone. (#370)
 
@@ -149,6 +154,10 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   anonymous visit", or "this user". (#392)
 - Show a "Deleting…" label with `aria-busy="true"` on the delete-confirm button while
   the delete request is in flight; the label returns on an error. (#393)
+- Move "Sign out" into its own account menu, clear of the row of nav pills, so the
+  button look and the pill look never mix in one row. (#360)
+- Give the Filter button and each pager button the 44 px minimum height of a
+  button, on the users, the sessions, and the first-pages view. (#368)
 
 ### CI
 
