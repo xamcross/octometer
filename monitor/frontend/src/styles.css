@@ -26,6 +26,7 @@
   --shallows-deep: #bfdfff;
   --coral: #ff6b6b;
   --coral-deep: #d93a3a;
+  --coral-edge: #d93a3a;
   --sunny: #ffd93d;
   --seaweed: #6ee7b7;
   --octo: #a78bfa;
@@ -98,6 +99,12 @@
  * then made the band dark on dark: the nav pill label and the "Sign out"
  * label read 1.21:1 on the band, under the floor of 4.5:1. `--paper-bright`
  * keeps `#ffffff` in each scheme, so `.band` stays bright on dark too.
+ *
+ * `--coral-edge` is the border token of `.form-error` (issue #383, the
+ * correction round of pull request #450). `--coral-deep` on `--paper-raised`
+ * (`#312b57`) reads 2.86:1 in the dark scheme, under the 3:1 floor of WCAG
+ * 1.4.11. `#ff6b6b` raises the pair to 4.69:1 on `#312b57`, 6.06:1 on
+ * `#1d1a33`, and 6.58:1 on `#14122a`.
  */
 @media (prefers-color-scheme: dark) {
   :root {
@@ -108,6 +115,7 @@
     --shallows: #14122a;
     --shallows-deep: #2c2850;
     --octo: #9b7be5;
+    --coral-edge: #ff6b6b;
   }
 }
 

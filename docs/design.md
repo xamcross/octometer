@@ -21,7 +21,8 @@ the base rules.
 | `--shallows` | `#E6F3FF` | The page background, the zebra row tint. |
 | `--shallows-deep` | `#BFDFFF` | The table head, the neutral status fill. |
 | `--coral` | `#FF6B6B` | The danger fill, the link underline. |
-| `--coral-deep` | `#D93A3A` | The invalid field ring and the `.form-error` left border; keeps 3:1 or more on `--paper` and on `--shallows` (WCAG 1.4.11, issue #264 and issue #383). |
+| `--coral-deep` | `#D93A3A` | The invalid field ring; keeps 3:1 or more on `--paper` and on `--shallows` (WCAG 1.4.11, issue #264 and issue #438). |
+| `--coral-edge` | `#D93A3A` light, `#FF6B6B` dark | The `.form-error` left border; keeps 3:1 or more on `--paper`, `--shallows`, and `--paper-raised` (WCAG 1.4.11, issue #383 and issue #450). |
 | `--sunny` | `#FFD93D` | The primary fill, the current nav pill, the focus ring, the warning fill. |
 | `--seaweed` | `#6EE7B7` | The OK fill. |
 | `--octo` | `#A78BFA` | The header band, the mascot body. Never a text background. |
@@ -139,6 +140,13 @@ still named the pre-#264 literal `#ff6b6b` (2.8:1, under the 3:1 floor of WCAG 1
 the script now names `--coral-deep`'s real value, `#d93a3a`, and the pair passes. In the
 dark scheme (issue #435), `--coral-deep` keeps its light value and still passes: 3.70:1
 on the dark `--paper` (`#1D1A33`) and 4.02:1 on the dark `--shallows` (`#14122A`).
+
+The `.form-error` left border uses a separate token, `--coral-edge` (issue #383 and issue
+#450). `--coral-edge` keeps `--coral-deep`'s light value, `#d93a3a`. It reads 4.55:1 on
+`--paper`, 4.04:1 on `--shallows`, and 4.55:1 on the dialog fill `--paper-raised` in the
+light scheme. In the dark scheme `--coral-edge` takes `#ff6b6b`. The pair then reads 6.06:1 on
+`--paper`, 6.58:1 on `--shallows`, and 4.69:1 on `--paper-raised`, the fill of
+`DeleteAppDialog` and `NewSecretKeyDialog`.
 
 ## The dark color scheme
 

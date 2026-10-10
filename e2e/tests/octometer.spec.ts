@@ -1327,30 +1327,81 @@ test('the shared .field rule gives the add-app form, the delete dialog, and the 
 // `signin.html` is the deterministic way to raise the form-error paragraph
 // with no mail round trip. `opacity: 1` sits beside the ratio (lesson 24
 // of the frontend brief): a faded element would pass a color-only check.
-test('the sign-in form-error message starts with the warning glyph and its left border passes 3:1 on the page background (issue #383)', async ({
+//
+// BLOCKER 1 of the review of pull request #450: the `.form-error` border
+// also sits on a dialog fill (`--paper-raised`), darker than the page in
+// the dark scheme. This scenario reads the border on the sign-in page in
+// both color schemes, and inside the delete dialog in the dark scheme
+// too, so the `--coral-edge` token gets a reading on each background it
+// paints.
+test('the sign-in form-error message starts with the warning glyph and its left border passes 3:1 on its background, in both color schemes and in a dialog (issue #383)', async ({
+  page,
   newTrackedContext,
 }) => {
-  const context = await newTrackedContext();
-  const page = await context.newPage();
-  await page.goto('/signin?token=e2e-bad-token-383');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  for (const colorScheme of ['light', 'dark'] as const) {
+    const context = await newTrackedContext();
+    const signinPage = await context.newPage();
+    await signinPage.emulateMedia({ colorScheme });
+    await signinPage.goto('/signin?token=e2e-bad-token-383');
+    await signinPage.getByRole('button', { name: 'Sign in' }).click();
 
-  const errorText = page.locator('p.form-error');
-  await expect(errorText).toBeVisible();
-  await expect(errorText).toHaveCSS('opacity', '1');
-  const messageText = (await errorText.textContent()) ?? '';
-  expect(messageText.startsWith('⚠')).toBe(true);
+    const errorText = signinPage.locator('p.form-error');
+    await expect(errorText).toBeVisible();
+    await expect(errorText).toHaveCSS('opacity', '1');
+    const messageText = (await errorText.textContent()) ?? '';
+    expect(messageText.startsWith('⚠')).toBe(true);
 
-  const [borderColor, pageBackground] = await errorText.evaluate((element) => [
-    getComputedStyle(element).borderLeftColor,
-    getComputedStyle(document.body).backgroundColor,
-  ]);
-  const borderContrast = contrastRatio(borderColor, pageBackground);
+    const [borderColor, pageBackground] = await errorText.evaluate((element) => [
+      getComputedStyle(element).borderLeftColor,
+      getComputedStyle(document.body).backgroundColor,
+    ]);
+    const borderContrast = contrastRatio(borderColor, pageBackground);
+    console.log(
+      `issue #383 (${colorScheme}): the sign-in form-error left border is "${borderColor}" ` +
+        `on "${pageBackground}", ${borderContrast.toFixed(2)}:1.`,
+    );
+    expect(borderContrast).toBeGreaterThanOrEqual(3);
+  }
+
+  // The delete dialog paints its fill with `--paper-raised`. A route
+  // abort on the DELETE request is the deterministic way to raise the
+  // dialog's own form-error paragraph, with no server change.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const appName = `form-error-edge-450-${Date.now()}`;
+  await manage.addApp({ name: appName, origins: ['https://form-error-edge-450.example'] });
+  const row = manage.row(appName);
+
+  await page.route('**/api/apps/*', async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fallback();
+      return;
+    }
+    await route.abort();
+  });
+  await manage.openDeleteDialog(row);
+  await manage.deleteConfirmNameField(row).fill(appName);
+  await manage.deleteConfirmButton(row).click();
+
+  const dialogError = row.locator('app-delete-app-dialog p.form-error');
+  await expect(dialogError).toBeVisible();
+  await expect(dialogError).toHaveCSS('opacity', '1');
+  const [dialogBorderColor, dialogFill] = await dialogError.evaluate((element) => {
+    const dialogEl = element.closest('dialog');
+    return [
+      getComputedStyle(element).borderLeftColor,
+      dialogEl ? getComputedStyle(dialogEl).backgroundColor : '',
+    ];
+  });
+  const dialogBorderContrast = contrastRatio(dialogBorderColor, dialogFill);
   console.log(
-    `issue #383: the form-error left border is "${borderColor}" on "${pageBackground}", ` +
-      `${borderContrast.toFixed(2)}:1.`,
+    `issue #383 (dark, dialog): the delete-dialog form-error left border is ` +
+      `"${dialogBorderColor}" on "${dialogFill}", ${dialogBorderContrast.toFixed(2)}:1.`,
   );
-  expect(borderContrast).toBeGreaterThanOrEqual(3);
+  expect(dialogBorderContrast).toBeGreaterThanOrEqual(3);
+
+  await page.unroute('**/api/apps/*');
 });
 
 // Issue #438: `docs/design/contrast.mjs` carried the invalid-field ring

@@ -137,6 +137,11 @@ const NONTEXT = [
   // carried the pre-#264 literal `#ff6b6b` (2.8:1, below the 3:1 floor of
   // WCAG 1.4.11). The pair now names the real token value, `#d93a3a`.
   ['manage', 'the invalid field ring on the field fill', '#d93a3a', '#ffffff'],
+  // Issue #383 and MAJOR 3 of the review of pull request #450: the
+  // `.form-error` left border uses its own token, `--coral-edge`. The
+  // light value equals `--coral-deep`'s hex, `#d93a3a`.
+  ['manage, signin', 'the form-error edge on the page background', '#d93a3a', '#e6f3ff'],
+  ['manage', 'the form-error edge on the paper and on the dialog fill', '#d93a3a', '#ffffff'],
 ];
 
 /*
@@ -217,6 +222,12 @@ const DARK_NONTEXT = [
   // its light value in the dark scheme, so the real pair is the same
   // hex, on the dark field fill.
   ['manage', 'the invalid field ring on the field fill', '#d93a3a', '#1d1a33'],
+  // Issue #383 and BLOCKER 1 of the review of pull request #450: the
+  // dark value of `--coral-edge`, `#ff6b6b`, reads 3:1 or more on each
+  // fill the `.form-error` border paints, the dialog fill included.
+  ['manage, signin', 'the form-error edge on the page background', '#ff6b6b', '#14122a'],
+  ['manage', 'the form-error edge on the paper', '#ff6b6b', '#1d1a33'],
+  ['dialog', 'the form-error edge on the dialog fill', '#ff6b6b', '#312b57'],
 ];
 
 /*
