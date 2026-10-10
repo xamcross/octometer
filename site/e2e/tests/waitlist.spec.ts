@@ -7,6 +7,12 @@ import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { test, expect } from '@playwright/test';
 
+// Issue #426: "site/src/styles/site.css:16" sets a smooth page scroll.
+// "reducedMotion: 'reduce'" turns on the rule of "site.css:813-816",
+// "scroll-behavior: auto", for each click of this file. No scroll of this
+// file is then active when the click check of Playwright runs.
+test.use({ reducedMotion: 'reduce' });
+
 // "site/e2e/tests" up two levels to "site", the directory of
 // "wrangler.jsonc" and of the local D1 state. "__dirname" matches
 // "playwright.config.ts", the same file under the same test runner.
@@ -51,14 +57,8 @@ function extractLink(body: string, path: string): string {
 }
 
 async function joinWithAddress(page: import('@playwright/test').Page, address: string) {
-  // Issue #426: an instant jump replaces the smooth auto-scroll of
-  // "site.css:16", so no scroll is in flight for the click stability check.
-  const field = page.locator('#waitlist-email');
-  const button = page.locator('form.waitlist-form button[type="submit"]');
-  await field.evaluate((element) => element.scrollIntoView({ behavior: 'instant', block: 'center' }));
   await page.fill('#waitlist-email', address);
-  await button.evaluate((element) => element.scrollIntoView({ behavior: 'instant', block: 'center' }));
-  await button.click();
+  await page.locator('form.waitlist-form button[type="submit"]').click();
 }
 
 test('an address joins the list, confirms through the link, and can remove itself', async ({
