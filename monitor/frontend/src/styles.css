@@ -25,7 +25,7 @@
   --shallows: #e6f3ff;
   --shallows-bright: #e6f3ff;
   --shallows-deep: #bfdfff;
-  --shallows-hover: #e6f3ff;
+  --shallows-hover: #99c6ff;
   --coral: #ff6b6b;
   --coral-deep: #d93a3a;
   --coral-edge: #d93a3a;
@@ -128,9 +128,14 @@
  * disappeared (about 1:1 against the page). No existing dark token
  * clears 1.5:1 against the page while the text (`--ink`) keeps 4.5:1 or
  * more, so `--shallows-hover` adds `#3d3570`: 1.69:1 against the dark
- * page, and the pill text reads 9.10:1 on it. The light value stays
- * `#e6f3ff`, equal to `--shallows`, so the light scheme keeps its
- * current pair.
+ * page, and the pill text reads 9.10:1 on it.
+ *
+ * Issue #468 fixes the light scheme. The old light value, `#e6f3ff`,
+ * equalled the light page too: 1.00:1, with the text at 13.92:1. No
+ * existing light token (`--paper-raised`, `--shallows-deep`,
+ * `--shallows-bright`) clears 1.5:1 against the light page.
+ * `--shallows-hover` now adds `#99c6ff`: 1.57:1 against the light
+ * page, and the pill text reads 8.87:1 on it.
  *
  * `--coral-edge` is the border token of `.form-error` (issue #383, the
  * correction round of pull request #450) and of `.list-error` (issue
