@@ -88,11 +88,28 @@ app-main-nav {
   margin-left: auto;
 }
 
-/* The signed-in account, at the end of the band row (issue #301, D52). */
-.account-status {
-  display: inline-flex;
+/*
+ * The account menu, in its own row below the band row (issue #360,
+ * finding D11). "Sign out" (the button family: a 12px radius and a
+ * hard shadow) sat next to the nav pills before (the pill family: a
+ * full-round radius and no shadow), so the two looks mixed in one row.
+ * This row holds no pill, so the clash is gone.
+ */
+.account-menu {
+  max-width: 76rem;
+  margin-inline: auto;
+  padding-inline: 16px;
+  padding-bottom: 12px;
+  display: flex;
+  justify-content: flex-end;
   align-items: center;
   gap: var(--space-2);
+}
+
+@media (min-width: 48rem) {
+  .account-menu {
+    padding-inline: 32px;
+  }
 }
 
 .account-email {

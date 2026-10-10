@@ -993,3 +993,70 @@ test('the delete-confirm button shows a Deleting label while the request is pend
   const afterRows = (await afterResponse.json()) as ReadonlyArray<{ name: string }>;
   expect(afterRows.some((r) => r.name === appName)).toBe(false);
 });
+
+/**
+ * Reads the border radius and the box shadow of one control (issue
+ * #360, finding D11). Chromium gives back a plain px string and a
+ * plain `rgb(...) Npx Npx 0px 0px` string here (real Chromium, not
+ * jsdom), so a direct string check is exact.
+ */
+async function controlLook(locator: Locator): Promise<{
+  radius: string;
+  shadow: string;
+}> {
+  return locator.evaluate((element) => ({
+    radius: getComputedStyle(element).borderRadius,
+    shadow: getComputedStyle(element).boxShadow,
+  }));
+}
+
+// Issue #360, finding D11 of the UI audit: one pill family (a
+// full-round radius, no shadow) and one button family (a 12px radius,
+// a hard shadow), with no third look on screen. "Sign out" moves into
+// its own account menu, clear of the row of nav pills.
+test('the nav pills, the "Pause refresh" pill, and the action buttons each keep one family (issue #360)', async ({
+  page,
+}) => {
+  const apps = new AppsPage(page);
+  await apps.goto();
+
+  const navPill = page
+    .locator('nav[aria-label="Main"]')
+    .getByRole('link', { name: 'Apps', exact: true });
+  const pausePill = page.getByRole('button', { name: 'Pause refresh' });
+  const signOutButton = page.locator('.account-menu').getByRole('button', { name: 'Sign out' });
+
+  const navPillLook = await controlLook(navPill);
+  const pausePillLook = await controlLook(pausePill);
+  const signOutLook = await controlLook(signOutButton);
+
+  // The two pills share one radius and one shadow (none).
+  expect(pausePillLook).toEqual(navPillLook);
+  expect(navPillLook.shadow).toBe('none');
+
+  // "Sign out" keeps the other family: a different radius, and a
+  // shadow that is not "none".
+  expect(signOutLook.radius).not.toBe(navPillLook.radius);
+  expect(signOutLook.shadow).not.toBe('none');
+
+  // A second action button, on a different page, keeps the same
+  // button look as "Sign out".
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const addAppButton = page.getByRole('button', { name: 'Add app' });
+  const addAppLook = await controlLook(addAppButton);
+  expect(addAppLook).toEqual(signOutLook);
+
+  // "Sign out" sits in its own row, clear of the row of nav pills: its
+  // box does not share a y range with the nav pill's box.
+  await apps.goto();
+  const navBox = await navPill.boundingBox();
+  const signOutBox = await page
+    .locator('.account-menu')
+    .getByRole('button', { name: 'Sign out' })
+    .boundingBox();
+  if (!navBox || !signOutBox) {
+    throw new Error('The nav pill or the "Sign out" button has no box.');
+  }
+  expect(signOutBox.y).toBeGreaterThanOrEqual(navBox.y + navBox.height);
+});
