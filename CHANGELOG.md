@@ -200,6 +200,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   width; the account menu keeps its own row, below. (#397)
 - Raise the mascot head fill on the header band to a 3:1 contrast, in each color
   scheme, with the new token `--octo-head-band`. (#439)
+- Raise the `.list-error` left border from `--coral` to `--coral-edge`. The error
+  state of five views now keeps 3:1 or more on the page in the light scheme. (#453)
 
 ### CI
 

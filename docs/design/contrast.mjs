@@ -102,6 +102,9 @@ const TEXT = [
   ['users', 'the disabled pager button', '#4b4763', '#e6f3ff', 12.8, 600],
   ['users, sessions, not-found', 'the empty state sentence', '#241f3d', '#ffffff', 16, 400],
   ['sessions', 'the first-load sentence', '#241f3d', '#e6f3ff', 16, 400],
+  // Issue #453: `.list-error` sets no `color` of its own, so the text
+  // keeps `--ink` on the page background in each of the five views.
+  ['apps, users, sessions, first-pages, manage', 'the list-error text', '#241f3d', '#e6f3ff', 16, 700],
   ['manage', 'the Edit and Delete buttons', '#241f3d', '#ffffff', 12.8, 600],
   ['manage', 'the form heading h2', '#241f3d', '#ffffff', 20, 600],
   ['manage', 'the field label', '#241f3d', '#ffffff', 16, 700],
@@ -149,6 +152,10 @@ const NONTEXT = [
   // light value equals `--coral-deep`'s hex, `#d93a3a`.
   ['manage, signin', 'the form-error edge on the page background', '#d93a3a', '#e6f3ff'],
   ['manage', 'the form-error edge on the paper and on the dialog fill', '#d93a3a', '#ffffff'],
+  // Issue #453: `.list-error` moves from the plain `var(--coral)` border
+  // (2.46:1 on the page background, under the 3:1 floor of WCAG 1.4.11)
+  // to `--coral-edge`, the token that already fixes `.form-error`.
+  ['apps, users, sessions, first-pages, manage', 'the list-error edge on the page background', '#d93a3a', '#e6f3ff'],
 ];
 
 /*
@@ -193,6 +200,8 @@ const DARK_TEXT = [
   ['users', 'the disabled pager button', '#b9b4d6', '#14122a', 12.8, 600],
   ['users, sessions, not-found', 'the empty state sentence', '#ece9ff', '#1d1a33', 16, 400],
   ['sessions', 'the first-load sentence', '#ece9ff', '#14122a', 16, 400],
+  // Issue #453: the dark `--ink` value on the dark page background.
+  ['apps, users, sessions, first-pages, manage', 'the list-error text', '#ece9ff', '#14122a', 16, 700],
   ['manage', 'the Edit and Delete buttons', '#ece9ff', '#1d1a33', 12.8, 600],
   ['manage', 'the form heading h2', '#ece9ff', '#1d1a33', 20, 600],
   ['manage', 'the field label', '#ece9ff', '#1d1a33', 16, 700],
@@ -240,6 +249,10 @@ const DARK_NONTEXT = [
   ['manage, signin', 'the form-error edge on the page background', '#ff6b6b', '#14122a'],
   ['manage', 'the form-error edge on the paper', '#ff6b6b', '#1d1a33'],
   ['dialog', 'the form-error edge on the dialog fill', '#ff6b6b', '#312b57'],
+  // Issue #453: `.list-error` always sat at 6.58:1 in the dark scheme
+  // (`var(--coral)` and `--coral-edge` share the dark value `#ff6b6b`);
+  // the fix only raises the light-scheme value.
+  ['apps, users, sessions, first-pages, manage', 'the list-error edge on the page background', '#ff6b6b', '#14122a'],
 ];
 
 /*

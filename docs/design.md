@@ -22,7 +22,7 @@ the base rules.
 | `--shallows-deep` | `#BFDFFF` | The table head, the neutral status fill. |
 | `--coral` | `#FF6B6B` | The danger fill, the link underline. |
 | `--coral-deep` | `#D93A3A` | The invalid field ring; keeps 3:1 or more on `--paper` and on `--shallows` (WCAG 1.4.11, issue #264 and issue #438). |
-| `--coral-edge` | `#D93A3A` light, `#FF6B6B` dark | The `.form-error` left border; keeps 3:1 or more on `--paper`, `--shallows`, and `--paper-raised` (WCAG 1.4.11, issue #383 and issue #450). |
+| `--coral-edge` | `#D93A3A` light, `#FF6B6B` dark | The `.form-error` and `.list-error` left border; keeps 3:1 or more on `--paper`, `--shallows`, and `--paper-raised` (WCAG 1.4.11, issue #383, issue #450, and issue #453). |
 | `--sunny` | `#FFD93D` | The primary fill, the current nav pill, the focus ring, the warning fill. |
 | `--seaweed` | `#6EE7B7` | The OK fill. |
 | `--octo` | `#A78BFA` | The header band, the mascot body. Never a text background. |
@@ -149,6 +149,14 @@ The `.form-error` left border uses a separate token, `--coral-edge` (issue #383 
 light scheme. In the dark scheme `--coral-edge` takes `#ff6b6b`. The pair then reads 6.06:1 on
 `--paper`, 6.58:1 on `--shallows`, and 4.69:1 on `--paper-raised`, the fill of
 `DeleteAppDialog` and `NewSecretKeyDialog`.
+
+`.list-error` sets no `color` of its own (issue #453). Its text keeps `--ink` on the page
+background, the `--ink` / `--shallows` pair above: 13.9:1 in the light scheme and 15.4:1 in
+the dark scheme, each far above the 4.5:1 floor of WCAG 1.4.3. Its left border held the
+plain `var(--coral)` value until issue #453: `#ff6b6b` on `--shallows` reads 2.46:1 in the
+light scheme, under the 3:1 floor of WCAG 1.4.11. `--coral-edge` is the fix: 4.04:1 in the
+light scheme, and 6.58:1 in the dark scheme (the dark value of `--coral-edge` equals the
+dark value of `--coral`, so the dark-scheme ratio does not change).
 
 ## The dark color scheme
 
