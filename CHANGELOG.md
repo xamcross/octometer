@@ -63,6 +63,13 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   no click of the scenario fail at random. (#426)
 - Move the hero mark into the top bar under 48rem, beside the wordmark, so it does
   not sit alone above the heading on a phone. (#370)
+- Raise the link underline and the focus halo to a 3:1 contrast against the page in
+  the light scheme, with the new tokens `--link-underline` and `--focus-halo`; the
+  focus outline keeps the brand sunny colour in both schemes. (#409)
+- Set the small text token of the design mock to 14 px, the same size as the site
+  token. (#425)
+- Add a dark-scheme row for each light pair of the contrast script, so a dark-scheme
+  regression now shows in the script output. (#429)
 
 ### Contract
 

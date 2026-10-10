@@ -20,6 +20,21 @@
   --seaweed: #6ee7b7;
   --octo: #a78bfa;
   --on-bright: #241f3d;
+  /* The link underline (issue #409). The light scheme uses a darker shade
+     of the brand coral, so it holds a 3:1 contrast against "--paper" and
+     "--shallows". The dark scheme keeps the bright shade of issue #366,
+     already at or above 3:1. */
+  --link-underline: #d93f3f;
+  /* The focus ring (issue #409, the correction round of pull request
+     #441). The outline line keeps the brand sunny color in both schemes;
+     "--focus-halo" carries the contrast against the page instead, so it
+     needs its own value per scheme: "--on-bright" in the light scheme
+     reads 3:1 or more against the page, but stays fixed at "#241f3d" in
+     the dark scheme too, where it would equal the dark "--paper" value.
+     "--ink" takes its place in the dark scheme, where it holds 3:1 or
+     more against both "--paper" and "--shallows". */
+  --focus-ring: var(--sunny);
+  --focus-halo: var(--on-bright);
   /* The dimmed backdrop of the full-size screenshot dialog (issue #359),
      the same fixed value in both color schemes as the monitor's own
      "--backdrop" token (monitor/frontend/src/styles.css:32), so the dim
@@ -69,5 +84,8 @@
     --paper-raised: #312b57;
     --shallows: #17142b;
     --shallows-deep: #232b45;
+    --link-underline: var(--coral);
+    --focus-ring: var(--sunny);
+    --focus-halo: var(--ink);
   }
 }
