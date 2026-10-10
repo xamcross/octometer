@@ -1053,47 +1053,19 @@ test('Edit app opens a dialog, with no row growth and no shift of the row below 
   await expect(manage.statusBadge(firstRow)).not.toHaveText(/Not polled yet/);
   await expect(manage.statusBadge(secondRow)).not.toHaveText(/Not polled yet/);
 
-  // TEMP diagnostic of the CI run 38070200297 (removed in the fix commit):
-  // reads the table's own box, the offsetHeight of each element between
-  // the top of `main` and the table, `window.scrollY`, `document.fonts.
-  // status`, and the computed `font-family` of a row cell.
-  const diagnosticOf = async (): Promise<string> => {
-    const tableBox = await page.locator('main table').first().boundingBox();
-    const pageState = await page.evaluate(() => {
-      const rectOf = (el: Element | null) =>
-        el ? { top: el.getBoundingClientRect().top, offsetHeight: (el as HTMLElement).offsetHeight } : null;
-      const h1 = document.querySelector('main h1');
-      const panel = document.querySelector('main .panel');
-      const tableScroll = document.querySelector('main .table-scroll');
-      const table = document.querySelector('main table');
-      const cell = document.querySelector('main tbody th[scope="row"]');
-      return {
-        scrollY: window.scrollY,
-        fontsStatus: document.fonts.status,
-        h1: rectOf(h1),
-        panel: rectOf(panel),
-        tableScroll: rectOf(tableScroll),
-        table: rectOf(table),
-        cellFontFamily: cell ? getComputedStyle(cell).fontFamily : null,
-      };
-    });
-    let nameFieldFontFamily: string | null = null;
-    const nameField = page.locator('dialog:modal').getByLabel('Name', { exact: true });
-    if ((await nameField.count()) > 0) {
-      nameFieldFontFamily = await nameField.evaluate((element) => getComputedStyle(element).fontFamily);
-    }
-    return (
-      `tableBox=${JSON.stringify(tableBox)} pageState=${JSON.stringify(pageState)} ` +
-      `nameFieldFontFamily=${nameFieldFontFamily}`
-    );
-  };
-
+  // Issue #364, the correction of pull request #465. A dialog open can
+  // scroll the whole page by a few pixels on the CI runner.
+  // `overflow-anchor: none` on `body` (`styles.css`) removes the cause.
+  // The row-below check now reads the row's own place against the
+  // table, not its raw `y`. The check then stays true of a static row
+  // through a window scroll the test does not control.
+  const table = page.locator('main table').first();
+  const tableBoxBefore = await table.boundingBox();
   const firstRowBoxBefore = await firstRow.boundingBox();
   const secondRowBoxBefore = await secondRow.boundingBox();
-  if (!firstRowBoxBefore || !secondRowBoxBefore) {
+  if (!tableBoxBefore || !firstRowBoxBefore || !secondRowBoxBefore) {
     throw new Error('A row of the manage table has no box.');
   }
-  const diagnosticBefore = await diagnosticOf();
 
   // Opens the dialog of the first row, and proves it is a real modal
   // dialog (`showModal()`, not a plain `open` attribute toggle): the CSS
@@ -1102,25 +1074,20 @@ test('Edit app opens a dialog, with no row growth and no shift of the row below 
   await expect(page.locator('dialog:modal')).toHaveCount(1);
   await expect(manage.editDialog(firstRow)).toHaveCount(1);
 
+  const tableBoxDuring = await table.boundingBox();
   const firstRowBoxDuring = await firstRow.boundingBox();
   const secondRowBoxDuring = await secondRow.boundingBox();
-  if (!firstRowBoxDuring || !secondRowBoxDuring) {
+  if (!tableBoxDuring || !firstRowBoxDuring || !secondRowBoxDuring) {
     throw new Error('A row of the manage table has no box, with the dialog open.');
   }
-  const diagnosticDuring = await diagnosticOf();
   console.log(
     `issue #364: the row height is ${firstRowBoxBefore.height}px before the dialog opens ` +
       `and ${firstRowBoxDuring.height}px while it is open; the row below sits at ` +
-      `${secondRowBoxBefore.y}px before and ${secondRowBoxDuring.y}px while the dialog is open.`,
+      `${secondRowBoxBefore.y - tableBoxBefore.y}px before and ` +
+      `${secondRowBoxDuring.y - tableBoxDuring.y}px while the dialog is open, each against the table top.`,
   );
-  expect(
-    firstRowBoxDuring.height,
-    `TEMP DIAGNOSTIC before=${diagnosticBefore} during=${diagnosticDuring}`,
-  ).toBe(firstRowBoxBefore.height);
-  expect(
-    secondRowBoxDuring.y,
-    `TEMP DIAGNOSTIC before=${diagnosticBefore} during=${diagnosticDuring}`,
-  ).toBe(secondRowBoxBefore.y);
+  expect(firstRowBoxDuring.height).toBe(firstRowBoxBefore.height);
+  expect(secondRowBoxDuring.y - tableBoxDuring.y).toBe(secondRowBoxBefore.y - tableBoxBefore.y);
 
   // The rename keeps the exact same length as firstName: a longer name
   // can wrap onto a second line in the narrow App column, which would

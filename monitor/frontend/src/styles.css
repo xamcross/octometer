@@ -178,11 +178,22 @@
   box-sizing: border-box;
 }
 
+/*
+ * Issue #364 of pull request #465: a CI-only failure moved the page
+ * down a few pixels when the edit-app dialog opened. The cause is
+ * Chromium's scroll anchoring. The feature keeps one page node in
+ * view across a short layout change above it. The dialog's own
+ * promotion to the top layer is such a change, on the CI runner
+ * alone. `overflow-anchor: none` turns the feature off on this
+ * scroller, the page body. The page then keeps its own scroll
+ * position while a dialog opens.
+ */
 body {
   margin: 0;
   background: var(--shallows);
   color: var(--ink);
   font: 400 1rem/1.5 var(--body);
+  overflow-anchor: none;
 }
 
 /*
