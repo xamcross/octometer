@@ -54,6 +54,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Let the full-size dialog hold the capture at its own natural width, with a pan, so
   the row text reads at 12.8 px at 390 px too. (#359, the correction round of pull
   request #424)
+- Rewrite the hero note, the waitlist lead, and the footer labels in plain language.
+  Each fact stays the same. (#356)
+- Fold the footer notice into a collapsed "Waitlist privacy notice", with a link
+  beside the waitlist form. Add one footer row: the mark, the copyright line, the
+  contact address, and "Sign in". (#388)
 
 ### Contract
 
