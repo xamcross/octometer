@@ -1605,6 +1605,23 @@ test('the dashboard shell uses the dark tokens under prefers-color-scheme: dark 
   });
   expect(ratio(toHex(badgeColors.fg), toHex(badgeColors.bg))).toBeGreaterThanOrEqual(4.5);
 
+  // Issue #451: the dark focus ring reads 3:1 or more on each of its two
+  // layers against the page, not the plain dark `--ink` (1.2:1 on the
+  // sunny line). The "demo" row link sits outside `.band`, so it reads
+  // the page's own dark `--focus-halo` token, `#726bab`, not the band's
+  // local override. `opacity: 1` sits beside each ratio (lesson 24 of
+  // the frontend brief).
+  const demoLink = apps.rowOf('demo').nameLink;
+  await demoLink.focus();
+  await expect(demoLink).toHaveCSS('opacity', '1');
+  const ringColors = await demoLink.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const haloMatch = style.boxShadow.match(/rgba?\([^)]+\)/);
+    return { line: style.outlineColor, halo: haloMatch ? haloMatch[0] : '' };
+  });
+  expect(ratio(toHex(ringColors.line), toHex(ringColors.halo))).toBeGreaterThanOrEqual(3);
+  expect(ratio(toHex(ringColors.halo), '#14122a')).toBeGreaterThanOrEqual(3);
+
   // The disabled "Delete this app" button of the delete dialog
   // (`.btn[disabled]`, issue #384/#410): a shallows fill, an ink-soft
   // text, a dashed border, and no opacity change. This reads the real

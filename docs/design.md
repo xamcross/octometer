@@ -35,6 +35,7 @@ the base rules.
 | `--line-control` | `2px solid var(--ink)` | The outline of a control. |
 | `--shadow-panel` | `6px 6px 0 var(--ink)` | The hard shadow of a panel. |
 | `--shadow-control` | `3px 3px 0 var(--ink)` | The hard shadow of a control. |
+| `--focus-halo` | `var(--ink)` light, `#726BAB` dark | The 7px halo of the focus ring; its own token, not plain `--ink` (issue #451). |
 | `--space-1` | `4px` | The space scale, a 4px base. |
 | `--space-2` | `8px` | The space scale. |
 | `--space-3` | `12px` | The space scale. |
@@ -44,8 +45,8 @@ the base rules.
 | `--space-7` | `48px` | The space scale. |
 
 A table cell keeps a radius of 0. `--ink`, `--ink-soft`, `--paper`, `--paper-raised`,
-`--shallows`, `--shallows-deep`, and `--octo` each take a different value in the dark color
-scheme; see "The dark color scheme" below.
+`--shallows`, `--shallows-deep`, `--octo`, and `--focus-halo` each take a different value in
+the dark color scheme; see "The dark color scheme" below.
 
 ## The page column
 
@@ -102,11 +103,18 @@ an outside font host.
 ## The focus ring
 
 The shared `:focus-visible` rule of `src/styles.css` gives a 3px sunny outline, a 2px
-offset, and a 7px hard ink ring (`box-shadow: 0 0 0 7px var(--ink)`), because the sunny
-outline alone gives 1.2:1 on the shallows background. A control with its own box-shadow,
-such as a future `.btn`, must repeat the 7px ink ring in its own `:focus-visible` rule
-(`box-shadow: <its shadow>, 0 0 0 7px var(--ink)`), or its own shadow replaces the ring
-instead of adding to it.
+offset, and a 7px hard halo ring (`box-shadow: 0 0 0 7px var(--focus-halo)`), because the
+sunny outline alone gives 1.2:1 on the shallows background. A control with its own
+box-shadow, such as `.btn`, must repeat the 7px halo ring in its own `:focus-visible` rule
+(`box-shadow: <its shadow>, 0 0 0 7px var(--focus-halo)`), or its own shadow replaces the
+ring instead of adding to it.
+
+`--focus-halo` keeps `--ink`'s value in the light scheme. Issue #451 gives it its own
+literal value in the dark scheme, `#726BAB`, because plain `--ink` (`#ECE9FF`) reads 1.2:1
+against the sunny line, under the 3:1 floor of WCAG 1.4.11. `#726BAB` reads 3.5:1 against
+the sunny line, 3.8:1 against the dark page background, and 3.5:1 against the dark paper.
+The site's own dark `--focus-halo` (`site/src/styles/tokens.css`) takes the same value, for
+the same reason.
 
 ## The contrast table
 
@@ -165,6 +173,7 @@ fill (a badge, a button, the band) keeps its ink text in each scheme.
 | `--shallows` | `#E6F3FF` | `#14122A` |
 | `--shallows-deep` | `#BFDFFF` | `#2C2850` |
 | `--octo` | `#A78BFA` | `#9B7BE5` |
+| `--focus-halo` | `var(--ink)` (`#241F3D`) | `#726BAB` |
 
 `.band` of `monitor/frontend/src/app/app.css` no longer sets `--ink: #241f3d;` and
 `--paper: #ffffff;` as hex literals. It sets `--ink: var(--on-bright)` and
@@ -186,3 +195,17 @@ The audit draft of issue #361 names `#5B45B0` for the dark `--octo`, with no dar
 
 `docs/design/contrast.mjs` (issue #251) computes the full dark-scheme table, next to the
 light-scheme table above; run `node docs/design/contrast.mjs`.
+
+## The accepted exceptions
+
+Issue #451 clears the four fails of `docs/design/contrast.mjs`. Issue #438 (pull request
+#450) fixes the first one, the dashboard invalid-field ring. The dashboard and the site
+focus ring (the sunny line on the halo) each get a token fix too: `--focus-halo` now takes
+its own dark value, `#726BAB` (see "The focus ring" above and "The dark color scheme").
+
+One pair stays an accepted exception: the site focus halo on the octo band, in the dark
+scheme (1.8:1, under the 3:1 floor of WCAG 1.4.11). The hero preview bar
+(`site/index.html:74-80`) holds `span` elements only; no focusable control sits on the
+octo band today. The reviewer of pull request #441 confirmed this with a Tab sweep of
+each focusable control of the site. `docs/design/contrast.mjs` carries the pair with an
+`accepted` field and its reason, and the script prints it apart from `fails`.

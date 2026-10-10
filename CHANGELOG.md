@@ -74,6 +74,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   the preview window at 390 px with no clip. (#431)
 - Wait until 56rem to split the waitlist row into two columns, so the page shows no
   sideways scroll at 768 px, at 800 px, or at 870 px. (#442)
+- Give the dark `--focus-halo` its own value, `#726BAB`, so the sunny line reads 3:1 or
+  more against it; record the halo-on-band pair as an accepted exception. (#451)
 
 ### Contract
 
@@ -189,6 +191,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   leading "⚠" glyph to each error message. (#383)
 - Correct the invalid-field ring pair of `docs/design/contrast.mjs` to the real token
   value, `--coral-deep`; the pair now reads 4.5:1, at or above the 3:1 floor. (#438)
+- Add the token `--focus-halo`, its own dark value, `#726BAB`; the dark focus ring now
+  reads 3:1 or more on the sunny line, the page, and the paper. (#451)
 
 ### CI
 

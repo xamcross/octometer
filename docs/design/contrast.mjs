@@ -19,6 +19,14 @@
  * not a hex value, so it reads the right pair for its own scheme (MAJOR 1
  * of that round, for the site rows that this merge adds; the dashboard rows
  * below come from issue #361, now merged, with their own measured values).
+ *
+ * Issue #451 gives the dashboard and the site each a dedicated dark
+ * `--focus-halo` value (`#726bab`), so the sunny line reads 3:1 or more
+ * against it, and it reads 3:1 or more against each page it sits on. The
+ * same issue adds the `accepted` field: an edge row can carry a one-sentence
+ * reason as its fifth entry, for a pair that stays under its floor on
+ * purpose. The script then prints that row with the result `accepted`, and
+ * counts it apart from `fails`.
  */
 
 /** The linear value of one sRGB channel. */
@@ -127,10 +135,10 @@ const NONTEXT = [
   ['apps', 'the badge edge on the badge fill (seaweed)', '#241f3d', '#6ee7b7'],
   ['apps', 'the badge edge on the badge fill (coral)', '#241f3d', '#ff6b6b'],
   ['apps', 'the badge edge on the badge fill (sunny)', '#241f3d', '#ffd93d'],
-  ['each page', 'the focus ring: the ink halo on the page background', '#241f3d', '#e6f3ff'],
-  ['each page', 'the focus ring: the ink halo on the paper', '#241f3d', '#ffffff'],
-  ['the band', 'the focus ring: the ink halo on the octo band', '#241f3d', '#a78bfa'],
-  ['each page', 'the focus ring: the sunny line on the ink halo', '#ffd93d', '#241f3d'],
+  ['each page', 'the focus ring: the halo on the page background', '#241f3d', '#e6f3ff'],
+  ['each page', 'the focus ring: the halo on the paper', '#241f3d', '#ffffff'],
+  ['the band', 'the focus ring: the halo on the octo band', '#241f3d', '#a78bfa'],
+  ['each page', 'the focus ring: the sunny line on the halo', '#ffd93d', '#241f3d'],
   ['users', 'the disabled pager edge on the page background', '#4b4763', '#e6f3ff'],
   // Issue #438: the ring rule of styles.css and the five component style
   // files already paints `var(--coral-deep)` (#264), but this pair still
@@ -212,10 +220,14 @@ const DARK_NONTEXT = [
   ['apps', 'the badge edge on the badge fill (seaweed)', '#241f3d', '#6ee7b7'],
   ['apps', 'the badge edge on the badge fill (coral)', '#241f3d', '#ff6b6b'],
   ['apps', 'the badge edge on the badge fill (sunny)', '#241f3d', '#ffd93d'],
-  ['each page', 'the focus ring: the ink halo on the page background', '#ece9ff', '#14122a'],
-  ['each page', 'the focus ring: the ink halo on the paper', '#ece9ff', '#1d1a33'],
-  ['the band', 'the focus ring: the ink halo on the octo band', '#241f3d', '#9b7be5'],
-  ['each page', 'the focus ring: the sunny line on the ink halo', '#ffd93d', '#ece9ff'],
+  // Issue #451: `--focus-halo` takes its own dark value, `#726bab`, not
+  // plain `--ink` (`#ece9ff`); the sunny line then reads 3.46:1 on it
+  // (it read 1.2:1 on plain `--ink`). `.band` sets its own `--ink` and
+  // reads none of the dark tokens, so its own halo row stays unchanged.
+  ['each page', 'the focus ring: the halo on the page background', '#726bab', '#14122a'],
+  ['each page', 'the focus ring: the halo on the paper', '#726bab', '#1d1a33'],
+  ['the band', 'the focus ring: the halo on the octo band', '#241f3d', '#9b7be5'],
+  ['each page', 'the focus ring: the sunny line on the halo', '#ffd93d', '#726bab'],
   ['users', 'the disabled pager edge on the page background', '#b9b4d6', '#14122a'],
   // Issue #438: this dark-scheme row still named the pre-#264 literal
   // too (#435 copied the light-scheme mistake). `--coral-deep` keeps
@@ -252,7 +264,10 @@ const SITE_TOKENS = {
   onBright: { light: '#241f3d', dark: '#241f3d' },
   linkUnderline: { light: '#d93f3f', dark: '#ff6b6b' },
   focusRing: { light: '#ffd93d', dark: '#ffd93d' },
-  focusHalo: { light: '#241f3d', dark: '#f4f1ff' },
+  // Issue #451: the dark value is its own literal, `#726bab`, the same
+  // value as the dashboard's dark `--focus-halo`. Plain `--ink` (`#f4f1ff`)
+  // read 1.2:1 against the sunny line, under the 3:1 floor.
+  focusHalo: { light: '#241f3d', dark: '#726bab' },
 };
 
 /** The hex value of a site token, in one scheme ('light' or 'dark'). */
@@ -291,7 +306,17 @@ const SITE_NONTEXT = [
   ['each page', 'the focus ring: the line on the halo', 'focusRing', 'focusHalo'],
   ['each page', 'the focus ring: the halo on the page background', 'focusHalo', 'shallows'],
   ['each page', 'the focus ring: the halo on the paper', 'focusHalo', 'paper'],
-  ['the band', 'the focus ring: the halo on the octo band', 'focusHalo', 'octo'],
+  // Issue #451: the preview bar holds `span` elements only
+  // (`site/index.html:74-80`); no focusable control sits on the octo
+  // band today, so the pair is a guard for a later control, not a live
+  // gap (the review of pull request #441).
+  [
+    'the band',
+    'the focus ring: the halo on the octo band',
+    'focusHalo',
+    'octo',
+    'No focusable control sits on the octo band today.',
+  ],
 ];
 
 /** True for a large text: 24 px, or 18.66 px at the weight 700. */
@@ -301,6 +326,28 @@ const f1 = (x) => (Math.round(x * 10) / 10).toFixed(1);
 
 let fails = 0;
 let pairs = 0;
+let accepted = 0;
+const acceptedRows = [];
+
+/*
+ * The result word of one edge or ring pair (issue #451): `pass`, `fail`,
+ * or `accepted`. A pair with a one-sentence `reason` as its fifth entry
+ * stays under its floor on purpose; it counts apart from `fails`, and
+ * this function keeps its line for the "The accepted pairs" section at
+ * the end of the run.
+ */
+function edgeResult(page, kind, r, reason) {
+  pairs += 1;
+  const ok = r >= 3;
+  if (ok) return 'pass';
+  if (reason) {
+    accepted += 1;
+    acceptedRows.push(`${page} — ${kind}, ${f1(r)}:1. ${reason}`);
+    return 'accepted';
+  }
+  fails += 1;
+  return 'fail';
+}
 
 console.log('The disabled confirm button (#410): ' + DISABLED_INK + ' on ' + DISABLED_FILL);
 console.log('');
@@ -321,12 +368,10 @@ for (const [page, kind, fg, bg, px, weight] of TEXT) {
 console.log('');
 console.log('| Page | Edge or ring | Colour | Neighbour | Ratio | Floor | Result |');
 console.log('| --- | --- | --- | --- | --- | --- | --- |');
-for (const [page, kind, a, b] of NONTEXT) {
+for (const [page, kind, a, b, reason] of NONTEXT) {
   const r = ratio(a, b);
-  const ok = r >= 3;
-  pairs += 1;
-  if (!ok) fails += 1;
-  console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${ok ? 'pass' : 'fail'} |`);
+  const result = edgeResult(page, kind, r, reason);
+  console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${result} |`);
 }
 console.log('');
 console.log('## The dashboard, the dark scheme (issue #361, prefers-color-scheme: dark)');
@@ -349,12 +394,10 @@ for (const [page, kind, fg, bg, px, weight] of DARK_TEXT) {
 console.log('');
 console.log('| Page | Edge or ring | Colour | Neighbour | Ratio | Floor | Result |');
 console.log('| --- | --- | --- | --- | --- | --- | --- |');
-for (const [page, kind, a, b] of DARK_NONTEXT) {
+for (const [page, kind, a, b, reason] of DARK_NONTEXT) {
   const r = ratio(a, b);
-  const ok = r >= 3;
-  pairs += 1;
-  if (!ok) fails += 1;
-  console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${ok ? 'pass' : 'fail'} |`);
+  const result = edgeResult(page, kind, r, reason);
+  console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${result} |`);
 }
 
 /** Prints one site TEXT table, in one scheme, with one page-label suffix. */
@@ -379,14 +422,12 @@ function printSiteText(scheme, suffix) {
 function printSiteNontext(scheme, suffix) {
   console.log('| Page | Edge or ring | Colour | Neighbour | Ratio | Floor | Result |');
   console.log('| --- | --- | --- | --- | --- | --- | --- |');
-  for (const [page, kind, aToken, bToken] of SITE_NONTEXT) {
+  for (const [page, kind, aToken, bToken, reason] of SITE_NONTEXT) {
     const a = siteHex(aToken, scheme);
     const b = siteHex(bToken, scheme);
     const r = ratio(a, b);
-    const ok = r >= 3;
-    pairs += 1;
-    if (!ok) fails += 1;
-    console.log(`| ${page}${suffix} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${ok ? 'pass' : 'fail'} |`);
+    const result = edgeResult(`${page}${suffix}`, kind, r, reason);
+    console.log(`| ${page}${suffix} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${result} |`);
   }
 }
 
@@ -403,4 +444,14 @@ printSiteText('dark', ' (dark)');
 console.log('');
 printSiteNontext('dark', ' (dark)');
 console.log('');
-console.log('pairs=' + pairs + ' fails=' + fails);
+
+if (acceptedRows.length > 0) {
+  console.log('## The accepted pairs');
+  console.log('');
+  for (const line of acceptedRows) {
+    console.log('- ' + line);
+  }
+  console.log('');
+}
+
+console.log('pairs=' + pairs + ' fails=' + fails + ' accepted=' + accepted);
