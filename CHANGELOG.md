@@ -59,6 +59,17 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Fold the footer notice into a collapsed "Waitlist privacy notice", with a link
   beside the waitlist form. Add one footer row: the mark, the copyright line, the
   contact address, and "Sign in". (#388)
+- Run the waitlist end-to-end scenario with reduced motion, so the page scroll makes
+  no click of the scenario fail at random. (#426)
+- Move the hero mark into the top bar under 48rem, beside the wordmark, so it does
+  not sit alone above the heading on a phone. (#370)
+- Raise the link underline and the focus halo to a 3:1 contrast against the page in
+  the light scheme, with the new tokens `--link-underline` and `--focus-halo`; the
+  focus outline keeps the brand sunny colour in both schemes. (#409)
+- Set the small text token of the design mock to 14 px, the same size as the site
+  token. (#425)
+- Add a dark-scheme row for each light pair of the contrast script, so a dark-scheme
+  regression now shows in the script output. (#429)
 
 ### Contract
 
@@ -163,6 +174,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   "Data from" line. The cell reads its own 30 s clock, so the relative text stays
   fresh with no new poll answer. The Sessions "Start time" column and the Elements
   "Last interaction" column keep their seconds. (#390)
+- Open the Edit app form in a dialog, like the delete dialog and the new-secret-key
+  dialog; the table row keeps its own height. (#364)
 
 ### CI
 
@@ -200,6 +213,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   served-tracker section to `docs/run-guide.md`. (#298)
 - Add the "Your users" section to `docs/add-octometer.md`, and the pseudonymous id and
   erasure paragraph to `docs/privacy.md`. (#300)
+- Pull the local-service MongoDB image from the Amazon ECR Public mirror, not from
+  Docker Hub, so a manual start never hits the anonymous pull limit. (#430)
 - Make `tools/minor_issues_table.py` honor the `\|` escape inside a cell, and fail with
   an exit code when a row misses a column. (#449)
 

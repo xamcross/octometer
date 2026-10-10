@@ -58,6 +58,31 @@ test('the hero shows the promise and the button reaches the form', async ({ page
   );
   expect(noteFontSize390).toBe(14);
 
+  // The audit finding L15 (issue #370). The MAJOR 1 correction of the
+  // review of pull request #440: the top bar mark sits beside the
+  // wordmark at 390 px. The hero shows neither its own mark nor its own
+  // wordmark at this width.
+  const heroBrandAt390 = await page.evaluate(() => {
+    const mark = document.querySelector('.topbar-mark') as HTMLElement;
+    const word = document.querySelector('.topbar-brand .word') as HTMLElement;
+    const heroMark = document.querySelector('.hero > .mark') as HTMLElement;
+    const heroWord = document.querySelector('.hero-text > .word') as HTMLElement;
+    const markRect = mark.getBoundingClientRect();
+    const wordRect = word.getBoundingClientRect();
+    return {
+      heroMarkHidden: getComputedStyle(heroMark).display === 'none',
+      heroWordHidden: getComputedStyle(heroWord).display === 'none',
+      markHeight: markRect.height,
+      sameRow: markRect.top < wordRect.bottom && wordRect.top < markRect.bottom,
+    };
+  });
+  expect(heroBrandAt390).toEqual({
+    heroMarkHidden: true,
+    heroWordHidden: true,
+    markHeight: 40,
+    sameRow: true,
+  });
+
   // The audit finding L3 (issue #372): at 390 px the preview sits below
   // the copy, with no sideways scroll.
   await expect(heroPreview).toBeVisible();
@@ -94,6 +119,20 @@ test('the hero shows the promise and the button reaches the form', async ({ page
 
   await page.setViewportSize({ width: 1280, height: 720 });
 
+  // The MAJOR 1 correction of the review of pull request #440: the
+  // 1280 px layout stays as it was. The hero's own mark and wordmark
+  // both show again, at 96 px.
+  const heroMarkAt1280 = await page.evaluate(() => {
+    const big = document.querySelector('.hero > .mark') as HTMLElement;
+    const word = document.querySelector('.hero-text > .word') as HTMLElement;
+    return {
+      bigVisible: getComputedStyle(big).display !== 'none',
+      bigHeight: big.getBoundingClientRect().height,
+      wordVisible: getComputedStyle(word).display !== 'none',
+    };
+  });
+  expect(heroMarkAt1280).toEqual({ bigVisible: true, bigHeight: 96, wordVisible: true });
+
   const button = page.getByRole('link', { name: 'Join the waitlist' });
   await expect(button).toHaveAttribute('href', '#waitlist-email');
 
@@ -128,6 +167,9 @@ test('the hero shows the promise and the button reaches the form', async ({ page
     await page.keyboard.press('Tab');
   }
   await expect(button).toBeFocused();
+  // BLOCKER 2 of the review of pull request #441: the outline line keeps
+  // the brand sunny colour in both schemes; the "--focus-halo" token
+  // carries the 3:1 contrast against the page instead (issue #409).
   await expect(button).toHaveCSS('outline', 'rgb(255, 217, 61) solid 3px');
   await expect(button).toHaveCSS('outline-offset', '2px');
   const boxShadow = await button.evaluate((el) => getComputedStyle(el).boxShadow);
@@ -220,12 +262,14 @@ test.describe('the dark color scheme (issue #366, the UI audit finding L16)', ()
       expect(ratio).toBeGreaterThanOrEqual(4.5);
     }
 
-    // MAJOR 1 of the review of pull request #407: the sunny outline sits
-    // inside a halo. The halo must keep a 3:1 contrast against the
-    // outline in the dark scheme too.
-    // The read waits for the 80ms box-shadow transition to settle. A
-    // mid-transition read is not the rest value (review MAJOR 2 of pull
-    // request #321).
+    // MAJOR 1 of the review of pull request #407 asked for a 3:1 contrast
+    // between the sunny outline and its halo. BLOCKER 2 of the review of
+    // pull request #441 replaces that rule: the outline keeps the brand
+    // sunny colour in both schemes, and the halo now carries a 3:1
+    // contrast against the page itself (the token "--focus-halo"), not
+    // against the outline. The read waits for the 80ms box-shadow
+    // transition to settle. A mid-transition read is not the rest value
+    // (review MAJOR 2 of pull request #321).
     const button = page.getByRole('link', { name: 'Join the waitlist' });
     // Issue #367 adds the top bar with its three links before the hero, so
     // four Tab presses, not one, reach this button now.
@@ -240,14 +284,9 @@ test.describe('the dark color scheme (issue #366, the UI audit finding L16)', ()
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(rawShadow).toContain('0px 0px 0px 7px');
-    const outlineColor = await button.evaluate((el) => getComputedStyle(el).outlineColor);
     const halo = rawShadow.match(/rgb\([^)]+\)(?=\s+0px 0px 0px 7px)/);
     expect(halo).not.toBeNull();
-    const lumOutline = relativeLuminance(outlineColor);
-    const lumHalo = relativeLuminance((halo as RegExpMatchArray)[0]);
-    const [ringLighter, ringDarker] =
-      lumOutline > lumHalo ? [lumOutline, lumHalo] : [lumHalo, lumOutline];
-    const ringContrast = (ringLighter + 0.05) / (ringDarker + 0.05);
-    expect(ringContrast).toBeGreaterThanOrEqual(3);
+    const haloContrast = contrastRatio((halo as RegExpMatchArray)[0], body.background);
+    expect(haloContrast).toBeGreaterThanOrEqual(3);
   });
 });
