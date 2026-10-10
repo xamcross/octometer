@@ -105,11 +105,15 @@ class EndToEndContainerTest {
 
         @Container
         @JvmStatic
-        private val FIRST_SOURCE = MongoDBContainer(DockerImageName.parse("mongo:8.0"))
+        private val FIRST_SOURCE = MongoDBContainer(
+            DockerImageName.parse("public.ecr.aws/docker/library/mongo:8.0").asCompatibleSubstituteFor("mongo")
+        )
 
         @Container
         @JvmStatic
-        private val SECOND_SOURCE = MongoDBContainer(DockerImageName.parse("mongo:8.0"))
+        private val SECOND_SOURCE = MongoDBContainer(
+            DockerImageName.parse("public.ecr.aws/docker/library/mongo:8.0").asCompatibleSubstituteFor("mongo")
+        )
 
         private const val EXAMPLE_DATABASE = "exampledb"
         private const val EVENTS_COLLECTION = "octometer_events"

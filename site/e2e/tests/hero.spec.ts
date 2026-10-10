@@ -2,7 +2,17 @@
 // #288 with the wave animation, the focus move into the waitlist field, and
 // the overflow proof at 360 px and 1440 px. Issue #291 adds the real
 // waitlist field that the click below now reaches.
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
+
+// Issue #448: "site.css:16" sets a smooth page scroll. A control that
+// Playwright must scroll to can still move while the click runs. This
+// helper moves the control into view with "behavior: 'instant'" first.
+// The scenario below keeps the default media (the wave check needs it),
+// so this file uses the helper, not "test.use({ reducedMotion: 'reduce' })".
+async function clickInstant(locator: Locator) {
+  await locator.evaluate((el) => el.scrollIntoView({ behavior: 'instant', block: 'center' }));
+  await locator.click();
+}
 
 test('the hero shows the promise and the button reaches the form', async ({ page }) => {
   await page.goto('/');
@@ -84,6 +94,20 @@ test('the hero shows the promise and the button reaches the form', async ({ page
   }));
   expect(layoutAt390.previewTop).toBeGreaterThanOrEqual(layoutAt390.textBottom);
   expect(layoutAt390.scrollWidth).toBeLessThanOrEqual(layoutAt390.clientWidth);
+
+  // Issue #431 (the audit finding L3, the confirmation comment of pull
+  // request #423): the table's right border and the last column's
+  // padding clipped against the window at 390 px, by about 10.28 px.
+  // "insideBy" is the window's right edge minus the table's right edge:
+  // 0 or more means no clip.
+  const tableClipAt390 = await page.evaluate(() => {
+    const win = document.querySelector('.hero-preview-window') as HTMLElement;
+    const table = document.querySelector('.hero-preview-table') as HTMLElement;
+    const winRect = win.getBoundingClientRect();
+    const tableRect = table.getBoundingClientRect();
+    return winRect.right - tableRect.right;
+  });
+  expect(tableClipAt390).toBeGreaterThanOrEqual(0);
 
   // MAJOR 1 of the review of pull request #423: the window of the preview
   // clipped the Status column between 768 px and about 833 px. The window
@@ -172,7 +196,7 @@ test('the hero shows the promise and the button reaches the form', async ({ page
   await page.evaluate(() => {
     document.addEventListener('click', (event) => event.preventDefault(), true);
   });
-  await button.click();
+  await clickInstant(button);
   const activeId = await page.evaluate(() => document.activeElement && document.activeElement.id);
   expect(activeId).toBe('waitlist-email');
 

@@ -36,6 +36,7 @@ repeats a hex value.
 | The keys panel | `.keys-panel`, `.key-row` | `monitor/frontend/src/app/manage/add-app-form.*` | #296 |
 | The new-secret-key confirmation | `app-new-secret-key-dialog` | `monitor/frontend/src/app/manage/new-secret-key-dialog.*` | #296 |
 | The sign-in card | `.signin-card` | `monitor/frontend/src/app/signin/signin.*` | #349 |
+| The text link | `a`, with a hover rule | `monitor/frontend/src/styles.css:173-190` | #369 |
 
 ## The band
 
@@ -140,8 +141,9 @@ current section.
 | State | Cue | Token |
 | --- | --- | --- |
 | Rest | Paper fill, ink border, pill radius | `var(--paper)`, `var(--line-control)`, `var(--radius-pill)` (`main-nav.css:11-24`) |
+| Hover | A bright tint against the octo band, in each color scheme, on a mouse hover only | `var(--shallows-bright)` (`main-nav.css:26-40`) |
 | Focus | The shared 3px sunny outline plus the 7px ink ring | `var(--sunny)` (`monitor/frontend/src/styles.css:131-135`) |
-| Current | Sunny fill, ink text, a 3px underline | `var(--sunny)`, `var(--on-bright)` (`main-nav.css:30-36`) |
+| Current | Sunny fill, ink text, a 3px underline | `var(--sunny)`, `var(--on-bright)` (`main-nav.css:46-52`) |
 
 **Accessibility.**
 - Role: `link` (native `<a>`).
@@ -291,9 +293,10 @@ the automatic refresh.
 
 | State | Cue | Token |
 | --- | --- | --- |
-| Rest | Paper pill, a hidden check mark that holds its space | `var(--paper)` (`pause-refresh-button.css:9-26`) |
+| Rest | Paper pill, a hidden check mark that holds its space | `var(--paper)` (`pause-refresh-button.css:9-20`) |
+| Hover | A shallows tint, on a mouse hover only | `var(--shallows)` (`pause-refresh-button.css:22-31`) |
 | Focus | The shared 3px sunny outline plus the 7px ink ring | `var(--sunny)` (`monitor/frontend/src/styles.css:131-135`) |
-| Pressed | Sunny fill, visible check mark | `var(--sunny)`, `var(--on-bright)` (`pause-refresh-button.css:29-36`) |
+| Pressed | Sunny fill, visible check mark | `var(--sunny)`, `var(--on-bright)` (`pause-refresh-button.css:40-47`) |
 
 **Accessibility.**
 - Role: `button`.
@@ -327,8 +330,9 @@ same cartoon shape.
 | State | Cue | Token |
 | --- | --- | --- |
 | Rest | Paper fill, ink border, hard shadow | `var(--paper)`, `var(--line-control)`, `var(--shadow-control)` (`styles.css:293-301`) |
+| Hover | Moved 1px closer, a 4px shadow, on a mouse hover only | (no token; `styles.css:389-414`) |
 | Focus | Its own shadow plus the 7px ink ring, combined | `var(--shadow-control)` (`styles.css:338-342`) |
-| Active | Moved 3px, no shadow | (no token; `styles.css:308-311`) |
+| Active | Moved 3px, no shadow; beats a hover on a mouse press | (no token; `styles.css:308-311`, `:402-413`) |
 | Disabled | Shallows fill, ink-soft text, a dashed border, no shadow, no pointer | `var(--shallows)`, `var(--ink-soft)` (`styles.css:341-347`) |
 
 **Accessibility.**
