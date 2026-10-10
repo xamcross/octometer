@@ -19,13 +19,19 @@ message when npm is absent.
 docker compose -f tools/demo-app/docker-compose.yml up -d
 ```
 
-This command starts `mongo:8.0` on the loopback address `127.0.0.1`,
+This command starts MongoDB 8.0 on the loopback address `127.0.0.1`,
 port 27017. The repository holds no real connection string. The demo
 app reads the URI from the environment variable
 `OCTOMETER_DEMO_MONGO_URI`. The default is
 `mongodb://127.0.0.1:27017`, the loopback address of this compose file.
 The database name is `exampledb` by default; set
 `OCTOMETER_DEMO_DATABASE` for a different name.
+
+The variable `OCTOMETER_MONGO_IMAGE` names the MongoDB image. The
+default is the Amazon ECR Public mirror,
+`public.ecr.aws/docker/library/mongo:8.0`. The CI job `e2e` sets the
+variable to the GitHub Container Registry mirror,
+`ghcr.io/xamcross/octometer/mongo:8.0`.
 
 Set `OCTOMETER_DEMO_MONGO_PORT` before the compose command when port
 27017 already holds a different MongoDB server on this machine. Then
