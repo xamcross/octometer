@@ -126,8 +126,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Keep the "First pages" header and link text on one line in the apps table, at a
   narrow width too. (#394)
 - Rename the "Data time" column of the apps table to "Last updated". The cell now
-  shows a relative time, with the full time in its title; the status cell drops the
-  "Data from" line. (#390)
+  shows a relative time, with the full time in its title and in a visible text next
+  to it; the status cell drops the "Data from" line. The cell reads its own 30 s
+  clock, so the relative text stays fresh with no new poll answer. The Sessions
+  "Start time" column and the Elements "Last interaction" column keep their
+  seconds. (#390)
 
 ### CI
 

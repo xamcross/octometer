@@ -26,7 +26,8 @@ repeats a hex value.
 | The panel and the scroll region | `.panel`, `.table-scroll` | `monitor/frontend/src/styles.css` | #249 |
 | The table | `table`, `thead th`, `tbody tr:nth-child(even)` | `monitor/frontend/src/styles.css` | #249 |
 | The status badge | `.badge` | `monitor/frontend/src/styles.css`, `status-format.ts` | #249 |
-| The note under a badge | `.gap-text`, `.data-from`, `.error-text` | `monitor/frontend/src/styles.css` | #249 |
+| The note under a badge | `.gap-text`, `.error-text` | `monitor/frontend/src/styles.css` | #249 |
+| The last-updated time | `.data-time`, `.last-updated-abs` | `monitor/frontend/src/app/apps/apps.*` | #390 |
 | The pager | `.pager` | `monitor/frontend/src/app/users/users.css` | #249 |
 | The dialog | `dialog` | `monitor/frontend/src/app/manage/delete-app-dialog.*` | #248 |
 | The empty state | `app-empty-state` | `monitor/frontend/src/app/empty-state/` | #250 |
@@ -587,12 +588,12 @@ together.
 
 ## The note under a badge
 
-**Purpose.** The note gives one extra line under a status badge: a data gap, the time of
-the last success, or the last error text.
+**Purpose.** The note gives one extra line under a status badge: a data gap or the
+last error text.
 
 **Anatomy.**
-- `<p class="gap-text">`, `<p class="data-from">`, or `<p class="error-text">`, each
-  after the badge span, inside the same status cell (`apps.html:74-90`).
+- `<p class="gap-text">` or `<p class="error-text">`, each after the badge span, inside
+  the same status cell (`apps.html:73-78`).
 
 **States.**
 
@@ -609,9 +610,44 @@ the last success, or the last error text.
   bottom margin never returns (rule: "a paragraph inside a new rule sets its margin",
   `styles.css:282-289`).
 - Do not leave `.error-text` outside the shared note rule. Today it keeps its own line
-  spacing, while `.gap-text` and `.data-from` share one rule. One status cell can then mix
-  two note styles (open finding of `minor_issues/257.md`, `apps.css:50-53` against
+  spacing, while `.gap-text` keeps the shared rule. One status cell can then mix two
+  note styles (open finding of `minor_issues/257.md`, `apps.css:50-53` against
   `styles.css:283-289`).
+
+## The last-updated time
+
+**Purpose.** The cell shows when an app last gave data, as a short relative time. The
+absolute local time stays in reach for every user, not the mouse user alone.
+
+**Anatomy.**
+- `<time [attr.title]="...">` holds the relative text and the absolute time in its
+  `title`, inside `td.data-time` (`apps.html:80-91`).
+- `<span class="last-updated-abs">` repeats the same absolute time, next to the
+  `<time>` element, in parentheses. A touch user and a keyboard user read it with no
+  hover and no focus (issue #390, MINOR 4 of the review of pull request #437).
+- The column header reads "Last updated", with no zone name (`apps.html:33`).
+
+**States.**
+
+| State | Cue | Token |
+| --- | --- | --- |
+| Rest | Ink-soft text, small size, next to the relative time | `var(--ink-soft)`, `var(--text-s)` (`apps.css`) |
+
+**Accessibility.**
+- Role: none; a plain `<time>` and a plain `<span>`.
+- Accessible name: not applicable; the text is the content.
+- Second place for the absolute time: the visible `.last-updated-abs` text, beside the
+  `title` attribute, so a screen reader, a touch user, and a keyboard user each reach it.
+
+**Rules.**
+- Do give the cell its own 30 s clock signal (`apps.ts`), so the relative text does not
+  freeze while a paused poll, a hidden tab, or a focus inside `<tbody>` stops a new poll
+  answer (MAJOR 1 of the review of pull request #437).
+- Do not rely on the `title` attribute alone for the absolute time; add the visible
+  `.last-updated-abs` text too, so a touch user and a keyboard user can reach it.
+- Use `formatLocalMinute` for this cell only. The Sessions "Start time" column and the
+  Elements "Last interaction" column keep `formatLocalDateTime` and its seconds (the
+  addendum of design decision D31, 2026-10-10).
 
 ## The pager
 

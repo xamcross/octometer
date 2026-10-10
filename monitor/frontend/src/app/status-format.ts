@@ -40,11 +40,23 @@ function pad(value: number): string {
   return value.toString().padStart(2, '0');
 }
 
-/**
- * Formats an ISO time in local time: `yyyy-MM-dd HH:mm` (issue #390, the
- * title of the "Last updated" cell). The text drops the seconds.
- */
+/** Formats an ISO time in local time, as D31 states: `yyyy-MM-dd HH:mm:ss`. */
 export function formatLocalDateTime(iso: string): string {
+  const date = new Date(iso);
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  );
+}
+
+/**
+ * Formats an ISO time in local time, with no seconds: `yyyy-MM-dd HH:mm`.
+ * The Apps "Last updated" cell uses this format for its visible absolute
+ * text and its `title` (the addendum of D31, issue #390). The Sessions
+ * "Start time" column and the Elements "Last interaction" column keep
+ * `formatLocalDateTime` and its seconds.
+ */
+export function formatLocalMinute(iso: string): string {
   const date = new Date(iso);
   return (
     `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
@@ -53,9 +65,12 @@ export function formatLocalDateTime(iso: string): string {
 }
 
 /**
- * Formats an ISO time as a short relative text against the current time,
- * for example "just now", "3 min ago", "2 hours ago", or "5 days ago"
- * (issue #390, the "Last updated" cell text).
+ * Formats an ISO time as a short relative text against `Date.now()`, for
+ * example "just now", "3 min ago", "2 hours ago", or "5 days ago" (issue
+ * #390, the "Last updated" cell text). The Apps view reads its own clock
+ * signal next to the call, so a new 30 s tick makes the template call this
+ * function again, with a fresh `Date.now()` (MAJOR 1 of the review of pull
+ * request #437).
  */
 export function formatRelativeTime(iso: string): string {
   const diffMs = Math.max(0, Date.now() - new Date(iso).getTime());

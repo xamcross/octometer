@@ -194,6 +194,13 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     const lastUpdatedTitle = await lastUpdatedTime.getAttribute('title');
     expect(lastUpdatedTitle).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
 
+    // MINOR 4 of the review of pull request #437, addressed on the
+    // maintainer's word: the cell also shows the absolute time as plain
+    // text, so a touch user and a keyboard user reach it with no hover
+    // and no focus.
+    const lastUpdatedCellText = await apps.rowOf('demo').lastUpdated.innerText();
+    expect(lastUpdatedCellText).toMatch(/\(\d{4}-\d{2}-\d{2} \d{2}:\d{2}\)$/);
+
     // Issue #376: the apps table caption keeps clear space above its
     // text (the acceptance criterion's own end-to-end assertion).
     expect(await captionTopPaddingPx(page, 'apps-caption')).toBeGreaterThanOrEqual(12);

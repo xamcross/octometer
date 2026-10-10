@@ -57,6 +57,17 @@ th[scope='row'] a,
   margin: 0.25rem 0 0;
 }
 
+/*
+ * The absolute time next to the relative text of the "Last updated" cell.
+ * A touch user and a keyboard user reach it with no hover and no focus
+ * (issue #390, MINOR 4 of the review of pull request #437).
+ */
+.last-updated-abs {
+  margin-left: 0.25rem;
+  color: var(--ink-soft);
+  font-size: var(--text-s);
+}
+
 /* The table scrolls sideways when the columns need more width than the screen. */
 /* `position: relative` makes this container the containing block of each `.visually-hidden` span, so the page keeps one scroll direction. */
 .table-scroll {

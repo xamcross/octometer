@@ -595,6 +595,17 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   and `tabular-nums`.
 - **D31. Time.** `<time datetime="...Z">yyyy-MM-dd HH:mm:ss</time>` in local time. The column
   header shows the zone name. No relative time.
+
+  Addendum of 2026-10-10, #390: the UI audit of 2026-10-09 finds a long time display on
+  the Apps view (finding D16). The user read two timestamps for one fact: the "Data
+  from" note and the "Data time" column. The Apps "Last updated" column now shows a
+  short relative time, for example "3 min ago". The `<time>` element keeps the full
+  local date and time, with no seconds, in its `title`; a visible text next to it
+  repeats the same absolute time, so a touch user and a keyboard user can reach it with
+  no hover and no focus. The cell reads its own 30 s clock, so the relative text stays
+  fresh with no new poll answer. The Sessions "Start time" column and the Elements
+  "Last interaction" column keep the original rule of this decision: the full local
+  date and time, with the seconds, and no relative time.
 - **D32. Management page.** A list with the status of each app. A form to add an app. A
   control to replace the connection string. A delete with a native `<dialog>`, the typed app
   name, and the event count. The connection string field is write-only. Closed on 2026-09-28

@@ -221,7 +221,7 @@ describe('Elements', () => {
       expect(style.fontVariantNumeric).toContain('tabular-nums');
     });
 
-    it('shows the last-interaction time with a <time> element in the fixed local format, with no seconds (issue #390)', () => {
+    it('shows the last-interaction time with a <time> element in the fixed local format', () => {
       startStore();
       flushElements(
         buildResponse({ rows: [buildRow({ lastInteractionAt: '2026-09-21T09:05:03.000Z' })] }),
@@ -232,11 +232,11 @@ describe('Elements', () => {
 
       const date = new Date('2026-09-21T09:05:03.000Z');
       const pad = (n: number): string => n.toString().padStart(2, '0');
-      const expected = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+      const expected = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
       expect(time.textContent?.trim()).toBe(expected);
     });
 
-    it('formats the last-interaction time in a fixed zone against a literal string, with no seconds (issue #390)', () => {
+    it('formats the last-interaction time in a fixed zone against a literal string, not against a mirror of the code', () => {
       vi.stubEnv('TZ', 'UTC');
       try {
         startStore();
@@ -245,7 +245,7 @@ describe('Elements', () => {
         );
 
         const time = root().querySelector('tbody time') as HTMLTimeElement;
-        expect(time.textContent?.trim()).toBe('2026-09-21 09:05');
+        expect(time.textContent?.trim()).toBe('2026-09-21 09:05:03');
       } finally {
         vi.unstubAllEnvs();
       }
