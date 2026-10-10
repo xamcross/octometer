@@ -11,18 +11,14 @@
  * lists equal to the tables of the record. Add a row here when the UI adds a
  * text pair or a control edge.
  *
- * Issue #429 adds a dark row below each light row, and a site section below
- * the dashboard section (the correction round of pull request #441, MAJOR 3).
- * Each row now names a token, not a hex value (MAJOR 1 of that round): the
- * `TOKENS` map below holds the light and the dark value of each token, so a
- * row reads the right pair for its own scheme. `--ink` and `--on-bright`
- * share one light hex value but differ in the dark scheme; the old map by
- * hex value could not tell them apart.
- *
- * The dashboard carries no dark theme yet (issue #361), so its dark rows are
- * a prediction: the page label of each one ends in "(dark, prediction)". The
- * site dark rows are not a prediction; the site has shipped its dark scheme
- * since issue #366, so each one ends in "(dark)" alone.
+ * Issue #429 adds a site section below the dashboard section (the correction
+ * round of pull request #441, MAJOR 3): one row for each text-on-fill pair
+ * and each edge of `site/src/styles/site.css`, in the light scheme and in
+ * the dark scheme (live since issue #366). The `SITE_TOKENS` map holds the
+ * light and the dark value of each site token; a site row names a token,
+ * not a hex value, so it reads the right pair for its own scheme (MAJOR 1
+ * of that round, for the site rows that this merge adds; the dashboard rows
+ * below come from issue #361, now merged, with their own measured values).
  */
 
 /** The linear value of one sRGB channel. */
@@ -65,22 +61,166 @@ export const composite = (front, alpha, back) => {
   return '#' + mix.map((v) => v.toString(16).padStart(2, '0')).join('');
 };
 
-/**
- * Each token of the cartoon look, light hex and dark hex (issue #429,
- * MAJOR 1 of the correction round of pull request #441). A bright fill
- * token (`coral`, `sunny`, `seaweed`, `octo`, `onBright`) keeps one value
- * in both schemes (`site/src/styles/tokens.css`, `monitor/frontend/src/
- * styles.css`). `bandInk` and `bandPaper` hold the light value in both
- * schemes too: the dashboard's own `.band` rule
- * (`monitor/frontend/src/app/app.css:51-57`) redefines `--ink` and
- * `--paper` to their light value inside the band, "so the text and the
- * mark stay dark on the octo fill", in the dark scheme too. `focusHalo`
- * is the site's own token (`site/src/styles/tokens.css`), not the
- * dashboard's: the dashboard's own halo reads plain `--ink`
- * (`monitor/frontend/src/styles.css:132-135`), already correct per
- * scheme, so it uses the `ink` token below, not a dashboard `focusHalo`.
+// The disabled confirm button of the dialog (issue #384, #410): a
+// `--shallows` fill and an `--ink-soft` text, with no opacity rule
+// (`composite` stays exported for a future pair that does carry one).
+const DISABLED_FILL = '#e6f3ff';
+const DISABLED_INK = '#4b4763';
+
+// The dark color scheme (issue #361). `--coral`, `--sunny`, `--seaweed`,
+// and `--on-bright` keep their light value in the dark scheme too.
+const DARK_DISABLED_FILL = '#14122a';
+const DARK_DISABLED_INK = '#b9b4d6';
+
+// [the page, the element kind, the text colour, the background, the px, the weight]
+const TEXT = [
+  ['each page', 'the skip link on focus', '#241f3d', '#ffd93d', 16, 400],
+  ['each page', 'the wordmark on the band', '#241f3d', '#a78bfa', 25, 600],
+  ['each page', 'the current nav pill', '#241f3d', '#ffd93d', 16, 600],
+  ['each page', 'the other nav pill', '#241f3d', '#ffffff', 16, 600],
+  ['each page', 'the breadcrumb link and text', '#241f3d', '#e6f3ff', 16, 400],
+  ['each page', 'the breadcrumb current item', '#241f3d', '#e6f3ff', 16, 700],
+  ['each page', 'the page title h1', '#241f3d', '#e6f3ff', 25, 600],
+  ['each data page', 'the refresh note', '#4b4763', '#e6f3ff', 12.8, 400],
+  ['apps', 'the retention note', '#241f3d', '#e6f3ff', 16, 400],
+  ['each data page', 'the pause pill', '#241f3d', '#ffffff', 16, 600],
+  ['each table', 'the panel caption', '#4b4763', '#ffffff', 12.8, 400],
+  ['manage', 'the panel caption (bold)', '#4b4763', '#ffffff', 12.8, 700],
+  ['each table', 'the table head cell', '#241f3d', '#bfdfff', 16, 600],
+  ['each table', 'the cell on the paper row', '#241f3d', '#ffffff', 16, 400],
+  ['each table', 'the row header on the paper row', '#241f3d', '#ffffff', 16, 700],
+  ['each table', 'the link in the paper row', '#241f3d', '#ffffff', 16, 400],
+  ['each table', 'the cell on the zebra row', '#241f3d', '#e6f3ff', 16, 400],
+  ['each table', 'the link in the zebra row', '#241f3d', '#e6f3ff', 16, 700],
+  ['each table', 'the time cell', '#241f3d', '#ffffff', 16, 400],
+  ['apps', 'the badge OK', '#241f3d', '#6ee7b7', 12.8, 700],
+  ['apps', 'the badge warn (sunny)', '#241f3d', '#ffd93d', 12.8, 700],
+  ['apps', 'the badge bad (coral)', '#241f3d', '#ff6b6b', 12.8, 700],
+  ['apps', 'the badge not polled', '#241f3d', '#bfdfff', 12.8, 700],
+  ['users', 'the filter label', '#241f3d', '#e6f3ff', 16, 400],
+  ['users', 'the filter button', '#241f3d', '#ffffff', 12.8, 600],
+  ['users', 'the disabled pager button', '#4b4763', '#e6f3ff', 12.8, 600],
+  ['users, sessions, not-found', 'the empty state sentence', '#241f3d', '#ffffff', 16, 400],
+  ['sessions', 'the first-load sentence', '#241f3d', '#e6f3ff', 16, 400],
+  ['manage', 'the Edit and Delete buttons', '#241f3d', '#ffffff', 12.8, 600],
+  ['manage', 'the form heading h2', '#241f3d', '#ffffff', 20, 600],
+  ['manage', 'the field label', '#241f3d', '#ffffff', 16, 700],
+  ['manage', 'the field hint', '#4b4763', '#ffffff', 12.8, 400],
+  ['manage', 'the hint example code', '#4b4763', '#ffffff', 12.8, 400],
+  ['manage', 'the form error text', '#241f3d', '#ffffff', 16, 700],
+  ['manage', 'the primary button', '#241f3d', '#ffd93d', 16, 600],
+  ['manage', 'the status cell', '#241f3d', '#ffffff', 16, 400],
+  ['dialog', 'the dialog heading h2', '#241f3d', '#ffffff', 20, 600],
+  ['dialog', 'the dialog sentence', '#241f3d', '#ffffff', 16, 400],
+  ['dialog', 'the dialog strong text', '#241f3d', '#ffffff', 16, 700],
+  ['dialog', 'the Cancel button', '#241f3d', '#ffffff', 16, 600],
+  ['dialog', 'the disabled confirm button', DISABLED_INK, DISABLED_FILL, 16, 600],
+];
+
+// [the page, the edge or the ring, the colour, the neighbour]
+const NONTEXT = [
+  ['each page', 'the control edge on the page background', '#241f3d', '#e6f3ff'],
+  ['each page', 'the control edge on the paper', '#241f3d', '#ffffff'],
+  ['the band', 'the nav pill edge on the octo band', '#241f3d', '#a78bfa'],
+  ['each page', 'the panel edge on the page background', '#241f3d', '#e6f3ff'],
+  ['each table', 'the head cell edge on the head fill', '#241f3d', '#bfdfff'],
+  ['apps', 'the badge edge on the badge fill (seaweed)', '#241f3d', '#6ee7b7'],
+  ['apps', 'the badge edge on the badge fill (coral)', '#241f3d', '#ff6b6b'],
+  ['apps', 'the badge edge on the badge fill (sunny)', '#241f3d', '#ffd93d'],
+  ['each page', 'the focus ring: the ink halo on the page background', '#241f3d', '#e6f3ff'],
+  ['each page', 'the focus ring: the ink halo on the paper', '#241f3d', '#ffffff'],
+  ['the band', 'the focus ring: the ink halo on the octo band', '#241f3d', '#a78bfa'],
+  ['each page', 'the focus ring: the sunny line on the ink halo', '#ffd93d', '#241f3d'],
+  ['users', 'the disabled pager edge on the page background', '#4b4763', '#e6f3ff'],
+  ['manage', 'the invalid field ring on the field fill', '#ff6b6b', '#ffffff'],
+];
+
+/*
+ * The dark color scheme (issue #361, the audit finding D1), `prefers-color-scheme:
+ * dark`. `--coral`, `--sunny`, `--seaweed`, and `--on-bright` keep the light value of
+ * the lists above; `--ink`, `--ink-soft`, `--paper`, `--paper-raised`, `--shallows`,
+ * `--shallows-deep`, and `--octo` take the dark value of `styles.css`.
+ *
+ * `.band` and its mascot read none of those dark values (the correction round of
+ * pull request #435). `.band` sets its own `--ink`, `--paper`, and `--line-control`;
+ * each one stays its light-scheme value in the dark scheme too. The rows below for
+ * the nav pill, the "Sign out" button, the nav pill edge, and the mascot's eye model
+ * `.band`'s own fill and text, not the global dark tokens.
  */
-const TOKENS = {
+const DARK_TEXT = [
+  ['each page', 'the skip link on focus', '#241f3d', '#ffd93d', 16, 400],
+  ['each page', 'the wordmark on the band', '#241f3d', '#9b7be5', 25, 600],
+  ['each page', 'the current nav pill', '#241f3d', '#ffd93d', 16, 600],
+  ['each page', 'the other nav pill', '#241f3d', '#ffffff', 16, 600],
+  ['each page', 'the "Sign out" button', '#241f3d', '#ffffff', 16, 600],
+  ['each page', 'the breadcrumb link and text', '#ece9ff', '#14122a', 16, 400],
+  ['each page', 'the breadcrumb current item', '#ece9ff', '#14122a', 16, 700],
+  ['each page', 'the page title h1', '#ece9ff', '#14122a', 25, 600],
+  ['each data page', 'the refresh note', '#b9b4d6', '#14122a', 12.8, 400],
+  ['apps', 'the retention note', '#ece9ff', '#14122a', 16, 400],
+  ['each data page', 'the pause pill', '#ece9ff', '#1d1a33', 16, 600],
+  ['each table', 'the panel caption', '#b9b4d6', '#1d1a33', 12.8, 400],
+  ['manage', 'the panel caption (bold)', '#b9b4d6', '#1d1a33', 12.8, 700],
+  ['each table', 'the table head cell', '#ece9ff', '#2c2850', 16, 600],
+  ['each table', 'the cell on the paper row', '#ece9ff', '#1d1a33', 16, 400],
+  ['each table', 'the row header on the paper row', '#ece9ff', '#1d1a33', 16, 700],
+  ['each table', 'the link in the paper row', '#ece9ff', '#1d1a33', 16, 400],
+  ['each table', 'the cell on the zebra row', '#ece9ff', '#14122a', 16, 400],
+  ['each table', 'the link in the zebra row', '#ece9ff', '#14122a', 16, 700],
+  ['each table', 'the time cell', '#ece9ff', '#1d1a33', 16, 400],
+  ['apps', 'the badge OK', '#241f3d', '#6ee7b7', 12.8, 700],
+  ['apps', 'the badge warn (sunny)', '#241f3d', '#ffd93d', 12.8, 700],
+  ['apps', 'the badge bad (coral)', '#241f3d', '#ff6b6b', 12.8, 700],
+  ['apps', 'the badge not polled', '#ece9ff', '#2c2850', 12.8, 700],
+  ['users', 'the filter label', '#ece9ff', '#14122a', 16, 400],
+  ['users', 'the filter button', '#ece9ff', '#1d1a33', 12.8, 600],
+  ['users', 'the disabled pager button', '#b9b4d6', '#14122a', 12.8, 600],
+  ['users, sessions, not-found', 'the empty state sentence', '#ece9ff', '#1d1a33', 16, 400],
+  ['sessions', 'the first-load sentence', '#ece9ff', '#14122a', 16, 400],
+  ['manage', 'the Edit and Delete buttons', '#ece9ff', '#1d1a33', 12.8, 600],
+  ['manage', 'the form heading h2', '#ece9ff', '#1d1a33', 20, 600],
+  ['manage', 'the field label', '#ece9ff', '#1d1a33', 16, 700],
+  ['manage', 'the field hint', '#b9b4d6', '#1d1a33', 12.8, 400],
+  ['manage', 'the hint example code', '#b9b4d6', '#1d1a33', 12.8, 400],
+  ['manage', 'the form error text', '#ece9ff', '#1d1a33', 16, 700],
+  ['manage', 'the primary button', '#241f3d', '#ffd93d', 16, 600],
+  ['manage', 'the status cell', '#ece9ff', '#1d1a33', 16, 400],
+  ['dialog', 'the dialog heading h2', '#ece9ff', '#312b57', 20, 600],
+  ['dialog', 'the dialog sentence', '#ece9ff', '#312b57', 16, 400],
+  ['dialog', 'the dialog strong text', '#ece9ff', '#312b57', 16, 700],
+  ['dialog', 'the Cancel button', '#ece9ff', '#1d1a33', 16, 600],
+  ['dialog', 'the disabled confirm button', DARK_DISABLED_INK, DARK_DISABLED_FILL, 16, 600],
+];
+
+// [the page, the edge or the ring, the colour, the neighbour]
+const DARK_NONTEXT = [
+  ['each page', 'the control edge on the page background', '#ece9ff', '#14122a'],
+  ['each page', 'the control edge on the paper', '#ece9ff', '#1d1a33'],
+  ['the band', 'the nav pill edge on the octo band', '#241f3d', '#9b7be5'],
+  ['main', "the mascot's eye on the octo head (the first-load mark)", '#241f3d', '#9b7be5'],
+  ['each page', 'the panel edge on the page background', '#ece9ff', '#14122a'],
+  ['each table', 'the head cell edge on the head fill', '#ece9ff', '#2c2850'],
+  ['apps', 'the badge edge on the badge fill (seaweed)', '#241f3d', '#6ee7b7'],
+  ['apps', 'the badge edge on the badge fill (coral)', '#241f3d', '#ff6b6b'],
+  ['apps', 'the badge edge on the badge fill (sunny)', '#241f3d', '#ffd93d'],
+  ['each page', 'the focus ring: the ink halo on the page background', '#ece9ff', '#14122a'],
+  ['each page', 'the focus ring: the ink halo on the paper', '#ece9ff', '#1d1a33'],
+  ['the band', 'the focus ring: the ink halo on the octo band', '#241f3d', '#9b7be5'],
+  ['each page', 'the focus ring: the sunny line on the ink halo', '#ffd93d', '#ece9ff'],
+  ['users', 'the disabled pager edge on the page background', '#b9b4d6', '#14122a'],
+  ['manage', 'the invalid field ring on the field fill', '#ff6b6b', '#1d1a33'],
+];
+
+/*
+ * The site section (issue #429, MAJOR 3 of the correction round of pull
+ * request #441): one row for each text-on-fill pair and each edge of
+ * `site/src/styles/site.css`, so the site itself has cover, not only the
+ * dashboard record above. `SITE_TOKENS` holds the light and the dark hex
+ * of each site token (`site/src/styles/tokens.css`); the site's own `--ink`
+ * and `--on-bright` do differ in the dark scheme, so each row below names
+ * the token, not a hex value (MAJOR 1 of that round).
+ */
+const SITE_TOKENS = {
   ink: { light: '#241f3d', dark: '#f4f1ff' },
   inkSoft: { light: '#4b4763', dark: '#b3add4' },
   paper: { light: '#ffffff', dark: '#241f3d' },
@@ -91,95 +231,15 @@ const TOKENS = {
   seaweed: { light: '#6ee7b7', dark: '#6ee7b7' },
   octo: { light: '#a78bfa', dark: '#a78bfa' },
   onBright: { light: '#241f3d', dark: '#241f3d' },
-  bandInk: { light: '#241f3d', dark: '#241f3d' },
-  bandPaper: { light: '#ffffff', dark: '#ffffff' },
   linkUnderline: { light: '#d93f3f', dark: '#ff6b6b' },
   focusRing: { light: '#ffd93d', dark: '#ffd93d' },
   focusHalo: { light: '#241f3d', dark: '#f4f1ff' },
 };
 
-/** The hex value of a token, in one scheme ('light' or 'dark'). */
-const hex = (token, scheme) => TOKENS[token][scheme];
-
-// The disabled confirm button of a dashboard dialog carries `opacity: 0.55`
-// over its coral fill (the composite of issue #251). No opacity rule backs
-// this today (`monitor/frontend/src/styles.css:341-344` uses a solid
-// `--shallows` fill and `--ink-soft` text instead), so the row is already
-// stale in the light scheme; it stays, unchanged, out of the scope of this
-// correction round. Its dark row keeps the same composite form, with each
-// field read from `TOKENS` for the dark scheme.
-const disabledFill = (scheme) => composite(hex('coral', scheme), 0.55, hex('paper', scheme));
-const disabledInk = (scheme) => composite(hex('ink', scheme), 0.55, disabledFill(scheme));
+/** The hex value of a site token, in one scheme ('light' or 'dark'). */
+const siteHex = (token, scheme) => SITE_TOKENS[token][scheme];
 
 // [the page, the element kind, the text token, the background token, the px, the weight]
-const DASHBOARD_TEXT = [
-  ['each page', 'the skip link on focus', 'onBright', 'sunny', 16, 400],
-  ['each page', 'the wordmark on the band', 'bandInk', 'octo', 25, 600],
-  ['each page', 'the current nav pill', 'onBright', 'sunny', 16, 600],
-  ['each page', 'the other nav pill', 'bandInk', 'bandPaper', 16, 600],
-  ['each page', 'the breadcrumb link and text', 'ink', 'shallows', 16, 400],
-  ['each page', 'the breadcrumb current item', 'ink', 'shallows', 16, 700],
-  ['each page', 'the page title h1', 'ink', 'shallows', 25, 600],
-  ['each data page', 'the refresh note', 'inkSoft', 'shallows', 12.8, 400],
-  ['apps', 'the retention note', 'ink', 'shallows', 16, 400],
-  ['each data page', 'the pause pill', 'ink', 'paper', 16, 600],
-  ['each table', 'the panel caption', 'inkSoft', 'paper', 12.8, 400],
-  ['manage', 'the panel caption (bold)', 'inkSoft', 'paper', 12.8, 700],
-  ['each table', 'the table head cell', 'ink', 'shallowsDeep', 16, 600],
-  ['each table', 'the cell on the paper row', 'ink', 'paper', 16, 400],
-  ['each table', 'the row header on the paper row', 'ink', 'paper', 16, 700],
-  ['each table', 'the link in the paper row', 'ink', 'paper', 16, 400],
-  ['each table', 'the cell on the zebra row', 'ink', 'shallows', 16, 400],
-  ['each table', 'the link in the zebra row', 'ink', 'shallows', 16, 700],
-  ['each table', 'the time cell', 'ink', 'paper', 16, 400],
-  ['apps', 'the badge OK', 'onBright', 'seaweed', 12.8, 700],
-  ['apps', 'the badge warn (sunny)', 'onBright', 'sunny', 12.8, 700],
-  ['apps', 'the badge bad (coral)', 'onBright', 'coral', 12.8, 700],
-  ['apps', 'the badge not polled', 'ink', 'shallowsDeep', 12.8, 700],
-  ['users', 'the filter label', 'ink', 'shallows', 16, 400],
-  ['users', 'the filter button', 'ink', 'paper', 12.8, 600],
-  ['users', 'the disabled pager button', 'inkSoft', 'shallows', 12.8, 600],
-  ['users, sessions, not-found', 'the empty state sentence', 'ink', 'paper', 16, 400],
-  ['sessions', 'the first-load sentence', 'ink', 'shallows', 16, 400],
-  ['manage', 'the Edit and Delete buttons', 'ink', 'paper', 12.8, 600],
-  ['manage', 'the form heading h2', 'ink', 'paper', 20, 600],
-  ['manage', 'the field label', 'ink', 'paper', 16, 700],
-  ['manage', 'the field hint', 'inkSoft', 'paper', 12.8, 400],
-  ['manage', 'the hint example code', 'inkSoft', 'paper', 12.8, 400],
-  ['manage', 'the form error text', 'ink', 'paper', 16, 700],
-  ['manage', 'the primary button', 'onBright', 'sunny', 16, 600],
-  ['manage', 'the status cell', 'ink', 'paper', 16, 400],
-  ['dialog', 'the dialog heading h2', 'ink', 'paper', 20, 600],
-  ['dialog', 'the dialog sentence', 'ink', 'paper', 16, 400],
-  ['dialog', 'the dialog strong text', 'ink', 'paper', 16, 700],
-  ['dialog', 'the Cancel button', 'ink', 'paper', 16, 600],
-];
-
-// [the page, the edge or the ring, the colour token, the neighbour token]
-const DASHBOARD_NONTEXT = [
-  ['each page', 'the control edge on the page background', 'ink', 'shallows'],
-  ['each page', 'the control edge on the paper', 'ink', 'paper'],
-  ['the band', 'the nav pill edge on the octo band', 'bandInk', 'octo'],
-  ['each page', 'the panel edge on the page background', 'ink', 'shallows'],
-  ['each table', 'the head cell edge on the head fill', 'ink', 'shallowsDeep'],
-  ['apps', 'the badge edge on the badge fill (seaweed)', 'onBright', 'seaweed'],
-  ['apps', 'the badge edge on the badge fill (coral)', 'onBright', 'coral'],
-  ['apps', 'the badge edge on the badge fill (sunny)', 'onBright', 'sunny'],
-  ['each page', 'the focus ring: the ink halo on the page background', 'ink', 'shallows'],
-  ['each page', 'the focus ring: the ink halo on the paper', 'ink', 'paper'],
-  ['the band', 'the focus ring: the ink halo on the octo band', 'bandInk', 'octo'],
-  ['each page', 'the focus ring: the sunny line on the ink halo', 'sunny', 'ink'],
-  ['users', 'the disabled pager edge on the page background', 'inkSoft', 'shallows'],
-  ['manage', 'the invalid field ring on the field fill', 'coral', 'paper'],
-];
-
-/*
- * The site section (issue #429, MAJOR 3 of the correction round of pull
- * request #441): one row for each text-on-fill pair and each edge of
- * `site/src/styles/site.css`, so the site itself has cover, not only the
- * dashboard record. The site's dark scheme is live (issue #366), so its
- * dark row carries no "prediction" label.
- */
 const SITE_TEXT = [
   ['topbar', 'the "How it works" and "Privacy" links', 'ink', 'paper', 16, 400],
   ['hero preview', 'the preview bar brand text on the octo band', 'onBright', 'octo', 16, 600],
@@ -195,6 +255,7 @@ const SITE_TEXT = [
   ['waitlist status', 'the bad status text', 'onBright', 'coral', 16, 700],
 ];
 
+// [the page, the edge or the ring, the colour token, the neighbour token]
 const SITE_NONTEXT = [
   ['hero preview', 'the preview window edge on the page background', 'ink', 'shallows'],
   ['hero preview', 'the inactive tab edge on its own paper fill', 'ink', 'paper'],
@@ -222,13 +283,68 @@ const f1 = (x) => (Math.round(x * 10) / 10).toFixed(1);
 let fails = 0;
 let pairs = 0;
 
-/** Prints one TEXT table, in one scheme, with one page-label suffix. */
-function printText(rows, scheme, suffix) {
+console.log('The disabled confirm button (#410): ' + DISABLED_INK + ' on ' + DISABLED_FILL);
+console.log('');
+console.log('## The dashboard, the light scheme');
+console.log('');
+console.log('| Page | Text | Colour | Background | Ratio | Floor | Result |');
+console.log('| --- | --- | --- | --- | --- | --- | --- |');
+for (const [page, kind, fg, bg, px, weight] of TEXT) {
+  const r = ratio(fg, bg);
+  const floor = big(px, weight) ? 3 : 4.5;
+  const ok = r >= floor;
+  pairs += 1;
+  if (!ok) fails += 1;
+  console.log(
+    `| ${page} | ${kind} (${px} px ${weight}) | \`${fg}\` | \`${bg}\` | ${f1(r)}:1 | ${floor}:1 | ${ok ? 'pass' : 'fail'} |`,
+  );
+}
+console.log('');
+console.log('| Page | Edge or ring | Colour | Neighbour | Ratio | Floor | Result |');
+console.log('| --- | --- | --- | --- | --- | --- | --- |');
+for (const [page, kind, a, b] of NONTEXT) {
+  const r = ratio(a, b);
+  const ok = r >= 3;
+  pairs += 1;
+  if (!ok) fails += 1;
+  console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${ok ? 'pass' : 'fail'} |`);
+}
+console.log('');
+console.log('## The dashboard, the dark scheme (issue #361, prefers-color-scheme: dark)');
+console.log(
+  'The disabled confirm button (#410): ' + DARK_DISABLED_INK + ' on ' + DARK_DISABLED_FILL,
+);
+console.log('');
+console.log('| Page | Text | Colour | Background | Ratio | Floor | Result |');
+console.log('| --- | --- | --- | --- | --- | --- | --- |');
+for (const [page, kind, fg, bg, px, weight] of DARK_TEXT) {
+  const r = ratio(fg, bg);
+  const floor = big(px, weight) ? 3 : 4.5;
+  const ok = r >= floor;
+  pairs += 1;
+  if (!ok) fails += 1;
+  console.log(
+    `| ${page} | ${kind} (${px} px ${weight}) | \`${fg}\` | \`${bg}\` | ${f1(r)}:1 | ${floor}:1 | ${ok ? 'pass' : 'fail'} |`,
+  );
+}
+console.log('');
+console.log('| Page | Edge or ring | Colour | Neighbour | Ratio | Floor | Result |');
+console.log('| --- | --- | --- | --- | --- | --- | --- |');
+for (const [page, kind, a, b] of DARK_NONTEXT) {
+  const r = ratio(a, b);
+  const ok = r >= 3;
+  pairs += 1;
+  if (!ok) fails += 1;
+  console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${ok ? 'pass' : 'fail'} |`);
+}
+
+/** Prints one site TEXT table, in one scheme, with one page-label suffix. */
+function printSiteText(scheme, suffix) {
   console.log('| Page | Text | Colour | Background | Ratio | Floor | Result |');
   console.log('| --- | --- | --- | --- | --- | --- | --- |');
-  for (const [page, kind, fgToken, bgToken, px, weight] of rows) {
-    const fg = hex(fgToken, scheme);
-    const bg = hex(bgToken, scheme);
+  for (const [page, kind, fgToken, bgToken, px, weight] of SITE_TEXT) {
+    const fg = siteHex(fgToken, scheme);
+    const bg = siteHex(bgToken, scheme);
     const r = ratio(fg, bg);
     const floor = big(px, weight) ? 3 : 4.5;
     const ok = r >= floor;
@@ -240,13 +356,13 @@ function printText(rows, scheme, suffix) {
   }
 }
 
-/** Prints one NONTEXT table, in one scheme, with one page-label suffix. */
-function printNontext(rows, scheme, suffix) {
+/** Prints one site NONTEXT table, in one scheme, with one page-label suffix. */
+function printSiteNontext(scheme, suffix) {
   console.log('| Page | Edge or ring | Colour | Neighbour | Ratio | Floor | Result |');
   console.log('| --- | --- | --- | --- | --- | --- | --- |');
-  for (const [page, kind, aToken, bToken] of rows) {
-    const a = hex(aToken, scheme);
-    const b = hex(bToken, scheme);
+  for (const [page, kind, aToken, bToken] of SITE_NONTEXT) {
+    const a = siteHex(aToken, scheme);
+    const b = siteHex(bToken, scheme);
     const r = ratio(a, b);
     const ok = r >= 3;
     pairs += 1;
@@ -255,53 +371,17 @@ function printNontext(rows, scheme, suffix) {
   }
 }
 
-console.log('The composite of the disabled confirm button: ' + disabledInk('light') + ' on ' + disabledFill('light'));
-console.log('');
-console.log('## The dashboard, the light scheme');
-console.log('');
-printText(DASHBOARD_TEXT, 'light', '');
-console.log('');
-printNontext(DASHBOARD_NONTEXT, 'light', '');
-// The disabled confirm button, unchanged, out of the scope of this round.
-{
-  const fg = disabledInk('light');
-  const bg = disabledFill('light');
-  const r = ratio(fg, bg);
-  const ok = r >= 4.5;
-  pairs += 1;
-  if (!ok) fails += 1;
-  console.log(
-    `| dialog | the disabled confirm button (opacity 0.55) (16 px 600) | \`${fg}\` | \`${bg}\` | ${f1(r)}:1 | 4.5:1 | ${ok ? 'pass' : 'fail'} |`,
-  );
-}
-console.log('');
-console.log('## The dashboard, the dark scheme (a prediction: issue #361 has not shipped it)');
-console.log('');
-printText(DASHBOARD_TEXT, 'dark', ' (dark, prediction)');
-console.log('');
-printNontext(DASHBOARD_NONTEXT, 'dark', ' (dark, prediction)');
-{
-  const fg = disabledInk('dark');
-  const bg = disabledFill('dark');
-  const r = ratio(fg, bg);
-  const ok = r >= 4.5;
-  pairs += 1;
-  if (!ok) fails += 1;
-  console.log(
-    `| dialog (dark, prediction) | the disabled confirm button (opacity 0.55) (16 px 600) | \`${fg}\` | \`${bg}\` | ${f1(r)}:1 | 4.5:1 | ${ok ? 'pass' : 'fail'} |`,
-  );
-}
 console.log('');
 console.log('## The site, the light scheme');
 console.log('');
-printText(SITE_TEXT, 'light', '');
+printSiteText('light', '');
 console.log('');
-printNontext(SITE_NONTEXT, 'light', '');
+printSiteNontext('light', '');
 console.log('');
 console.log('## The site, the dark scheme (live: issue #366)');
 console.log('');
-printText(SITE_TEXT, 'dark', ' (dark)');
+printSiteText('dark', ' (dark)');
 console.log('');
-printNontext(SITE_NONTEXT, 'dark', ' (dark)');
+printSiteNontext('dark', ' (dark)');
 console.log('');
 console.log('pairs=' + pairs + ' fails=' + fails);

@@ -1,5 +1,6 @@
 import type { APIRequestContext, Locator, Page } from '@playwright/test';
 
+import { ratio } from '../../docs/design/contrast.mjs';
 import { expect, test } from '../fixtures';
 import { AppsPage } from '../pages/apps-page';
 import { BreadcrumbPart } from '../pages/breadcrumb-part';
@@ -34,12 +35,29 @@ async function captionTopPaddingPx(page: Page, captionId: string): Promise<numbe
   return parseFloat(value);
 }
 
+/** The `#rrggbb` value of a `getComputedStyle` colour string (`rgb(r, g, b)`). */
+function toHex(rgbColor: string): string {
+  const channels = rgbColor.match(/\d+(\.\d+)?/g);
+  if (!channels || channels.length < 3) {
+    throw new Error(`"${rgbColor}" is not an rgb() colour.`);
+  }
+  return (
+    '#' +
+    channels
+      .slice(0, 3)
+      .map((channel) => Math.round(Number(channel)).toString(16).padStart(2, '0'))
+      .join('')
+  );
+}
+
 /**
  * The WCAG 2.x contrast ratio of the text color against the background
  * color of one element (issue #384, finding D25: the disabled Delete
- * button measured about 2.07:1 at `opacity: 0.55`). The locator
- * evaluate reads the two resolved `rgb(...)` strings of the real
- * browser; the ratio math runs here in Node.
+ * button measured about 2.07:1 at `opacity: 0.55`; issue #393, MAJOR 3
+ * of the review of pull request #428: the pending delete label reused
+ * the same floor). The locator evaluate reads the two resolved
+ * `rgb(...)` strings of the real browser; the ratio math runs here in
+ * Node.
  */
 async function disabledButtonContrastRatio(button: Locator): Promise<number> {
   const [textColor, backgroundColor] = (await button.evaluate((element) => {
@@ -842,6 +860,103 @@ test('the elements caption names "this session" on a session view (issue #392, D
   );
 });
 
+/** A fixed, well-formed UUID for one anonymous-session marker (issue #368, D4). */
+function anonymousSessionId(marker: number): string {
+  const hex = (marker + 0x10000).toString(16).padStart(8, '0');
+  return `${hex}-0000-4000-8000-000000000000`;
+}
+
+/**
+ * Sends one session-start event with no user id, so the session counts
+ * as anonymous (`SessionsRoute.kt`). It reuses the path of the matching
+ * `sendUserAndPage` marker, so the first-pages view still counts 51
+ * distinct paths, not 102 (issue #368, D4).
+ */
+async function sendAnonymousSessionOfSamePath(
+  request: APIRequestContext,
+  monitorUrl: string,
+  origin: string,
+  appKey: string,
+  marker: number,
+): Promise<void> {
+  const response = await request.fetch(`${monitorUrl}/collect`, {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json', 'X-Octometer-Key': appKey },
+    data: JSON.stringify({
+      sessionId: anonymousSessionId(marker),
+      clicks: [{ element: 'octo:session-start', ageMs: 0, path: `/pager-page-${marker}` }],
+    }),
+  });
+  expect(response.status()).toBe(204);
+}
+
+/**
+ * The rendered height of one control, in CSS px (issue #368, D4). This
+ * suite runs in real Chromium, so a bounding box gives the painted
+ * height, the number of a real touch target, not only the declared
+ * `min-height` value.
+ */
+async function controlHeightPx(locator: Locator): Promise<number> {
+  const box = await locator.boundingBox();
+  if (box === null) {
+    throw new Error('The control has no bounding box; it is not visible.');
+  }
+  return box.height;
+}
+
+/**
+ * Issue #368 (D4 of the UI audit of 2026-10-09): the Filter button of
+ * the users view, and each pager button of the users view, the sessions
+ * view, and the first-pages view, render at a minimum height of 44 px.
+ * The audit measured about 27 px before the fix: `.filter-form button`
+ * and `.pager button` each carried a `min-height: 24px` rule of a
+ * higher selector specificity than `.btn`. This scenario checks the
+ * 1280 px width and the 390 px width, the issue's own two check widths.
+ */
+test('the Filter button and the pager buttons meet the 44px minimum height (issue #368, D4)', async ({
+  page,
+  request,
+}) => {
+  const monitorUrl = readMonitorUrl();
+  const { appId, appKey, origin } = await registerPagerApp(request, monitorUrl, 'control-height-app');
+  for (let marker = 1; marker <= 51; marker += 1) {
+    await sendUserAndPage(request, monitorUrl, origin, appKey, marker);
+    await sendAnonymousSessionOfSamePath(request, monitorUrl, origin, appKey, marker);
+  }
+
+  const users = new UsersPage(page);
+  const sessions = new SessionsPage(page);
+  const firstPages = new FirstPagesPage(page);
+  const pagerButtons = page.locator('nav.pager button');
+
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+
+    await users.goto(appId);
+    await expect(page.locator('nav.pager')).toContainText('Page 1 of 2', { timeout: CHAIN_WAIT_MS });
+    const filterHeight = await controlHeightPx(page.getByRole('button', { name: 'Filter' }));
+    expect(filterHeight).toBeGreaterThanOrEqual(44);
+    await expect(pagerButtons).toHaveCount(2);
+    for (const button of await pagerButtons.all()) {
+      expect(await controlHeightPx(button)).toBeGreaterThanOrEqual(44);
+    }
+
+    await sessions.goto(appId);
+    await expect(page.locator('nav.pager')).toContainText('Page 1 of 2', { timeout: CHAIN_WAIT_MS });
+    await expect(pagerButtons).toHaveCount(2);
+    for (const button of await pagerButtons.all()) {
+      expect(await controlHeightPx(button)).toBeGreaterThanOrEqual(44);
+    }
+
+    await firstPages.goto(appId);
+    await expect(page.locator('nav.pager')).toContainText('Page 1 of 2', { timeout: CHAIN_WAIT_MS });
+    await expect(pagerButtons).toHaveCount(2);
+    for (const button of await pagerButtons.all()) {
+      expect(await controlHeightPx(button)).toBeGreaterThanOrEqual(44);
+    }
+  }
+});
+
 // Issue #377, finding D9 of the UI audit: the table sits close to the
 // panel border, with no empty strip below the last row.
 test('the manage table has no bottom margin below the last row (issue #377)', async ({ page }) => {
@@ -896,4 +1011,240 @@ test('the add-app heading has no top margin (issue #389)', async ({ page }) => {
     };
   });
   expect(Math.abs(gaps.topGap - gaps.bottomGap)).toBeLessThanOrEqual(2);
+});
+
+// Issue #393, finding D30 of the UI audit: the delete-confirm button
+// shows "Deleting…" with aria-busy="true" while the delete request is
+// in flight. The route below holds the DELETE answer open, so the
+// pending state stays visible long enough for the assertions; the real
+// request can finish in under one render frame.
+test('the delete-confirm button shows a Deleting label while the request is pending (issue #393, D30)', async ({
+  page,
+  request,
+}) => {
+  const monitorUrl = readMonitorUrl();
+  const appName = `delete-pending-app-${Date.now()}`;
+  const createResponse = await request.post('/api/apps', {
+    headers: { Origin: monitorUrl },
+    data: { name: appName, origins: ['https://delete-pending.example'] },
+  });
+  expect(createResponse.status()).toBe(201);
+
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const row = manage.row(appName);
+  await expect(row).toBeVisible();
+
+  let releaseDelete = () => {};
+  const deleteHeld = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+  await page.route('**/api/apps/*', async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fallback();
+      return;
+    }
+    await deleteHeld;
+    const response = await route.fetch();
+    await route.fulfill({ response });
+  });
+
+  await manage.openDeleteDialog(row);
+  await manage.deleteConfirmNameField(row).fill(appName);
+  const confirmButton = manage.deleteConfirmButton(row);
+  const cancelButton = row.getByRole('button', { name: 'Cancel' });
+  await expect(confirmButton).toHaveText('Delete this app');
+  await expect(confirmButton).not.toHaveAttribute('aria-busy');
+
+  // MAJOR 2 of the review of pull request #428: the confirm button
+  // keeps the width of its longer, rest-state label, so Cancel does
+  // not move under the pointer once the pending label shrinks it.
+  const restConfirmBox = await confirmButton.boundingBox();
+  const restCancelBox = await cancelButton.boundingBox();
+  if (!restConfirmBox || !restCancelBox) {
+    throw new Error('The confirm button or the Cancel button has no box in the rest state.');
+  }
+
+  await confirmButton.click();
+  await expect(confirmButton).toHaveText('Deleting…');
+  await expect(confirmButton).toHaveAttribute('aria-busy', 'true');
+  await expect(confirmButton).toBeDisabled();
+
+  const pendingConfirmBox = await confirmButton.boundingBox();
+  const pendingCancelBox = await cancelButton.boundingBox();
+  if (!pendingConfirmBox || !pendingCancelBox) {
+    throw new Error('The confirm button or the Cancel button has no box in the pending state.');
+  }
+  console.log(
+    `issue #393, MAJOR 2: the confirm button width is ${restConfirmBox.width}px at rest ` +
+      `and ${pendingConfirmBox.width}px pending; the Cancel button left x is ` +
+      `${restCancelBox.x}px at rest and ${pendingCancelBox.x}px pending.`,
+  );
+  expect(Math.abs(pendingConfirmBox.width - restConfirmBox.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(pendingCancelBox.x - restCancelBox.x)).toBeLessThanOrEqual(1);
+
+  // MAJOR 3 of the review of pull request #428: pull request #410
+  // gives `.btn[disabled]` the shallows fill and the ink-soft text, in
+  // place of the old opacity rule, so the pending label stays at an
+  // accessible contrast with no rule of its own. The `opacity: 1`
+  // check documents that #410 state (lesson 24 of the frontend brief:
+  // a contrast check beside an explicit opacity assertion, since
+  // `getComputedStyle` colors alone ignore a faded element).
+  await expect(confirmButton).toHaveCSS('opacity', '1');
+  const pendingContrast = await disabledButtonContrastRatio(confirmButton);
+  console.log(`issue #393, MAJOR 3: the pending label contrast is ${pendingContrast.toFixed(2)}:1.`);
+  expect(pendingContrast).toBeGreaterThanOrEqual(4.5);
+
+  releaseDelete();
+  await expect(row.locator('dialog[aria-labelledby^="delete-app-heading"]')).toBeHidden();
+  await page.unroute('**/api/apps/*');
+
+  // Reads the stored state, not only the page text: the app is truly
+  // gone from the registry's own answer (lesson 19 of the frontend
+  // brief).
+  const afterResponse = await request.get('/api/apps');
+  const afterRows = (await afterResponse.json()) as ReadonlyArray<{ name: string }>;
+  expect(afterRows.some((r) => r.name === appName)).toBe(false);
+});
+
+/**
+ * Reads the border radius and the box shadow of one control (issue
+ * #360, finding D11). Chromium gives back a plain px string and a
+ * plain `rgb(...) Npx Npx 0px 0px` string here (real Chromium, not
+ * jsdom), so a direct string check is exact.
+ */
+async function controlLook(locator: Locator): Promise<{
+  radius: string;
+  shadow: string;
+}> {
+  return locator.evaluate((element) => ({
+    radius: getComputedStyle(element).borderRadius,
+    shadow: getComputedStyle(element).boxShadow,
+  }));
+}
+
+// Issue #360, finding D11 of the UI audit: one pill family (a
+// full-round radius, no shadow) and one button family (a 12px radius,
+// a hard shadow), with no third look on screen. "Sign out" moves into
+// its own account menu, clear of the row of nav pills.
+test('the nav pills, the "Pause refresh" pill, and the action buttons each keep one family (issue #360)', async ({
+  page,
+}) => {
+  const apps = new AppsPage(page);
+  await apps.goto();
+
+  const navPill = page
+    .locator('nav[aria-label="Main"]')
+    .getByRole('link', { name: 'Apps', exact: true });
+  const pausePill = page.getByRole('button', { name: 'Pause refresh' });
+  const signOutButton = page.locator('.account-menu').getByRole('button', { name: 'Sign out' });
+
+  const navPillLook = await controlLook(navPill);
+  const pausePillLook = await controlLook(pausePill);
+  const signOutLook = await controlLook(signOutButton);
+
+  // The two pills share one radius and one shadow (none).
+  expect(pausePillLook).toEqual(navPillLook);
+  expect(navPillLook.shadow).toBe('none');
+
+  // "Sign out" keeps the other family: a different radius, and a
+  // shadow that is not "none".
+  expect(signOutLook.radius).not.toBe(navPillLook.radius);
+  expect(signOutLook.shadow).not.toBe('none');
+
+  // A second action button, on a different page, keeps the same
+  // button look as "Sign out".
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const addAppButton = page.getByRole('button', { name: 'Add app' });
+  const addAppLook = await controlLook(addAppButton);
+  expect(addAppLook).toEqual(signOutLook);
+
+  // "Sign out" sits in its own row, clear of the row of nav pills: its
+  // box does not share a y range with the nav pill's box.
+  await apps.goto();
+  const navBox = await navPill.boundingBox();
+  const signOutBox = await page
+    .locator('.account-menu')
+    .getByRole('button', { name: 'Sign out' })
+    .boundingBox();
+  if (!navBox || !signOutBox) {
+    throw new Error('The nav pill or the "Sign out" button has no box.');
+  }
+  expect(signOutBox.y).toBeGreaterThanOrEqual(navBox.y + navBox.height);
+});
+
+// Issue #361, finding D1 of the UI audit: the dashboard shell uses the
+// dark tokens under `prefers-color-scheme: dark`, not the bright page.
+// Each contrast assertion sits beside an `opacity` assertion (lesson 24
+// of the frontend brief): a faded control passes a naive contrast
+// check, so this test reads the real `opacity` value next to each
+// contrast measurement, never the contrast alone.
+test('the dashboard shell uses the dark tokens under prefers-color-scheme: dark (issue #361)', async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+
+  const apps = new AppsPage(page);
+  await apps.goto();
+
+  // The body keeps the dark `--shallows` token (#14122a), not the
+  // bright page (#e6f3ff).
+  const body = page.locator('body');
+  await expect(body).toHaveCSS('background-color', 'rgb(20, 18, 42)');
+  await expect(body).toHaveCSS('opacity', '1');
+  const bodyColor = await body.evaluate((element) => getComputedStyle(element).color);
+  expect(ratio(toHex(bodyColor), '#14122a')).toBeGreaterThanOrEqual(4.5);
+
+  // The band label pair (MAJOR 1 of the review of pull request #435):
+  // `--paper-bright` keeps the plain nav pill ("Manage apps") readable
+  // on the octo band in the dark scheme too, not dark text on a dark
+  // fill.
+  const manageAppsPill = page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Manage apps' });
+  await expect(manageAppsPill).toBeVisible();
+  await expect(manageAppsPill).toHaveCSS('opacity', '1');
+  const pillColors = await manageAppsPill.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { fg: style.color, bg: style.backgroundColor, edge: style.borderTopColor };
+  });
+  expect(ratio(toHex(pillColors.fg), toHex(pillColors.bg))).toBeGreaterThanOrEqual(4.5);
+
+  // The control edge pair (MAJOR 3 of the review): `.band` sets its own
+  // `--line-control`, so the pill edge still reads 3:1 on the octo band
+  // fill in the dark scheme, not the page's own dark `--ink`.
+  const bandFill = await page
+    .locator('header.band')
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(ratio(toHex(pillColors.edge), toHex(bandFill))).toBeGreaterThanOrEqual(3);
+
+  // The "demo" app badge: the mark and the word of status-format.ts keep
+  // 4.5:1 on their fill in the dark scheme too (the badge text is
+  // `--text-s`, never a large text).
+  const badge = apps.rowOf('demo').status.locator('.badge');
+  await expect(badge).toBeVisible();
+  await expect(badge).toHaveCSS('opacity', '1');
+  const badgeColors = await badge.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { fg: style.color, bg: style.backgroundColor };
+  });
+  expect(ratio(toHex(badgeColors.fg), toHex(badgeColors.bg))).toBeGreaterThanOrEqual(4.5);
+
+  // The disabled "Delete this app" button of the delete dialog
+  // (`.btn[disabled]`, issue #384/#410): a shallows fill, an ink-soft
+  // text, a dashed border, and no opacity change. This reads the real
+  // `opacity` (it must stay `1`, not a faded value) next to the
+  // contrast of the dark-scheme pair.
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const row = manage.row('demo');
+  await manage.openDeleteDialog(row);
+  const confirmButton = manage.deleteConfirmButton(row);
+  await expect(confirmButton).toBeVisible();
+  await expect(confirmButton).toBeDisabled();
+  await expect(confirmButton).toHaveCSS('border-style', 'dashed');
+  await expect(confirmButton).toHaveCSS('opacity', '1');
+  expect(await disabledButtonContrastRatio(confirmButton)).toBeGreaterThanOrEqual(4.5);
+  await manage.cancelDeleteDialog(row);
 });

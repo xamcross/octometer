@@ -15,9 +15,7 @@ test('the hero shows the promise and the button reaches the form', async ({ page
     'Octometer counts each click in your web app. One script tag, one dashboard, no cookie banner.',
   );
   const heroNote = page.locator('.hero-text p.small');
-  await expect(heroNote).toHaveText(
-    'Octometer is in a pilot. Join the waitlist, and we invite you.',
-  );
+  await expect(heroNote).toHaveText("We'll email you when your spot opens.");
 
   // The audit finding L3 (issue #372): the product shot fills the empty
   // right side of the hero at 1280 px. The check measures the empty

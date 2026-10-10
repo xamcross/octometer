@@ -21,6 +21,7 @@
   --ink-soft: #4b4763;
   --paper: #ffffff;
   --paper-raised: #ffffff;
+  --paper-bright: #ffffff;
   --shallows: #e6f3ff;
   --shallows-deep: #bfdfff;
   --coral: #ff6b6b;
@@ -36,7 +37,13 @@
   --radius-control: 12px;
   --radius-pill: 999px;
 
-  /* Outline and shadow */
+  /*
+   * Outline and shadow. The browser resolves the `var(--ink)` inside
+   * `--line-control` here, at this `:root` block, not at each element
+   * that reads `--line-control` (the correction round of pull request
+   * #435). `.band` sets its own `--line-control`, so a band edge still
+   * reads 3:1 in the dark scheme.
+   */
   --line-panel: 3px solid var(--ink);
   --line-control: 2px solid var(--ink);
   --shadow-panel: 6px 6px 0 var(--ink);
@@ -62,6 +69,46 @@
   --space-5: 24px;
   --space-6: 32px;
   --space-7: 48px;
+
+  color-scheme: light dark;
+}
+
+/*
+ * The dark color scheme (issue #361, the UI audit finding D1). A user with
+ * a dark system preference gets this block. Each bright fill token
+ * (`--coral`, `--sunny`, `--seaweed`, `--on-bright`, `--paper-bright`)
+ * stays out of this block on purpose, so it keeps its light value in both
+ * schemes (step 3 of the issue): `--on-bright` stays dark text on each
+ * bright fill.
+ *
+ * `--octo` gets a lighter dark value than the audit draft (`#5b45b0`):
+ * `--on-bright` text on that fill measured 2.18:1 on the band (the account
+ * email, `--text-s`), under the WCAG 1.4.3 floor of 4.5:1. `#9b7be5` raises
+ * the pair to 4.75:1 (step 5 of the issue: raise a token value when a pair
+ * falls under the floor).
+ *
+ * `--paper-raised` is absent from the audit draft, so it kept its light
+ * value (`#ffffff`); `--ink` text on that fill then measured 1.19:1 in a
+ * dialog (delete-app-dialog.css, new-secret-key-dialog.css), far under the
+ * floor. `#312b57` (the site's own dark `--paper-raised`, issue #366)
+ * raises the pair to 10.95:1.
+ *
+ * The correction round of pull request #435 adds `--paper-bright`.
+ * `.band` once read `--paper-raised` for its own bright fill. `#312b57`
+ * then made the band dark on dark: the nav pill label and the "Sign out"
+ * label read 1.21:1 on the band, under the floor of 4.5:1. `--paper-bright`
+ * keeps `#ffffff` in each scheme, so `.band` stays bright on dark too.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #ece9ff;
+    --ink-soft: #b9b4d6;
+    --paper: #1d1a33;
+    --paper-raised: #312b57;
+    --shallows: #14122a;
+    --shallows-deep: #2c2850;
+    --octo: #9b7be5;
+  }
 }
 
 *,
@@ -335,7 +382,7 @@ a {
 
 .btn-small {
   font-size: var(--text-s);
-  padding: 4px 12px;
+  padding: 8px 12px;
 }
 
 .btn[disabled] {
