@@ -175,7 +175,7 @@ fill (a badge, a button, the band) keeps its ink text in each scheme.
 | `--shallows` | `#E6F3FF` | `#14122A` |
 | `--shallows-bright` | `#E6F3FF` | `#E6F3FF` |
 | `--shallows-deep` | `#BFDFFF` | `#2C2850` |
-| `--shallows-hover` | `#E6F3FF` | `#3D3570` |
+| `--shallows-hover` | `#99C6FF` | `#3D3570` |
 | `--octo` | `#A78BFA` | `#9B7BE5` |
 
 `.band` of `monitor/frontend/src/app/app.css` no longer sets `--ink: #241f3d;` and
@@ -200,8 +200,13 @@ issue #454. The hovered nav pill once read `--shallows` for its fill; inside `.b
 page and the cue almost disappeared (about 1:1, against a rest-to-hover change of only
 1.09:1). No existing dark token clears 1.5:1 against the page while the text (`--ink`)
 still reads 4.5:1 or more on it, so `--shallows-hover` adds `#3D3570`: 1.69:1 against the
-dark page, and the pill text reads 9.10:1 on it. The light value stays `#E6F3FF`, equal
-to `--shallows`, so the light scheme keeps its current pair.
+dark page, and the pill text reads 9.10:1 on it. Issue #468 fixes the light value below.
+
+Issue #468 fixes the light scheme. The old light value, `#E6F3FF`, equalled the light page
+too: 1.00:1, with the text at 13.92:1. No existing light token (`--paper-raised`,
+`--shallows-deep`, `--shallows-bright`) clears 1.5:1 against the light page.
+`--shallows-hover` now adds `#99C6FF`: 1.57:1 against the light page, and the pill text
+reads 8.87:1 on it.
 
 The audit draft of issue #361 names `#5B45B0` for the dark `--octo`, with no dark value for
 `--paper-raised`. Each measured under the WCAG 1.4.3 floor:

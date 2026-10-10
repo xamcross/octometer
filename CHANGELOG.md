@@ -205,6 +205,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Record the token `--shallows-bright` in `docs/design.md` and `docs/design/contrast.mjs`;
   give the hovered Pause refresh pill a new dark fill, `--shallows-hover`, so the hover
   cue reads 1.5:1 or more against the dark page. (#454)
+- Give `--shallows-hover` a new light value, `#99c6ff`, so the hovered Pause refresh
+  pill also reads 1.5:1 or more against the light page. (#468)
 
 ### CI
 

@@ -1922,9 +1922,21 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   await expect(pauseButton).toHaveCSS('opacity', '1');
   const pauseRest = await hoverStyleOf(pauseButton);
   await pauseButton.hover();
+  await expect(pauseButton).toHaveCSS('opacity', '1');
   const pauseHover = await hoverStyleAfterTransition(pauseButton, pauseRest, ['backgroundColor']);
+  const lightPageBackground = await pauseButton.evaluate(
+    () => getComputedStyle(document.body).backgroundColor,
+  );
   expect(pauseHover.backgroundColor).not.toBe(pauseRest.backgroundColor);
   expect(contrastRatio(pauseHover.color, pauseHover.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+  // Issue #468: the light Pause refresh pill keeps a visible hover cue
+  // too. The fill must differ from the light page by 1.5:1 or more.
+  const pauseFillContrast = contrastRatio(pauseHover.backgroundColor, lightPageBackground);
+  console.log(
+    `issue #468 (light): the hovered pause pill fill is "${pauseHover.backgroundColor}" ` +
+      `on the page "${lightPageBackground}", ${pauseFillContrast.toFixed(2)}:1.`,
+  );
+  expect(pauseFillContrast).toBeGreaterThanOrEqual(1.5);
 
   // The text link: "Go to the apps" of the not-found page, under the
   // global `a` rule, with no pill and no band around it. The link
