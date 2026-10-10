@@ -235,6 +235,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   no smooth scroll moves the hero and how-it-works scenarios. (#448)
 - Focus the lightbox pan region directly and read `scrollLeft` with `expect.poll`, so the
   keyboard-pan assertion of the lightbox scenario gives a stable result. (#461)
+- Read each hover style of the `.btn` transition scenario with `expect.poll`, so the read
+  waits for the 80 ms transition to end. (#464)
 
 ### Documentation
 

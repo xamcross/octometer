@@ -168,6 +168,34 @@ async function hoverStyleOf(locator: Locator): Promise<HoverStyle> {
 }
 
 /**
+ * The hover style of one element, read after its transition ends
+ * (issue #464). `.btn` (styles.css:401-403) transitions `transform`
+ * and `box-shadow` over 80 ms; a plain read right after `locator.hover()`
+ * can land inside that window and give an in-between value, not the
+ * settled hover value. `transitionDuration` names the length of that
+ * window; this polls `hoverStyleOf` until each named field differs from
+ * its rest value, with a 2 s cap, and returns the last read style.
+ */
+async function hoverStyleAfterTransition(
+  locator: Locator,
+  rest: HoverStyle,
+  fields: readonly (keyof HoverStyle)[],
+): Promise<HoverStyle> {
+  await locator.evaluate((element) => getComputedStyle(element).transitionDuration);
+  let latest: HoverStyle = rest;
+  await expect
+    .poll(
+      async () => {
+        latest = await hoverStyleOf(locator);
+        return fields.every((field) => latest[field] !== rest[field]);
+      },
+      { timeout: 2_000 },
+    )
+    .toBe(true);
+  return latest;
+}
+
+/**
  * Waits, through `GET /api/apps`, for the status of the named app to
  * leave `NEVER_POLLED` (issue #364, D3). It checks the API, never the
  * rendered badge: a view that reads the list one time, and again only
@@ -1817,7 +1845,10 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   await expect(addAppButton).toHaveCSS('opacity', '1');
   const buttonRest = await hoverStyleOf(addAppButton);
   await addAppButton.hover();
-  const buttonHover = await hoverStyleOf(addAppButton);
+  const buttonHover = await hoverStyleAfterTransition(addAppButton, buttonRest, [
+    'boxShadow',
+    'transform',
+  ]);
   expect(buttonHover.transform).not.toBe(buttonRest.transform);
   expect(buttonHover.boxShadow).not.toBe(buttonRest.boxShadow);
   // The fill and the text colour stay the same. The text contrast of
@@ -1880,7 +1911,7 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   await expect(appsPill).toHaveCSS('opacity', '1');
   const pillRest = await hoverStyleOf(appsPill);
   await appsPill.hover();
-  const pillHover = await hoverStyleOf(appsPill);
+  const pillHover = await hoverStyleAfterTransition(appsPill, pillRest, ['backgroundColor']);
   expect(pillHover.backgroundColor).not.toBe(pillRest.backgroundColor);
   expect(contrastRatio(pillHover.color, pillHover.backgroundColor)).toBeGreaterThanOrEqual(4.5);
 
@@ -1891,7 +1922,7 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   await expect(pauseButton).toHaveCSS('opacity', '1');
   const pauseRest = await hoverStyleOf(pauseButton);
   await pauseButton.hover();
-  const pauseHover = await hoverStyleOf(pauseButton);
+  const pauseHover = await hoverStyleAfterTransition(pauseButton, pauseRest, ['backgroundColor']);
   expect(pauseHover.backgroundColor).not.toBe(pauseRest.backgroundColor);
   expect(contrastRatio(pauseHover.color, pauseHover.backgroundColor)).toBeGreaterThanOrEqual(4.5);
 
@@ -1908,7 +1939,9 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   await expect(textLink).toHaveCSS('opacity', '1');
   const linkRest = await hoverStyleOf(textLink);
   await textLink.hover();
-  const linkHover = await hoverStyleOf(textLink);
+  const linkHover = await hoverStyleAfterTransition(textLink, linkRest, [
+    'textDecorationThickness',
+  ]);
   expect(linkHover.textDecorationThickness).not.toBe(linkRest.textDecorationThickness);
   expect(contrastRatio(linkHover.color, panelBackground)).toBeGreaterThanOrEqual(4.5);
 
@@ -1949,7 +1982,9 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   await expect(darkPauseButton).toHaveCSS('opacity', '1');
   const darkPauseRest = await hoverStyleOf(darkPauseButton);
   await darkPauseButton.hover();
-  const darkPauseHover = await hoverStyleOf(darkPauseButton);
+  const darkPauseHover = await hoverStyleAfterTransition(darkPauseButton, darkPauseRest, [
+    'backgroundColor',
+  ]);
   const darkPageBackground = await darkPauseButton.evaluate(
     () => getComputedStyle(document.body).backgroundColor,
   );
