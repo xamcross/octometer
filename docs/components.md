@@ -432,15 +432,16 @@ separate guide.
 
 | State | Cue | Token |
 | --- | --- | --- |
-| Shown | A 3px coral-deep left border, bold ink text, a leading "⚠" glyph | `var(--coral-deep)`, `var(--ink)` (`add-app-form.css`) |
+| Shown | A 3px coral-edge left border, bold ink text, a leading "⚠" glyph | `var(--coral-edge)` (`#d93a3a` light, `#ff6b6b` dark), `var(--ink)` (`add-app-form.css`) |
 
 **Accessibility.**
 - Role: none; a plain `<p>`.
 - Accessible name: not applicable; the text is the content.
-- Second cue beside color: the bold weight and the "⚠" glyph, next to the coral-deep
-  border (3:1 or more on `--paper` and on `--shallows`, WCAG 1.4.11, issue #383). The
-  text itself stays ink, not coral, because coral text on paper measures 2.78:1, under
-  the WCAG 1.4.3 floor. This is the accepted departure of the #254 design review.
+- Second cue beside color: the bold weight and the "⚠" glyph, next to the coral-edge
+  border (3:1 or more on `--paper`, `--shallows`, and `--paper-raised`, WCAG 1.4.11,
+  issue #383). The text itself stays ink, not coral, because coral text on paper
+  measures 2.78:1, under the WCAG 1.4.3 floor. This is the accepted departure of the
+  #254 design review.
 - `aria-*` that changes: the field's `aria-describedby` adds this paragraph's id once it
   shows (`add-app-form.html:14-18`).
 
@@ -450,9 +451,10 @@ separate guide.
 - Do not omit the margin reset when a shared rule changes. `.form-error` sets
   `margin: 8px 0 0` in its own rule, because the base sheet resets no `<p>` margin (rule:
   "a paragraph inside a new rule sets its margin", `add-app-form.css`).
-- Do use `var(--coral-deep)` for the left border, never `var(--coral)`: `--coral` on
-  `--shallows` (the sign-in page background) measures 2.46:1, under the 3:1 floor of
-  WCAG 1.4.11 (issue #383).
+- Do use `var(--coral-edge)` for the left border. The token takes `#ff6b6b` in the dark
+  scheme, because `--coral-deep` on `--paper-raised` measures 2.86:1, under the 3:1
+  floor of WCAG 1.4.11 (issue #383, BLOCKER 1 of the correction round of pull request
+  #450).
 
 ## The route patterns field
 
