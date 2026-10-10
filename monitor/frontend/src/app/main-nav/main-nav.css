@@ -23,9 +23,20 @@ a {
   text-decoration: none;
 }
 
-/* The hover state of a nav pill (#369): a tint against the octo band. */
-a:hover {
-  background: var(--shallows);
+/*
+ * The hover state of a nav pill (#369): a tint against the octo band.
+ * `--shallows-bright` keeps a bright tint in each color scheme (note N1
+ * of the review of pull request #445): the pill sits inside `.band`,
+ * where `--ink` turns into the dark text color `--on-bright` in every
+ * scheme, so the hover fill must stay bright too, or the text falls
+ * under the WCAG 1.4.3 floor in the dark scheme. The `(hover: hover)`
+ * guard keeps a touch tap from leaving a stuck hover state (MAJOR 2 of
+ * the same review).
+ */
+@media (hover: hover) {
+  a:hover {
+    background: var(--shallows-bright);
+  }
 }
 
 /*

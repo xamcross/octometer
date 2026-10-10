@@ -10,6 +10,8 @@ import { FirstPagesPage } from '../pages/first-pages-page';
 import { ManagePage } from '../pages/manage-page';
 import { SessionsPage } from '../pages/sessions-page';
 import { UsersPage } from '../pages/users-page';
+import { DESKTOP_CHROME_USER_AGENT } from '../setup/constants';
+import { STORAGE_STATE_FILE } from '../setup/state';
 
 /**
  * The wait bound of decision 5b: the flush of the tracker (1 s), the
@@ -1298,6 +1300,7 @@ test('the dashboard shell uses the dark tokens under prefers-color-scheme: dark 
  */
 test('a button, a nav pill, the pause pill, and a link each change under hover (issue #369)', async ({
   page,
+  browser,
 }) => {
   // The button: the "Add app" submit button of the manage view, a
   // `.btn.btn-primary`.
@@ -1315,6 +1318,54 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   expect(buttonHover.backgroundColor).toBe(buttonRest.backgroundColor);
   expect(buttonHover.color).toBe(buttonRest.color);
   expect(contrastRatio(buttonHover.color, buttonHover.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+
+  // MAJOR 1 of the review of pull request #445: a mouse press beats
+  // the hover. `page.mouse.down()` over the button holds `:hover` and
+  // `:active` at the same time, so this reads the real press, not the
+  // hover alone.
+  const addAppBox = await addAppButton.boundingBox();
+  if (!addAppBox) {
+    throw new Error('The "Add app" button has no box.');
+  }
+  await page.mouse.move(addAppBox.x + addAppBox.width / 2, addAppBox.y + addAppBox.height / 2);
+  await page.mouse.down();
+  // The 80ms transform transition of `.btn` (styles.css) needs a short
+  // wait, so the read happens after the press settles, not mid-move.
+  await page.waitForTimeout(150);
+  const buttonPress = await hoverStyleOf(addAppButton);
+  await page.mouse.up();
+  expect(buttonPress.transform).toBe('matrix(1, 0, 0, 1, 3, 3)');
+  expect(buttonPress.boxShadow).toBe('none');
+
+  // MAJOR 2 of the review of pull request #445: a touch tap leaves no
+  // sticky hover. A context with `hasTouch` and `isMobile`, at 390 px,
+  // signed in through the same storage state as the default context.
+  // `baseURL` repeats here too (the config comment above states the
+  // same rule for `userAgent`): a context a test opens itself does not
+  // inherit the project `use` block.
+  const monitorUrl = process.env.E2E_MONITOR_URL;
+  if (!monitorUrl) {
+    throw new Error('E2E_MONITOR_URL is absent. The global setup did not run, or it failed.');
+  }
+  const touchContext = await browser.newContext({
+    baseURL: monitorUrl,
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+    userAgent: DESKTOP_CHROME_USER_AGENT,
+    storageState: STORAGE_STATE_FILE,
+  });
+  const touchPage = await touchContext.newPage();
+  const touchManage = new ManagePage(touchPage);
+  await touchManage.goto();
+  const touchButton = touchPage.getByRole('button', { name: 'Add app' });
+  const touchRest = await hoverStyleOf(touchButton);
+  await touchButton.tap();
+  await touchPage.waitForTimeout(500);
+  const touchAfterTap = await hoverStyleOf(touchButton);
+  expect(touchAfterTap.transform).toBe(touchRest.transform);
+  expect(touchAfterTap.boxShadow).toBe(touchRest.boxShadow);
+  await touchContext.close();
 
   // The nav pill: "Apps" is not the current link on the manage view.
   const nav = page.getByRole('navigation', { name: 'Main' });
@@ -1363,4 +1414,21 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   await reducedAddAppButton.hover();
   const reducedStyle = await hoverStyleOf(reducedAddAppButton);
   expect(reducedStyle.transitionDuration).toBe('0s');
+
+  // Note N1 of the review of pull request #445: the hovered nav pill
+  // stays readable in the dark color scheme too. "Manage apps" is not
+  // the current link on the apps view, so its hover rule applies.
+  await page.emulateMedia({ reducedMotion: 'no-preference', colorScheme: 'dark' });
+  await apps.goto();
+  const darkPill = page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Manage apps' });
+  const darkPillRest = await hoverStyleOf(darkPill);
+  await darkPill.hover();
+  await expect(darkPill).toHaveCSS('opacity', '1');
+  const darkPillHover = await hoverStyleOf(darkPill);
+  expect(darkPillHover.backgroundColor).not.toBe(darkPillRest.backgroundColor);
+  expect(
+    contrastRatio(darkPillHover.color, darkPillHover.backgroundColor),
+  ).toBeGreaterThanOrEqual(4.5);
 });
