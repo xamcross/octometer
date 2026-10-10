@@ -858,6 +858,14 @@ test('an app is registered and its keys show one time (issue #296)', async ({ pa
 
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   const copyButton = manage.appKeyCopyButton(row);
+  // The Copy control reads the shared `.btn` font (D45), not `.code`: a
+  // control label is UI chrome, never a data value (docs/components.md,
+  // "The code-like value"). This confirms the two stay apart.
+  const copyButtonFontFamily = await copyButton.evaluate(
+    (element) => getComputedStyle(element).fontFamily,
+  );
+  console.log(`issue #386, D27: the Copy button font is "${copyButtonFontFamily}".`);
+  expect(copyButtonFontFamily.toLowerCase()).not.toContain('monospace');
   await expect(copyButton).toHaveAttribute('title', firstAppKey);
   await copyButton.click();
   await expect(copyButton).toHaveText('Copied');
