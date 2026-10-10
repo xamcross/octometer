@@ -363,6 +363,41 @@ describe('Elements', () => {
     });
   });
 
+  describe('the caption subject (issue #392)', () => {
+    it('names "this user" on a user view', () => {
+      startStore();
+      flushElements(buildResponse());
+
+      expect(root().querySelector('caption')?.textContent?.trim()).toBe(
+        'The elements that this user touched, with the click totals of each element.',
+      );
+    });
+
+    it('names "an anonymous visit" on an anonymous view', () => {
+      fixture.componentRef.setInput('userId', null);
+      fixture.componentRef.setInput('anonymous', 'true');
+      fixture.detectChanges();
+      startStore();
+      flushElements(buildResponse(), 'anonymous=true');
+
+      expect(root().querySelector('caption')?.textContent?.trim()).toBe(
+        'The elements that an anonymous visit touched, with the click totals of each element.',
+      );
+    });
+
+    it('names "this session" on a session view', () => {
+      fixture.componentRef.setInput('userId', null);
+      fixture.componentRef.setInput('sessionId', 'session-9');
+      fixture.detectChanges();
+      startStore();
+      flushElements(buildResponse(), 'sessionId=session-9');
+
+      expect(root().querySelector('caption')?.textContent?.trim()).toBe(
+        'The elements that this session touched, with the click totals of each element.',
+      );
+    });
+  });
+
   describe('a 404 on the app (issue #348)', () => {
     it('shows the not-found card with a link to the apps view, and renders no table', () => {
       startStore();
