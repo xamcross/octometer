@@ -266,6 +266,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   an exit code when a row misses a column. (#449)
 - Add the missing token rows to the token table of `docs/design.md`: `--paper-bright`,
   `--shallows-bright`, `--shallows-hover`, `--link-underline`, and `--focus-ring`. (#475)
+- Name the artifact `e2e-report` as the place of the Playwright failure evidence
+  (`error-context.md`, `trace.zip`) in `docs/run-guide.md`, with the download command. (#477)
 
 ## 0.3.0 - 2026-09-28
 
