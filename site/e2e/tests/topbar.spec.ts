@@ -1,7 +1,9 @@
 // The top navigation bar (issue #367, the audit finding L2): the page held
 // no "nav" element and no path to the sign-in page. The bar now carries
-// the mark, the wordmark, and three links at 1280 px, and only the mark
-// and "Sign in" at 390 px, with no sideways scroll at either width.
+// the mark, the wordmark, and three links at 1280 px. The MAJOR 1
+// correction of the review of pull request #440: at 390 px the bar
+// keeps the mark, the wordmark, and "Sign in", with no sideways scroll
+// at either width.
 import { test, expect } from '@playwright/test';
 
 test('the top bar carries the mark, the wordmark, and the links, and fits at 1280 px and 390 px', async ({
@@ -51,11 +53,12 @@ test('the top bar carries the mark, the wordmark, and the links, and fits at 128
   await page.keyboard.press('Tab');
   await expect(howLink).toBeFocused();
 
-  // At 390 px only the mark and "Sign in" show, and the link stays
+  // The MAJOR 1 correction of the review of pull request #440. At
+  // 390 px the mark, the wordmark, and "Sign in" show. The link stays
   // reachable, inside the viewport.
   await page.setViewportSize({ width: 390, height: 800 });
   await page.goto('/');
-  await expect(word).toBeHidden();
+  await expect(word).toBeVisible();
   await expect(howLink).toBeHidden();
   await expect(privacyLink).toBeHidden();
   await expect(signInLink).toBeVisible();

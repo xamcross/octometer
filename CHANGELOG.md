@@ -54,8 +54,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Let the full-size dialog hold the capture at its own natural width, with a pan, so
   the row text reads at 12.8 px at 390 px too. (#359, the correction round of pull
   request #424)
-- Move the hero mark beside the wordmark under 48rem, so it does not sit alone above
-  the heading on a phone. (#370)
+- Move the hero mark into the top bar under 48rem, beside the wordmark, so it does
+  not sit alone above the heading on a phone. (#370)
 
 ### Contract
 

@@ -43,17 +43,17 @@ a:hover{text-decoration-thickness:3px}
 .sec>h2{font-size:var(--text-2xl)}
 .sec-lead{max-width:60ch}
 
-/* 0. the top bar (issue #367, the audit finding L2) */
+/* 0. the top bar (issue #367, the audit finding L2). The MAJOR 1
+   correction of the review of pull request #440: the wordmark no
+   longer hides under 48rem, and the mark grows to 40px. */
 .topbar{background:var(--paper);border-bottom:var(--line-control)}
 .topbar-inner{max-width:76rem;margin-inline:auto;padding-inline:var(--space-4);padding-block:var(--space-3);display:flex;align-items:center;justify-content:space-between;gap:var(--space-4)}
 .topbar-brand{display:flex;align-items:center;gap:var(--space-2)}
-.topbar-mark{width:32px;height:32px}
-.topbar-brand .word{display:none}
+.topbar-mark{width:40px;height:40px}
 .topbar-links{display:flex;align-items:center;gap:var(--space-4)}
 .topbar-links li:not(:last-child){display:none}
 @media (min-width:48rem){
   .topbar-inner{padding-inline:var(--space-6)}
-  .topbar-brand .word{display:inline}
   .topbar-links li:not(:last-child){display:inline}
 }
 
@@ -61,14 +61,15 @@ a:hover{text-decoration-thickness:3px}
    two-column grid at 56rem and above puts the preview beside the copy) */
 .hero{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4) var(--space-6)}
 .hero-text{display:grid;gap:var(--space-4);justify-items:start}
-/* the audit finding L15 (issue #370): under 48rem the standalone mark
-   hides, and ".hero-brand" shows a 40px mark beside the wordmark. */
+/* the audit finding L15 (issue #370), the MAJOR 1 correction of the
+   review of pull request #440. The top bar carries the mark beside the
+   wordmark under 48rem. The hero's own mark and wordmark both hide
+   under 48rem, and both show again at 48rem and above. */
 .hero>.mark{display:none}
-.hero-brand{display:flex;align-items:center;gap:var(--space-2)}
-.hero-mark{width:40px;height:40px}
+.hero-text>.word{display:none}
 @media (min-width:48rem){
   .hero>.mark{display:block}
-  .hero-mark{display:none}
+  .hero-text>.word{display:block}
 }
 @media (min-width:56rem){
   .hero{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center}
@@ -231,13 +232,21 @@ label{font-weight:700}
   .panel-body .btn{width:auto}
 }
 </style>
+<!-- The MINOR 4 fix of the review of pull request #440, fixed in #440.
+     The head, the eyes, and the smile of the mark stand one time, in
+     this hidden symbol. -->
+<svg aria-hidden="true" style="display:none">
+  <symbol id="octo-mark" viewBox="0 0 32 32">
+    <circle class="head" cx="16" cy="13" r="9"/>
+    <circle class="eye" cx="12.6" cy="11.5" r="1.6"/><circle class="eye" cx="19.4" cy="11.5" r="1.6"/>
+    <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2"/>
+  </symbol>
+</svg>
 <nav class="topbar" aria-label="Site navigation">
   <div class="topbar-inner">
     <div class="topbar-brand">
       <svg class="mark topbar-mark" viewBox="0 0 32 32" aria-hidden="true">
-        <circle class="head" cx="16" cy="13" r="9"/>
-        <circle class="eye" cx="12.6" cy="11.5" r="1.6"/><circle class="eye" cx="19.4" cy="11.5" r="1.6"/>
-        <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2"/>
+        <use href="#octo-mark"/>
       </svg>
       <span class="word">Octometer</span>
     </div>
@@ -253,19 +262,13 @@ label{font-weight:700}
   <header class="hero">
     <svg class="mark" width="96" height="96" viewBox="0 0 32 32" aria-hidden="true">
       <g class="arms"><path d="M22.8 17.8 27.6 21.1M21.3 19.4 25 24M19.3 20.9 21.7 26M17.1 21.5 18 27.1M14.9 21.5 14 27.1M12.7 20.9 10.3 26M10.7 19.4 7 24M9.2 17.8 4.4 21.1"/></g>
-      <circle class="head" cx="16" cy="13" r="9"/>
-      <circle class="eye" cx="12.6" cy="11.5" r="1.6"/><circle class="eye" cx="19.4" cy="11.5" r="1.6"/>
-      <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2"/>
+      <use href="#octo-mark"/>
     </svg>
     <div class="hero-text">
-      <div class="hero-brand">
-        <svg class="mark hero-mark" viewBox="0 0 32 32" aria-hidden="true">
-          <circle class="head" cx="16" cy="13" r="9"/>
-          <circle class="eye" cx="12.6" cy="11.5" r="1.6"/><circle class="eye" cx="19.4" cy="11.5" r="1.6"/>
-          <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2"/>
-        </svg>
-        <p class="word">Octometer</p>
-      </div>
+      <!-- The MAJOR 1 correction of the review of pull request #440.
+           Under 48rem this wordmark hides. The top bar above already
+           names the product beside its mark. -->
+      <p class="word">Octometer</p>
       <h1>Every click in your app, counted.</h1>
       <p class="lead">Octometer counts each click in your web app. One script tag, one dashboard, no cookie banner.</p>
       <a class="btn btn-primary" href="#waitlist-email">Join the waitlist</a>

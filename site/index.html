@@ -20,18 +20,31 @@
     </script>
   </head>
   <body>
+    <!-- The MINOR 4 fix of the review of pull request #440, fixed in
+         #440. The head, the eyes, and the smile of the mark stand one
+         time, in this hidden "symbol". The top bar mark and the hero
+         mark each point at it with "use". The hero mark alone adds the
+         waving "arms". The arms never repeat. -->
+    <svg aria-hidden="true" style="display: none">
+      <symbol id="octo-mark" viewBox="0 0 32 32">
+        <circle class="head" cx="16" cy="13" r="9" />
+        <circle class="eye" cx="12.6" cy="11.5" r="1.6" />
+        <circle class="eye" cx="19.4" cy="11.5" r="1.6" />
+        <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2" />
+      </symbol>
+    </svg>
     <!-- #367, the audit finding L2: the top bar gives a visitor a way into
-         the product. The bar sits outside ".page", so its background
-         spans the full width of the viewport; ".topbar-inner" repeats the
-         max-width and the gutter of ".page". -->
+         the product. The bar sits outside ".page". Its background spans
+         the full width of the viewport. ".topbar-inner" repeats the
+         max-width and the gutter of ".page". The MAJOR 1 correction of
+         the review of pull request #440: the mark sits beside the
+         wordmark at 390 px too. ".topbar-brand .word" no longer hides
+         under 48rem. -->
     <nav class="topbar" aria-label="Site navigation">
       <div class="topbar-inner">
         <div class="topbar-brand">
           <svg class="mark topbar-mark" viewBox="0 0 32 32" aria-hidden="true">
-            <circle class="head" cx="16" cy="13" r="9" />
-            <circle class="eye" cx="12.6" cy="11.5" r="1.6" />
-            <circle class="eye" cx="19.4" cy="11.5" r="1.6" />
-            <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2" />
+            <use href="#octo-mark" />
           </svg>
           <span class="word">Octometer</span>
         </div>
@@ -44,31 +57,25 @@
     </nav>
     <div class="page">
       <header class="hero">
-        <!-- #370, the audit finding L15: under 48rem ".hero-mark" sits beside
-             the wordmark in ".hero-brand", and this standalone mark hides
-             (site.css). At 48rem and above this mark shows, unchanged from
-             before issue #370, and ".hero-brand" hides its own small mark. -->
+        <!-- The MAJOR 1 correction of the review of pull request #440.
+             Step 3 of issue #370 moves the mark into the top bar, not a
+             second mark into the hero. Under 48rem this mark hides
+             (site.css). The top bar mark above carries the phone layout
+             instead. -->
         <svg class="mark" width="96" height="96" viewBox="0 0 32 32" aria-hidden="true">
           <g class="arms">
             <path
               d="M22.8 17.8 27.6 21.1M21.3 19.4 25 24M19.3 20.9 21.7 26M17.1 21.5 18 27.1M14.9 21.5 14 27.1M12.7 20.9 10.3 26M10.7 19.4 7 24M9.2 17.8 4.4 21.1"
             />
           </g>
-          <circle class="head" cx="16" cy="13" r="9" />
-          <circle class="eye" cx="12.6" cy="11.5" r="1.6" />
-          <circle class="eye" cx="19.4" cy="11.5" r="1.6" />
-          <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2" />
+          <use href="#octo-mark" />
         </svg>
         <div class="hero-text">
-          <div class="hero-brand">
-            <svg class="mark hero-mark" viewBox="0 0 32 32" aria-hidden="true">
-              <circle class="head" cx="16" cy="13" r="9" />
-              <circle class="eye" cx="12.6" cy="11.5" r="1.6" />
-              <circle class="eye" cx="19.4" cy="11.5" r="1.6" />
-              <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2" />
-            </svg>
-            <p class="word">Octometer</p>
-          </div>
+          <!-- The MAJOR 1 correction of the review of pull request #440.
+               Under 48rem this wordmark hides. The top bar above already
+               names the product beside its mark. One name shows at a
+               time. -->
+          <p class="word">Octometer</p>
           <h1>Every click in your app, counted.</h1>
           <p class="lead">
             Octometer counts each click in your web app. One script tag, one dashboard, no cookie
