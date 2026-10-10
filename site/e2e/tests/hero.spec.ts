@@ -19,6 +19,23 @@ test('the hero shows the promise and the button reaches the form', async ({ page
     'Octometer is in a pilot. Join the waitlist, and we invite you.',
   );
 
+  // The audit finding L3 (issue #372): the product shot fills the empty
+  // right side of the hero at 1280 px. The check measures the empty
+  // width to the right of the preview, the audit's own number (the
+  // finding states the empty strip, not a ratio).
+  const heroPreview = page.locator('.hero-preview');
+  await expect(heroPreview).toBeVisible();
+  const heroPreviewTable = heroPreview.locator('.hero-preview-table tbody tr');
+  await expect(heroPreviewTable).toHaveCount(3);
+  const gapAt1280 = await page.evaluate(() => {
+    const hero = document.querySelector('.hero');
+    const preview = document.querySelector('.hero-preview');
+    return (
+      hero!.getBoundingClientRect().right - preview!.getBoundingClientRect().right
+    );
+  });
+  expect(gapAt1280).toBeLessThanOrEqual(1);
+
   // The audit finding L12 (issue #357): "--text-s" rises from 12.8 px
   // (0.8rem) to 14 px (0.875rem). The check runs at the default 1280 px
   // width and again at 390 px, the two widths of the issue text.
@@ -32,6 +49,41 @@ test('the hero shows the promise and the button reaches the form', async ({ page
     (el) => parseFloat(getComputedStyle(el).fontSize),
   );
   expect(noteFontSize390).toBe(14);
+
+  // The audit finding L3 (issue #372): at 390 px the preview sits below
+  // the copy, with no sideways scroll.
+  await expect(heroPreview).toBeVisible();
+  const layoutAt390 = await page.evaluate(() => ({
+    previewTop: document.querySelector('.hero-preview')!.getBoundingClientRect().top,
+    textBottom: document.querySelector('.hero-text')!.getBoundingClientRect().bottom,
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(layoutAt390.previewTop).toBeGreaterThanOrEqual(layoutAt390.textBottom);
+  expect(layoutAt390.scrollWidth).toBeLessThanOrEqual(layoutAt390.clientWidth);
+
+  // MAJOR 1 of the review of pull request #423: the window of the preview
+  // clipped the Status column between 768 px and about 833 px. The window
+  // carries "overflow: hidden" (site.css), so a table wider than the
+  // window cuts its right edge; the head cell's own box stays whole, so
+  // this check compares the cell's right edge against the window's right
+  // edge, not the cell's own scroll width. The breakpoint moves from
+  // 48rem to 56rem; this check proves the head cell reads in full at
+  // 768 px, the tightest width of the old defect.
+  await page.setViewportSize({ width: 768, height: 800 });
+  const statusHeadAt768 = await page.evaluate(() => {
+    const win = document.querySelector('.hero-preview-window') as HTMLElement;
+    const cells = document.querySelectorAll('.hero-preview-table thead th');
+    const statusHead = cells[cells.length - 1] as HTMLElement;
+    const winRect = win.getBoundingClientRect();
+    const headRect = statusHead.getBoundingClientRect();
+    return {
+      text: statusHead.textContent?.trim(),
+      clipped: headRect.right > winRect.right + 1,
+    };
+  });
+  expect(statusHeadAt768).toEqual({ text: 'Status', clipped: false });
+
   await page.setViewportSize({ width: 1280, height: 720 });
 
   const button = page.getByRole('link', { name: 'Join the waitlist' });
@@ -129,12 +181,36 @@ test.describe('the dark color scheme (issue #366, the UI audit finding L16)', ()
       const [r, g, b] = rgb.match(/\d+/g)!.map(Number);
       return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
     };
-    const lumText = relativeLuminance(body.color);
-    const lumBackground = relativeLuminance(body.background);
-    const [lighter, darker] =
-      lumText > lumBackground ? [lumText, lumBackground] : [lumBackground, lumText];
-    const contrast = (lighter + 0.05) / (darker + 0.05);
+    const contrastRatio = (rgbA: string, rgbB: string) => {
+      const lumA = relativeLuminance(rgbA);
+      const lumB = relativeLuminance(rgbB);
+      const [lighter, darker] = lumA > lumB ? [lumA, lumB] : [lumB, lumA];
+      return (lighter + 0.05) / (darker + 0.05);
+    };
+    const contrast = contrastRatio(body.color, body.background);
     expect(contrast).toBeGreaterThanOrEqual(4.5);
+
+    // BLOCKER 1 of the review of pull request #423: a bright fill of the
+    // preview (the active tab, the two badges) carried no text colour, so
+    // the ink token turned near-white in the dark scheme and the text sat
+    // on a fill of the same light family. Each pair must keep the token
+    // "--on-bright" and clear the 4.5:1 floor.
+    const previewPairs = await page.evaluate(() => {
+      function read(selector: string) {
+        const el = document.querySelector(selector) as HTMLElement;
+        const style = getComputedStyle(el);
+        return { color: style.color, background: style.backgroundColor };
+      }
+      return {
+        activeTab: read('.hero-preview-tab.is-active'),
+        badgeOk: read('.hero-preview-status.is-ok'),
+        badgeSlow: read('.hero-preview-status.is-slow'),
+      };
+    });
+    for (const pair of Object.values(previewPairs)) {
+      const ratio = contrastRatio(pair.color, pair.background);
+      expect(ratio).toBeGreaterThanOrEqual(4.5);
+    }
 
     // MAJOR 1 of the review of pull request #407: the sunny outline sits
     // inside a halo. The halo must keep a 3:1 contrast against the

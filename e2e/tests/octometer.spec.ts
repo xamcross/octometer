@@ -35,6 +35,78 @@ async function captionTopPaddingPx(page: Page, captionId: string): Promise<numbe
 }
 
 /**
+ * The WCAG 2.x contrast ratio of the text color against the background
+ * color of one element (issue #384, finding D25: the disabled Delete
+ * button measured about 2.07:1 at `opacity: 0.55`). The locator
+ * evaluate reads the two resolved `rgb(...)` strings of the real
+ * browser; the ratio math runs here in Node.
+ */
+async function disabledButtonContrastRatio(button: Locator): Promise<number> {
+  const [textColor, backgroundColor] = (await button.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [style.color, style.backgroundColor];
+  })) as [string, string];
+  return contrastRatio(textColor, backgroundColor);
+}
+
+function contrastRatio(colorA: string, colorB: string): number {
+  const luminanceA = relativeLuminance(colorA);
+  const luminanceB = relativeLuminance(colorB);
+  const lighter = Math.max(luminanceA, luminanceB);
+  const darker = Math.min(luminanceA, luminanceB);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function relativeLuminance(rgbColor: string): number {
+  const channels = rgbColor.match(/[\d.]+/g);
+  if (!channels) {
+    throw new Error(`"${rgbColor}" is not an rgb(...) color.`);
+  }
+  const [red, green, blue] = channels.slice(0, 3).map((value) => Number(value) / 255);
+  const linear = (value: number): number =>
+    value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue);
+}
+
+/**
+ * The count of visual lines of an element's text, through a `Range` over
+ * its contents (issue #394, finding D19). `Range.getClientRects` gives
+ * one rect for each line of the text itself, unlike `Element.getClientRects`,
+ * which gives one rect for the element's own box, also on a flex container
+ * or a table cell whose text wraps inside it.
+ */
+async function lineCount(locator: Locator): Promise<number> {
+  return locator.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    return range.getClientRects().length;
+  });
+}
+
+/**
+ * The computed font size of one element, in CSS px (issue #380, finding
+ * D23: the `--text-s` token moves from 12.8 px to 14 px).
+ */
+async function elementFontSizePx(page: Page, selector: string): Promise<number> {
+  const value = await page
+    .locator(selector)
+    .first()
+    .evaluate((element) => getComputedStyle(element).fontSize);
+  return parseFloat(value);
+}
+
+/**
+ * True when the page itself scrolls sideways (issue #380). `.table-scroll`
+ * keeps its own horizontal scroll by design, so this check reads the
+ * document element only, not a table.
+ */
+async function pageOverflowsX(page: Page): Promise<boolean> {
+  return page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+}
+
+/**
  * The left padding of a table cell, in CSS px (issue #379, finding D10:
  * the Manage table used a local `th, td { padding: 0.5rem 0.75rem }`
  * rule, 12px on the left, instead of the shared `.panel th, .panel td`
@@ -83,15 +155,34 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     // touches `.panel caption` (styles.css), so the same number holds
     // at both.
     expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
+
+    // Issue #380, finding D23 of the UI audit: the `--text-s` token
+    // renders at 14 px, at 1280 px and at 390 px, with no new page
+    // overflow at the narrow width.
+    expect(await elementFontSizePx(page, '#manage-caption')).toBeCloseTo(14, 1);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
+    expect(await elementFontSizePx(page, '#manage-caption')).toBeCloseTo(14, 1);
+    expect(await pageOverflowsX(page)).toBe(false);
     await page.setViewportSize({ width: 1280, height: 720 });
+
+    // Issue #384, finding D25: the disabled Delete button shows a dashed
+    // border and no opacity change, and its text stays at 4.5:1 or more
+    // against its fill. The dialog closes with Cancel, so the demo app
+    // of this serial file stays for every later scenario. `demoManageRow`
+    // is the row this scenario just created above.
+    const demoManageRow = manage.row('demo');
+    await manage.openDeleteDialog(demoManageRow);
+    const confirmDeleteButton = manage.deleteConfirmButton(demoManageRow);
+    await expect(confirmDeleteButton).toBeDisabled();
+    await expect(confirmDeleteButton).toHaveCSS('border-style', 'dashed');
+    await expect(confirmDeleteButton).toHaveCSS('opacity', '1');
+    expect(await disabledButtonContrastRatio(confirmDeleteButton)).toBeGreaterThanOrEqual(4.5);
+    await manage.cancelDeleteDialog(demoManageRow);
 
     // Issue #379, finding D10: the Manage table cell padding, the Status
     // badge, and the Patterns alignment now match the apps table, at a
-    // desktop width and at a narrow width. `demoRow` is the row this
-    // scenario just created above.
-    const demoManageRow = manage.row('demo');
+    // desktop width and at a narrow width.
     await expect(manage.statusBadge(demoManageRow)).toHaveCount(1);
     expect(await cellPaddingLeftPx(manage.patternsCell(demoManageRow))).toBe(16);
     await expect(manage.patternsCell(demoManageRow)).toHaveCSS('text-align', 'right');
@@ -148,6 +239,15 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     // Issue #376: the apps table caption keeps clear space above its
     // text (the acceptance criterion's own end-to-end assertion).
     expect(await captionTopPaddingPx(page, 'apps-caption')).toBeGreaterThanOrEqual(12);
+
+    // Issue #380, finding D23 of the UI audit: the status badge renders
+    // at the `--text-s` size, 14 px, at 1280 px and at 390 px, with no
+    // new page overflow at the narrow width.
+    expect(await elementFontSizePx(page, '.badge')).toBeCloseTo(14, 1);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await elementFontSizePx(page, '.badge')).toBeCloseTo(14, 1);
+    expect(await pageOverflowsX(page)).toBe(false);
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     // Issue #346: the apps page shows one breadcrumb item that repeats
     // the "Apps" heading, so the component hides the whole nav here.
@@ -209,11 +309,41 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     // Issue #376: the users table caption keeps clear space above its text.
     expect(await captionTopPaddingPx(page, 'users-caption')).toBeGreaterThanOrEqual(12);
 
+    // Issue #380: the users view (the filter button, the pager, both
+    // `.btn-small`) keeps no new page overflow at a narrow width.
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await pageOverflowsX(page)).toBe(false);
+    await page.setViewportSize({ width: 1280, height: 720 });
+
     // Issue #346: the users view keeps its two-item breadcrumb, with a
     // link back to the apps page.
     const breadcrumb = new BreadcrumbPart(page);
     await breadcrumb.expectLabels(['Apps', 'demo'], CHAIN_WAIT_MS);
     await expect(breadcrumb.linkNamed('Apps')).toHaveAttribute('href', /\/apps$/);
+
+    // Issue #374, the audit finding D14: at 360 px wide, the filter
+    // input and the Filter button stay on one row, next to each other,
+    // and the input keeps its 44 px minimum height.
+    await page.setViewportSize({ width: 360, height: 844 });
+    const filterInputBox = (await users.filterInput().boundingBox())!;
+    const filterButtonBox = (await users.filterButton().boundingBox())!;
+    console.log(
+      `issue #374: at 360px wide, the filter input box is top ${filterInputBox.y}px, ` +
+        `left ${filterInputBox.x}px, height ${filterInputBox.height}px; the Filter ` +
+        `button box is top ${filterButtonBox.y}px, left ${filterButtonBox.x}px.`,
+    );
+    // The button sits to the right of the input, on the same row: its
+    // left edge is past the input's left edge, and its vertical span
+    // overlaps the input's vertical span.
+    expect(filterButtonBox.x).toBeGreaterThan(filterInputBox.x);
+    expect(filterButtonBox.y).toBeLessThan(filterInputBox.y + filterInputBox.height);
+    expect(filterButtonBox.y + filterButtonBox.height).toBeGreaterThan(filterInputBox.y);
+    const filterInputMinHeight = await users
+      .filterInput()
+      .evaluate((element) => parseFloat(getComputedStyle(element).minHeight));
+    console.log(`issue #374: the filter input's minimum height is ${filterInputMinHeight}px.`);
+    expect(filterInputMinHeight).toBeGreaterThanOrEqual(44);
+    await page.setViewportSize({ width: 1280, height: 720 });
   });
 
   test(
@@ -333,6 +463,25 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
       { clicks: 2, uniqueUsers: 1, uniqueSessions: 1 },
       CHAIN_WAIT_MS,
     );
+
+    // Issue #394, finding D19: the "First pages" header and link stay on
+    // one line, at the issue's own narrow width (390px). `lineCount` reads
+    // a `Range` of the text (one rect for one line), not the element's own
+    // box, because the header is a table cell and the link is a flex
+    // container: `Element.getClientRects` gives one rect for either kind
+    // of box even while its text wraps inside it.
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await lineCount(apps.firstPagesHeader)).toBe(1);
+    expect(await lineCount(apps.firstPagesLinkOf('demo'))).toBe(1);
+
+    // Issue #394, implementation step 3: the table still scrolls
+    // sideways at this narrow width, instead of shrinking the column.
+    const scrollWidths = await page
+      .locator('.table-scroll')
+      .evaluate((element) => [element.scrollWidth, element.clientWidth]);
+    expect(scrollWidths[0]).toBeGreaterThan(scrollWidths[1]);
+
+    await page.setViewportSize({ width: 1280, height: 720 });
   });
 
   test('the not-found page shows its sentence and the link to the apps', async ({ page }) => {

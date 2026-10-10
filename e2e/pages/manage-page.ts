@@ -216,6 +216,31 @@ export class ManagePage {
   }
 
   /**
+   * The `app-delete-app-dialog` host of one row. Both the trigger button
+   * and the dialog of this issue sit inside it, so a scoped locator
+   * never matches the Cancel button of the new-secret-key dialog next
+   * to it (issue #384).
+   */
+  private deleteDialogHost(row: ReturnType<ManagePage['row']>) {
+    return row.locator('app-delete-app-dialog');
+  }
+
+  /** Opens the delete dialog of one row (issue #384). */
+  async openDeleteDialog(row: ReturnType<ManagePage['row']>): Promise<void> {
+    await this.deleteDialogHost(row).locator('button.delete-trigger').click();
+  }
+
+  /** The "Delete this app" confirm button of the open delete dialog (issue #384). */
+  deleteConfirmButton(row: ReturnType<ManagePage['row']>) {
+    return this.deleteDialogHost(row).locator('button.confirm-delete');
+  }
+
+  /** Closes the delete dialog of one row without a delete (issue #384). */
+  async cancelDeleteDialog(row: ReturnType<ManagePage['row']>): Promise<void> {
+    await this.deleteDialogHost(row).locator('button.cancel').click();
+  }
+
+  /**
    * Clicks "New secret key" on the row, confirms the rotation, and
    * gives the dialog's own secret key field back (issue #296, D51).
    */

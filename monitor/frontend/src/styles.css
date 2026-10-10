@@ -47,7 +47,7 @@
   --body: 'Nunito', 'Segoe UI', sans-serif;
 
   /* Type scale (ratio 1.25 on 16px) */
-  --text-s: 0.8rem;
+  --text-s: 0.875rem;
   --text-m: 1rem;
   --text-l: 1.25rem;
   --text-xl: 1.5625rem;
@@ -339,7 +339,9 @@ a {
 }
 
 .btn[disabled] {
-  opacity: 0.55;
+  background: var(--shallows);
+  color: var(--ink-soft);
+  border-style: dashed;
   box-shadow: none;
   cursor: default;
 }
