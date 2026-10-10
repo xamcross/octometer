@@ -1534,6 +1534,50 @@ test('a failed first load shows the error state, and "Try again" reloads the lis
 });
 
 /**
+ * BLOCKER 1 of the review of pull request #452: a failed `GET
+ * /api/health` must give the same error state as a failed list request,
+ * not the loading sentence that never ends. The old `listError()` guard
+ * read `firstLoadPending()`, a flag that never clears while the health
+ * route fails, because `intervalMs$` then emits no interval and the
+ * store sends no data request. The fix reads `data()` and `error()`
+ * alone. The health route stays routed to 500 through the whole test, so
+ * the assertion also proves that "Try again" still recovers the list
+ * through its own `GET /api/apps`, with no interval from the health
+ * route (issue #373, "Current behaviour", second mode).
+ */
+test('a failed health request shows the error state too, and "Try again" still recovers the list (issue #373, D6, BLOCKER 1 of the review of pull request #452)', async ({
+  page,
+}) => {
+  await page.route('**/api/health', (route) => route.fulfill({ status: 500, body: '' }));
+
+  const apps = new AppsPage(page);
+  await apps.goto();
+
+  const errorParagraph = page.locator('p.list-error');
+  await expect(errorParagraph).toHaveText('Octometer cannot read the app list. Try again.', {
+    timeout: CHAIN_WAIT_MS,
+  });
+  await expect(page.getByText('Loading apps…')).toHaveCount(0);
+  await expect(page.locator('table')).toHaveCount(0);
+
+  const retryButton = page.getByRole('button', { name: 'Try again' });
+  await expect(retryButton).toBeVisible();
+  await retryButton.click();
+
+  // The health route still answers 500 here: the list recovers through
+  // its own GET /api/apps alone, with no help from the health interval.
+  await expect(errorParagraph).toHaveCount(0, { timeout: CHAIN_WAIT_MS });
+  await expect(page.locator('table')).toBeVisible({ timeout: CHAIN_WAIT_MS });
+
+  await page.unroute('**/api/health');
+  console.log(
+    'issue #373, D6, BLOCKER 1: the apps view showed the error state on a failed health ' +
+      'request, with no table and no "Loading apps…" sentence, and "Try again" recovered ' +
+      'the list while the health route still answered 500.',
+  );
+});
+
+/**
  * Issue #395 (D20 of the UI audit of 2026-10-09): the raw error text of
  * a failed app's Status cell renders at 14px monospace, with a 2-line
  * clamp, and the full raw text stays in the element's `title` attribute.

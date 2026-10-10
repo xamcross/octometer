@@ -87,7 +87,15 @@
   }
 } @else if (listError(); as message) {
   <p class="list-error">{{ message }}</p>
-  <button type="button" class="btn" (click)="store.refresh()">Try again</button>
+  <button
+    type="button"
+    class="btn"
+    [disabled]="retryPending()"
+    [attr.aria-busy]="retryPending() ? 'true' : null"
+    (click)="retry()"
+  >
+    {{ retryPending() ? 'Trying again…' : 'Try again' }}
+  </button>
 } @else {
   <p>Loading anonymous sessions…</p>
 }
