@@ -63,6 +63,10 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   no click of the scenario fail at random. (#426)
 - Move the hero mark into the top bar under 48rem, beside the wordmark, so it does
   not sit alone above the heading on a phone. (#370)
+- Shrink the side padding of the hero preview table under 48rem, so the table fits
+  the preview window at 390 px with no clip. (#431)
+- Wait until 56rem to split the waitlist row into two columns, so the page shows no
+  sideways scroll at 768 px, at 800 px, or at 870 px. (#442)
 
 ### Contract
 
