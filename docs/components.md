@@ -27,7 +27,7 @@ repeats a hex value.
 | The table | `table`, `thead th`, `tbody tr:nth-child(even)` | `monitor/frontend/src/styles.css` | #249 |
 | The status badge | `.badge` | `monitor/frontend/src/styles.css`, `status-format.ts` | #249 |
 | The note under a badge | `.gap-text`, `.error-text` | `monitor/frontend/src/styles.css` | #249 |
-| The last-updated time | `.data-time`, `.last-updated-abs` | `monitor/frontend/src/app/apps/apps.*` | #390 |
+| The last-updated time | `.data-time` | `monitor/frontend/src/app/apps/apps.*` | #390 |
 | The pager | `.pager` | `monitor/frontend/src/app/users/users.css` | #249 |
 | The dialog | `dialog` | `monitor/frontend/src/app/manage/delete-app-dialog.*` | #248 |
 | The empty state | `app-empty-state` | `monitor/frontend/src/app/empty-state/` | #250 |
@@ -616,35 +616,29 @@ last error text.
 
 ## The last-updated time
 
-**Purpose.** The cell shows when an app last gave data, as a short relative time. The
-absolute local time stays in reach for every user, not the mouse user alone.
+**Purpose.** The cell shows when an app last gave data, as a short relative time.
 
 **Anatomy.**
 - `<time [attr.title]="...">` holds the relative text and the absolute time in its
   `title`, inside `td.data-time` (`apps.html:80-91`).
-- `<span class="last-updated-abs">` repeats the same absolute time, next to the
-  `<time>` element, in parentheses. A touch user and a keyboard user read it with no
-  hover and no focus (issue #390, MINOR 4 of the review of pull request #437).
 - The column header reads "Last updated", with no zone name (`apps.html:33`).
 
 **States.**
 
 | State | Cue | Token |
 | --- | --- | --- |
-| Rest | Ink-soft text, small size, next to the relative time | `var(--ink-soft)`, `var(--text-s)` (`apps.css`) |
+| Rest | Plain text, the row's own ink color | none |
 
 **Accessibility.**
-- Role: none; a plain `<time>` and a plain `<span>`.
+- Role: none; a plain `<time>` element.
 - Accessible name: not applicable; the text is the content.
-- Second place for the absolute time: the visible `.last-updated-abs` text, beside the
-  `title` attribute, so a screen reader, a touch user, and a keyboard user each reach it.
+- The absolute time sits in the `title` attribute (step 4 of issue #390); a mouse user
+  reaches it by hover.
 
 **Rules.**
 - Do give the cell its own 30 s clock signal (`apps.ts`), so the relative text does not
   freeze while a paused poll, a hidden tab, or a focus inside `<tbody>` stops a new poll
   answer (MAJOR 1 of the review of pull request #437).
-- Do not rely on the `title` attribute alone for the absolute time; add the visible
-  `.last-updated-abs` text too, so a touch user and a keyboard user can reach it.
 - Use `formatLocalMinute` for this cell only. The Sessions "Start time" column and the
   Elements "Last interaction" column keep `formatLocalDateTime` and its seconds (the
   addendum of design decision D31, 2026-10-10).

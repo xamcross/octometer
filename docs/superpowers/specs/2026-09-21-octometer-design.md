@@ -600,10 +600,9 @@ atlas dbusers describe octometer-reader --projectId <id> -o json
   the Apps view (finding D16). The user read two timestamps for one fact: the "Data
   from" note and the "Data time" column. The Apps "Last updated" column now shows a
   short relative time, for example "3 min ago". The `<time>` element keeps the full
-  local date and time, with no seconds, in its `title`; a visible text next to it
-  repeats the same absolute time, so a touch user and a keyboard user can reach it with
-  no hover and no focus. The cell reads its own 30 s clock, so the relative text stays
-  fresh with no new poll answer. The Sessions "Start time" column and the Elements
+  local date and time, with no seconds, in its `title` attribute (step 4 of issue #390).
+  The cell reads its own 30 s clock, so the relative text stays fresh with no new poll
+  answer. The Sessions "Start time" column and the Elements
   "Last interaction" column keep the original rule of this decision: the full local
   date and time, with the seconds, and no relative time.
 - **D32. Management page.** A list with the status of each app. A form to add an app. A

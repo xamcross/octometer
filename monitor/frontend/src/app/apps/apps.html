@@ -84,7 +84,6 @@
                       [attr.title]="formatDateTime(row.lastSuccessAt)"
                       >{{ lastUpdatedText(row.lastSuccessAt) }}</time
                     >
-                    <span class="last-updated-abs">({{ formatDateTime(row.lastSuccessAt) }})</span>
                   } @else {
                     <span class="visually-hidden">No data</span><span aria-hidden="true">–</span>
                   }

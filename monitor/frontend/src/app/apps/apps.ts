@@ -109,11 +109,9 @@ export class Apps implements OnDestroy {
   }
 
   /**
-   * The full local date and time, with no seconds (issue #390). The
-   * "Last updated" cell shows this text in its `title` and, next to the
-   * relative text, as its own visible text, so a touch user and a
-   * keyboard user can reach it with no hover and no focus (MINOR 4 of the
-   * review of pull request #437, addressed here on the maintainer's word).
+   * The full local date and time, with no seconds (issue #390, step 4).
+   * The "Last updated" cell shows this text in the `title` attribute of
+   * its `<time>` element.
    */
   protected formatDateTime(iso: string): string {
     return formatLocalMinute(iso);

@@ -324,13 +324,12 @@ describe('Apps', () => {
       expect(root().querySelector('.gap-text')).toBeNull();
     });
 
-    it('shows the "Last updated" cell of an OK app as a relative time, with the full local date and time in the title, and the same text visible in the cell for a touch user and a keyboard user (issue #390)', () => {
+    it('shows the "Last updated" cell of an OK app as a relative time, with the full local date and time in the title (issue #390)', () => {
       vi.setSystemTime(new Date('2026-09-21T09:08:03.000Z'));
       startStore();
       flushApps([buildRow({ status: 'OK', lastSuccessAt: '2026-09-21T09:05:03.000Z' })]);
 
-      const cell = root().querySelector('td.data-time') as HTMLElement;
-      const time = cell.querySelector('time') as HTMLTimeElement;
+      const time = root().querySelector('td.data-time time') as HTMLTimeElement;
       expect(time.getAttribute('datetime')).toBe('2026-09-21T09:05:03.000Z');
       expect(time.textContent?.trim()).toBe('3 min ago');
 
@@ -338,23 +337,17 @@ describe('Apps', () => {
       const pad = (n: number): string => n.toString().padStart(2, '0');
       const expectedTitle = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
       expect(time.getAttribute('title')).toBe(expectedTitle);
-
-      const absText = cell.querySelector('.last-updated-abs') as HTMLElement;
-      expect(absText.textContent?.trim()).toBe(`(${expectedTitle})`);
     });
 
-    it('formats the title and the visible absolute text in a fixed zone against a literal string, with no seconds (issue #390)', () => {
+    it('formats the title in a fixed zone against a literal string, with no seconds (issue #390)', () => {
       vi.stubEnv('TZ', 'UTC');
       try {
         vi.setSystemTime(new Date('2026-09-21T09:08:03.000Z'));
         startStore();
         flushApps([buildRow({ status: 'OK', lastSuccessAt: '2026-09-21T09:05:03.000Z' })]);
 
-        const cell = root().querySelector('td.data-time') as HTMLElement;
-        const time = cell.querySelector('time') as HTMLTimeElement;
+        const time = root().querySelector('td.data-time time') as HTMLTimeElement;
         expect(time.getAttribute('title')).toBe('2026-09-21 09:05');
-        const absText = cell.querySelector('.last-updated-abs') as HTMLElement;
-        expect(absText.textContent?.trim()).toBe('(2026-09-21 09:05)');
       } finally {
         vi.unstubAllEnvs();
       }
