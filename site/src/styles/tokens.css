@@ -20,6 +20,12 @@
   --seaweed: #6ee7b7;
   --octo: #a78bfa;
   --on-bright: #241f3d;
+  /* The link underline and the focus outline (issue #409). The light
+     scheme uses a darker shade of each brand color, so each one holds a
+     3:1 contrast against "--paper" and "--shallows". The dark scheme
+     keeps the bright shade of issue #366, already at or above 3:1. */
+  --link-underline: #d93f3f;
+  --focus-ring: #967200;
   /* The dimmed backdrop of the full-size screenshot dialog (issue #359),
      the same fixed value in both color schemes as the monitor's own
      "--backdrop" token (monitor/frontend/src/styles.css:32), so the dim
@@ -69,5 +75,7 @@
     --paper-raised: #312b57;
     --shallows: #17142b;
     --shallows-deep: #232b45;
+    --link-underline: var(--coral);
+    --focus-ring: var(--sunny);
   }
 }

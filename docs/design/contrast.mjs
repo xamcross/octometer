@@ -9,6 +9,18 @@
  * with an `opacity` value below 1 goes through `composite` first. Keep the two
  * lists equal to the tables of the record. Add a row here when the UI adds a
  * text pair or a control edge.
+ *
+ * Issue #429 adds the dark run below each light row. The dark row swaps the
+ * five theme tokens of the dark block of `site/src/styles/tokens.css`
+ * (`--ink`, `--ink-soft`, `--paper`, `--shallows`, `--shallows-deep`); a
+ * bright fill token (`--coral`, `--sunny`, `--seaweed`, `--octo`,
+ * `--on-bright`) keeps its light value, the same rule as the light run. The
+ * script cannot tell `--paper` apart from `--paper-raised` by colour alone
+ * (both are `#ffffff` in the light scheme), so each `#ffffff` field maps to
+ * the `--paper` dark value. The dashboard pairs ("apps", "manage", "users",
+ * "sessions", "each table", "dialog") get a dark row too, ahead of the
+ * dashboard's own dark theme (issue #361), because the tool checks a token
+ * pair, not a rendered page.
  */
 
 /** The linear value of one sRGB channel. */
@@ -119,6 +131,47 @@ const NONTEXT = [
   ['manage', 'the invalid field ring on the field fill', '#ff6b6b', '#ffffff'],
 ];
 
+// The five theme tokens of the dark block of `site/src/styles/tokens.css`
+// (issue #366), light hex to dark hex. A bright fill token is absent on
+// purpose, so `toDark` returns it unchanged (issue #429).
+const DARK = {
+  '#241f3d': '#f4f1ff', // --ink
+  '#4b4763': '#b3add4', // --ink-soft
+  '#ffffff': '#241f3d', // --paper
+  '#e6f3ff': '#17142b', // --shallows
+  '#bfdfff': '#232b45', // --shallows-deep
+};
+const toDark = (hex) => DARK[hex] ?? hex;
+
+const DISABLED_FILL_DARK = composite(COetc.coral, COetc.alpha, toDark(COetc.paper));
+const DISABLED_INK_DARK = composite(toDark(COetc.ink), COetc.alpha, DISABLED_FILL_DARK);
+
+/** The dark row of one light `TEXT` row (issue #429). */
+const toTextDark = ([page, kind, fg, bg, px, weight]) => {
+  const darkFg = fg === DISABLED_INK ? DISABLED_INK_DARK : toDark(fg);
+  const darkBg = bg === DISABLED_FILL ? DISABLED_FILL_DARK : toDark(bg);
+  return [page + ' (dark)', kind, darkFg, darkBg, px, weight];
+};
+
+/**
+ * The dark row of one light `NONTEXT` row (issue #429). The halo of the
+ * focus ring is `--on-bright`, fixed in both schemes (issue #366), and not
+ * `--ink`; the two rows below keep its field at `#241f3d` and map the
+ * other field only.
+ */
+const toNontextDark = ([page, kind, a, b]) => {
+  if (kind.startsWith('the focus ring: the ink halo')) {
+    return [page + ' (dark)', kind, a, toDark(b)];
+  }
+  if (kind === 'the focus ring: the sunny line on the ink halo') {
+    return [page + ' (dark)', kind, toDark(a), b];
+  }
+  return [page + ' (dark)', kind, toDark(a), toDark(b)];
+};
+
+const TEXT_DARK = TEXT.map(toTextDark);
+const NONTEXT_DARK = NONTEXT.map(toNontextDark);
+
 /** True for a large text: 24 px, or 18.66 px at the weight 700. */
 const big = (px, weight) => px >= 24 || (px >= 18.66 && weight >= 700);
 
@@ -148,4 +201,29 @@ for (const [page, kind, a, b] of NONTEXT) {
   console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${ok ? 'pass' : 'fail'} |`);
 }
 console.log('');
-console.log('pairs=' + (TEXT.length + NONTEXT.length) + ' fails=' + fails);
+console.log('The dark run (issue #429), the same floor as each light row above.');
+console.log('');
+console.log('| Page | Text | Colour | Background | Ratio | Floor | Result |');
+console.log('| --- | --- | --- | --- | --- | --- | --- |');
+for (const [page, kind, fg, bg, px, weight] of TEXT_DARK) {
+  const r = ratio(fg, bg);
+  const floor = big(px, weight) ? 3 : 4.5;
+  const ok = r >= floor;
+  if (!ok) fails += 1;
+  console.log(
+    `| ${page} | ${kind} (${px} px ${weight}) | \`${fg}\` | \`${bg}\` | ${f1(r)}:1 | ${floor}:1 | ${ok ? 'pass' : 'fail'} |`,
+  );
+}
+console.log('');
+console.log('| Page | Edge or ring | Colour | Neighbour | Ratio | Floor | Result |');
+console.log('| --- | --- | --- | --- | --- | --- | --- |');
+for (const [page, kind, a, b] of NONTEXT_DARK) {
+  const r = ratio(a, b);
+  const ok = r >= 3;
+  if (!ok) fails += 1;
+  console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${ok ? 'pass' : 'fail'} |`);
+}
+console.log('');
+console.log(
+  'pairs=' + (TEXT.length + NONTEXT.length + TEXT_DARK.length + NONTEXT_DARK.length) + ' fails=' + fails,
+);

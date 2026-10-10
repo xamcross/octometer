@@ -80,3 +80,112 @@ test('the top bar carries the mark, the wordmark, and the links, and fits at 128
   await page.keyboard.press('Tab');
   await expect(signInLink).toBeFocused();
 });
+
+/*
+ * Issue #409: the link underline and the focus outline must each clear a
+ * 3:1 contrast against the page, in the light scheme and in the dark
+ * scheme. The check reads the real computed style of a plain link (the
+ * "How it works" link holds no ".btn" class, so it keeps the global "a"
+ * underline and the global ":focus-visible" outline); "page.hover()" is
+ * not needed. Each check also reads the element's own "opacity", so a
+ * future transparent state cannot hide a real contrast failure behind a
+ * ratio that math alone says is fine.
+ */
+const toLinear = (channel: number) => {
+  const c = channel / 255;
+  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+};
+const hexLuminance = (hex: string) => {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+};
+const rgbLuminance = (rgb: string) => {
+  const [r, g, b] = rgb.match(/\d+/g)!.map(Number);
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+};
+const ratioOf = (lumA: number, lumB: number) => {
+  const [lighter, darker] = lumA > lumB ? [lumA, lumB] : [lumB, lumA];
+  return (lighter + 0.05) / (darker + 0.05);
+};
+
+async function measureLinkAndOutline(page: import('@playwright/test').Page) {
+  const tokens = await page.evaluate(() => {
+    const root = getComputedStyle(document.documentElement);
+    return {
+      paper: root.getPropertyValue('--paper').trim(),
+      shallows: root.getPropertyValue('--shallows').trim(),
+      linkUnderline: root.getPropertyValue('--link-underline').trim(),
+      focusRing: root.getPropertyValue('--focus-ring').trim(),
+    };
+  });
+  const howLink = page.getByRole('link', { name: 'How it works' });
+  const decoration = await howLink.evaluate((el) => ({
+    color: getComputedStyle(el).textDecorationColor,
+    opacity: getComputedStyle(el).opacity,
+  }));
+  await page.keyboard.press('Tab');
+  await expect(howLink).toBeFocused();
+  const outline = await howLink.evaluate((el) => ({
+    color: getComputedStyle(el).outlineColor,
+    opacity: getComputedStyle(el).opacity,
+  }));
+  const topbarBackground = await page.evaluate(
+    () => getComputedStyle(document.querySelector('.topbar')!).backgroundColor,
+  );
+  return { tokens, decoration, outline, topbarBackground };
+}
+
+test.describe('the link underline and the focus outline contrast (issue #409)', () => {
+  test('the light scheme clears a 3:1 contrast against the page at 1280 px', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto('/');
+    const { tokens, decoration, outline, topbarBackground } = await measureLinkAndOutline(page);
+
+    expect(decoration.opacity).toBe('1');
+    expect(outline.opacity).toBe('1');
+
+    // The token-level check: "--link-underline" and "--focus-ring" against
+    // both page backgrounds (the issue names "--paper" and "--shallows").
+    expect(ratioOf(hexLuminance(tokens.linkUnderline), hexLuminance(tokens.paper))).toBeGreaterThanOrEqual(3);
+    expect(ratioOf(hexLuminance(tokens.linkUnderline), hexLuminance(tokens.shallows))).toBeGreaterThanOrEqual(3);
+    expect(ratioOf(hexLuminance(tokens.focusRing), hexLuminance(tokens.paper))).toBeGreaterThanOrEqual(3);
+    expect(ratioOf(hexLuminance(tokens.focusRing), hexLuminance(tokens.shallows))).toBeGreaterThanOrEqual(3);
+
+    // The rendered-page check: the real "text-decoration-color" and
+    // "outline-color" of the link, against the bar it sits on.
+    expect(
+      ratioOf(rgbLuminance(decoration.color), rgbLuminance(topbarBackground)),
+    ).toBeGreaterThanOrEqual(3);
+    expect(
+      ratioOf(rgbLuminance(outline.color), rgbLuminance(topbarBackground)),
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  test.describe('the dark color scheme', () => {
+    test.use({ colorScheme: 'dark' });
+
+    test('the dark scheme clears a 3:1 contrast against the page at 1280 px', async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.goto('/');
+      const { tokens, decoration, outline, topbarBackground } = await measureLinkAndOutline(page);
+
+      expect(decoration.opacity).toBe('1');
+      expect(outline.opacity).toBe('1');
+
+      expect(ratioOf(hexLuminance(tokens.linkUnderline), hexLuminance(tokens.paper))).toBeGreaterThanOrEqual(3);
+      expect(ratioOf(hexLuminance(tokens.linkUnderline), hexLuminance(tokens.shallows))).toBeGreaterThanOrEqual(3);
+      expect(ratioOf(hexLuminance(tokens.focusRing), hexLuminance(tokens.paper))).toBeGreaterThanOrEqual(3);
+      expect(ratioOf(hexLuminance(tokens.focusRing), hexLuminance(tokens.shallows))).toBeGreaterThanOrEqual(3);
+
+      expect(
+        ratioOf(rgbLuminance(decoration.color), rgbLuminance(topbarBackground)),
+      ).toBeGreaterThanOrEqual(3);
+      expect(
+        ratioOf(rgbLuminance(outline.color), rgbLuminance(topbarBackground)),
+      ).toBeGreaterThanOrEqual(3);
+    });
+  });
+});

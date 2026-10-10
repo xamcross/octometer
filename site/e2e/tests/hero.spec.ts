@@ -120,7 +120,10 @@ test('the hero shows the promise and the button reaches the form', async ({ page
     await page.keyboard.press('Tab');
   }
   await expect(button).toBeFocused();
-  await expect(button).toHaveCSS('outline', 'rgb(255, 217, 61) solid 3px');
+  // Issue #409: the outline colour moves from the sunny token to the
+  // darker "--focus-ring" token, so it clears a 3:1 contrast against the
+  // page in the light scheme.
+  await expect(button).toHaveCSS('outline', 'rgb(150, 114, 0) solid 3px');
   await expect(button).toHaveCSS('outline-offset', '2px');
   const boxShadow = await button.evaluate((el) => getComputedStyle(el).boxShadow);
   expect(boxShadow).toContain('0px 0px 0px 7px');
