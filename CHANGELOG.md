@@ -46,6 +46,14 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add a product-shot preview to the right side of the hero at 56rem and above, built
   as an HTML table in the visual family of `.frame`, so no empty strip sits past the
   copy. (#372)
+- Add a button on each "Three levels" card that opens one dashboard capture at full
+  size, with a close control and the Escape key. (#359)
+- Put each "Three levels" card on its own row at 1280 px, so the row text of each
+  capture reads at 12.8 px or more, with no zoom. (#359, the correction round of pull
+  request #424)
+- Let the full-size dialog hold the capture at its own natural width, with a pan, so
+  the row text reads at 12.8 px at 390 px too. (#359, the correction round of pull
+  request #424)
 - Move the hero mark beside the wordmark under 48rem, so it does not sit alone above
   the heading on a phone. (#370)
 
@@ -130,6 +138,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   of the opacity rule; the text now measures 7.83:1 on its fill. (#384)
 - Keep the "First pages" header and link text on one line in the apps table, at a
   narrow width too. (#394)
+- Change the Users filter form to a grid: the filter input and the Filter button stay
+  on one row from 360 px wide up, and the input keeps its 44 px minimum height. (#374)
+- Raise the token `--text-s` from 12.8 px to 14 px, so the table caption, the status
+  badge, the gap line, the "Data from" line, the account email, the refresh-bar text,
+  `.btn-small`, and each form hint read larger. (#380)
 
 ### CI
 

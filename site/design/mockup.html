@@ -140,10 +140,15 @@ a:hover{text-decoration-thickness:3px}
 .in-ink .glyph *{stroke:var(--ink)}
 
 /* 3. the three levels */
-.levels{display:grid;gap:var(--space-5)}
+/* issue #359, the correction round of pull request #424: a two-column
+   row at 1280px gives the users card and the elements card a row text
+   below the 12px floor. The users table and the elements table do not
+   fit a narrower capture, so one column at every width keeps the row
+   text readable (site.css:343, "the mockup rules verbatim"). */
+.levels{display:grid;gap:var(--space-5);grid-template-columns:1fr}
 .frame{display:grid;align-content:start;grid-template-rows:auto 1fr auto;gap:var(--space-3);padding:var(--space-4);background:var(--paper);border:var(--line-panel);border-radius:var(--radius-panel);box-shadow:var(--shadow-panel);margin:0}
 .frame h3{font-size:var(--text-l)}
-.frame picture{align-self:end}
+.frame-open{align-self:end}
 .frame figcaption{max-width:50ch}
 .ph{font-size:var(--text-s);color:var(--ink-soft)}
 .tbl{overflow-x:auto;background:var(--shallows);border:var(--line-control);border-radius:var(--radius-control)}
@@ -224,8 +229,6 @@ label{font-weight:700}
   .panel-body>p:nth-of-type(1){grid-column:2;grid-row:1;align-self:center}
   .panel-body>p:nth-of-type(2){grid-column:1/-1;grid-row:2}
   .panel-body .btn{width:auto}
-  .levels{grid-template-columns:1fr 1fr}
-  .levels>:first-child{grid-column:1/-1}
 }
 </style>
 <nav class="topbar" aria-label="Site navigation">
