@@ -42,7 +42,9 @@ the base rules.
 | `--space-6` | `32px` | The space scale; the page gutter from 48rem up. |
 | `--space-7` | `48px` | The space scale. |
 
-A table cell keeps a radius of 0.
+A table cell keeps a radius of 0. `--ink`, `--ink-soft`, `--paper`, `--paper-raised`,
+`--shallows`, `--shallows-deep`, and `--octo` each take a different value in the dark color
+scheme; see "The dark color scheme" below.
 
 ## The page column
 
@@ -126,3 +128,42 @@ pair stays at 4.5:1 or above, the floor of WCAG 1.4.3 for normal text.
 `--on-bright` equals `--ink` (both `#241F3D`), so the four `--on-bright` pairs (on `--sunny`,
 `--seaweed`, `--coral`, `--octo`) repeat the four `--ink` rows above; the table keeps the
 nine rows only.
+
+## The dark color scheme
+
+A `prefers-color-scheme: dark` block in `monitor/frontend/src/styles.css` gives the
+dashboard shell a dark scheme (design decision D1, issue #361). `--coral`, `--sunny`,
+`--seaweed`, and `--on-bright` keep their light value in the dark scheme too, so a bright
+fill (a badge, a button, the band) keeps its ink text in each scheme.
+
+| Token | Light value | Dark value |
+| --- | --- | --- |
+| `--ink` | `#241F3D` | `#ECE9FF` |
+| `--ink-soft` | `#4B4763` | `#B9B4D6` |
+| `--paper` | `#FFFFFF` | `#1D1A33` |
+| `--paper-raised` | `#FFFFFF` | `#312B57` |
+| `--paper-bright` | `#FFFFFF` | `#FFFFFF` |
+| `--shallows` | `#E6F3FF` | `#14122A` |
+| `--shallows-deep` | `#BFDFFF` | `#2C2850` |
+| `--octo` | `#A78BFA` | `#9B7BE5` |
+
+`.band` of `monitor/frontend/src/app/app.css` no longer sets `--ink: #241f3d;` and
+`--paper: #ffffff;` as hex literals. It sets `--ink: var(--on-bright)` and
+`--paper: var(--paper-bright)`. It also sets its own `--line-control`. Each rule keeps
+the band text, the mascot's head fill, and the band edge the same in each scheme.
+
+`--paper-bright` is a correction of pull request #435. `.band` once read
+`--paper-raised`, and the dark value of `--paper-raised` (`#312B57`) then made the band
+dark on dark: the nav pill label and the "Sign out" label read 1.21:1, under the floor of
+4.5:1. `--paper-bright` keeps `#FFFFFF` in each scheme, so the band stays bright on dark.
+
+The audit draft of issue #361 names `#5B45B0` for the dark `--octo`, with no dark value for
+`--paper-raised`. Each measured under the WCAG 1.4.3 floor:
+
+| Pair | Audit draft | Ratio | Raised value | Ratio |
+| --- | --- | --- | --- | --- |
+| `--on-bright` text on `--octo` (the band, `--text-s`) | `#5B45B0` | 2.18:1 | `#9B7BE5` | 4.75:1 |
+| `--ink` text on `--paper-raised` (a dialog) | `#FFFFFF` (unset) | 1.19:1 | `#312B57` | 10.95:1 |
+
+`docs/design/contrast.mjs` (issue #251) computes the full dark-scheme table, next to the
+light-scheme table above; run `node docs/design/contrast.mjs`.
