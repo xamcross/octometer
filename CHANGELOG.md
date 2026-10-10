@@ -189,6 +189,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   leading "⚠" glyph to each error message. (#383)
 - Correct the invalid-field ring pair of `docs/design/contrast.mjs` to the real token
   value, `--coral-deep`; the pair now reads 4.5:1, at or above the 3:1 floor. (#438)
+- Show an error state with a "Try again" button on the apps view, the users view, the
+  sessions view, and the first-pages view, when the first list request fails; the
+  perpetual loading sentence no longer shows. (#373)
+- Render the raw error text of a failed app's Status cell at 14px monospace, with a
+  2-line clamp; the full text stays in the element's `title` attribute. (#395)
 
 ### CI
 

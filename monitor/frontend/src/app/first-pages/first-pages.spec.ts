@@ -134,7 +134,7 @@ describe('FirstPages', () => {
 
   it('shows a loading text before the first answer arrives, and no table', () => {
     expect(root().querySelector('table')).toBeNull();
-    expect(root().textContent).toContain('Octometer reads the first page list.');
+    expect(root().textContent).toContain('Loading first pages…');
   });
 
   it('sends the request with the page query parameter of the route', () => {

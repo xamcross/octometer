@@ -145,7 +145,7 @@ describe('Users', () => {
 
   it('shows a loading text before the first answer arrives, and no table', () => {
     expect(root().querySelector('table')).toBeNull();
-    expect(root().textContent).toContain('Octometer reads the user list.');
+    expect(root().textContent).toContain('Loading users…');
   });
 
   it('sends the request with the page query parameter of the route', () => {
@@ -840,26 +840,33 @@ describe('Users', () => {
   });
 
   describe('a failed data request (MAJOR 1 of the Angular review of #159)', () => {
-    it('shows the fixed sentence of the API for a 400 answer', () => {
+    // A failed first load now shows the one list-error state of issue
+    // #373, not the errorText() region: MAJOR 1 of the review of pull
+    // request #452 found both texts on screen for one failure.
+    // errorText() gives null while listError() holds a text (users.ts),
+    // the same way it already gives null for the 404 card.
+    it('shows the list-error state with "Try again", not the errorText region, for a 400 answer on the first load', () => {
       startStore();
       httpMock
         .expectOne('/api/apps/7/users?page=1')
         .flush({ error: 'The filter q is too long.' }, { status: 400, statusText: 'Bad Request' });
       fixture.detectChanges();
 
-      expect(root().querySelector('.error-text')?.getAttribute('role')).toBe('status');
-      expect(root().querySelector('.error-text')?.textContent?.trim()).toBe(
-        'The filter q is too long.',
+      expect(root().querySelector('.error-text')).toBeNull();
+      expect(root().querySelector('.list-error')?.textContent?.trim()).toBe(
+        'Octometer cannot read the user list. Try again.',
       );
+      expect(root().querySelector('.list-error + button')?.textContent?.trim()).toBe('Try again');
     });
 
-    it('shows a general sentence for a network failure, and clears it after a good answer', () => {
+    it('shows the list-error state for a network failure on the first load, and clears it after a good answer', () => {
       startStore(10);
       httpMock.expectOne('/api/apps/7/users?page=1').error(new ProgressEvent('error'));
       fixture.detectChanges();
 
-      expect(root().querySelector('.error-text')?.textContent?.trim()).toBe(
-        'Octometer cannot reach the API. Check the network connection.',
+      expect(root().querySelector('.error-text')).toBeNull();
+      expect(root().querySelector('.list-error')?.textContent?.trim()).toBe(
+        'Octometer cannot read the user list. Try again.',
       );
 
       vi.advanceTimersByTime(10_000);
@@ -867,6 +874,7 @@ describe('Users', () => {
       fixture.detectChanges();
 
       expect(root().querySelector('.error-text')).toBeNull();
+      expect(root().querySelector('.list-error')).toBeNull();
     });
   });
 
