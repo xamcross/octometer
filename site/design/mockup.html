@@ -79,10 +79,6 @@ a:hover{text-decoration-thickness:3px}
   .hero>.mark{grid-column:1;grid-row:1}
   .hero-text{grid-column:1;grid-row:2}
   .hero-preview{grid-column:2;grid-row:1 / span 2}
-  /* Issue #442: the two-column grid of ".wl" waits for 56rem, the same
-     breakpoint as ".hero" above, so the row never asks for the 48rem
-     cap of the form column and the pilot column at the same time. */
-  .wl{grid-template-columns:minmax(0,48rem) 1fr;gap:var(--space-6)}
 }
 .word{font:600 var(--text-xl)/1.15 var(--display)}
 .hero h1{font-size:clamp(var(--text-2xl),7vw,var(--text-4xl));max-width:22ch}
@@ -185,6 +181,15 @@ a:hover{text-decoration-thickness:3px}
 
 /* 5. the waitlist form */
 .wl{display:grid;gap:var(--space-5);align-items:start}
+/* Issue #442: the two-column grid of ".wl" waits for 56rem, the same
+   breakpoint as ".hero" above, so the row never asks for the 48rem
+   cap of the form column and the pilot column at the same time. This
+   block stands after the base ".wl" rule above (the MAJOR 1 correction
+   of the review of pull request #457): the same specificity ties go to
+   the later rule in the source. */
+@media (min-width:56rem){
+  .wl{grid-template-columns:minmax(0,48rem) 1fr;gap:var(--space-6)}
+}
 .panel{background:var(--paper);border:var(--line-panel);border-radius:var(--radius-panel);box-shadow:var(--shadow-panel)}
 .panel-body{padding:var(--space-4);display:grid;gap:var(--space-4)}
 .field{display:grid;gap:var(--space-1)}

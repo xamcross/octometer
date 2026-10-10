@@ -194,17 +194,6 @@ a:hover {
     grid-column: 2;
     grid-row: 1 / span 2;
   }
-  /* Issue #442 (the correction of the review of pull request #440): the
-   * two-column grid of issue #381 started at 48rem, with the
-   * ".wl-pilot" column collapsed to a width the row could not hold at
-   * the same time as the 48rem cap of the form column, so the page
-   * scrolled sideways from 768 px to about 870 px (14 px at 768 px).
-   * The grid now waits for 56rem, the same breakpoint as ".hero" above,
-   * and stacks the form over the pilot list below it. */
-  .wl {
-    grid-template-columns: minmax(0, 48rem) 1fr;
-    gap: var(--space-6);
-  }
 }
 .word {
   font: 600 var(--text-xl) / 1.15 var(--display);
@@ -709,6 +698,23 @@ a:hover {
   display: grid;
   gap: var(--space-5);
   align-items: start;
+}
+/* Issue #442 (the correction of the review of pull request #440): the
+ * two-column grid of issue #381 started at 48rem, with the
+ * ".wl-pilot" column collapsed to a width the row could not hold at
+ * the same time as the 48rem cap of the form column, so the page
+ * scrolled sideways from 768 px to about 870 px (14 px at 768 px).
+ * The grid now waits for 56rem, the same breakpoint as ".hero" above,
+ * and stacks the form over the pilot list below it. This block
+ * stands after the base ".wl" rule above (the MAJOR 1 correction of
+ * the review of pull request #457): the same specificity ties go to
+ * the later rule in the source, so an earlier placement silently lost
+ * "gap: var(--space-6)" to the base rule's "gap: var(--space-5)". */
+@media (min-width: 56rem) {
+  .wl {
+    grid-template-columns: minmax(0, 48rem) 1fr;
+    gap: var(--space-6);
+  }
 }
 .panel {
   background: var(--paper);
