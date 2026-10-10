@@ -36,6 +36,19 @@ th[scope='row'] {
     z-index: 1;
     background: var(--paper);
   }
+
+  /*
+   * The header cell of the same column also stays in view (MAJOR 1 of the
+   * review of pull request #465): without this rule the header row keeps
+   * its normal scroll, so a different header sits over the pinned name
+   * cell once the table scrolls to its far right.
+   */
+  thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--shallows-deep);
+  }
 }
 
 /*
