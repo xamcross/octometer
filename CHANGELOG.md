@@ -246,8 +246,6 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   keyboard-pan assertion of the lightbox scenario gives a stable result. (#461)
 - Read each hover style of the `.btn` transition scenario with `expect.poll`, so the read
   waits for the 80 ms transition to end. (#464)
-- Add `e2e/test-results/` to the `e2e-run-logs` artifact, so a failed scenario's
-  `error-context.md` and `trace.zip` upload too, with no new diagnostic commit. (#477)
 
 ### Documentation
 
@@ -266,6 +264,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   Docker Hub, so a manual start never hits the anonymous pull limit. (#430)
 - Make `tools/minor_issues_table.py` honor the `\|` escape inside a cell, and fail with
   an exit code when a row misses a column. (#449)
+- Name the artifact `e2e-report` as the place of the Playwright failure evidence
+  (`error-context.md`, `trace.zip`) in `docs/run-guide.md`, with the download command. (#477)
 
 ## 0.3.0 - 2026-09-28
 

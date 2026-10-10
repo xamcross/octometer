@@ -528,9 +528,9 @@ on port 27117, belongs to a different project.
 variable `OCTOMETER_MONGO_IMAGE`. Each e2e run and each manual demo run
 uses this variable today.
 
-A failed CI run of the suite uploads the artifact `e2e-run-logs`: the
-compose log, the monitor log, the demo log, and the Playwright failure
-evidence of each failed scenario (`error-context.md`, `trace.zip`).
+A failed CI run uploads the artifact `e2e-report`. It holds
+`error-context.md` and `trace.zip` for each failed scenario. Download
+it with `gh run download <run id> -n e2e-report -D <folder>`.
 
 ### The two image sources
 

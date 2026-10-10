@@ -428,18 +428,12 @@ jobs:
       # directory; the default glob of this action skips it, and a
       # first run of this step found no file at all (a MAJOR of this
       # same pull request).
-      # Issue #477, step 1: e2e/test-results/ adds the Playwright
-      # failure evidence (error-context.md and trace.zip) of each
-      # failed scenario to this same artifact. The folder name matches
-      # `outputDir` of e2e/playwright.config.ts.
       - name: Keep the e2e run logs on a failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-run-logs
-          path: |
-            e2e/.run/*.log
-            e2e/test-results/
+          path: e2e/.run/*.log
           retention-days: 3
           include-hidden-files: true
       # Issue #295, criterion 3, brief review M9, M10: the image builds
