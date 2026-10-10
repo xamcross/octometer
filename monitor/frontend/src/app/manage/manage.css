@@ -40,6 +40,19 @@ th[scope='row'] {
   align-items: flex-start;
 }
 
+/*
+ * The flex box sits on this child `<div>`, never on `td.app-key` itself
+ * (issue #386, D27): a `display: flex` on a `<td>` would drop it out of
+ * the table's own box layout, the same rule `.action-row` already
+ * follows for the actions cell.
+ */
+.app-key-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 /* `.list-error` moved to the global stylesheet (issue #373): four more
  * views show the same error empty-state now, so one rule serves all five. */
 

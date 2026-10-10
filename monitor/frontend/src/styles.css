@@ -346,11 +346,52 @@ a {
  * its own component style, so the rule stays present for a unit test:
  * vitest links this file in browser mode only). `border-radius: inherit`
  * clips the rows to the panel corner.
+ *
+ * The scroll cue of a clipped table (issue #371, finding D5): the
+ * classic four-layer scroll-shadow pattern, with no script of its own.
+ * Layer 1 and layer 2 are an opaque `--paper` mask, `local`-attached, so
+ * the browser positions each one against the table's own content, not
+ * against the visible viewport of `.table-scroll`: layer 1 sits at the
+ * start of the content, layer 2 at its end. Layer 3 and layer 4 are the
+ * tinted shadow, `scroll`-attached, so the browser positions each one
+ * against the visible viewport itself, pinned to its left and its right
+ * edge.
+ *
+ * While the content's start sits at the viewport's left edge (the
+ * table has not scrolled), layer 1 sits right over layer 3 and hides
+ * it: no column precedes the view, so no left cue shows. Once a user
+ * scrolls right, the content's start (and layer 1 with it) moves out of
+ * the viewport, uncovering layer 3, the left cue. The same pair, layer
+ * 2 and layer 4, gives the right cue: it hides while the content's end
+ * sits at the viewport's right edge (no column follows), and it shows
+ * while a further column waits past the right edge. A table with no
+ * overflow keeps the content's start and its end at the viewport's own
+ * edges on each side at once, so both cues stay hidden. `color-mix`
+ * keeps the shadow at the `--ink` value of each color scheme, with no
+ * hex literal of its own.
  */
 .table-scroll {
   overflow-x: auto;
   padding-bottom: 4px;
   border-radius: inherit;
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(to right, var(--paper) 40%, transparent),
+    linear-gradient(to right, transparent, var(--paper) 60%),
+    linear-gradient(to right, color-mix(in srgb, var(--ink) 35%, transparent), transparent),
+    linear-gradient(to left, color-mix(in srgb, var(--ink) 35%, transparent), transparent);
+  background-repeat: no-repeat;
+  background-size:
+    24px 100%,
+    24px 100%,
+    8px 100%,
+    8px 100%;
+  background-position:
+    left top,
+    right top,
+    left top,
+    right top;
+  background-attachment: local, local, scroll, scroll;
 }
 
 .panel table {
@@ -390,6 +431,16 @@ a {
 .panel .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * A code-like value: an app key, a selector, a session id (issue #386,
+ * finding D27). The monospace font and the 14px size mark the value as
+ * data, not prose, and they match the size of `.error-text`.
+ */
+.code {
+  font-family: ui-monospace, monospace;
+  font-size: 14px;
 }
 
 /* A status badge: the mark and the word of `status-format.ts`, plus a fill colour. */

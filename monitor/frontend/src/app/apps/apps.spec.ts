@@ -14,7 +14,9 @@ import { Apps } from './apps';
  * does not compute a style for a `:hover` selector, so a test reads the
  * rule from the stylesheet, not from a live style. Angular appends its own
  * content attribute to a selector of an emulated component, so this
- * function strips that attribute before the comparison.
+ * function strips that attribute before the comparison. It recurses into
+ * a `@media` block (issue #446: the `tr:hover` rule now sits inside
+ * `@media (hover: hover)`), so a guarded rule is still found.
  */
 function findCssRule(selectorText: string): CSSStyleRule | undefined {
   for (const sheet of Array.from(document.styleSheets)) {
@@ -24,15 +26,36 @@ function findCssRule(selectorText: string): CSSStyleRule | undefined {
     } catch {
       continue;
     }
-    for (const rule of Array.from(rules ?? [])) {
-      const styleRule = rule as CSSStyleRule;
-      const plainSelector = styleRule.selectorText
-        ?.replace(/\[_ngcontent-[\w-]+\]/g, '')
-        .replace(/\s+/g, ' ');
-      const selectorParts = plainSelector?.split(',').map((part) => part.trim()) ?? [];
-      if (selectorParts.includes(selectorText)) {
-        return styleRule;
+    const found = findCssRuleInList(rules, selectorText);
+    if (found) {
+      return found;
+    }
+  }
+  return undefined;
+}
+
+function findCssRuleInList(
+  rules: CSSRuleList | undefined,
+  selectorText: string,
+): CSSStyleRule | undefined {
+  for (const rule of Array.from(rules ?? [])) {
+    if (rule.type === CSSRule.MEDIA_RULE) {
+      const found = findCssRuleInList((rule as CSSMediaRule).cssRules, selectorText);
+      if (found) {
+        return found;
       }
+      continue;
+    }
+    if (rule.type !== CSSRule.STYLE_RULE) {
+      continue;
+    }
+    const styleRule = rule as CSSStyleRule;
+    const plainSelector = styleRule.selectorText
+      ?.replace(/\[_ngcontent-[\w-]+\]/g, '')
+      .replace(/\s+/g, ' ');
+    const selectorParts = plainSelector?.split(',').map((part) => part.trim()) ?? [];
+    if (selectorParts.includes(selectorText)) {
+      return styleRule;
     }
   }
   return undefined;
@@ -282,8 +305,9 @@ describe('Apps', () => {
         }),
       ]);
 
-      const rowCells = root().querySelectorAll('tbody td');
-      const clicksCell = rowCells[0] as HTMLElement;
+      // issue #371 moved the Status column next to the App column, so
+      // the first `td.num` cell, not the first `td`, is the Clicks cell.
+      const clicksCell = root().querySelector('tbody td.num') as HTMLElement;
       expect(clicksCell.textContent?.trim()).toBe(new Intl.NumberFormat().format(500));
 
       expect(root().textContent).not.toContain('Data from');

@@ -29,9 +29,11 @@ export class AppsPage {
   /**
    * The row of one app, by its name. The table has one row per app in
    * this suite, so a role-based row lookup by its accessible name stays
-   * exact; the cells then come by column position (App, Clicks, Unique
-   * users, Unique sessions, First pages, Status, Data time), through
-   * `getByRole('cell')`, never a CSS class of the cartoon look.
+   * exact; the cells then come by column position (App, Status, Clicks,
+   * Unique users, Unique sessions, First pages, Last updated), through
+   * `getByRole('cell')`, never a CSS class of the cartoon look. Issue
+   * #371 moved the Status column next to the App column, so `status`
+   * now sits at index 0, not index 4.
    */
   rowOf(name: string): AppRowLocators {
     const row = this.page.getByRole('row', { name: new RegExp(`\\b${escapeRegExp(name)}\\b`) });
@@ -39,10 +41,10 @@ export class AppsPage {
     return {
       row,
       nameLink: row.getByRole('link', { name }),
-      clicks: cells.nth(0),
-      uniqueUsers: cells.nth(1),
-      uniqueSessions: cells.nth(2),
-      status: cells.nth(4),
+      status: cells.nth(0),
+      clicks: cells.nth(1),
+      uniqueUsers: cells.nth(2),
+      uniqueSessions: cells.nth(3),
       lastUpdated: cells.nth(5),
     };
   }

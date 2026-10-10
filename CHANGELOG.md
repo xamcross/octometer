@@ -214,6 +214,16 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   cue reads 1.5:1 or more against the dark page. (#454)
 - Give `--shallows-hover` a new light value, `#99c6ff`, so the hovered Pause refresh
   pill also reads 1.5:1 or more against the light page. (#468)
+- Add a scroll cue to a clipped table, with a sticky first column under 40rem; move the
+  Status column next to the App column of the apps table. (#371)
+- Render an app key, an element selector, and a session id in a monospace font; add a
+  Copy button to the app-key cell, and one empty-value glyph across the dashboard. (#386)
+- Wrap each `tr:hover` rule of the apps, the users, the sessions, and the first-pages
+  view in `@media (hover: hover)`, so a tap on a touch device leaves no sticky row fill. (#446)
+- Pin the header cell of the first column next to the pinned body cell, under 40rem.
+  Apply this fix in the apps, the users, the sessions, and the first-pages view. (#465)
+- Give the name field of the edit-app dialog `preventScroll: true` on its open focus
+  call. The page then stays still. The row below keeps one `y` value. (#465)
 
 ### CI
 

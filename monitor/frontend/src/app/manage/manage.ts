@@ -86,10 +86,42 @@ export class Manage {
     return status !== 'OK' && status !== 'NEVER_POLLED';
   }
 
-  /** The "App key" column of issue #296: the first 8 characters, or an em dash for an app with no key (D32). */
+  /**
+   * The "App key" column of issue #296: the first 8 characters of a row
+   * that holds one. The template guards this call with `row.appKey`, so
+   * an app with no key never reaches it; the template shows the shared
+   * en dash, `–`, for that case instead (issue #386, D27: one glyph
+   * marks every empty value of the dashboard, not a mix of an en dash
+   * and an em dash).
+   */
   protected shortAppKey(row: AppRow): string {
+    return (row.appKey ?? '').slice(0, 8);
+  }
+
+  /** True once a copy of the app key of `row` has succeeded (issue #386, D27). */
+  protected readonly copiedAppKeyId = signal<number | null>(null);
+
+  /**
+   * Copies the full app key of `row` to the clipboard, and announces
+   * "Copied" through the one status region (issue #386, D27, the
+   * pattern of `add-app-form.ts`). The app-key cell keeps the full key
+   * in the button's `title`, so a user with no working Clipboard API
+   * still reads and selects it by hand.
+   */
+  protected copyAppKey(row: AppRow): void {
     const key = row.appKey;
-    return key ? key.slice(0, 8) : '—';
+    if (!key || !navigator.clipboard) {
+      return;
+    }
+    navigator.clipboard.writeText(key).then(
+      () => {
+        this.copiedAppKeyId.set(row.appId);
+        this.announcer.announce('Copied');
+      },
+      () => {
+        // The input stays selectable; no further action here.
+      },
+    );
   }
 
   /** The "Origins" column of issue #296, `[]` for an app with none (D32). */

@@ -20,6 +20,34 @@ th[scope='row'] {
 }
 
 /*
+ * The first column stays in view while a narrow screen scrolls the rest
+ * of the table sideways (issue #371, finding D5). The zebra rule and the
+ * hover rule below still win on specificity, so a sticky cell keeps its
+ * own row's fill, not a plain `--paper` fill, once scrolled.
+ */
+@media (max-width: 40rem) {
+  th[scope='row'] {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--paper);
+  }
+
+  /*
+   * The header cell of the same column also stays in view (MAJOR 1 of the
+   * review of pull request #465): without this rule the header row keeps
+   * its normal scroll, so a different header sits over the pinned name
+   * cell once the table scrolls to its far right.
+   */
+  thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--shallows-deep);
+  }
+}
+
+/*
  * The shared panel style of styles.css (#249) repeats this text-align and
  * this font-variant-numeric rule for `.num`: vitest links that file in
  * browser mode only, so a unit test reads no rule of it (jsdom).
@@ -54,19 +82,35 @@ tbody td {
 }
 
 /*
- * The hover targets each cell (`> *`), because the zebra rule of the
- * shared panel style (styles.css, #249) paints a background on each cell
- * too, above the row: a plain `tr:hover` rule would then stay hidden on
- * an even row.
+ * The hover and the focus-within fill target each cell (`> *`), because
+ * the zebra rule of the shared panel style (styles.css, #249) paints a
+ * background on each cell too, above the row: a plain `tr:hover` rule
+ * would then stay hidden on an even row.
+ *
+ * `tr:hover` sits inside `@media (hover: hover)` (issue #446): a touch
+ * tap holds no real hover state, so a touch device never gets a sticky
+ * fill after a tap. `tr:focus-within` stays outside the guard; a
+ * keyboard user gets the same fill on each device.
  */
-tbody tr:hover > *,
 tbody tr:focus-within > * {
   background: var(--shallows-deep);
 }
 
+@media (hover: hover) {
+  tbody tr:hover > * {
+    background: var(--shallows-deep);
+  }
+}
+
 @media (forced-colors: active) {
-  tbody tr:hover > *,
   tbody tr:focus-within > * {
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+
+@media (forced-colors: active) and (hover: hover) {
+  tbody tr:hover > * {
     background: Highlight;
     color: HighlightText;
   }
