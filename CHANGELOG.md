@@ -218,6 +218,10 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   Copy button to the app-key cell, and one empty-value glyph across the dashboard. (#386)
 - Wrap each `tr:hover` rule of the apps, the users, the sessions, and the first-pages
   view in `@media (hover: hover)`, so a tap on a touch device leaves no sticky row fill. (#446)
+- Pin the header cell of the first column next to the pinned body cell, under 40rem.
+  Apply this fix in the apps, the users, the sessions, and the first-pages view. (#465)
+- Give the name field of the edit-app dialog `preventScroll: true` on its open focus
+  call. The page then stays still. The row below keeps one `y` value. (#465)
 
 ### CI
 
