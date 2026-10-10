@@ -325,6 +325,33 @@ describe('Manage', () => {
       };
     }
 
+    // Issue #364, finding D3 of the UI audit: Edit app opens a dialog,
+    // not an inline form inside the Actions cell, so the row keeps its
+    // own tr node and the row count stays the same (no row growth, no
+    // shift of the row below). The real pixel measurement of the audit
+    // number runs in the e2e scenario, a real Chromium layout.
+    it('opens the Edit app dialog on a click, with the table rows unchanged (issue #364, D3)', () => {
+      flushList([
+        buildRow({ appId: 4, name: 'traficio' }),
+        buildRow({ appId: 5, name: 'second-app' }),
+      ]);
+      const rowsBefore = Array.from(root().querySelectorAll('tbody tr'));
+      const secondRowBefore = rowsBefore[1];
+      const dialog = root().querySelector('app-edit-app-form dialog')!;
+      expect(dialog.hasAttribute('open')).toBe(false);
+
+      root().querySelector<HTMLButtonElement>('button.edit-toggle')!.click();
+      fixture.detectChanges();
+      httpMock.expectOne({ url: '/api/apps/4', method: 'GET' }).flush(detailOf());
+      fixture.detectChanges();
+
+      expect(dialog.hasAttribute('open')).toBe(true);
+      const rowsAfter = Array.from(root().querySelectorAll('tbody tr'));
+      expect(rowsAfter).toHaveLength(2);
+      expect(rowsAfter[0]).toBe(rowsBefore[0]);
+      expect(rowsAfter[1]).toBe(secondRowBefore);
+    });
+
     // Issue #299, the correction of the brief review of 2026-10-01
     // (M6): the routes PUT now runs between the origins PUT and the
     // name PATCH, and each successful call emits its own list reload,
