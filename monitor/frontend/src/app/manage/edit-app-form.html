@@ -1,54 +1,58 @@
-@if (!editing()) {
-  <button type="button" class="btn btn-small edit-toggle" #editToggle (click)="open()">
-    Edit app
-  </button>
-} @else {
-  <form (submit)="onSubmit($event)">
-    <div class="field">
-      <label [for]="nameId">Name</label>
-      <input
-        [id]="nameId"
-        type="text"
-        required
-        [value]="name()"
-        (input)="onNameInput($event)"
-        #nameField
-      />
-    </div>
+<button type="button" class="btn btn-small edit-toggle" #editToggle (click)="open()">
+  Edit app
+</button>
 
-    <div class="field">
-      <label [for]="originsId">Origins (one per line)</label>
-      <textarea
-        [id]="originsId"
-        [value]="origins()"
-        (input)="onOriginsInput($event)"
-        [attr.aria-describedby]="errorMessage() ? originsHintId + ' ' + errorId : originsHintId"
-        [attr.aria-invalid]="errorMessage() ? 'true' : null"
-      ></textarea>
-      <p [id]="originsHintId" class="form-hint">{{ originsHint }}</p>
-    </div>
+<dialog #dialogEl (close)="onDialogClose()" [attr.aria-labelledby]="headingId">
+  @if (editing()) {
+    <h2 [id]="headingId">Edit {{ app().name }}</h2>
 
-    <div class="field">
-      <label [for]="routePatternsId">Route patterns (one per line)</label>
-      <textarea
-        [id]="routePatternsId"
-        [value]="routePatterns()"
-        (input)="onRoutePatternsInput($event)"
-        [attr.aria-describedby]="
-          errorMessage() ? routePatternsHintId + ' ' + errorId : routePatternsHintId
-        "
-        [attr.aria-invalid]="errorMessage() ? 'true' : null"
-      ></textarea>
-      <p [id]="routePatternsHintId" class="form-hint">{{ routePatternsHint }}</p>
-    </div>
+    <form (submit)="onSubmit($event)">
+      <div class="field">
+        <label [for]="nameId">Name</label>
+        <input
+          [id]="nameId"
+          type="text"
+          required
+          [value]="name()"
+          (input)="onNameInput($event)"
+          #nameField
+        />
+      </div>
 
-    @if (errorMessage(); as message) {
-      <p [id]="errorId" class="form-error">⚠ {{ message }}</p>
-    }
+      <div class="field">
+        <label [for]="originsId">Origins (one per line)</label>
+        <textarea
+          [id]="originsId"
+          [value]="origins()"
+          (input)="onOriginsInput($event)"
+          [attr.aria-describedby]="errorMessage() ? originsHintId + ' ' + errorId : originsHintId"
+          [attr.aria-invalid]="errorMessage() ? 'true' : null"
+        ></textarea>
+        <p [id]="originsHintId" class="form-hint">{{ originsHint }}</p>
+      </div>
 
-    <div class="actions">
-      <button type="submit" class="btn btn-primary" [disabled]="pending()">Save</button>
-      <button type="button" class="btn cancel" (click)="cancel()">Cancel</button>
-    </div>
-  </form>
-}
+      <div class="field">
+        <label [for]="routePatternsId">Route patterns (one per line)</label>
+        <textarea
+          [id]="routePatternsId"
+          [value]="routePatterns()"
+          (input)="onRoutePatternsInput($event)"
+          [attr.aria-describedby]="
+            errorMessage() ? routePatternsHintId + ' ' + errorId : routePatternsHintId
+          "
+          [attr.aria-invalid]="errorMessage() ? 'true' : null"
+        ></textarea>
+        <p [id]="routePatternsHintId" class="form-hint">{{ routePatternsHint }}</p>
+      </div>
+
+      @if (errorMessage(); as message) {
+        <p [id]="errorId" class="form-error">⚠ {{ message }}</p>
+      }
+
+      <div class="actions">
+        <button type="submit" class="btn btn-primary" [disabled]="pending()">Save</button>
+        <button type="button" class="btn cancel" (click)="cancel()">Cancel</button>
+      </div>
+    </form>
+  }
+</dialog>

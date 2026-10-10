@@ -1,5 +1,13 @@
-:host {
-  display: block;
+/*
+ * Issue #364, D3: no `:host` display rule. The trigger button is the
+ * one element in normal flow; the dialog sits closed (`display: none`,
+ * the user-agent style) until `showModal()` opens it, so the table row
+ * keeps its own height, the same as `DeleteAppDialog` and
+ * `NewSecretKeyDialog`.
+ */
+/* The base `dialog` rule is global (`styles.css`, #385); this file adds none. */
+dialog::backdrop {
+  background: var(--backdrop);
 }
 
 /* The `.field` rule is global (`styles.css`, #385); this file adds none. */
@@ -59,7 +67,9 @@ label {
 
 .actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /*

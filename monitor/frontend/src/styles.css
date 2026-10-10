@@ -335,9 +335,8 @@ a {
   color: var(--ink);
 }
 
-/* The gap line and the "Data from" line of a status cell, under the badge (issue #62). */
-.gap-text,
-.data-from {
+/* The gap line of a status cell, under the badge (issue #62). */
+.gap-text {
   font-size: var(--text-s);
   color: var(--ink-soft);
   margin: 4px 0 0;
