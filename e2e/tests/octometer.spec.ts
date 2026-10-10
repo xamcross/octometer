@@ -748,8 +748,6 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
 test(
   'the users view of an unknown app shows the not-found card, and the breadcrumb carries no App <id> label (issue #348)',
   async ({ page }) => {
-    // temporary proof for #477
-    expect(1).toBe(2);
     const users = new UsersPage(page);
     await users.goto(999);
 
