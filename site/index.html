@@ -63,7 +63,7 @@
             banner.
           </p>
           <a class="btn btn-primary" href="#waitlist-email">Join the waitlist</a>
-          <p class="small soft">Octometer is in a pilot. Join the waitlist, and we invite you.</p>
+          <p class="small soft">We'll email you when your spot opens.</p>
         </div>
         <!-- The audit finding L3: a product shot built in HTML, not a
              screenshot, so it stays legible at every width. It repeats no
@@ -328,7 +328,7 @@
             <p>One call erases one user. Each click goes after 12 months.</p>
           </li>
         </ul>
-        <p><a href="#notice">Read the notice of the waitlist.</a></p>
+        <p><a href="#notice">Read the waitlist privacy notice.</a></p>
       </section>
 
       <!-- #291: the "Join the waitlist" section, with the email field and
@@ -336,9 +336,7 @@
            demo state blocks the real page never ships). -->
       <section class="sec" id="waitlist" aria-labelledby="waitlist-title">
         <h2 id="waitlist-title">Get an invite</h2>
-        <p class="sec-lead">
-          Octometer is in a pilot. Give us your address, and we write to you at the start.
-        </p>
+        <p class="sec-lead">Pilot spots are limited. We invite people in order.</p>
         <div class="wl">
           <form class="panel waitlist-form" method="post" action="/api/waitlist" novalidate>
             <div class="panel-body">
@@ -378,33 +376,46 @@
             <li>The pilot has no fee.</li>
             <li>One mail starts your invite.</li>
             <li>No card, no setup.</li>
+            <li><a href="#notice">Read the waitlist privacy notice.</a></li>
           </ul>
         </div>
       </section>
 
       <!-- #290: the footer notice of the waitlist. The footer is the last
            element of ".page" (the note of the brief review). -->
-      <footer class="foot" id="notice" tabindex="-1">
-        <h2>The notice of the waitlist</h2>
-        <ul class="notice">
-          <li><strong>The purpose.</strong> We use your address for the news of Octometer. We send no other mail.</li>
-          <li><strong>The data.</strong> We store your address, the day you join, and the day you confirm.</li>
-          <li><strong>The retention.</strong> We remove an address that stays unconfirmed for 7 days.</li>
-          <li>
-            <strong>The retention of a confirmed address.</strong> We keep it until you remove
-            yourself, or 12 months after the launch.
-          </li>
-          <li>
-            <strong>The third parties.</strong> Resend, our mail service, sends the mails.
-            Nobody else gets your address.
-          </li>
-          <li><strong>The removal.</strong> Each mail holds a removal link. You can also write to the contact address.</li>
-        </ul>
+      <footer class="foot">
+        <details class="notice-details">
+          <summary>Waitlist privacy notice</summary>
+          <ul class="notice" id="notice" tabindex="-1">
+            <li><strong>The purpose.</strong> We use your address for the news of Octometer. We send no other mail.</li>
+            <li><strong>The data.</strong> We store your address, the day you join, and the day you confirm.</li>
+            <li><strong>The retention.</strong> We remove an address that stays unconfirmed for 7 days.</li>
+            <li>
+              <strong>How long we keep a confirmed address.</strong> We keep it until you remove
+              yourself, or 12 months after the launch.
+            </li>
+            <li>
+              <strong>The third parties.</strong> Resend, our mail service, sends the mails.
+              Nobody else gets your address.
+            </li>
+            <li><strong>The removal.</strong> Each mail holds a removal link. You can also write to the contact address.</li>
+          </ul>
+        </details>
         <div class="foot-meta">
           <p>The privacy policy of the service: app.0ct0meter.com/privacy (the page comes with the service).</p>
-          <p>Contact: <a href="mailto:support@0ct0meter.com">support@0ct0meter.com</a></p>
           <p>0ct0meter.com — with zeros.</p>
           <p>This page sets no cookie and loads no third-party script.</p>
+        </div>
+        <div class="foot-row">
+          <svg class="mark foot-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <circle class="head" cx="16" cy="13" r="9" />
+            <circle class="eye" cx="12.6" cy="11.5" r="1.6" />
+            <circle class="eye" cx="19.4" cy="11.5" r="1.6" />
+            <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2" />
+          </svg>
+          <p>© 2026 Octometer</p>
+          <p>Contact: <a href="mailto:support@0ct0meter.com">support@0ct0meter.com</a></p>
+          <a class="btn" href="https://app.0ct0meter.com/signin">Sign in</a>
         </div>
       </footer>
     </div>

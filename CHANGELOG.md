@@ -54,6 +54,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Let the full-size dialog hold the capture at its own natural width, with a pan, so
   the row text reads at 12.8 px at 390 px too. (#359, the correction round of pull
   request #424)
+- Rewrite the hero note, the waitlist lead, and the footer labels in plain language.
+  Each fact stays the same. (#356)
+- Fold the footer notice into a collapsed "Waitlist privacy notice", with a link
+  beside the waitlist form. Add one footer row: the mark, the copyright line, the
+  contact address, and "Sign in". (#388)
 
 ### Contract
 
@@ -147,6 +152,12 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   anonymous visit", or "this user". (#392)
 - Show a "Deleting…" label with `aria-busy="true"` on the delete-confirm button while
   the delete request is in flight; the label returns on an error. (#393)
+- Move "Sign out" into its own account menu, clear of the row of nav pills, so the
+  button look and the pill look never mix in one row. (#360)
+- Give the Filter button and each pager button the 44 px minimum height of a
+  button, on the users, the sessions, and the first-pages view. (#368)
+- Add a dark color scheme: a `prefers-color-scheme: dark` block of dark tokens, and the
+  band's ink and paper as token values, not hex literals. (#361)
 - Add a hover state to the `.btn` class, the nav pill, the Pause refresh pill, and
   the global link style. (#369)
 
