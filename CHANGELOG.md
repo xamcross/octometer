@@ -199,6 +199,10 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 - Give each clone its own Docker Compose project in the end-to-end harness, derived
   from the clone's path, with `OCTOMETER_E2E_PROJECT` as the override. (#406)
+- Pull each Testcontainers MongoDB image from the Amazon ECR Public mirror, not from
+  Docker Hub, in `monitor/backend`, `kit/jvm-mongo`, and `tools/demo-app`. (#447)
+- Scroll each clicked control into view with `behavior: 'instant'` before the click, so
+  no smooth scroll moves the hero and how-it-works scenarios. (#448)
 
 ### Documentation
 
@@ -215,6 +219,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   erasure paragraph to `docs/privacy.md`. (#300)
 - Pull the local-service MongoDB image from the Amazon ECR Public mirror, not from
   Docker Hub, so a manual start never hits the anonymous pull limit. (#430)
+- Make `tools/minor_issues_table.py` honor the `\|` escape inside a cell, and fail with
+  an exit code when a row misses a column. (#449)
 
 ## 0.3.0 - 2026-09-28
 

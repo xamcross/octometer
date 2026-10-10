@@ -47,7 +47,9 @@ class PrivilegeCheckContainerTest {
 
         @Container
         @JvmStatic
-        private val MONGO: MongoDBContainer = MongoDBContainer(DockerImageName.parse("mongo:7.0"))
+        private val MONGO: MongoDBContainer = MongoDBContainer(
+            DockerImageName.parse("public.ecr.aws/docker/library/mongo:7.0").asCompatibleSubstituteFor("mongo")
+        )
             .withEnv("MONGO_INITDB_ROOT_USERNAME", ROOT_USER)
             .withEnv("MONGO_INITDB_ROOT_PASSWORD", ROOT_SECOND_VALUE)
     }
