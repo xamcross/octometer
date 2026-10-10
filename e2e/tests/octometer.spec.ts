@@ -1972,6 +1972,34 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   expect(
     contrastRatio(darkPillHover.color, darkPillHover.backgroundColor),
   ).toBeGreaterThanOrEqual(4.5);
+
+  // Issue #454: the dark Pause refresh pill keeps a visible hover cue
+  // too. The pill sits outside `.band`, so its hover fill is
+  // `--shallows-hover`, not `--shallows-bright`. The fill must differ
+  // from the dark page by 1.5:1 or more, while the text stays at 4.5:1
+  // or more.
+  await apps.goto();
+  const darkPauseButton = page.getByRole('button', { name: 'Pause refresh' });
+  await expect(darkPauseButton).toHaveCSS('opacity', '1');
+  const darkPauseRest = await hoverStyleOf(darkPauseButton);
+  await darkPauseButton.hover();
+  const darkPauseHover = await hoverStyleOf(darkPauseButton);
+  const darkPageBackground = await darkPauseButton.evaluate(
+    () => getComputedStyle(document.body).backgroundColor,
+  );
+  expect(darkPauseHover.backgroundColor).not.toBe(darkPauseRest.backgroundColor);
+  expect(
+    contrastRatio(darkPauseHover.color, darkPauseHover.backgroundColor),
+  ).toBeGreaterThanOrEqual(4.5);
+  const darkPauseFillContrast = contrastRatio(
+    darkPauseHover.backgroundColor,
+    darkPageBackground,
+  );
+  console.log(
+    `issue #454 (dark): the hovered pause pill fill is "${darkPauseHover.backgroundColor}" ` +
+      `on the page "${darkPageBackground}", ${darkPauseFillContrast.toFixed(2)}:1.`,
+  );
+  expect(darkPauseFillContrast).toBeGreaterThanOrEqual(1.5);
 });
 
 /**

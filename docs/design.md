@@ -192,7 +192,9 @@ fill (a badge, a button, the band) keeps its ink text in each scheme.
 | `--paper-raised` | `#FFFFFF` | `#312B57` |
 | `--paper-bright` | `#FFFFFF` | `#FFFFFF` |
 | `--shallows` | `#E6F3FF` | `#14122A` |
+| `--shallows-bright` | `#E6F3FF` | `#E6F3FF` |
 | `--shallows-deep` | `#BFDFFF` | `#2C2850` |
+| `--shallows-hover` | `#E6F3FF` | `#3D3570` |
 | `--octo` | `#A78BFA` | `#9B7BE5` |
 | `--focus-halo` | `var(--ink)` (`#241F3D`) | `#7B74B3` |
 
@@ -205,6 +207,21 @@ the band text, the mascot's head fill, and the band edge the same in each scheme
 `--paper-raised`, and the dark value of `--paper-raised` (`#312B57`) then made the band
 dark on dark: the nav pill label and the "Sign out" label read 1.21:1, under the floor of
 4.5:1. `--paper-bright` keeps `#FFFFFF` in each scheme, so the band stays bright on dark.
+
+`--shallows-bright` is a correction of pull request #445 (issue #369), recorded here by
+issue #454. The hovered nav pill once read `--shallows` for its fill; inside `.band`,
+`--ink` turns into `--on-bright`, dark text, and the dark value of `--shallows`
+(`#14122A`) painted the hovered pill near black, at 1.16:1. `--shallows-bright` keeps
+`#E6F3FF` in each scheme, so the hovered pill reads 13.92:1 in each scheme.
+
+`--shallows-hover` is new with issue #454. The hovered Pause refresh pill sits outside
+`.band`, and it once read `--shallows` for its hover fill too. In the dark scheme
+`--shallows` is the page background itself (`#14122A`), so the hover fill matched the
+page and the cue almost disappeared (about 1:1, against a rest-to-hover change of only
+1.09:1). No existing dark token clears 1.5:1 against the page while the text (`--ink`)
+still reads 4.5:1 or more on it, so `--shallows-hover` adds `#3D3570`: 1.69:1 against the
+dark page, and the pill text reads 9.10:1 on it. The light value stays `#E6F3FF`, equal
+to `--shallows`, so the light scheme keeps its current pair.
 
 The audit draft of issue #361 names `#5B45B0` for the dark `--octo`, with no dark value for
 `--paper-raised`. Each measured under the WCAG 1.4.3 floor:

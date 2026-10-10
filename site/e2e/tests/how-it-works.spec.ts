@@ -412,24 +412,43 @@ test('a click on a card opens the screenshot at full size, and each control clos
   const panLabel = await pan.getAttribute('aria-label');
   expect(panLabel).toBeTruthy();
 
-  // The keyboard still must pan the region. This resets the pan, moves
-  // the focus onto the close button, and presses Tab once to reach the
-  // pan region (the Tab order of the dialog: the close button first,
-  // then the pan). The key is "ArrowRight", not "End": the same probe
-  // found that this Chromium build moves no scrollable element on an
-  // "End" press except the document itself, while "ArrowRight" moves a
-  // focused region. "scrollLeft" must move past 0.
+  // The keyboard still must pan the region (issue #461, the correction of
+  // minor_issues/424.md rows 7 and 8). This resets the pan, then focuses
+  // the region with "focus()" directly: a "Tab" order is not the gate
+  // under test here, and the old path lost the focus on the runner.
   await pan.evaluate((el) => {
     el.scrollLeft = 0;
     el.scrollTop = 0;
   });
-  await page.locator('.lightbox-close').focus();
-  await page.keyboard.press('Tab');
+  await pan.focus();
   await expect(pan).toBeFocused();
-  for (let i = 0; i < 30; i += 1) {
-    await page.keyboard.press('ArrowRight');
+
+  // One "End" press moves the pan in most contexts (row 7: a probe found
+  // 714 px with the focus on the region). "expect.poll" reads
+  // "scrollLeft" after the smooth-scroll animation settles.
+  await page.keyboard.press('End');
+  let scrollLeftAfterKeys = 0;
+  try {
+    await expect
+      .poll(() => pan.evaluate((el) => el.scrollLeft), { timeout: 2000 })
+      .toBeGreaterThan(0);
+    scrollLeftAfterKeys = await pan.evaluate((el) => el.scrollLeft);
+  } catch {
+    // "End" moves nothing in this context (row 7). This presses
+    // "ArrowRight" and polls "scrollLeft" until it passes 0, with a 5 s
+    // cap: a fixed count of presses raced the smooth-scroll animation and
+    // gave noisy, unrelated numbers (row 8: 121, 698, and 642 px).
+    await expect
+      .poll(
+        async () => {
+          await page.keyboard.press('ArrowRight');
+          return pan.evaluate((el) => el.scrollLeft);
+        },
+        { timeout: 5000 },
+      )
+      .toBeGreaterThan(0);
+    scrollLeftAfterKeys = await pan.evaluate((el) => el.scrollLeft);
   }
-  const scrollLeftAfterKeys = await pan.evaluate((el) => el.scrollLeft);
-  console.log(`issue #359 pan scrollLeft after 30x keyboard ArrowRight at 390 px: ${scrollLeftAfterKeys}`);
+  console.log(`issue #461 pan scrollLeft after the keyboard pan at 390 px: ${scrollLeftAfterKeys}`);
   expect(scrollLeftAfterKeys).toBeGreaterThan(0);
 });
