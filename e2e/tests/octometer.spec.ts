@@ -252,6 +252,30 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     const breadcrumb = new BreadcrumbPart(page);
     await breadcrumb.expectLabels(['Apps', 'demo'], CHAIN_WAIT_MS);
     await expect(breadcrumb.linkNamed('Apps')).toHaveAttribute('href', /\/apps$/);
+
+    // Issue #374, the audit finding D14: at 360 px wide, the filter
+    // input and the Filter button stay on one row, next to each other,
+    // and the input keeps its 44 px minimum height.
+    await page.setViewportSize({ width: 360, height: 844 });
+    const filterInputBox = (await users.filterInput().boundingBox())!;
+    const filterButtonBox = (await users.filterButton().boundingBox())!;
+    console.log(
+      `issue #374: at 360px wide, the filter input box is top ${filterInputBox.y}px, ` +
+        `left ${filterInputBox.x}px, height ${filterInputBox.height}px; the Filter ` +
+        `button box is top ${filterButtonBox.y}px, left ${filterButtonBox.x}px.`,
+    );
+    // The button sits to the right of the input, on the same row: its
+    // left edge is past the input's left edge, and its vertical span
+    // overlaps the input's vertical span.
+    expect(filterButtonBox.x).toBeGreaterThan(filterInputBox.x);
+    expect(filterButtonBox.y).toBeLessThan(filterInputBox.y + filterInputBox.height);
+    expect(filterButtonBox.y + filterButtonBox.height).toBeGreaterThan(filterInputBox.y);
+    const filterInputMinHeight = await users
+      .filterInput()
+      .evaluate((element) => parseFloat(getComputedStyle(element).minHeight));
+    console.log(`issue #374: the filter input's minimum height is ${filterInputMinHeight}px.`);
+    expect(filterInputMinHeight).toBeGreaterThanOrEqual(44);
+    await page.setViewportSize({ width: 1280, height: 720 });
   });
 
   test(

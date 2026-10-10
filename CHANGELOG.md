@@ -128,6 +128,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   of the opacity rule; the text now measures 7.83:1 on its fill. (#384)
 - Keep the "First pages" header and link text on one line in the apps table, at a
   narrow width too. (#394)
+- Change the Users filter form to a grid: the filter input and the Filter button stay
+  on one row from 360 px wide up, and the input keeps its 44 px minimum height. (#374)
 
 ### CI
 
