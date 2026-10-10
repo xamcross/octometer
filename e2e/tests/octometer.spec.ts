@@ -136,6 +136,31 @@ async function cellPaddingLeftPx(locator: Locator): Promise<number> {
 }
 
 /**
+ * Waits, through `GET /api/apps`, for the status of the named app to
+ * leave `NEVER_POLLED` (issue #364, D3). It checks the API, never the
+ * rendered badge: a view that reads the list one time, and again only
+ * on an action, can hold a stale badge long after the backend answer
+ * changes.
+ */
+async function waitForFirstPoll(
+  request: APIRequestContext,
+  name: string,
+  timeoutMs: number,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const response = await request.get('/api/apps');
+        expect(response.status()).toBe(200);
+        const rows = (await response.json()) as ReadonlyArray<{ name: string; status: string }>;
+        return rows.find((row) => row.name === name)?.status ?? 'NEVER_POLLED';
+      },
+      { timeout: timeoutMs },
+    )
+    .not.toBe('NEVER_POLLED');
+}
+
+/**
  * One serial file, one shared app (decision 5). The scenarios run in
  * this fixed order because each one reads the state that an earlier one
  * wrote: the app id of scenario (a), the click totals of scenario (b).
@@ -720,6 +745,121 @@ test('an app is registered and its keys show one time (issue #296)', async ({ pa
     throw new Error(`The app "${appName}" is absent from the answer of GET /api/apps.`);
   }
   expect(createdRow).not.toHaveProperty('secretKey');
+});
+
+// Issue #364, finding D3 of the UI audit: Edit app opened an inline form
+// inside the Actions cell, which grew the row height and pushed each row
+// below it down by the same amount. The form now opens in a native
+// `<dialog>`, over the top layer, so a row keeps its own height and the
+// row below keeps its own position. This scenario measures both numbers
+// in a real Chromium layout, before and during the open dialog, and
+// again after a save.
+//
+// Each app registers through the legacy connection-string path (D32),
+// against the harness's own compose mongo, the same path test "the
+// manage form registers the demo app" uses for "demo": a real,
+// reachable database gives the status "Not polled yet" or "OK", with
+// no error-text line. The origins path leaves the app with no real
+// database; a later poll then flags it "Overprivileged" with an
+// error-text line, which grows the row for a reason that has nothing
+// to do with the dialog (found while this scenario was written: the
+// first version used the origins path and failed on that unrelated
+// growth).
+test('Edit app opens a dialog, with no row growth and no shift of the row below (issue #364, D3)', async ({
+  page,
+  request,
+}) => {
+  const mongoPort = process.env.E2E_MONGO_PORT;
+  const monitorUrl = process.env.E2E_MONITOR_URL;
+  if (!mongoPort) {
+    throw new Error('E2E_MONGO_PORT is absent. The global setup did not run, or it failed.');
+  }
+  if (!monitorUrl) {
+    throw new Error('E2E_MONITOR_URL is absent. The global setup did not run, or it failed.');
+  }
+
+  const manage = new ManagePage(page);
+  const marker = Date.now();
+  const firstName = `edit-dialog-a-${marker}`;
+  const secondName = `edit-dialog-b-${marker}`;
+  await manage.addAppWithConnectionString(
+    request,
+    monitorUrl,
+    firstName,
+    `mongodb://127.0.0.1:${mongoPort}/exampledb_edit_dialog_a_${marker}`,
+  );
+  await manage.addAppWithConnectionString(
+    request,
+    monitorUrl,
+    secondName,
+    `mongodb://127.0.0.1:${mongoPort}/exampledb_edit_dialog_b_${marker}`,
+  );
+
+  // Waits, through the API, for the first poll cycle of each app to
+  // answer (issue #364 confound). The manage view reads the list one
+  // time on load, and again only after an action (the edit save counts
+  // as one); it runs no poll timer of its own. A wait on the rendered
+  // badge text would never resolve here: the page shows the "Not
+  // polled yet" text of the load it already did, with no later
+  // refetch to update it. The edit save below does trigger one
+  // refetch; without this wait first, that refetch can still turn
+  // "Not polled yet" into a different status for a row, change its
+  // badge, and move the row below for a reason outside the dialog.
+  // The harness's own compose Mongo gives each app the status
+  // OVERPRIVILEGED (no per-app credential, so the connection reaches
+  // every database); once the first poll sets that status, each later
+  // poll of the same connection string gives the same verdict, so the
+  // status, and the badge, stay the same for the rest of the scenario.
+  await waitForFirstPoll(request, firstName, CHAIN_WAIT_MS);
+  await waitForFirstPoll(request, secondName, CHAIN_WAIT_MS);
+
+  await manage.goto();
+  const firstRow = manage.row(firstName);
+  const secondRow = manage.row(secondName);
+  await expect(firstRow).toBeVisible();
+  await expect(secondRow).toBeVisible();
+  await expect(manage.statusBadge(firstRow)).not.toHaveText(/Not polled yet/);
+  await expect(manage.statusBadge(secondRow)).not.toHaveText(/Not polled yet/);
+
+  const firstRowBoxBefore = await firstRow.boundingBox();
+  const secondRowBoxBefore = await secondRow.boundingBox();
+  if (!firstRowBoxBefore || !secondRowBoxBefore) {
+    throw new Error('A row of the manage table has no box.');
+  }
+
+  // Opens the dialog of the first row, and proves it is a real modal
+  // dialog (`showModal()`, not a plain `open` attribute toggle): the CSS
+  // pseudo-class `:modal` matches only the top layer, modal case.
+  await manage.openEditForm(firstRow);
+  await expect(page.locator('dialog:modal')).toHaveCount(1);
+  await expect(manage.editDialog(firstRow)).toHaveCount(1);
+
+  const firstRowBoxDuring = await firstRow.boundingBox();
+  const secondRowBoxDuring = await secondRow.boundingBox();
+  if (!firstRowBoxDuring || !secondRowBoxDuring) {
+    throw new Error('A row of the manage table has no box, with the dialog open.');
+  }
+  console.log(
+    `issue #364: the row height is ${firstRowBoxBefore.height}px before the dialog opens ` +
+      `and ${firstRowBoxDuring.height}px while it is open; the row below sits at ` +
+      `${secondRowBoxBefore.y}px before and ${secondRowBoxDuring.y}px while the dialog is open.`,
+  );
+  expect(firstRowBoxDuring.height).toBe(firstRowBoxBefore.height);
+  expect(secondRowBoxDuring.y).toBe(secondRowBoxBefore.y);
+
+  // The rename keeps the exact same length as firstName: a longer name
+  // can wrap onto a second line in the narrow App column, which would
+  // grow the row for a reason that has nothing to do with the dialog.
+  const renamedTo = firstName.replace('edit-dialog-a-', 'edit-dialog-r-');
+  await manage.renameAndSave(firstRow, renamedTo);
+  const renamedRow = manage.row(renamedTo);
+  await expect(renamedRow).toBeVisible();
+
+  const secondRowBoxAfter = await secondRow.boundingBox();
+  if (!secondRowBoxAfter) {
+    throw new Error('The row below has no box after the save.');
+  }
+  expect(secondRowBoxAfter.y).toBe(secondRowBoxBefore.y);
 });
 
 /** A fixed, well-formed UUID for one test request's `sessionId` field (the form of `collector.spec.ts`). */

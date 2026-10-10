@@ -165,6 +165,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   "Data from" line. The cell reads its own 30 s clock, so the relative text stays
   fresh with no new poll answer. The Sessions "Start time" column and the Elements
   "Last interaction" column keep their seconds. (#390)
+- Open the Edit app form in a dialog, like the delete dialog and the new-secret-key
+  dialog; the table row keeps its own height. (#364)
 
 ### CI
 
