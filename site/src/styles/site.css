@@ -135,18 +135,40 @@ a:hover {
   }
 }
 
-/* 1. The hero: the one bold place of the page. */
+/*
+ * 1. The hero: the one bold place of the page. The audit finding L3: a
+ * one-column grid under 56rem keeps the document order (the mark, the
+ * copy, then the preview); a two-column grid at 56rem and above puts the
+ * mark and the copy in column 1 and the preview in column 2, so the
+ * preview fills the empty right side of the first screen.
+ */
 .hero {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4) var(--space-6);
-  align-items: flex-start;
-  flex-wrap: wrap;
 }
 .hero-text {
-  flex: 1 1 18rem;
   display: grid;
   gap: var(--space-4);
   justify-items: start;
+}
+@media (min-width: 56rem) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+  }
+  .hero > .mark {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .hero-text {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .hero-preview {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
 }
 .word {
   font: 600 var(--text-xl) / 1.15 var(--display);
@@ -201,6 +223,115 @@ a:hover {
   transform-box: view-box;
   transform-origin: 16px 13px;
   animation: wave 600ms ease-in-out both;
+}
+
+/*
+ * The hero preview (the audit finding L3, the proposal board "Hero
+ * proposal"): a product shot built in HTML, in the visual family of
+ * ".frame" (the same border, radius, and shadow tokens), never a
+ * screenshot. The figure carries no unique information beside the copy,
+ * so it stays out of the accessibility tree.
+ */
+.hero-preview {
+  margin: 0;
+  min-width: 0;
+}
+.hero-preview-window {
+  background: var(--paper);
+  border: var(--line-panel);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
+.hero-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--octo);
+  color: var(--on-bright);
+  border-bottom: var(--line-panel);
+}
+.hero-preview-brand {
+  font: 600 var(--text-m) / 1 var(--display);
+}
+.hero-preview-tabs {
+  display: flex;
+  gap: var(--space-2);
+}
+.hero-preview-tab {
+  font: 600 var(--text-s) / 1 var(--display);
+  padding: var(--space-1) var(--space-3);
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line-control);
+  border-radius: var(--radius-pill);
+}
+.hero-preview-tab.is-active {
+  background: var(--sunny);
+  color: var(--on-bright);
+  border-color: var(--on-bright);
+}
+.hero-preview-body {
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+}
+.hero-preview-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.hero-preview-title {
+  font: 600 var(--text-l) / 1 var(--display);
+}
+.hero-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-s);
+  border: var(--line-control);
+  border-radius: var(--radius-control);
+  /* The row border-radius of a collapsed table needs the clip below. */
+  overflow: hidden;
+}
+.hero-preview-table th,
+.hero-preview-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+}
+.hero-preview-table thead th {
+  background: var(--shallows-deep);
+  font-weight: 700;
+}
+.hero-preview-table tbody td {
+  border-top: 1px solid var(--shallows-deep);
+}
+.hero-preview-status {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  font-weight: 700;
+  border: var(--line-control);
+  border-radius: var(--radius-pill);
+}
+.hero-preview-status.is-ok {
+  background: var(--seaweed);
+  color: var(--on-bright);
+  border-color: var(--on-bright);
+}
+.hero-preview-status.is-slow {
+  background: var(--sunny);
+  color: var(--on-bright);
+  border-color: var(--on-bright);
+}
+.hero-preview-caption {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--ink-soft);
+  border-top: var(--line-control);
 }
 
 /* The controls. */
@@ -453,10 +584,26 @@ label {
   border-radius: var(--radius-control);
   scroll-margin-top: 6rem;
 }
+/* Issue #381: the submit button fills its row below 48rem. The wide
+ * layout at 48rem sets the width back to "auto", beside the field. */
+.panel-body .btn {
+  width: 100%;
+}
 .hint {
   font-size: var(--text-s);
   color: var(--ink-soft);
   max-width: 44ch;
+}
+/* Issue #381, step 5: a short list of pilot details, beside the form
+ * at 48rem and above. */
+.wl-pilot {
+  display: grid;
+  gap: var(--space-2);
+  align-self: center;
+}
+.wl-pilot li {
+  font-size: var(--text-s);
+  color: var(--ink-soft);
 }
 /* The honeypot field (the maintainer's notes): hidden from a visitor and
  * from a screen reader; "tabindex=-1" also keeps it out of the Tab
@@ -601,7 +748,36 @@ label {
   .levels > :first-child {
     grid-column: 1 / -1;
   }
-  .wl .panel {
-    max-width: 26rem;
+  /* Issue #381, audit finding L6, step 1 and step 2: the old rule
+   * "max-width: 26rem" left about two-thirds of the row empty. The new
+   * cap of 48rem matches the mockup (site/design/mockup.html), with the
+   * pilot list of step 5 beside the form in the second column. */
+  .wl {
+    grid-template-columns: minmax(0, 48rem) 1fr;
+    gap: var(--space-6);
+  }
+  /* The field and the button sit on one row: column 1 holds the field,
+   * column 2 holds the button. The button's own paragraph and the
+   * status region each span the full row, on their own row. */
+  .panel-body {
+    grid-template-columns: 1fr auto;
+    align-items: start;
+    column-gap: var(--space-4);
+  }
+  .panel-body > .field:not(.hp) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .panel-body > p:nth-of-type(1) {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+  }
+  .panel-body > p:nth-of-type(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .panel-body .btn {
+    width: auto;
   }
 }

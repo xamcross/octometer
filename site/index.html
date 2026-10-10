@@ -65,6 +65,64 @@
           <a class="btn btn-primary" href="#waitlist-email">Join the waitlist</a>
           <p class="small soft">Octometer is in a pilot. Join the waitlist, and we invite you.</p>
         </div>
+        <!-- The audit finding L3: a product shot built in HTML, not a
+             screenshot, so it stays legible at every width. It repeats no
+             information that the copy does not already give, so it stays
+             out of the accessibility tree. -->
+        <figure class="hero-preview" aria-hidden="true">
+          <div class="hero-preview-window">
+            <div class="hero-preview-bar">
+              <span class="hero-preview-brand">Octometer</span>
+              <span class="hero-preview-tabs">
+                <span class="hero-preview-tab is-active">Apps</span>
+                <span class="hero-preview-tab">Manage apps</span>
+              </span>
+            </div>
+            <div class="hero-preview-body">
+              <div class="hero-preview-title-row">
+                <span class="hero-preview-title">Apps</span>
+                <span class="small soft">Last 30 days · refreshes each minute</span>
+              </div>
+              <table class="hero-preview-table">
+                <thead>
+                  <tr>
+                    <th scope="col">App</th>
+                    <th scope="col">Clicks</th>
+                    <th scope="col">Users</th>
+                    <th scope="col">Sessions</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>[app one]</td>
+                    <td>[n]</td>
+                    <td>[n]</td>
+                    <td>[n]</td>
+                    <td><span class="hero-preview-status is-ok">OK</span></td>
+                  </tr>
+                  <tr>
+                    <td>[app two]</td>
+                    <td>[n]</td>
+                    <td>[n]</td>
+                    <td>[n]</td>
+                    <td><span class="hero-preview-status is-ok">OK</span></td>
+                  </tr>
+                  <tr>
+                    <td>[app three]</td>
+                    <td>[n]</td>
+                    <td>[n]</td>
+                    <td>[n]</td>
+                    <td><span class="hero-preview-status is-slow">Slow</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <figcaption class="hero-preview-caption small">
+              The apps view: click a row to open its users, then a user to open the elements.
+            </figcaption>
+          </div>
+        </figure>
       </header>
 
       <section class="sec" aria-labelledby="how-title">
@@ -253,7 +311,7 @@
            its one answer region (the mockup section 5, minus the two
            demo state blocks the real page never ships). -->
       <section class="sec" id="waitlist" aria-labelledby="waitlist-title">
-        <h2 id="waitlist-title">Join the waitlist</h2>
+        <h2 id="waitlist-title">Get an invite</h2>
         <p class="sec-lead">
           Octometer is in a pilot. Give us your address, and we write to you at the start.
         </p>
@@ -267,10 +325,13 @@
                   name="email"
                   type="email"
                   autocomplete="email"
-                  aria-describedby="email-hint consent"
+                  placeholder="you@company.com"
+                  aria-describedby="email-hint"
                 />
                 <p class="hint" id="email-hint">
-                  We send one mail with a confirmation link. Open that link to join the list.
+                  We send one mail with a confirmation link. Open the link to join the
+                  list. We use your address for this waitlist only. Read the
+                  <a href="#notice">notice</a>.
                 </p>
               </div>
               <div class="field hp" aria-hidden="true">
@@ -283,14 +344,17 @@
                   autocomplete="off"
                 />
               </div>
-              <p class="hint" id="consent">
-                We use your address for this waitlist only. Read the
-                <a href="#notice">notice</a>.
-              </p>
-              <p><button class="btn btn-primary" type="submit">Join the waitlist</button></p>
+              <p><button class="btn btn-primary" type="submit">Send me the link</button></p>
               <p class="wl-status" id="waitlist-status" role="status" aria-live="polite"></p>
             </div>
           </form>
+          <!-- Issue #381, step 5: a short list of pilot details beside
+               the form, at 48rem and above. -->
+          <ul class="wl-pilot">
+            <li>The pilot has no fee.</li>
+            <li>One mail starts your invite.</li>
+            <li>No card, no setup.</li>
+          </ul>
         </div>
       </section>
 
@@ -315,6 +379,7 @@
         <div class="foot-meta">
           <p>The privacy policy of the service: app.0ct0meter.com/privacy (the page comes with the service).</p>
           <p>Contact: <a href="mailto:support@0ct0meter.com">support@0ct0meter.com</a></p>
+          <p>0ct0meter.com — with zeros.</p>
           <p>This page sets no cookie and loads no third-party script.</p>
         </div>
       </footer>

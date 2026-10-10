@@ -37,6 +37,15 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   `prefers-color-scheme: dark`, and `color-scheme: light dark`. (#366)
 - Add a top navigation bar with the mark, the wordmark, and a "Sign in" link to
   `app.0ct0meter.com/signin`, above the hero. (#367)
+- Give the waitlist section heading and submit button their own labels: "Get an
+  invite" and "Send me the link". (#358)
+- Name the domain "0ct0meter.com" next to the contact line in the footer, and mark
+  the zeros once. (#365)
+- Widen the waitlist panel to fill its row at 48rem and above, with the email
+  field and the button on one row. (#381)
+- Add a product-shot preview to the right side of the hero at 56rem and above, built
+  as an HTML table in the visual family of `.frame`, so no empty strip sits past the
+  copy. (#372)
 
 ### Contract
 
@@ -115,12 +124,23 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Hide the pager of the users view, the first-pages view, and the anonymous-sessions
   view for a one-page result, remove the misused `aria-current` from the page-label
   span, and give the page-count announcement the same rule. (#387)
+- Give a disabled button a shallows fill, ink-soft text, and a dashed border, in place
+  of the opacity rule; the text now measures 7.83:1 on its fill. (#384)
+- Keep the "First pages" header and link text on one line in the apps table, at a
+  narrow width too. (#394)
+- Change the Users filter form to a grid: the filter input and the Filter button stay
+  on one row from 360 px wide up, and the input keeps its 44 px minimum height. (#374)
 - Raise the token `--text-s` from 12.8 px to 14 px, so the table caption, the status
   badge, the gap line, the "Data from" line, the account email, the refresh-bar text,
   `.btn-small`, and each form hint read larger. (#380)
 
 ### CI
 
+- Upload `e2e/.run/*.log` as the artifact `e2e-run-logs` on a failure of the `e2e`
+  job, with a retention of 3 days. (#418)
+- Pull the demo app's MongoDB image and the monitor's base image from the Amazon
+  ECR Public mirror, not from Docker Hub, so the anonymous pull limit never fails
+  the `e2e` job. (#418)
 - Give the secret scan job the `pull-requests: read` permission, so it passes on the
   private repository. (#308)
 - Remove the Windows job and the weekly run, so the private repository stays inside the
