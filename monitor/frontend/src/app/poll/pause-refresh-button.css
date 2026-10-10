@@ -27,13 +27,20 @@ button {
 }
 
 /*
- * The hover state of the pill (#369), the same rule as the nav pill.
- * The `(hover: hover)` guard keeps a touch tap from leaving a stuck
- * hover state (MAJOR 2 of the review of pull request #445).
+ * The hover state of the pill (#369). The `(hover: hover)` guard keeps
+ * a touch tap from leaving a stuck hover state (MAJOR 2 of the review
+ * of pull request #445).
+ *
+ * Issue #454: the fill once read `--shallows` too, the same rule as
+ * the nav pill; in the dark scheme `--shallows` is the page background
+ * itself, so the hover cue almost disappeared. `--shallows-hover`
+ * gives the dark scheme a fill that differs from the page by 1.5:1 or
+ * more, while the light scheme keeps its own `--shallows` value (the
+ * two tokens share the hex `#e6f3ff` in the light scheme).
  */
 @media (hover: hover) {
   button:hover {
-    background: var(--shallows);
+    background: var(--shallows-hover);
   }
 }
 
