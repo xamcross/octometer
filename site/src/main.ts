@@ -46,6 +46,49 @@ function revealFlowNodesOnScroll(): void {
   nodes.forEach((node) => observer.observe(node));
 }
 
+// The full-size view of a dashboard screenshot (issue #359, the UI audit
+// finding L1). Each ".frame-open" button opens the dialog with the full
+// capture; the native "dialog" element traps the focus and closes on
+// Escape on its own. This function adds the close button and a click
+// outside the image, and does nothing on a browser with no "dialog"
+// support, so the thumbnail still shows without a script.
+function enableScreenshotLightbox(): void {
+  const dialog = document.getElementById('screenshot-lightbox');
+  const image = document.getElementById('lightbox-img');
+  const closeButton = dialog?.querySelector<HTMLButtonElement>('.lightbox-close');
+  if (
+    !(dialog instanceof HTMLDialogElement) ||
+    !(image instanceof HTMLImageElement) ||
+    !closeButton ||
+    typeof dialog.showModal !== 'function'
+  ) {
+    return;
+  }
+  const openButtons = document.querySelectorAll<HTMLButtonElement>('.frame-open');
+  openButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      const fullSrc = button.dataset.fullSrc;
+      const thumbnail = button.querySelector('img');
+      if (!fullSrc) {
+        return;
+      }
+      image.src = fullSrc;
+      image.alt = thumbnail?.alt ?? '';
+      dialog.showModal();
+    });
+  });
+  closeButton.addEventListener('click', () => {
+    dialog.close();
+  });
+  // A click on the backdrop (outside the dialog box) closes it; a click
+  // inside the box, including on the image, does not.
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) {
+      dialog.close();
+    }
+  });
+}
+
 // The waitlist form (issue #291). The form posts "application/x-www-form-
 // urlencoded" with no script, to "/api/waitlist"; this function adds the
 // fetch submit so the state shows in place, with no full page reload, on
@@ -111,5 +154,6 @@ function interceptWaitlistSubmit(): void {
 
 moveFocusToWaitlistField();
 revealFlowNodesOnScroll();
+enableScreenshotLightbox();
 showWaitlistStateFromQuery();
 interceptWaitlistSubmit();
