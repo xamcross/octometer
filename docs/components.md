@@ -28,6 +28,7 @@ repeats a hex value.
 | The table | `table`, `thead th`, `tbody tr:nth-child(even)` | `monitor/frontend/src/styles.css` | #249 |
 | The status badge | `.badge` | `monitor/frontend/src/styles.css`, `status-format.ts` | #249 |
 | The note under a badge | `.gap-text`, `.error-text` | `monitor/frontend/src/styles.css`, `monitor/frontend/src/app/apps/apps.*` | #249, #395 |
+| The code-like value | `.code` | `monitor/frontend/src/styles.css`, `monitor/frontend/src/app/manage/manage.*` | #386 |
 | The last-updated time | `.data-time` | `monitor/frontend/src/app/apps/apps.*` | #390 |
 | The pager | `.pager` | `monitor/frontend/src/app/users/users.css` | #249 |
 | The dialog | `dialog` | `monitor/frontend/src/styles.css` (the base rule, #385), `monitor/frontend/src/app/manage/delete-app-dialog.*` (`::backdrop`) | #248, #385 |
@@ -541,6 +542,19 @@ region lets a keyboard or a touch user scroll a wide table sideways.
   still clip to the panel corner and a `.visually-hidden` child does not escape it
   sideways (`styles.css:200-204`, `apps.css:57-60`).
 
+**The scroll cue (issue #371, finding D5).** `.table-scroll` carries a four-layer
+background: an opaque `--paper` mask on each side, `background-attachment: local` (tied
+to the table's own content), over a tinted `color-mix(in srgb, var(--ink) 35%,
+transparent)` shadow on each side, `background-attachment: scroll` (tied to the visible
+viewport). While a side's mask sits over its shadow, no cue shows; a user who scrolls
+that side's start or end out of view uncovers the shadow there, so each cue shows only
+while a column still waits on that side. No script runs this cue: the local/scroll
+attachment pair reads the scroll position for it (`monitor/frontend/src/styles.css`,
+the `.table-scroll` rule). The first column (`th[scope='row']`) also turns
+`position: sticky; left: 0;` under a 40rem viewport, on the apps, the users, the
+sessions, and the first-pages view, so a user keeps the row's own name in view while the
+rest of the row scrolls (`apps.css`, `users.css`, `sessions.css`, `first-pages.css`).
+
 ## The table
 
 **Purpose.** The table lists the rows of one view: the apps, the users, the manage list,
@@ -575,6 +589,14 @@ and the rest.
   `toBe('var(--shallows-deep)')` (rule: "a global class is asserted by name in a unit
   test, a computed value needs a component rule"; open finding of `minor_issues/254.md`,
   `apps.spec.ts:604`).
+- Do wrap `tr:hover` in `@media (hover: hover)`, on the apps, the users, the sessions,
+  and the first-pages view (issue #446, the review of pull request #445). A touch tap
+  carries no real hover state; with no guard, a tapped row keeps the hover fill until
+  the next tap. `tr:focus-within` stays outside the guard, so a keyboard user keeps the
+  same fill on each device (`apps.css`, `users.css`, `sessions.css`, `first-pages.css`).
+- Do move the Status column of the apps table next to the App column (issue #371,
+  finding D5), so a user reaches it at 390px with no full scroll. `apps-page.ts` of the
+  e2e suite reads it at cell index 0, not index 4, to match (`apps.html`).
 
 ## The status badge
 
@@ -644,6 +666,44 @@ last error text.
   deviation from the open suggestion of `minor_issues/257.md` ("add `.error-text` to the
   shared note rule"); the newer audit finding of issue #395 asks for the opposite, so
   this pull request follows #395 and leaves that row open, unresolved by this change.
+
+## The code-like value
+
+**Purpose.** The `.code` class marks a value as data, not prose: an app key, an element
+selector, a session id (issue #386, finding D27).
+
+**Anatomy.**
+- `.code` on the short app-key span of the manage table (`manage.html`), on the
+  `th[scope='row']` of the elements table (`elements.html`), and on the session-id link
+  of the sessions table (`sessions.html`).
+- The manage table's app-key cell also holds a Copy button, next to the `.code` span,
+  with the full key in the button's `title` and a per-row `aria-label` (`manage.html`,
+  `manage.ts`).
+
+**States.**
+
+| State | Cue | Token |
+| --- | --- | --- |
+| Rest | Monospace font, 14px | `ui-monospace, monospace` (`monitor/frontend/src/styles.css`) |
+| Copy, rest | Button text "Copy" | `.btn.btn-small` |
+| Copy, done | Button text "Copied"; the `Announcer` region holds "Copied" | `manage.ts` |
+| Empty value | A hidden "None" text, and an `aria-hidden` en dash, `–` | `manage.html` |
+
+**Accessibility.**
+- Accessible name of the Copy button: "Copy the app key of `<app name>`", so two rows
+  never share one ambiguous "Copy" name.
+- Second cue beside color: not applicable; `.code` carries no color of its own.
+- The empty-value glyph always pairs a `.visually-hidden` text with an `aria-hidden`
+  mark, so a screen reader reads a word, never a bare dash (`manage.html`, the pattern
+  of `apps.html`).
+
+**Rules.**
+- Do use the same en dash, `–`, for every empty value of the dashboard (issue #386,
+  D27): `manage.ts` once returned an em dash, `—`, for an app with no key, apart from
+  the en dash of `status-format.ts` and `apps.ts`. One glyph now marks every case.
+- Do not set `display: flex` on a `<td>` itself. The app-key cell wraps its `.code` span
+  and its Copy button in a child `<div class="app-key-row">`, the same rule
+  `.action-row` already follows for the actions cell (`manage.css`).
 
 ## The last-updated time
 

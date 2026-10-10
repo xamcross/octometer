@@ -192,6 +192,11 @@ export class ManagePage {
     return row.locator('td.app-key');
   }
 
+  /** The Copy button of the app-key cell of one row (issue #386, finding D27). */
+  appKeyCopyButton(row: ReturnType<ManagePage['row']>) {
+    return this.appKeyCell(row).getByRole('button');
+  }
+
   originCells(row: ReturnType<ManagePage['row']>) {
     return row.locator('td.origins div');
   }

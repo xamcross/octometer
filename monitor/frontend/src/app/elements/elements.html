@@ -37,7 +37,7 @@
           <tbody>
             @for (row of page.rows; track row.element) {
               <tr>
-                <th scope="row">{{ row.element }}</th>
+                <th scope="row" class="code">{{ row.element }}</th>
                 <td class="num">{{ formatCount(row.clicks) }}</td>
                 <td class="num">{{ formatCount(row.sessions) }}</td>
                 <td class="time">

@@ -194,6 +194,12 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   perpetual loading sentence no longer shows. (#373)
 - Render the raw error text of a failed app's Status cell at 14px monospace, with a
   2-line clamp; the full text stays in the element's `title` attribute. (#395)
+- Add a scroll cue to a clipped table, with a sticky first column under 40rem; move the
+  Status column next to the App column of the apps table. (#371)
+- Render an app key, an element selector, and a session id in a monospace font; add a
+  Copy button to the app-key cell, and one empty-value glyph across the dashboard. (#386)
+- Wrap each `tr:hover` rule of the apps, the users, the sessions, and the first-pages
+  view in `@media (hover: hover)`, so a tap on a touch device leaves no sticky row fill. (#446)
 
 ### CI
 
