@@ -1,7 +1,19 @@
 // The "How it works" and "Three levels in your dashboard" sections (issue
 // #289): the step texts, the flow illustration, the three screenshots, and
 // the scroll reveal under each motion answer and under no script.
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
+
+// Issue #448: "site.css:16" sets a smooth page scroll. A control that
+// Playwright must scroll to can still move while the click runs. This
+// helper moves the control into view with "behavior: 'instant'" first.
+// The first scenario below needs the default media (it checks the
+// scroll-reveal animation before reduced motion turns it off), so this
+// file uses the helper for each click, not a file-wide reduced-motion
+// setting.
+async function clickInstant(locator: Locator, options?: Parameters<Locator['click']>[0]) {
+  await locator.evaluate((el) => el.scrollIntoView({ behavior: 'instant', block: 'center' }));
+  await locator.click(options);
+}
 
 test('the three sections render with their images and texts, and nothing moves under reduced motion', async ({
   page,
@@ -305,7 +317,7 @@ test('a click on a card opens the screenshot at full size, and each control clos
   // A click opens the dialog with the same capture as the card (the
   // full-size variant of the apps view, the "data-full-src" of its
   // button, not a thumbnail of a different view).
-  await openButton.click();
+  await clickInstant(openButton);
   await expect(dialog).toHaveJSProperty('open', true);
   await expect(lightboxImage).toHaveAttribute('src', fullSrc!);
   const naturalWidth = await lightboxImage.evaluate((el: HTMLImageElement) => el.naturalWidth);
@@ -317,9 +329,9 @@ test('a click on a card opens the screenshot at full size, and each control clos
   await expect(dialog).toHaveJSProperty('open', false);
 
   // The close button closes the dialog too.
-  await openButton.click();
+  await clickInstant(openButton);
   await expect(dialog).toHaveJSProperty('open', true);
-  await page.locator('.lightbox-close').click();
+  await clickInstant(page.locator('.lightbox-close'));
   await expect(dialog).toHaveJSProperty('open', false);
 
   // A click on the backdrop, outside the image, closes the dialog; a
@@ -327,10 +339,10 @@ test('a click on a card opens the screenshot at full size, and each control clos
   // a loop over a located list proves nothing on an empty list, so the
   // count assertion above on the located buttons still stands as the
   // guard for this click too).
-  await openButton.click();
+  await clickInstant(openButton);
   await expect(dialog).toHaveJSProperty('open', true);
   const pan = page.locator('.lightbox-pan');
-  await lightboxImage.click();
+  await clickInstant(lightboxImage);
   await expect(dialog).toHaveJSProperty('open', true);
   // MAJOR 1 of the review of pull request #424: the dialog holds the
   // capture at its natural width, past the viewport, so a click on the
@@ -344,7 +356,7 @@ test('a click on a card opens the screenshot at full size, and each control clos
     el.scrollTop = 0;
     el.scrollLeft = 0;
   });
-  await dialog.click({ position: { x: 5, y: 5 } });
+  await clickInstant(dialog, { position: { x: 5, y: 5 } });
   await expect(dialog).toHaveJSProperty('open', false);
 
   // MAJOR 1 and MAJOR 3 of the review of pull request #424, criterion 1
@@ -355,7 +367,7 @@ test('a click on a card opens the screenshot at full size, and each control clos
   // "max-width" and no "max-height"; ".lightbox-pan" carries "overflow:
   // auto" instead).
   await page.setViewportSize({ width: 390, height: 844 });
-  await openButton.click();
+  await clickInstant(openButton);
   await expect(dialog).toHaveJSProperty('open', true);
   const dialogSize = await lightboxImage.evaluate((el: HTMLImageElement) => ({
     rendered: el.getBoundingClientRect().width,

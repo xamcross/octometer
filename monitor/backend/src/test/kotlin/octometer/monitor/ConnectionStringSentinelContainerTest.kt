@@ -80,7 +80,9 @@ class ConnectionStringSentinelContainerTest {
 
         @Container
         @JvmStatic
-        private val MONGO = MongoDBContainer(DockerImageName.parse("mongo:8.0"))
+        private val MONGO = MongoDBContainer(
+            DockerImageName.parse("public.ecr.aws/docker/library/mongo:8.0").asCompatibleSubstituteFor("mongo")
+        )
 
         private const val EXAMPLE_DATABASE = "exampledb"
         private const val EVENTS_COLLECTION = "octometer_events"
