@@ -264,11 +264,11 @@ describe('EditAppForm', () => {
     expect(rule?.style.getPropertyValue('box-shadow')).toContain('--coral-deep');
   });
 
-  it('keeps the ink focus ring beside the coral-deep ring on an invalid field with focus', () => {
+  it('keeps the halo focus ring beside the coral-deep ring on an invalid field with focus', () => {
     const rule = findCssRule('[aria-invalid=true]:focus-visible');
     const shadow = rule?.style.getPropertyValue('box-shadow');
     expect(shadow).toContain('--coral-deep');
-    expect(shadow).toContain('--ink');
+    expect(shadow).toContain('--focus-halo');
   });
 
   it('gives [aria-invalid="true"] a dashed outline under forced colors (#266)', () => {

@@ -37,6 +37,15 @@
   --on-bright: #241f3d;
   --backdrop: rgb(36 31 61 / 0.6);
 
+  /*
+   * The focus halo (issue #451). It keeps `--ink`'s light value, so the
+   * light scheme stays the same. The dark scheme below gives it its own
+   * value: plain `--ink` reads near-white in the dark scheme, and the
+   * sunny line then reads 1.2:1 on it, under the 3:1 floor of WCAG
+   * 1.4.11.
+   */
+  --focus-halo: var(--ink);
+
   /* Radius */
   --radius-panel: 20px;
   --radius-control: 12px;
@@ -134,6 +143,19 @@
  * the dark scheme, under the 3:1 floor of WCAG 1.4.11. `#ff6b6b` raises
  * the pair to 4.69:1 on `#312b57`, 6.06:1 on `#1d1a33`, and 6.58:1 on
  * `#14122a`.
+ *
+ * `--focus-halo` (issue #451, raised in the correction round of pull
+ * request #462, BLOCKER 1, MAJOR 1, and MAJOR 2 of the review) takes
+ * `#7b74b3` in the dark scheme, not plain `--ink` (`#ece9ff`) and not
+ * the first dark value, `#726bab`. The first value cleared 3:1 against
+ * the page and the paper, but not against the focused row fill
+ * (`--shallows-deep`, 2.89:1) nor the dialog fill (`--paper-raised`,
+ * 2.73:1). `#7b74b3` reads 3.05:1 on the sunny line (`#ffd93d`), 4.34:1
+ * on the dark page (`#14122a`), 4.00:1 on the dark paper (`#1d1a33`),
+ * 3.27:1 on the focused row fill (`#2c2850`), and 3.09:1 on the dialog
+ * fill (`#312b57`); each ratio clears the 3:1 floor of WCAG 1.4.11.
+ * `.band` sets its own `--focus-halo` (`app.css`), so the band keeps
+ * its unchanged ring.
  */
 @media (prefers-color-scheme: dark) {
   :root {
@@ -146,6 +168,7 @@
     --shallows-hover: #3d3570;
     --octo: #9b7be5;
     --coral-edge: #ff6b6b;
+    --focus-halo: #7b74b3;
   }
 }
 
@@ -220,15 +243,16 @@ a {
 
 /*
  * The quality floor. A sunny outline alone gives 1.2:1 on the shallows
- * background, so the ring adds a 7px hard ink shadow next to it.
- * A control with its own box-shadow repeats the 7px ink ring in its own
- * :focus-visible rule (box-shadow: <its shadow>, 0 0 0 7px var(--ink));
- * #248 adds that rule for .btn.
+ * background, so the ring adds a 7px hard halo shadow next to it.
+ * A control with its own box-shadow repeats the 7px halo ring in its own
+ * :focus-visible rule (box-shadow: <its shadow>, 0 0 0 7px var(--focus-halo));
+ * #248 adds that rule for .btn. `--focus-halo` is its own token (issue
+ * #451), not plain `--ink`: see the dark-scheme comment above `:root`.
  */
 :focus-visible {
   outline: 3px solid var(--sunny);
   outline-offset: 2px;
-  box-shadow: 0 0 0 7px var(--ink);
+  box-shadow: 0 0 0 7px var(--focus-halo);
 }
 
 /*
@@ -492,7 +516,7 @@ a {
 .btn:focus-visible {
   box-shadow:
     var(--shadow-control),
-    0 0 0 7px var(--ink);
+    0 0 0 7px var(--focus-halo);
 }
 
 /*
@@ -506,7 +530,7 @@ a {
   .btn:hover:not([disabled]):focus-visible {
     box-shadow:
       4px 4px 0 var(--ink),
-      0 0 0 7px var(--ink);
+      0 0 0 7px var(--focus-halo);
   }
 }
 

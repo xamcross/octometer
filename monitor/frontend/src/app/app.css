@@ -50,11 +50,22 @@
  * the dark scheme too. The band text and the mascot's head fill stay
  * the same in each scheme. `.band` also sets its own `--line-control`,
  * to keep the band edge visible in the dark scheme.
+ *
+ * BLOCKER 1 of the review of pull request #462: `--focus-halo` is a
+ * custom property that CSS computes at the element that declares it,
+ * not at the element that reads it. `:root` declares it as
+ * `var(--ink)`, so it freezes to the `--ink` of `:root`; `.band`
+ * overrides `--ink` but not `--focus-halo`, so a focused band control
+ * once kept the page's own dark `--focus-halo` on the band fill, at
+ * 1.44:1. `.band` now gives `--focus-halo` its own value too,
+ * `--on-bright`, so the ring on a band control reads 3:1 or more on
+ * the band fill in each color scheme.
  */
 .band {
   --ink: var(--on-bright);
   --paper: var(--paper-bright);
   --line-control: 2px solid var(--on-bright);
+  --focus-halo: var(--on-bright);
   background: var(--octo);
   color: var(--ink);
   border-bottom: var(--line-panel);
