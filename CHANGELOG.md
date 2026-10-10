@@ -194,6 +194,12 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   perpetual loading sentence no longer shows. (#373)
 - Render the raw error text of a failed app's Status cell at 14px monospace, with a
   2-line clamp; the full text stays in the element's `title` attribute. (#395)
+- Center the "Pause refresh" label inside its pill; show a pause icon or a play icon
+  next to the label, in place of the hidden check mark. (#363)
+- Keep the brand mark, the nav pills, and an account control on one row at a phone
+  width; the account menu keeps its own row, below. (#397)
+- Raise the mascot head fill on the header band to a 3:1 contrast, in each color
+  scheme, with the new token `--octo-head-band`. (#439)
 - Add a scroll cue to a clipped table, with a sticky first column under 40rem; move the
   Status column next to the App column of the apps table. (#371)
 - Render an app key, an element selector, and a session id in a monospace font; add a

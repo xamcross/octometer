@@ -120,3 +120,60 @@ app-main-nav {
   color: var(--ink);
   font-size: var(--text-s);
 }
+
+/*
+ * The account button (issue #397). It stays hidden above 40rem, where
+ * the plain email span fits the row. `@if` of `app.html` adds and
+ * removes the email reveal span from the DOM, so that span needs no
+ * `display` rule of its own.
+ */
+.account-button {
+  display: none;
+}
+
+.account-email-popup {
+  color: var(--ink);
+  font-size: var(--text-s);
+}
+
+/*
+ * Under 40rem, the band fits on one row: the brand mark, the nav
+ * pills, and the account control (issue #397). The brand mark and the
+ * nav pills measure about 386px together at 390px width, wider than
+ * the 358px the band row gives them (16px padding on each side), so
+ * the row wraps the nav onto its own line without this rule. The
+ * wordmark hides, and the brand mark keeps its 28px icon only; the
+ * account menu stays its own row, below, per issue #433. The long
+ * email once moved the whole band to about 175px tall; the account
+ * button now stands in the email's place, and a press of it reveals
+ * the email next to the button.
+ */
+@media (max-width: 40rem) {
+  .band-row {
+    flex-wrap: nowrap;
+  }
+
+  /* The same technique as `.visually-hidden` of `styles.css`, scoped
+   * to the wordmark, because `app.css` is the `App` component's own
+   * scoped style. */
+  .wordmark {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .account-email {
+    display: none;
+  }
+
+  .account-button {
+    display: inline-flex;
+  }
+}

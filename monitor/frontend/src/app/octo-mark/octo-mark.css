@@ -5,9 +5,12 @@
  *
  * The eye fill and the smile stroke sit on the head fill, never on the
  * arms' own background (the correction round of pull request #435).
- * `--on-bright` reads 3:1 or more on the head fill of each context, in
- * each color scheme: the band's `--paper-bright`, and the plain `--octo`
- * head of the first-load mark. The arms keep the page's own `--ink`,
+ * `--on-bright` reads 3:1 or more on the plain `--octo` head of the
+ * first-load mark, in each color scheme. The band gives the head its
+ * own fill (`styles.css`). `--on-bright` fails 3:1 on that filled head.
+ * The band gives the eye and the smile the `--octo-face-band` fill
+ * instead. The band keeps this rule in `styles.css` (the correction
+ * round of pull request #459). The arms keep the page's own `--ink`,
  * because an arm sits on the page background, not on the head.
  */
 :host {
