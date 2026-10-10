@@ -120,6 +120,31 @@ async function cellPaddingLeftPx(locator: Locator): Promise<number> {
 }
 
 /**
+ * Waits, through `GET /api/apps`, for the status of the named app to
+ * leave `NEVER_POLLED` (issue #364, D3). It checks the API, never the
+ * rendered badge: a view that reads the list one time, and again only
+ * on an action, can hold a stale badge long after the backend answer
+ * changes.
+ */
+async function waitForFirstPoll(
+  request: APIRequestContext,
+  name: string,
+  timeoutMs: number,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const response = await request.get('/api/apps');
+        expect(response.status()).toBe(200);
+        const rows = (await response.json()) as ReadonlyArray<{ name: string; status: string }>;
+        return rows.find((row) => row.name === name)?.status ?? 'NEVER_POLLED';
+      },
+      { timeout: timeoutMs },
+    )
+    .not.toBe('NEVER_POLLED');
+}
+
+/**
  * One serial file, one shared app (decision 5). The scenarios run in
  * this fixed order because each one reads the state that an earlier one
  * wrote: the app id of scenario (a), the click totals of scenario (b).
@@ -743,11 +768,31 @@ test('Edit app opens a dialog, with no row growth and no shift of the row below 
     `mongodb://127.0.0.1:${mongoPort}/exampledb_edit_dialog_b_${marker}`,
   );
 
+  // Waits, through the API, for the first poll cycle of each app to
+  // answer (issue #364 confound). The manage view reads the list one
+  // time on load, and again only after an action (the edit save counts
+  // as one); it runs no poll timer of its own. A wait on the rendered
+  // badge text would never resolve here: the page shows the "Not
+  // polled yet" text of the load it already did, with no later
+  // refetch to update it. The edit save below does trigger one
+  // refetch; without this wait first, that refetch can still turn
+  // "Not polled yet" into a different status for a row, change its
+  // badge, and move the row below for a reason outside the dialog.
+  // The harness's own compose Mongo gives each app the status
+  // OVERPRIVILEGED (no per-app credential, so the connection reaches
+  // every database); once the first poll sets that status, each later
+  // poll of the same connection string gives the same verdict, so the
+  // status, and the badge, stay the same for the rest of the scenario.
+  await waitForFirstPoll(request, firstName, CHAIN_WAIT_MS);
+  await waitForFirstPoll(request, secondName, CHAIN_WAIT_MS);
+
   await manage.goto();
   const firstRow = manage.row(firstName);
   const secondRow = manage.row(secondName);
   await expect(firstRow).toBeVisible();
   await expect(secondRow).toBeVisible();
+  await expect(manage.statusBadge(firstRow)).not.toHaveText(/Not polled yet/);
+  await expect(manage.statusBadge(secondRow)).not.toHaveText(/Not polled yet/);
 
   const firstRowBoxBefore = await firstRow.boundingBox();
   const secondRowBoxBefore = await secondRow.boundingBox();
