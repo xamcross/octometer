@@ -7,6 +7,12 @@ import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { test, expect } from '@playwright/test';
 
+// Issue #426: "site/src/styles/site.css:16" sets a smooth page scroll.
+// "reducedMotion: 'reduce'" turns on the rule of "site.css:813-816",
+// "scroll-behavior: auto", for each click of this file. No scroll of this
+// file is then active when the click check of Playwright runs.
+test.use({ reducedMotion: 'reduce' });
+
 // "site/e2e/tests" up two levels to "site", the directory of
 // "wrangler.jsonc" and of the local D1 state. "__dirname" matches
 // "playwright.config.ts", the same file under the same test runner.
