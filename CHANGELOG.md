@@ -54,8 +54,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Let the full-size dialog hold the capture at its own natural width, with a pan, so
   the row text reads at 12.8 px at 390 px too. (#359, the correction round of pull
   request #424)
-- Jump the waitlist field and the submit button into view before each action of
-  the end-to-end scenario, so no scroll is in flight for the click check. (#426)
+- Run the waitlist end-to-end scenario with reduced motion, so the page scroll makes
+  no click of the scenario fail at random. (#426)
 
 ### Contract
 
