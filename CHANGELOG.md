@@ -194,6 +194,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   perpetual loading sentence no longer shows. (#373)
 - Render the raw error text of a failed app's Status cell at 14px monospace, with a
   2-line clamp; the full text stays in the element's `title` attribute. (#395)
+- Raise the `.list-error` left border from `--coral` to `--coral-edge`. The error
+  state of five views now keeps 3:1 or more on the page in the light scheme. (#453)
 
 ### CI
 
