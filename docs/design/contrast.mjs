@@ -202,7 +202,11 @@ const DARK_NONTEXT = [
   ['the band', 'the focus ring: the ink halo on the octo band', '#241f3d', '#9b7be5'],
   ['each page', 'the focus ring: the sunny line on the ink halo', '#ffd93d', '#ece9ff'],
   ['users', 'the disabled pager edge on the page background', '#b9b4d6', '#14122a'],
-  ['manage', 'the invalid field ring on the field fill', '#ff6b6b', '#1d1a33'],
+  // Issue #438: this dark-scheme row still named the pre-#264 literal
+  // too (#435 copied the light-scheme mistake). `--coral-deep` keeps
+  // its light value in the dark scheme, so the real pair is the same
+  // hex, on the dark field fill.
+  ['manage', 'the invalid field ring on the field fill', '#d93a3a', '#1d1a33'],
 ];
 
 /** True for a large text: 24 px, or 18.66 px at the weight 700. */
