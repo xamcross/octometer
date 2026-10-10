@@ -59,6 +59,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Fold the footer notice into a collapsed "Waitlist privacy notice", with a link
   beside the waitlist form. Add one footer row: the mark, the copyright line, the
   contact address, and "Sign in". (#388)
+- Run the waitlist end-to-end scenario with reduced motion, so the page scroll makes
+  no click of the scenario fail at random. (#426)
 
 ### Contract
 
@@ -196,6 +198,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   served-tracker section to `docs/run-guide.md`. (#298)
 - Add the "Your users" section to `docs/add-octometer.md`, and the pseudonymous id and
   erasure paragraph to `docs/privacy.md`. (#300)
+- Pull the local-service MongoDB image from the Amazon ECR Public mirror, not from
+  Docker Hub, so a manual start never hits the anonymous pull limit. (#430)
 
 ## 0.3.0 - 2026-09-28
 
