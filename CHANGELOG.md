@@ -156,6 +156,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   button look and the pill look never mix in one row. (#360)
 - Give the Filter button and each pager button the 44 px minimum height of a
   button, on the users, the sessions, and the first-pages view. (#368)
+- Add a dark color scheme: a `prefers-color-scheme: dark` block of dark tokens, and the
+  band's ink and paper as token values, not hex literals. (#361)
 
 ### CI
 

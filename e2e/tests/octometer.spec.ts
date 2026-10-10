@@ -1,5 +1,6 @@
 import type { APIRequestContext, Locator, Page } from '@playwright/test';
 
+import { ratio } from '../../docs/design/contrast.mjs';
 import { expect, test } from '../fixtures';
 import { AppsPage } from '../pages/apps-page';
 import { BreadcrumbPart } from '../pages/breadcrumb-part';
@@ -32,6 +33,21 @@ async function captionTopPaddingPx(page: Page, captionId: string): Promise<numbe
     .locator(`#${captionId}`)
     .evaluate((element) => getComputedStyle(element).paddingTop);
   return parseFloat(value);
+}
+
+/** The `#rrggbb` value of a `getComputedStyle` colour string (`rgb(r, g, b)`). */
+function toHex(rgbColor: string): string {
+  const channels = rgbColor.match(/\d+(\.\d+)?/g);
+  if (!channels || channels.length < 3) {
+    throw new Error(`"${rgbColor}" is not an rgb() colour.`);
+  }
+  return (
+    '#' +
+    channels
+      .slice(0, 3)
+      .map((channel) => Math.round(Number(channel)).toString(16).padStart(2, '0'))
+      .join('')
+  );
 }
 
 /**
@@ -1156,4 +1172,79 @@ test('the nav pills, the "Pause refresh" pill, and the action buttons each keep 
     throw new Error('The nav pill or the "Sign out" button has no box.');
   }
   expect(signOutBox.y).toBeGreaterThanOrEqual(navBox.y + navBox.height);
+});
+
+// Issue #361, finding D1 of the UI audit: the dashboard shell uses the
+// dark tokens under `prefers-color-scheme: dark`, not the bright page.
+// Each contrast assertion sits beside an `opacity` assertion (lesson 24
+// of the frontend brief): a faded control passes a naive contrast
+// check, so this test reads the real `opacity` value next to each
+// contrast measurement, never the contrast alone.
+test('the dashboard shell uses the dark tokens under prefers-color-scheme: dark (issue #361)', async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+
+  const apps = new AppsPage(page);
+  await apps.goto();
+
+  // The body keeps the dark `--shallows` token (#14122a), not the
+  // bright page (#e6f3ff).
+  const body = page.locator('body');
+  await expect(body).toHaveCSS('background-color', 'rgb(20, 18, 42)');
+  await expect(body).toHaveCSS('opacity', '1');
+  const bodyColor = await body.evaluate((element) => getComputedStyle(element).color);
+  expect(ratio(toHex(bodyColor), '#14122a')).toBeGreaterThanOrEqual(4.5);
+
+  // The band label pair (MAJOR 1 of the review of pull request #435):
+  // `--paper-bright` keeps the plain nav pill ("Manage apps") readable
+  // on the octo band in the dark scheme too, not dark text on a dark
+  // fill.
+  const manageAppsPill = page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Manage apps' });
+  await expect(manageAppsPill).toBeVisible();
+  await expect(manageAppsPill).toHaveCSS('opacity', '1');
+  const pillColors = await manageAppsPill.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { fg: style.color, bg: style.backgroundColor, edge: style.borderTopColor };
+  });
+  expect(ratio(toHex(pillColors.fg), toHex(pillColors.bg))).toBeGreaterThanOrEqual(4.5);
+
+  // The control edge pair (MAJOR 3 of the review): `.band` sets its own
+  // `--line-control`, so the pill edge still reads 3:1 on the octo band
+  // fill in the dark scheme, not the page's own dark `--ink`.
+  const bandFill = await page
+    .locator('header.band')
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(ratio(toHex(pillColors.edge), toHex(bandFill))).toBeGreaterThanOrEqual(3);
+
+  // The "demo" app badge: the mark and the word of status-format.ts keep
+  // 4.5:1 on their fill in the dark scheme too (the badge text is
+  // `--text-s`, never a large text).
+  const badge = apps.rowOf('demo').status.locator('.badge');
+  await expect(badge).toBeVisible();
+  await expect(badge).toHaveCSS('opacity', '1');
+  const badgeColors = await badge.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { fg: style.color, bg: style.backgroundColor };
+  });
+  expect(ratio(toHex(badgeColors.fg), toHex(badgeColors.bg))).toBeGreaterThanOrEqual(4.5);
+
+  // The disabled "Delete this app" button of the delete dialog
+  // (`.btn[disabled]`, issue #384/#410): a shallows fill, an ink-soft
+  // text, a dashed border, and no opacity change. This reads the real
+  // `opacity` (it must stay `1`, not a faded value) next to the
+  // contrast of the dark-scheme pair.
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const row = manage.row('demo');
+  await manage.openDeleteDialog(row);
+  const confirmButton = manage.deleteConfirmButton(row);
+  await expect(confirmButton).toBeVisible();
+  await expect(confirmButton).toBeDisabled();
+  await expect(confirmButton).toHaveCSS('border-style', 'dashed');
+  await expect(confirmButton).toHaveCSS('opacity', '1');
+  expect(await disabledButtonContrastRatio(confirmButton)).toBeGreaterThanOrEqual(4.5);
+  await manage.cancelDeleteDialog(row);
 });
