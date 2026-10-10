@@ -20,6 +20,11 @@
   --seaweed: #6ee7b7;
   --octo: #a78bfa;
   --on-bright: #241f3d;
+  /* The dimmed backdrop of the full-size screenshot dialog (issue #359),
+     the same fixed value in both color schemes as the monitor's own
+     "--backdrop" token (monitor/frontend/src/styles.css:32), so the dim
+     stays dark over either a light or a dark page. */
+  --backdrop: rgb(36 31 61 / 0.7);
 
   --radius-panel: 20px;
   --radius-control: 12px;

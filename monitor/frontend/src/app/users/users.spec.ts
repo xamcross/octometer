@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
+import { readFileSync } from 'node:fs';
 
 import { Announcer } from '../announcer';
 import { RefreshIntervalState } from '../poll/refresh-interval-state';
@@ -501,10 +502,30 @@ describe('Users', () => {
       expect(style.minHeight).toBe('24px');
     });
 
-    it('gives the filter field a minimum height of 24 CSS px (MAJOR 3 of the accessibility review of #159)', () => {
-      const input = root().querySelector('#user-filter') as HTMLElement;
-      expect(getComputedStyle(input).minHeight).toBe('24px');
-    });
+    it(
+      'gives the filter field the global 44 CSS px minimum height, with no local override ' +
+        '(D14, replaces MAJOR 3 of the accessibility review of #159)',
+      () => {
+        // Vitest links the global block of styles.css to document.styleSheets
+        // only in browser mode (the same pattern as apps.spec.ts). This test
+        // reads the global rule as plain text and parses it by hand. The
+        // slice starts at the rule, because an earlier `@import` line gives
+        // jsdom a parse error.
+        const stylesCssText = readFileSync('src/styles.css', 'utf8');
+        const usersCssText = readFileSync('src/app/users/users.css', 'utf8');
+        const inputRuleMarker = "input:not([type='checkbox']):not([type='radio'])";
+
+        const style = document.createElement('style');
+        style.textContent = stylesCssText.slice(stylesCssText.indexOf(inputRuleMarker));
+        document.head.appendChild(style);
+        const rules = Array.from(style.sheet?.cssRules ?? []) as CSSStyleRule[];
+        document.head.removeChild(style);
+        const rule = rules.find((r) => r.selectorText?.includes(inputRuleMarker));
+
+        expect(rule?.style.getPropertyValue('min-height')).toBe('44px');
+        expect(usersCssText).not.toContain('.filter-form input');
+      },
+    );
 
     it('limits the filter field to 200 characters, the maximum length the API accepts (MINOR 1 of the Angular review of #159)', () => {
       const input = root().querySelector('#user-filter') as HTMLInputElement;
