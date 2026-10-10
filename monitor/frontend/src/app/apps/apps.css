@@ -52,9 +52,23 @@ th[scope='row'] a,
   white-space: nowrap;
 }
 
-/* .gap-text gets the shared rule of styles.css (#249); .error-text keeps its own line spacing. */
+/*
+ * .gap-text gets the shared rule of styles.css (#249); .error-text keeps
+ * its own line spacing, font, and clamp (D20 of the UI audit of
+ * 2026-10-09, issue #395). A raw backend error, for example a connection
+ * string, then sits under the status badge in a quiet, small font,
+ * instead of outshouting it at the default 16px body size. The template
+ * carries the full text in the element's `title` attribute, so a user
+ * still reads the whole string on hover or on a long press.
+ */
 .error-text {
   margin: 0.25rem 0 0;
+  font-family: monospace;
+  font-size: 14px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* The table scrolls sideways when the columns need more width than the screen. */

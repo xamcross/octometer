@@ -40,11 +40,8 @@ th[scope='row'] {
   align-items: flex-start;
 }
 
-.list-error {
-  padding-left: 12px;
-  border-left: 3px solid var(--coral);
-  font-weight: 700;
-}
+/* `.list-error` moved to the global stylesheet (issue #373): four more
+ * views show the same error empty-state now, so one rule serves all five. */
 
 /*
  * The panel of #248 (decision 6). #249 adds the same rule to the global

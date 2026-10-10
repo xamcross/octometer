@@ -138,6 +138,9 @@ export class Users {
    * covers that state.
    */
   protected readonly errorText = computed<string | null>(() => {
+    if (this.listError() !== null) {
+      return null; // The error empty-state of listError() shows instead (MAJOR 1 of the review of pull request #452).
+    }
     const error = this.store.dataError();
     if (error === undefined) {
       return null;
@@ -152,6 +155,25 @@ export class Users {
       }
     }
     return NETWORK_FAILURE_TEXT;
+  });
+
+  /**
+   * The text of a failed first load (D6 of the UI audit of 2026-10-09,
+   * issue #373). Null while `data()` holds a value, else the text when
+   * `error()` holds a value (BLOCKER 1 of the review of pull request
+   * #452: a failed health request also sets `error()`, with no data
+   * request in flight and a `firstLoadPending()` that never clears; the
+   * old guard then kept the loading sentence forever). The template
+   * shows this text with a "Try again" button, in place of a loading
+   * sentence that never ends.
+   */
+  protected readonly listError = computed<string | null>(() => {
+    if (this.store.data() !== undefined) {
+      return null;
+    }
+    return this.store.error() !== undefined
+      ? 'Octometer cannot read the user list. Try again.'
+      : null;
   });
 
   /** The key of the last request that the effect below sent, so it skips the first run. */
@@ -179,6 +201,19 @@ export class Users {
    */
   private pendingBaselineData: UserTotalsResponse | undefined = undefined;
   private pendingBaselineError: unknown = undefined;
+
+  /**
+   * True while a "Try again" click waits for its answer (MAJOR 2 of the
+   * review of pull request #452, the pending-control pattern of issue
+   * #428). The template disables the button and shows "Trying again…"
+   * while this signal is true, so a second click cannot start a second
+   * request.
+   */
+  protected readonly retryPending = signal(false);
+
+  /** The `data` and `dataError` of the store at the moment a retry starts. */
+  private retryBaselineData: UserTotalsResponse | undefined = undefined;
+  private retryBaselineError: unknown = undefined;
 
   constructor() {
     // Copies the q query parameter into the filter field, for example
@@ -242,9 +277,42 @@ export class Users {
       }
     });
 
+    // Announces the result of a "Try again" retry, once the request
+    // answers (MAJOR 2 of the review of pull request #452). It waits
+    // until `data` or `dataError` holds a fresh reference.
+    effect(() => {
+      if (!this.retryPending()) {
+        return;
+      }
+      const data = this.store.data();
+      const error = this.store.dataError();
+      if (data === this.retryBaselineData && error === this.retryBaselineError) {
+        return; // The retry request has not answered yet.
+      }
+      this.retryPending.set(false);
+      this.announcer.announce(
+        data !== undefined
+          ? 'The user list loaded.'
+          : (this.listError() ?? 'The user list did not load.'),
+      );
+    });
+
     toObservable(this.filterDraft)
       .pipe(debounceTime(FILTER_DEBOUNCE_MS), distinctUntilChanged(), takeUntilDestroyed())
       .subscribe((value) => this.submitFilter(value));
+  }
+
+  /**
+   * Retries the first load after a failure (issue #373). It announces
+   * the pending state at once, then the result, through the one
+   * `Announcer` region (MAJOR 2 of the review of pull request #452).
+   */
+  protected retry(): void {
+    this.retryBaselineData = this.store.data();
+    this.retryBaselineError = this.store.dataError();
+    this.retryPending.set(true);
+    this.announcer.announce('Trying again…');
+    this.store.refresh();
   }
 
   /** The text of a count cell. */

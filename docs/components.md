@@ -27,11 +27,12 @@ repeats a hex value.
 | The panel and the scroll region | `.panel`, `.table-scroll` | `monitor/frontend/src/styles.css` | #249 |
 | The table | `table`, `thead th`, `tbody tr:nth-child(even)` | `monitor/frontend/src/styles.css` | #249 |
 | The status badge | `.badge` | `monitor/frontend/src/styles.css`, `status-format.ts` | #249 |
-| The note under a badge | `.gap-text`, `.error-text` | `monitor/frontend/src/styles.css` | #249 |
+| The note under a badge | `.gap-text`, `.error-text` | `monitor/frontend/src/styles.css`, `monitor/frontend/src/app/apps/apps.*` | #249, #395 |
 | The last-updated time | `.data-time` | `monitor/frontend/src/app/apps/apps.*` | #390 |
 | The pager | `.pager` | `monitor/frontend/src/app/users/users.css` | #249 |
 | The dialog | `dialog` | `monitor/frontend/src/styles.css` (the base rule, #385), `monitor/frontend/src/app/manage/delete-app-dialog.*` (`::backdrop`) | #248, #385 |
 | The empty state | `app-empty-state` | `monitor/frontend/src/app/empty-state/` | #250 |
+| The error empty-state | `.list-error` | `monitor/frontend/src/styles.css` | #373 |
 | The first-load row | `.first-load-row` | `monitor/frontend/src/app/app.css` | #250 |
 | The keys panel | `.keys-panel`, `.key-row` | `monitor/frontend/src/app/manage/add-app-form.*` | #296 |
 | The new-secret-key confirmation | `app-new-secret-key-dialog` | `monitor/frontend/src/app/manage/new-secret-key-dialog.*` | #296 |
@@ -623,27 +624,33 @@ together.
 last error text.
 
 **Anatomy.**
-- `<p class="gap-text">` or `<p class="error-text">`, each after the badge span, inside
-  the same status cell (`apps.html:73-78`).
+- `<p class="gap-text">` or `<p class="error-text" [title]="row.lastError">`, each after
+  the badge span, inside the same status cell (`apps.html:73-78`).
 
 **States.**
 
 | State | Cue | Token |
 | --- | --- | --- |
-| Rest | Ink-soft text, small size, a top margin | `var(--ink-soft)`, `var(--text-s)` (`monitor/frontend/src/styles.css:282-289`) |
+| Rest (`.gap-text`) | Ink-soft text, small size, a top margin | `var(--ink-soft)`, `var(--text-s)` (`monitor/frontend/src/styles.css:282-289`) |
+| Rest (`.error-text`) | 14px monospace text, a 2-line clamp, a top margin | `apps.css` (D20 of the UI audit of 2026-10-09, issue #395) |
 
 **Accessibility.**
 - Role: none; a plain `<p>`.
 - Accessible name: not applicable; the text is the content, read after the badge.
+- The full raw text of `.error-text` stays in the element's `title` attribute, so a user
+  reads the whole string on hover or on a long press, also past the 2-line clamp
+  (issue #395).
 
 **Rules.**
 - Do give the shared note rule its own margin, `margin: 4px 0 0`, so the browser default
   bottom margin never returns (rule: "a paragraph inside a new rule sets its margin",
   `styles.css:282-289`).
-- Do not leave `.error-text` outside the shared note rule. Today it keeps its own line
-  spacing, while `.gap-text` keeps the shared rule. One status cell can then mix two
-  note styles (open finding of `minor_issues/257.md`, `apps.css:50-53` against
-  `styles.css:283-289`).
+- Do keep `.error-text` at its own font and clamp, apart from the shared note rule
+  (issue #395, D20). A raw backend error, for example a connection string, needs a
+  quiet, monospace, 2-line treatment that `.gap-text` does not need. This is a stated
+  deviation from the open suggestion of `minor_issues/257.md` ("add `.error-text` to the
+  shared note rule"); the newer audit finding of issue #395 asks for the opposite, so
+  this pull request follows #395 and leaves that row open, unresolved by this change.
 
 ## The last-updated time
 
@@ -886,6 +893,37 @@ no row.
 - Do not give `.empty-text a` an unbounded `inline-flex` box. A label over about 32
   characters can overflow the paragraph at 360px, because an atomic inline box does not
   wrap (open finding of `minor_issues/259.md`, `empty-state.css:31-36`).
+
+## The error empty-state
+
+**Purpose.** The error empty-state shows after a failed first load of a list: a short
+text and a "Try again" button, in place of a loading sentence that never ends (D6 of
+the UI audit of 2026-10-09, issue #373).
+
+**Anatomy.**
+- `<p class="list-error">{{ message }}</p>` then `<button type="button" class="btn"
+  (click)="store.refresh()">Try again</button>`, in `manage.html:67-69`,
+  `apps.html:98-101`, `users.html:97-100`, `sessions.html:88-91`, and
+  `first-pages.html:78-81`.
+
+**States.**
+
+| State | Cue | Token |
+| --- | --- | --- |
+| Rest | A coral left border, bold ink text, next to a plain button | `var(--coral)` (`styles.css`) |
+
+**Accessibility.**
+- Role: none of its own; a plain `<p>` and a plain `<button>`.
+- Accessible name of the button: "Try again".
+- Target size: the shared `.btn` rule gives the button a 44px minimum height.
+
+**Rules.**
+- Do show this state only once `firstLoadPending()` is false and `data()` is still
+  undefined (each view's `listError` computed value). A scheduled poll retry, while rows
+  already show, never replaces the table with this state.
+- Do call `store.refresh()` from the button, never a fresh poll cycle wait.
+- Do reuse the one `.list-error` rule of `styles.css` in every view. Do not add a local
+  copy of the rule to a view's own stylesheet (issue #373).
 
 ## The first-load row
 
