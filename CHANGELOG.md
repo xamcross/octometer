@@ -146,6 +146,12 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Raise the token `--text-s` from 12.8 px to 14 px, so the table caption, the status
   badge, the gap line, the "Data from" line, the account email, the refresh-bar text,
   `.btn-small`, and each form hint read larger. (#380)
+- Align the Manage table with the shared `.panel` style: the shared caption and cell
+  padding, a `.badge` Status cell, and a right-aligned Patterns column. (#379)
+- Bind the Elements table caption to the selected view: it names "this session", "an
+  anonymous visit", or "this user". (#392)
+- Show a "Deleting…" label with `aria-busy="true"` on the delete-confirm button while
+  the delete request is in flight; the label returns on an error. (#393)
 
 ### CI
 
