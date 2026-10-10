@@ -292,6 +292,41 @@ const DARK_NONTEXT = [
 ];
 
 /*
+ * The fill pairs (issue #469, finding N2 of the review of pull request
+ * #467): a fill compared with the fill behind it, not a text colour and
+ * not an edge colour. A pair of this kind can stay invisible to the lists
+ * above: a hover fill that equals the page behind it shows no text-color
+ * change and no edge, so no pair of `TEXT` or `NONTEXT` catches it.
+ *
+ * The floor is 1.5 for a hover cue or a pressed cue, and 3 for a control
+ * edge under WCAG 1.4.11; each row below names its own floor as its
+ * fifth entry. A row may carry a reason as its sixth entry, for a pair
+ * that stays under its floor on purpose (the `accepted` field of issue
+ * #451).
+ *
+ * The light row of the hovered Pause refresh pill still reads today's
+ * `--shallows-hover` value, `#e6f3ff`, the same hex as the page: 1.00:1,
+ * under the 1.5 floor. The issue for that gap is filed; this row keeps
+ * today's value, so the script shows the gap until that issue's fix
+ * lands.
+ */
+
+// [the page, the fill or the cue, the colour, the neighbour, the floor, the reason]
+const FILL = [
+  ['the band', 'the hovered nav pill fill on the octo band', '#e6f3ff', '#a78bfa', 1.5],
+  ['each data page', 'the hovered pause pill fill on the page', '#e6f3ff', '#e6f3ff', 1.5],
+  ['each table', 'the hovered row fill on the paper', '#bfdfff', '#ffffff', 1.5],
+  ['manage, signin', 'the form-error border on the page', '#d93a3a', '#e6f3ff', 3],
+];
+
+const DARK_FILL = [
+  ['the band', 'the hovered nav pill fill on the octo band', '#e6f3ff', '#9b7be5', 1.5],
+  ['each data page', 'the hovered pause pill fill on the page', '#3d3570', '#14122a', 1.5],
+  ['each table', 'the hovered row fill on the paper', '#2c2850', '#1d1a33', 1.5],
+  ['manage, signin', 'the form-error border on the page', '#ff6b6b', '#14122a', 3],
+];
+
+/*
  * The site section (issue #429, MAJOR 3 of the correction round of pull
  * request #441): one row for each text-on-fill pair and each edge of
  * `site/src/styles/site.css`, so the site itself has cover, not only the
@@ -398,6 +433,38 @@ function edgeResult(page, kind, r, reason) {
   return 'fail';
 }
 
+/*
+ * The result word of one fill pair (issue #469): `pass`, `fail`, or
+ * `accepted`. The floor varies per row (1.5 or 3), unlike the fixed 3:1
+ * floor of `edgeResult`; a row with a `reason` stays under its floor on
+ * purpose, the same rule as `edgeResult`.
+ */
+function fillResult(page, kind, r, floor, reason) {
+  pairs += 1;
+  const ok = r >= floor;
+  if (ok) return 'pass';
+  if (reason) {
+    accepted += 1;
+    acceptedRows.push(`${page} — ${kind}, ${f1(r)}:1. ${reason}`);
+    return 'accepted';
+  }
+  fails += 1;
+  return 'fail';
+}
+
+/** Prints one fill-pair table (issue #469), in one scheme. */
+function printFillTable(rows) {
+  console.log('| Page | Fill or cue | Colour | Neighbour | Ratio | Floor | Result |');
+  console.log('| --- | --- | --- | --- | --- | --- | --- |');
+  for (const [page, kind, a, b, floor, reason] of rows) {
+    const r = ratio(a, b);
+    const result = fillResult(page, kind, r, floor, reason);
+    console.log(
+      `| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | ${floor}:1 | ${result} |`,
+    );
+  }
+}
+
 console.log('The disabled confirm button (#410): ' + DISABLED_INK + ' on ' + DISABLED_FILL);
 console.log('');
 console.log('## The dashboard, the light scheme');
@@ -422,6 +489,8 @@ for (const [page, kind, a, b, reason] of NONTEXT) {
   const result = edgeResult(page, kind, r, reason);
   console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${result} |`);
 }
+console.log('');
+printFillTable(FILL);
 console.log('');
 console.log('## The dashboard, the dark scheme (issue #361, prefers-color-scheme: dark)');
 console.log(
@@ -448,6 +517,8 @@ for (const [page, kind, a, b, reason] of DARK_NONTEXT) {
   const result = edgeResult(page, kind, r, reason);
   console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${result} |`);
 }
+console.log('');
+printFillTable(DARK_FILL);
 
 /** Prints one site TEXT table, in one scheme, with one page-label suffix. */
 function printSiteText(scheme, suffix) {

@@ -177,6 +177,26 @@ light scheme, under the 3:1 floor of WCAG 1.4.11. `--coral-edge` is the fix: 4.0
 light scheme, and 6.58:1 in the dark scheme (the dark value of `--coral-edge` equals the
 dark value of `--coral`, so the dark-scheme ratio does not change).
 
+### The fill pairs (issue #469)
+
+`docs/design/contrast.mjs` also checks a fill pair: a fill colour against the fill
+behind it, not a text colour and not an edge. The floor is 1.5:1 for a hover cue, and
+3:1 for a control edge (WCAG 1.4.11). The table below gives the light ratio and the
+dark ratio of each pair.
+
+| Fill | Neighbour | Light ratio | Dark ratio | Floor |
+| --- | --- | --- | --- | --- |
+| The hovered nav pill fill (`--shallows-bright`) | The octo band (`--octo`) | 2.4:1 | 2.9:1 | 1.5:1 |
+| The hovered pause pill fill (`--shallows-hover`) | The page (`--shallows`) | 1.0:1 | 1.7:1 | 1.5:1 |
+| The hovered row fill (`--shallows-deep`) | The paper (`--paper`) | 1.4:1 | 1.2:1 | 1.5:1 |
+| The form-error border (`--coral-edge`) | The page (`--shallows`) | 4.0:1 | 6.6:1 | 3:1 |
+
+Two gaps show in the table above. The light hovered pause pill fill still equals the
+page (`#E6F3FF` on `#E6F3FF`), so it reads 1.00:1, under the floor; a separate, already
+filed issue raises `--shallows-hover` in the light scheme (`#99C6FF` reads 1.6:1 on the
+page). The hovered row fill reads under the floor in each scheme too, a gap that issue
+#469 only shows; a later issue picks the fix.
+
 ## The dark color scheme
 
 A `prefers-color-scheme: dark` block in `monitor/frontend/src/styles.css` gives the
