@@ -70,6 +70,10 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   token. (#425)
 - Add a dark-scheme row for each light pair of the contrast script, so a dark-scheme
   regression now shows in the script output. (#429)
+- Shrink the side padding of the hero preview table under 48rem, so the table fits
+  the preview window at 390 px with no clip. (#431)
+- Wait until 56rem to split the waitlist row into two columns, so the page shows no
+  sideways scroll at 768 px, at 800 px, or at 870 px. (#442)
 
 ### Contract
 
@@ -178,6 +182,13 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   dialog; the table row keeps its own height. (#364)
 - Add a hover state to the `.btn` class, the nav pill, the Pause refresh pill, and
   the global link style. (#369)
+- Hoist the `.field`, `.form-hint`, and base `dialog` rules of the manage forms and the
+  sign-in form into one shared stylesheet; each form and dialog renders the same.
+  (#385)
+- Darken the `.form-error` left border from `--coral` to `--coral-deep`, and add a
+  leading "⚠" glyph to each error message. (#383)
+- Correct the invalid-field ring pair of `docs/design/contrast.mjs` to the real token
+  value, `--coral-deep`; the pair now reads 4.5:1, at or above the 3:1 floor. (#438)
 
 ### CI
 

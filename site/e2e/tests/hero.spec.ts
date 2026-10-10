@@ -95,6 +95,20 @@ test('the hero shows the promise and the button reaches the form', async ({ page
   expect(layoutAt390.previewTop).toBeGreaterThanOrEqual(layoutAt390.textBottom);
   expect(layoutAt390.scrollWidth).toBeLessThanOrEqual(layoutAt390.clientWidth);
 
+  // Issue #431 (the audit finding L3, the confirmation comment of pull
+  // request #423): the table's right border and the last column's
+  // padding clipped against the window at 390 px, by about 10.28 px.
+  // "insideBy" is the window's right edge minus the table's right edge:
+  // 0 or more means no clip.
+  const tableClipAt390 = await page.evaluate(() => {
+    const win = document.querySelector('.hero-preview-window') as HTMLElement;
+    const table = document.querySelector('.hero-preview-table') as HTMLElement;
+    const winRect = win.getBoundingClientRect();
+    const tableRect = table.getBoundingClientRect();
+    return winRect.right - tableRect.right;
+  });
+  expect(tableClipAt390).toBeGreaterThanOrEqual(0);
+
   // MAJOR 1 of the review of pull request #423: the window of the preview
   // clipped the Status column between 768 px and about 833 px. The window
   // carries "overflow: hidden" (site.css), so a table wider than the

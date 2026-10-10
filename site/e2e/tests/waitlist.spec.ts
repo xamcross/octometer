@@ -270,4 +270,19 @@ test('the panel fills its row at 1280 px, and the form stays usable at 390 px', 
   // The field and the button each fill most of the row at 390 px.
   expect(narrowInputBox.width / narrowRowBox.width).toBeGreaterThan(0.85);
   expect(narrowButtonBox.width / narrowRowBox.width).toBeGreaterThan(0.85);
+
+  // Issue #442 (the correction of the review of pull request #440): the
+  // ".wl" grid of issue #381, with the collapsed ".wl-pilot" column,
+  // scrolled the page sideways by 14 px at 768 px (and at 800 px and
+  // 870 px, the width band of the old defect). "scrollWidth" equal to
+  // "clientWidth" means no sideways scroll.
+  for (const w of [768, 800, 870]) {
+    await page.setViewportSize({ width: w, height: 800 });
+    await page.goto('/');
+    const probe = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(probe.scrollWidth).toBe(probe.clientWidth);
+  }
 });

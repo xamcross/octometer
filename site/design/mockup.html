@@ -104,7 +104,10 @@ a:hover{text-decoration-thickness:3px}
 .hero-preview-title-row{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:var(--space-2)}
 .hero-preview-title{font:600 var(--text-l)/1 var(--display)}
 .hero-preview-table{width:100%;border-collapse:collapse;font-size:var(--text-s);border:var(--line-control);border-radius:var(--radius-control);overflow:hidden}
-.hero-preview-table th,.hero-preview-table td{padding:var(--space-2) var(--space-3);text-align:left}
+/* Issue #431: a smaller side padding fits the five columns in the
+   window at 390 px; "@media (min-width:48rem)" below restores the
+   wider padding. */
+.hero-preview-table th,.hero-preview-table td{padding:var(--space-2) var(--space-2);text-align:left}
 .hero-preview-table thead th{background:var(--shallows-deep);font-weight:700}
 .hero-preview-table tbody td{border-top:1px solid var(--shallows-deep)}
 .hero-preview-status{display:inline-block;padding:2px var(--space-2);font-weight:700;border:var(--line-control);border-radius:var(--radius-pill)}
@@ -178,6 +181,15 @@ a:hover{text-decoration-thickness:3px}
 
 /* 5. the waitlist form */
 .wl{display:grid;gap:var(--space-5);align-items:start}
+/* Issue #442: the two-column grid of ".wl" waits for 56rem, the same
+   breakpoint as ".hero" above, so the row never asks for the 48rem
+   cap of the form column and the pilot column at the same time. This
+   block stands after the base ".wl" rule above (the MAJOR 1 correction
+   of the review of pull request #457): the same specificity ties go to
+   the later rule in the source. */
+@media (min-width:56rem){
+  .wl{grid-template-columns:minmax(0,48rem) 1fr;gap:var(--space-6)}
+}
 .panel{background:var(--paper);border:var(--line-panel);border-radius:var(--radius-panel);box-shadow:var(--shadow-panel)}
 .panel-body{padding:var(--space-4);display:grid;gap:var(--space-4)}
 .field{display:grid;gap:var(--space-1)}
@@ -223,11 +235,6 @@ label{font-weight:700}
   .how{grid-template-columns:minmax(0,36rem) 1fr}
   .steps p{max-width:none}
   .flow{justify-self:start}
-  /* Issue #381, audit finding L6: the old cap of 26rem left about
-     two-thirds of the row empty. The page caps the first column of
-     ".wl" at 48rem too, the same as this mockup. The mockup keeps
-     its states column beside the form. */
-  .wl{grid-template-columns:minmax(0,48rem) 1fr;gap:var(--space-6)}
   /* The field and the button sit on one row: column 1 holds the
      field, column 2 holds the button. The consent text spans the
      full row, on its own row. */
@@ -236,6 +243,9 @@ label{font-weight:700}
   .panel-body>p:nth-of-type(1){grid-column:2;grid-row:1;align-self:center}
   .panel-body>p:nth-of-type(2){grid-column:1/-1;grid-row:2}
   .panel-body .btn{width:auto}
+  /* Issue #431: the window shows the table in full from 48rem, so the
+     side padding of each cell goes back to its wider value here. */
+  .hero-preview-table th,.hero-preview-table td{padding:var(--space-2) var(--space-3)}
 }
 </style>
 <nav class="topbar" aria-label="Site navigation">
