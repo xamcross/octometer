@@ -61,6 +61,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   contact address, and "Sign in". (#388)
 - Run the waitlist end-to-end scenario with reduced motion, so the page scroll makes
   no click of the scenario fail at random. (#426)
+- Move the hero mark into the top bar under 48rem, beside the wordmark, so it does
+  not sit alone above the heading on a phone. (#370)
 
 ### Contract
 

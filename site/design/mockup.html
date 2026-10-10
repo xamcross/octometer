@@ -43,17 +43,17 @@ a:hover{text-decoration-thickness:3px}
 .sec>h2{font-size:var(--text-2xl)}
 .sec-lead{max-width:60ch}
 
-/* 0. the top bar (issue #367, the audit finding L2) */
+/* 0. the top bar (issue #367, the audit finding L2). The MAJOR 1
+   correction of the review of pull request #440: the wordmark no
+   longer hides under 48rem, and the mark grows to 40px. */
 .topbar{background:var(--paper);border-bottom:var(--line-control)}
 .topbar-inner{max-width:76rem;margin-inline:auto;padding-inline:var(--space-4);padding-block:var(--space-3);display:flex;align-items:center;justify-content:space-between;gap:var(--space-4)}
 .topbar-brand{display:flex;align-items:center;gap:var(--space-2)}
-.topbar-mark{width:32px;height:32px}
-.topbar-brand .word{display:none}
+.topbar-mark{width:40px;height:40px}
 .topbar-links{display:flex;align-items:center;gap:var(--space-4)}
 .topbar-links li:not(:last-child){display:none}
 @media (min-width:48rem){
   .topbar-inner{padding-inline:var(--space-6)}
-  .topbar-brand .word{display:inline}
   .topbar-links li:not(:last-child){display:inline}
 }
 
@@ -61,6 +61,16 @@ a:hover{text-decoration-thickness:3px}
    two-column grid at 56rem and above puts the preview beside the copy) */
 .hero{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4) var(--space-6)}
 .hero-text{display:grid;gap:var(--space-4);justify-items:start}
+/* the audit finding L15 (issue #370), the MAJOR 1 correction of the
+   review of pull request #440. The top bar carries the mark beside the
+   wordmark under 48rem. The hero's own mark and wordmark both hide
+   under 48rem, and both show again at 48rem and above. */
+.hero>.mark{display:none}
+.hero-text>.word{display:none}
+@media (min-width:48rem){
+  .hero>.mark{display:block}
+  .hero-text>.word{display:block}
+}
 @media (min-width:56rem){
   .hero{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center}
   .hero>.mark{grid-column:1;grid-row:1}
@@ -228,6 +238,10 @@ label{font-weight:700}
 <nav class="topbar" aria-label="Site navigation">
   <div class="topbar-inner">
     <div class="topbar-brand">
+      <!-- The BLOCKER 1 fix of the second review of pull request #440.
+           The mark holds its own paths, not a "use" of a shared
+           "symbol". A CSS selector cannot reach the shadow clone of a
+           "use" element. -->
       <svg class="mark topbar-mark" viewBox="0 0 32 32" aria-hidden="true">
         <circle class="head" cx="16" cy="13" r="9"/>
         <circle class="eye" cx="12.6" cy="11.5" r="1.6"/><circle class="eye" cx="19.4" cy="11.5" r="1.6"/>
@@ -252,6 +266,9 @@ label{font-weight:700}
       <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2"/>
     </svg>
     <div class="hero-text">
+      <!-- The MAJOR 1 correction of the review of pull request #440.
+           Under 48rem this wordmark hides. The top bar above already
+           names the product beside its mark. -->
       <p class="word">Octometer</p>
       <h1>Every click in your app, counted.</h1>
       <p class="lead">Octometer counts each click in your web app. One script tag, one dashboard, no cookie banner.</p>
