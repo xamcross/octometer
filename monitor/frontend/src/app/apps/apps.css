@@ -47,6 +47,12 @@ th[scope='row'] a,
   min-height: 24px;
 }
 
+/* The "First pages" header text and link text stay on one line (#394). */
+.first-pages-header,
+.first-pages-link {
+  white-space: nowrap;
+}
+
 /* .data-from and .gap-text get the shared rule of styles.css (#249); .error-text keeps its own line spacing. */
 .error-text {
   margin: 0.25rem 0 0;

@@ -64,6 +64,16 @@ export class AppsPage {
   async expectStatus(name: string, word: string, timeoutMs: number): Promise<void> {
     await expect(this.rowOf(name).status).toContainText(word, { timeout: timeoutMs });
   }
+
+  /** The "First pages" header cell of the table (issue #394). */
+  get firstPagesHeader(): Locator {
+    return this.page.getByRole('columnheader', { name: 'First pages' });
+  }
+
+  /** The "First pages" link of one app row, by its name (issue #394). */
+  firstPagesLinkOf(name: string): Locator {
+    return this.rowOf(name).row.getByRole('link', { name: 'First pages' });
+  }
 }
 
 function escapeRegExp(value: string): string {

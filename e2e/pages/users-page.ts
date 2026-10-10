@@ -45,6 +45,16 @@ export class UsersPage {
     return this.page.getByRole('row').count().then((count) => Math.max(count - 1, 0));
   }
 
+  /** The filter input of the users view (issue #374). */
+  filterInput(): Locator {
+    return this.page.locator('#user-filter');
+  }
+
+  /** The Filter button of the users view (issue #374). */
+  filterButton(): Locator {
+    return this.page.getByRole('button', { name: 'Filter', exact: true });
+  }
+
   async expectRow(
     userId: string,
     totals: { clicks: number; sessions: number; uniqueElements: number },

@@ -5,7 +5,7 @@ import type { Subscription } from 'rxjs';
 import { Announcer } from '../announcer';
 import type { AppRow, AppStatus } from '../apps/app-row';
 import { EmptyState } from '../empty-state/empty-state';
-import { STATUS_ICON, STATUS_LABEL } from '../status-format';
+import { STATUS_BADGE_CLASS, STATUS_ICON, STATUS_LABEL } from '../status-format';
 import { AddAppForm } from './add-app-form';
 import { readApiErrorMessage } from './app-registry-api';
 import { DeleteAppDialog } from './delete-app-dialog';
@@ -74,6 +74,11 @@ export class Manage {
 
   protected statusIcon(status: AppStatus): string {
     return STATUS_ICON[status];
+  }
+
+  /** The badge class of the status value, the same rule as the apps table (issue #379). */
+  protected statusBadgeClass(status: AppStatus): string {
+    return STATUS_BADGE_CLASS[status];
   }
 
   /** True for each status other than `OK` and `NEVER_POLLED` (D30). */

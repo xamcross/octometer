@@ -152,6 +152,11 @@ export class ManagePage {
     return row.locator('td.patterns');
   }
 
+  /** The status badge span of one row (issue #379, finding D10). */
+  statusBadge(row: ReturnType<ManagePage['row']>) {
+    return row.locator('td.status .badge');
+  }
+
   /** Renames the app of the open edit form, and saves it (design decision D48). */
   async renameAndSave(row: ReturnType<ManagePage['row']>, newName: string): Promise<void> {
     await row.getByLabel('Name', { exact: true }).fill(newName);
@@ -208,6 +213,31 @@ export class ManagePage {
   /** The heading of the add-app panel (issue #389, finding D29). */
   addAppHeading() {
     return this.page.getByRole('heading', { name: 'Add an app' });
+  }
+
+  /**
+   * The `app-delete-app-dialog` host of one row. Both the trigger button
+   * and the dialog of this issue sit inside it, so a scoped locator
+   * never matches the Cancel button of the new-secret-key dialog next
+   * to it (issue #384).
+   */
+  private deleteDialogHost(row: ReturnType<ManagePage['row']>) {
+    return row.locator('app-delete-app-dialog');
+  }
+
+  /** Opens the delete dialog of one row (issue #384). */
+  async openDeleteDialog(row: ReturnType<ManagePage['row']>): Promise<void> {
+    await this.deleteDialogHost(row).locator('button.delete-trigger').click();
+  }
+
+  /** The "Delete this app" confirm button of the open delete dialog (issue #384). */
+  deleteConfirmButton(row: ReturnType<ManagePage['row']>) {
+    return this.deleteDialogHost(row).locator('button.confirm-delete');
+  }
+
+  /** Closes the delete dialog of one row without a delete (issue #384). */
+  async cancelDeleteDialog(row: ReturnType<ManagePage['row']>): Promise<void> {
+    await this.deleteDialogHost(row).locator('button.cancel').click();
   }
 
   /**
