@@ -23,6 +23,7 @@
   --paper-raised: #ffffff;
   --paper-bright: #ffffff;
   --shallows: #e6f3ff;
+  --shallows-bright: #e6f3ff;
   --shallows-deep: #bfdfff;
   --coral: #ff6b6b;
   --coral-deep: #d93a3a;
@@ -76,10 +77,10 @@
 /*
  * The dark color scheme (issue #361, the UI audit finding D1). A user with
  * a dark system preference gets this block. Each bright fill token
- * (`--coral`, `--sunny`, `--seaweed`, `--on-bright`, `--paper-bright`)
- * stays out of this block on purpose, so it keeps its light value in both
- * schemes (step 3 of the issue): `--on-bright` stays dark text on each
- * bright fill.
+ * (`--coral`, `--sunny`, `--seaweed`, `--on-bright`, `--paper-bright`,
+ * `--shallows-bright`) stays out of this block on purpose, so it keeps its
+ * light value in both schemes (step 3 of the issue): `--on-bright` stays
+ * dark text on each bright fill.
  *
  * `--octo` gets a lighter dark value than the audit draft (`#5b45b0`):
  * `--on-bright` text on that fill measured 2.18:1 on the band (the account
@@ -98,6 +99,14 @@
  * then made the band dark on dark: the nav pill label and the "Sign out"
  * label read 1.21:1 on the band, under the floor of 4.5:1. `--paper-bright`
  * keeps `#ffffff` in each scheme, so `.band` stays bright on dark too.
+ *
+ * The correction round of pull request #445 adds `--shallows-bright`
+ * (note N1 of the review). The nav pill hover fill once read
+ * `--shallows`; inside `.band`, `--ink` turns into `--on-bright`, dark
+ * text, and `--shallows` turns dark too in the dark scheme, so the
+ * hovered pill painted dark text on a near-black fill, at 1.16:1.
+ * `--shallows-bright` keeps `#e6f3ff` in each scheme, so the hovered
+ * pill stays at 13.92:1 or more in both schemes.
  */
 @media (prefers-color-scheme: dark) {
   :root {
@@ -167,6 +176,17 @@ a {
   text-decoration-color: var(--coral);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
+}
+
+/*
+ * The hover state of a text link (#369): a thicker underline. The
+ * `(hover: hover)` guard keeps a touch tap from leaving a stuck hover
+ * state (MAJOR 2 of the review of pull request #445).
+ */
+@media (hover: hover) {
+  a:hover {
+    text-decoration-thickness: 3px;
+  }
 }
 
 /*
@@ -365,6 +385,33 @@ a {
   box-shadow: none;
 }
 
+/*
+ * The hover state of a button (#369). The selector `:not([disabled])`
+ * excludes a disabled button, at each specificity (#410). The rule order
+ * of the two selectors does not matter for that reason. The
+ * `(hover: hover)` guard keeps a touch tap from leaving a stuck hover
+ * state (MAJOR 2 of the review of pull request #445).
+ */
+@media (hover: hover) {
+  .btn:hover:not([disabled]) {
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+
+  /*
+   * The press beats the hover (MAJOR 1 of the review of pull request
+   * #445). `.btn:hover:not([disabled])` has the specificity (0,3,0);
+   * `.btn:active` alone has (0,2,0). A mouse press always holds
+   * `:hover` too, so this rule adds `:active` to the hover selector,
+   * at (0,4,0), to win the press and keep the pressed state of #263:
+   * moved 3px, no shadow.
+   */
+  .btn:hover:not([disabled]):active {
+    transform: translate(3px, 3px);
+    box-shadow: none;
+  }
+}
+
 .btn-primary {
   background: var(--sunny);
 }
@@ -399,6 +446,21 @@ a {
 }
 
 /*
+ * The hover shadow of #369 can replace the focus ring shadow above, at
+ * an equal source order. This variant lists both shadows together (the
+ * lesson of #258). A mouse hover on a focused button then keeps its
+ * ring. The `(hover: hover)` guard keeps a touch tap from leaving a
+ * stuck hover state (MAJOR 2 of the review of pull request #445).
+ */
+@media (hover: hover) {
+  .btn:hover:not([disabled]):focus-visible {
+    box-shadow:
+      4px 4px 0 var(--ink),
+      0 0 0 7px var(--ink);
+  }
+}
+
+/*
  * A second copy of the reduced-motion query (#263). `.btn` above sets
  * its own transition, at the same specificity (0,1,0) as a `.btn` rule
  * inside the media query near the top of this file; the browser gives
@@ -412,6 +474,18 @@ a {
   }
 
   .btn:active {
+    transform: none;
+    box-shadow: var(--shadow-control);
+  }
+
+  /*
+   * The matching press-over-hover fix for reduced motion (MAJOR 1 of
+   * the review of pull request #445). `.btn:hover:not([disabled])`
+   * still wins by specificity inside a `prefers-reduced-motion`
+   * block, so this rule adds `:active` to it, to keep the pressed
+   * state of #263 under reduced motion too.
+   */
+  .btn:hover:not([disabled]):active {
     transform: none;
     box-shadow: var(--shadow-control);
   }

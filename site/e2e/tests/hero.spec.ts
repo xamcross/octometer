@@ -2,7 +2,17 @@
 // #288 with the wave animation, the focus move into the waitlist field, and
 // the overflow proof at 360 px and 1440 px. Issue #291 adds the real
 // waitlist field that the click below now reaches.
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
+
+// Issue #448: "site.css:16" sets a smooth page scroll. A control that
+// Playwright must scroll to can still move while the click runs. This
+// helper moves the control into view with "behavior: 'instant'" first.
+// The scenario below keeps the default media (the wave check needs it),
+// so this file uses the helper, not "test.use({ reducedMotion: 'reduce' })".
+async function clickInstant(locator: Locator) {
+  await locator.evaluate((el) => el.scrollIntoView({ behavior: 'instant', block: 'center' }));
+  await locator.click();
+}
 
 test('the hero shows the promise and the button reaches the form', async ({ page }) => {
   await page.goto('/');
@@ -172,7 +182,7 @@ test('the hero shows the promise and the button reaches the form', async ({ page
   await page.evaluate(() => {
     document.addEventListener('click', (event) => event.preventDefault(), true);
   });
-  await button.click();
+  await clickInstant(button);
   const activeId = await page.evaluate(() => document.activeElement && document.activeElement.id);
   expect(activeId).toBe('waitlist-email');
 

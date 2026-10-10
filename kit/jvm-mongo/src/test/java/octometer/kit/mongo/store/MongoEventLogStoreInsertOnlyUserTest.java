@@ -43,7 +43,7 @@ class MongoEventLogStoreInsertOnlyUserTest {
     private static final String APP_PASSWORD = "test-app-pass";
 
     @Container
-    private static final GenericContainer<?> MONGO = new GenericContainer<>(DockerImageName.parse("mongo:7.0"))
+    private static final GenericContainer<?> MONGO = new GenericContainer<>(DockerImageName.parse("public.ecr.aws/docker/library/mongo:7.0"))
             .withExposedPorts(27017)
             .withEnv("MONGO_INITDB_ROOT_USERNAME", ROOT_USER)
             .withEnv("MONGO_INITDB_ROOT_PASSWORD", ROOT_PASSWORD)

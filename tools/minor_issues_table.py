@@ -14,10 +14,37 @@ COLUMNS = ["Date", "Issue", "Reviewer role", "File and line", "Finding", "Sugges
 
 ROW_PATTERN = re.compile(r"^\|\s*(\d{4}-\d{2}-\d{2})\s*\|")
 
+# A row splits on each "|" that marks a column edge. A "\|" inside a cell
+# is not a column edge (issue #449): the lookbehind skips it, so the
+# escape stays one literal pipe inside its own cell.
+CELL_SPLIT_PATTERN = re.compile(r"(?<!\\)\|")
+
+
+class RowFormatError(ValueError):
+    """A row of a minor_issues file does not hold 7 columns."""
+
+    def __init__(self, path: pathlib.Path, line: str, cell_count: int):
+        self.path = path
+        self.line = line
+        self.cell_count = cell_count
+        super().__init__(
+            f"{path}: a row holds {cell_count} columns, not {len(COLUMNS)}: {line}"
+        )
+
 
 def pull_request_number(path: pathlib.Path) -> int:
     """Return the pull request number that the file name holds."""
     return int(path.stem)
+
+
+def split_row_cells(line: str) -> list[str]:
+    """Return each cell of one table row, with no outer empty cell.
+
+    A "\\|" inside a cell stays one literal pipe; it marks no column edge.
+    """
+    parts = CELL_SPLIT_PATTERN.split(line.strip())
+    cells = [cell.strip() for cell in parts]
+    return cells[1:-1]
 
 
 def parse_file(path: pathlib.Path) -> list[list[str]]:
@@ -27,10 +54,9 @@ def parse_file(path: pathlib.Path) -> list[list[str]]:
     for line in path.read_text(encoding="utf-8").splitlines():
         if not ROW_PATTERN.match(line):
             continue
-        cells = [cell.strip() for cell in line.strip().split("|")]
-        cells = cells[1:-1]
+        cells = split_row_cells(line)
         if len(cells) != len(COLUMNS):
-            raise ValueError(f"{path}: a row does not hold {len(COLUMNS)} columns: {line}")
+            raise RowFormatError(path, line, len(cells))
         rows.append([f"#{pr_number}"] + cells)
     return rows
 
@@ -40,9 +66,16 @@ def main() -> int:
     folder = root / "minor_issues"
     files = sorted(folder.glob("*.md"), key=pull_request_number)
 
+    # The format check (issue #449): each row of each file must hold 7
+    # columns. A bad row stops the script here, with a clear message and
+    # a non-zero exit code, so the pull request review catches it too.
     all_rows = []
     for path in files:
-        all_rows.extend(parse_file(path))
+        try:
+            all_rows.extend(parse_file(path))
+        except RowFormatError as error:
+            print(f"minor_issues_table: {error}", file=sys.stderr)
+            return 1
 
     header = ["Pull request"] + COLUMNS
     print("| " + " | ".join(header) + " |")
