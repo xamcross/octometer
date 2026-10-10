@@ -42,9 +42,13 @@ element of each page (design principle 3, `docs/design.md:75`).
 
 **Anatomy.**
 - `<header class="band">` holds `.band-row` and `.account-menu` (`app.html:5-25`).
-- `.band-row` holds `.brand` (the mark and the wordmark) and `<app-main-nav>`.
-- `.account-menu` holds `.account-email` and the "Sign out" button, in its own
-  row below `.band-row` (issue #360, `app.html:17-24`).
+- `.band-row` holds `.brand` (the mark and the wordmark) and `<app-main-nav>`. Under
+  40rem, the wordmark hides and `.band-row` keeps `flex-wrap: nowrap`, so the mark
+  and the nav pills stay on one row at a phone width (issue #397, `app.css:135-150`).
+- `.account-menu` holds `.account-email` (hidden under 40rem), the `.account-button`
+  that replaces it there, an email reveal span on a press of that button, and the
+  "Sign out" button, in its own row below `.band-row` (issue #360, issue #397,
+  `app.html:17-32`).
 
 **States.**
 
@@ -78,6 +82,7 @@ element of each page (design principle 3, `docs/design.md:75`).
 | State | Cue | Token |
 | --- | --- | --- |
 | Rest | Fredoka 600 ink text, no underline | `var(--display)`, `var(--ink)` (`app.css:80-84`) |
+| Under 40rem | Visually hidden, kept for a screen reader, so the brand mark and the nav pills fit one row (issue #397) | `app.css:135-150` |
 
 **Accessibility.**
 - Role: none of its own; it sits inside the link `a.brand`, whose accessible name is
@@ -108,6 +113,7 @@ of `minor_issues/259.md`).
 | State | Cue | Token |
 | --- | --- | --- |
 | Rest | Octo head, ink strokes and eyes | `var(--octo)`, `var(--ink)` (`octo-mark.css:11-25`) |
+| On the band | A dark violet head fill, so the graphic keeps a 3:1 contrast against the octo band in each color scheme (issue #439) | `var(--octo-head-band)` (`monitor/frontend/src/styles.css:393-407`) |
 
 **Accessibility.**
 - Role: none; `aria-hidden="true"` and `focusable="false"` remove the mark from the
@@ -118,9 +124,10 @@ of `minor_issues/259.md`).
 **Rules.**
 - Do keep `aria-hidden="true"` and `focusable="false"` on the `<svg>`, so a screen reader
   skips a mark with no meaning (`octo-mark.html:5-6`).
-- Do not give the octo head its own fill inside the band. `styles.css` gives it the paper
-  fill there instead. The octo fill would vanish on the octo background
-  (`monitor/frontend/src/styles.css:370-372`).
+- Do not give the octo head its own fill inside the band. `styles.css` gives it the
+  `--octo-head-band` fill there instead. The octo fill would vanish on the octo
+  background; a plain white fill read only 2.72:1 against the light-scheme band
+  (issue #439, `monitor/frontend/src/styles.css:393-407`).
 
 ## The nav pill
 
@@ -280,8 +287,9 @@ the automatic refresh.
 **Anatomy.**
 - `<app-pause-refresh-button>` then `<p>{{ intervalText() }}</p>`, in one flex row that
   wraps (`refresh-bar.html:1-2`, `refresh-bar.css:6-16`).
-- The button: `<button [attr.aria-pressed]="pressed()" (click)="toggle()">Pause
-  refresh</button>` (`pause-refresh-button.html:1`).
+- The button: an `aria-hidden` icon span, then a label span, inside one
+  `<button [attr.aria-pressed]="pressed()" (click)="toggle()">` (`pause-refresh-button.html:1-4`,
+  issue #363).
 - The host keeps a bottom margin of `var(--space-4)` (16px), so a gap stays above the
   panel of the view (`refresh-bar.css:6-16`, #271).
 
@@ -289,24 +297,23 @@ the automatic refresh.
 
 | State | Cue | Token |
 | --- | --- | --- |
-| Rest | Paper pill, a hidden check mark that holds its space | `var(--paper)` (`pause-refresh-button.css:9-26`) |
+| Rest | Paper pill, "Pause refresh" label, a pause icon (⏸) | `var(--paper)` (`pause-refresh-button.css:9-21`) |
 | Focus | The shared 3px sunny outline plus the 7px ink ring | `var(--sunny)` (`monitor/frontend/src/styles.css:131-135`) |
-| Pressed | Sunny fill, visible check mark | `var(--sunny)`, `var(--on-bright)` (`pause-refresh-button.css:29-36`) |
+| Pressed | Sunny fill, "Resume refresh" label, a play icon (▶) | `var(--sunny)`, `var(--on-bright)` (`pause-refresh-button.css:29-33`) |
 
 **Accessibility.**
 - Role: `button`.
-- Accessible name: "Pause refresh" (the label stays the same text in both states).
-- Second cue beside color: the check mark `'\2713\00a0' / ''`, present only when pressed
-  (`pause-refresh-button.css:22-26`, `:34-36`).
-- Target size: `min-width: 24px; min-height: 44px` (`pause-refresh-button.css:12-13`).
+- Accessible name: "Pause refresh" at rest, "Resume refresh" while pressed (issue #363).
+- Second cue beside color: the label text and the icon change together, not color alone
+  (`pause-refresh-button.html:1-4`).
+- Target size: `min-width: 24px; min-height: 44px` (`pause-refresh-button.css:14-15`).
 - Live region: a state change announces "Refresh paused" or "Refresh resumed" through
   the one status region (`refresh-bar.ts:57`).
 - `aria-*` that changes: `aria-pressed` — `"true"` or `"false"` (`pause-refresh-button.html:1`).
 
 **Rules.**
-- Do keep the check-mark cue of the pause button in both states, so the pressed state
-  never relies on the sunny fill alone (rule: "the pause button keeps its check-mark
-  cue", `pause-refresh-button.css:22-26`).
+- Do keep the icon marked `aria-hidden="true"`, so a screen reader reads the label text
+  only, once, not the icon glyph too (`pause-refresh-button.html:2`).
 - Do not expect the shared `.btn` class of #248 to reach this button. The pill needs its
   own scoped rule. Angular's component scope keeps this rule out of reach, so a later
   shared rule cannot correct it (`pause-refresh-button.css:1-8`).

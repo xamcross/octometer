@@ -9,6 +9,8 @@
 button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-width: 24px;
   min-height: 44px;
   padding: 6px 16px;
@@ -19,20 +21,15 @@ button {
   font: 600 var(--text-m) / 1.2 var(--display);
 }
 
-/* The check mark holds its space in both states, so the button keeps one size. */
-button::before {
-  content: '\2713\00a0' / '';
-  visibility: hidden;
+/* The icon sits before the label. The label and the icon centre as one inline-flex row. */
+.icon {
+  line-height: 1;
 }
 
-/* The pressed state (WCAG 1.4.1). The check mark carries the state, not colour alone. */
+/* The pressed state (WCAG 1.4.1). The label text and the icon carry the state, not colour alone. */
 button[aria-pressed='true'] {
   background: var(--sunny);
   color: var(--on-bright);
-}
-
-button[aria-pressed='true']::before {
-  visibility: visible;
 }
 
 /* The forced-colours mode keeps the system pair. The user picks that colour there. */

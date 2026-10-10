@@ -151,6 +151,12 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   button look and the pill look never mix in one row. (#360)
 - Give the Filter button and each pager button the 44 px minimum height of a
   button, on the users, the sessions, and the first-pages view. (#368)
+- Center the "Pause refresh" label inside its pill; show a pause icon or a play icon
+  next to the label, in place of the hidden check mark. (#363)
+- Keep the brand mark, the nav pills, and an account control on one row at a phone
+  width; the account menu keeps its own row, below. (#397)
+- Raise the mascot head fill on the header band to a 3:1 contrast, in each color
+  scheme, with the new token `--octo-head-band`. (#439)
 
 ### CI
 

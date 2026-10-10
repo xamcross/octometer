@@ -106,6 +106,7 @@ const NONTEXT = [
   ['each page', 'the control edge on the page background', '#241f3d', '#e6f3ff'],
   ['each page', 'the control edge on the paper', '#241f3d', '#ffffff'],
   ['the band', 'the nav pill edge on the octo band', '#241f3d', '#a78bfa'],
+  ['the band', 'the mascot head fill on the octo band', '#423a57', '#a78bfa'],
   ['each page', 'the panel edge on the page background', '#241f3d', '#e6f3ff'],
   ['each table', 'the head cell edge on the head fill', '#241f3d', '#bfdfff'],
   ['apps', 'the badge edge on the badge fill (seaweed)', '#241f3d', '#6ee7b7'],

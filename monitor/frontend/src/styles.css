@@ -28,6 +28,7 @@
   --sunny: #ffd93d;
   --seaweed: #6ee7b7;
   --octo: #a78bfa;
+  --octo-head-band: #423a57;
   --on-bright: #241f3d;
   --backdrop: rgb(36 31 61 / 0.6);
 
@@ -393,10 +394,14 @@ textarea {
 
 /*
  * The octo fill of the mark's head vanishes on the octo band, so the
- * band gives the head the paper fill instead. `app.css` cannot reach
+ * band gives the head its own fill instead. `app.css` cannot reach
  * this child template of `app-octo-mark`, because Angular scopes a
  * component style to its own component; this rule stays here, unscoped.
+ *
+ * `--octo-head-band` reads 3:1 or more against `--octo` (WCAG 1.4.11
+ * for a graphic), in each color scheme (issue #439). A plain white
+ * fill read only 2.72:1 against the light `--octo`.
  */
 .band app-octo-mark .head {
-  fill: var(--paper);
+  fill: var(--octo-head-band);
 }

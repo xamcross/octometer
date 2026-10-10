@@ -1157,3 +1157,147 @@ test('the nav pills, the "Pause refresh" pill, and the action buttons each keep 
   }
   expect(signOutBox.y).toBeGreaterThanOrEqual(navBox.y + navBox.height);
 });
+
+/**
+ * The left gap and the right gap of the icon-and-label group inside the
+ * "Pause refresh" pill, in CSS px (issue #363). A hidden check mark once
+ * added about 14 px of blank space on the left only, so the label sat
+ * off-center.
+ */
+async function pauseButtonContentGapsPx(
+  button: Locator,
+): Promise<{ left: number; right: number }> {
+  const [buttonBox, iconBox, labelBox] = await Promise.all([
+    button.boundingBox(),
+    button.locator('.icon').boundingBox(),
+    button.locator('span:not(.icon)').boundingBox(),
+  ]);
+  if (!buttonBox || !iconBox || !labelBox) {
+    throw new Error('The Pause refresh button, its icon, or its label has no box.');
+  }
+  const contentLeft = Math.min(iconBox.x, labelBox.x);
+  const contentRight = Math.max(iconBox.x + iconBox.width, labelBox.x + labelBox.width);
+  return {
+    left: contentLeft - buttonBox.x,
+    right: buttonBox.x + buttonBox.width - contentRight,
+  };
+}
+
+// Issue #363, finding D12 of the UI audit: the "Pause refresh" label
+// centers inside its pill, in each state. A hidden check mark once held
+// about 14 px of blank space before the label; this scenario measures
+// the left gap against the right gap of the icon-and-label group.
+test('the Pause refresh label centers inside its pill, in each state (issue #363)', async ({
+  page,
+}) => {
+  const apps = new AppsPage(page);
+  await apps.goto();
+  const pausePill = page.getByRole('button', { name: 'Pause refresh' });
+
+  const gapsBeforeClick = await pauseButtonContentGapsPx(pausePill);
+  console.log(
+    `issue #363: before the click, the left gap is ${gapsBeforeClick.left.toFixed(2)}px, the right gap is ${gapsBeforeClick.right.toFixed(2)}px.`,
+  );
+  expect(Math.abs(gapsBeforeClick.left - gapsBeforeClick.right)).toBeLessThanOrEqual(1);
+
+  await pausePill.click();
+  const resumePill = page.getByRole('button', { name: 'Resume refresh' });
+  const gapsAfterClick = await pauseButtonContentGapsPx(resumePill);
+  console.log(
+    `issue #363: after the click, the left gap is ${gapsAfterClick.left.toFixed(2)}px, the right gap is ${gapsAfterClick.right.toFixed(2)}px.`,
+  );
+  expect(Math.abs(gapsAfterClick.left - gapsAfterClick.right)).toBeLessThanOrEqual(1);
+
+  // Restores the refresh for a later test of the same serial file.
+  await resumePill.click();
+});
+
+// Issue #397, finding D21 of the UI audit: the header band keeps the
+// brand mark, the nav pills, and the account control on one row at a
+// phone width. The account-menu row of issue #433 stays as its own row
+// below, so the whole header holds two rows, not three.
+test('the header band holds two rows, not three, at 390px width (issue #397)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  const apps = new AppsPage(page);
+  await apps.goto();
+
+  const band = page.locator('header.band');
+  const brand = page.locator('.band-row .brand');
+  const nav = page.locator('.band-row app-main-nav nav');
+  const accountButton = page.locator('.account-menu').getByRole('button', { name: 'Account' });
+  const signOutButton = page.locator('.account-menu').getByRole('button', { name: 'Sign out' });
+
+  await expect(page.locator('.account-email')).toBeHidden();
+  await expect(accountButton).toBeVisible();
+
+  const [bandBox, brandBox, navBox, accountButtonBox, signOutBox] = await Promise.all([
+    band.boundingBox(),
+    brand.boundingBox(),
+    nav.boundingBox(),
+    accountButton.boundingBox(),
+    signOutButton.boundingBox(),
+  ]);
+  if (!bandBox || !brandBox || !navBox || !accountButtonBox || !signOutBox) {
+    throw new Error('The band, the brand mark, the nav, or an account control has no box.');
+  }
+  console.log(
+    `issue #397: the band height is ${bandBox.height}px; the brand box is y=${brandBox.y} h=${brandBox.height}, the nav box is y=${navBox.y} h=${navBox.height}, the account menu top is ${signOutBox.y}px.`,
+  );
+
+  // Two vertical ranges overlap when each box starts above the other
+  // box's bottom edge; a shared row shows this overlap, even when the
+  // two boxes center at different heights (a 28px icon beside a 44px
+  // nav pill, both inside one 68px row).
+  function sharesRow(
+    a: { y: number; height: number },
+    b: { y: number; height: number },
+  ): boolean {
+    return a.y < b.y + b.height && b.y < a.y + a.height;
+  }
+
+  // The brand mark and the nav pills share one row.
+  expect(sharesRow(brandBox, navBox)).toBe(true);
+  // The account button and "Sign out" share the account-menu row, with
+  // no overlap against the first row (issue #433).
+  expect(sharesRow(accountButtonBox, signOutBox)).toBe(true);
+  expect(sharesRow(brandBox, accountButtonBox)).toBe(false);
+  expect(accountButtonBox.y).toBeGreaterThanOrEqual(brandBox.y + brandBox.height);
+  // Two rows of controls, each well under the 175px the issue measured
+  // for three stacked rows.
+  expect(bandBox.height).toBeLessThan(140);
+  // The first row fits with no horizontal overflow: a `nowrap` rule
+  // alone, with no room made for it, would clip or scroll instead of
+  // sharing a row the right way.
+  expect(await pageOverflowsX(page)).toBe(false);
+
+  // The account button still gives the user the full email, on a press.
+  await accountButton.click();
+  await expect(page.locator('.account-email-popup')).toBeVisible();
+});
+
+// Issue #439, the confirmation comment of pull request #435: the mascot
+// head fill on the header band keeps a 3:1 contrast against the band, so
+// the graphic stays visible (WCAG 1.4.11). `opacity: 1` rules out a
+// faded ancestor masking the real painted color (lesson 24 of the
+// frontend brief).
+test('the mascot head fill reads 3:1 or more against the header band (issue #439)', async ({
+  page,
+}) => {
+  const apps = new AppsPage(page);
+  await apps.goto();
+  const head = page.locator('header.band app-octo-mark .head');
+  const band = page.locator('header.band');
+
+  await expect(head).toHaveCSS('opacity', '1');
+  const [headFill, bandFill] = await Promise.all([
+    head.evaluate((element) => getComputedStyle(element).fill),
+    band.evaluate((element) => getComputedStyle(element).backgroundColor),
+  ]);
+  const ratio = contrastRatio(headFill, bandFill);
+  console.log(
+    `issue #439: the mascot head fill is ${headFill} on the band ${bandFill}, a ratio of ${ratio.toFixed(2)}:1.`,
+  );
+  expect(ratio).toBeGreaterThanOrEqual(3);
+});
