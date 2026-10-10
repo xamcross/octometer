@@ -176,6 +176,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   "Last interaction" column keep their seconds. (#390)
 - Open the Edit app form in a dialog, like the delete dialog and the new-secret-key
   dialog; the table row keeps its own height. (#364)
+- Add a hover state to the `.btn` class, the nav pill, the Pause refresh pill, and
+  the global link style. (#369)
 
 ### CI
 
