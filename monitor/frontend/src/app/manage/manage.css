@@ -3,21 +3,8 @@
  * its native semantics for a screen reader. `.action-row` gives the flex
  * box to a `<div>` inside the actions cell, and never to the cell itself.
  */
-caption {
-  text-align: left;
-  font-weight: bold;
-  margin-bottom: 0.5rem;
-}
-
 table {
   min-width: 56rem;
-}
-
-th,
-td {
-  padding: 0.5rem 0.75rem;
-  text-align: left;
-  vertical-align: top;
 }
 
 /* The actions cell keeps its own width (#362): it never stretches. */

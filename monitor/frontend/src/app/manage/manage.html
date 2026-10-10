@@ -32,10 +32,12 @@
                     <div>{{ origin }}</div>
                   }
                 </td>
-                <td class="patterns">{{ patternCountOf(row) }}</td>
+                <td class="patterns num">{{ patternCountOf(row) }}</td>
                 <td class="status">
-                  <span aria-hidden="true">{{ statusIcon(row.status) }}</span>
-                  {{ statusLabel(row.status) }}
+                  <span class="badge" [class]="statusBadgeClass(row.status)">
+                    <span aria-hidden="true">{{ statusIcon(row.status) }}</span>
+                    {{ statusLabel(row.status) }}
+                  </span>
                   @if (isFailed(row.status) && row.lastError) {
                     <p class="error-text">{{ row.lastError }}</p>
                   }

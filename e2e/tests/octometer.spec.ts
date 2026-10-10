@@ -84,6 +84,40 @@ async function lineCount(locator: Locator): Promise<number> {
 }
 
 /**
+ * The computed font size of one element, in CSS px (issue #380, finding
+ * D23: the `--text-s` token moves from 12.8 px to 14 px).
+ */
+async function elementFontSizePx(page: Page, selector: string): Promise<number> {
+  const value = await page
+    .locator(selector)
+    .first()
+    .evaluate((element) => getComputedStyle(element).fontSize);
+  return parseFloat(value);
+}
+
+/**
+ * True when the page itself scrolls sideways (issue #380). `.table-scroll`
+ * keeps its own horizontal scroll by design, so this check reads the
+ * document element only, not a table.
+ */
+async function pageOverflowsX(page: Page): Promise<boolean> {
+  return page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+}
+
+/**
+ * The left padding of a table cell, in CSS px (issue #379, finding D10:
+ * the Manage table used a local `th, td { padding: 0.5rem 0.75rem }`
+ * rule, 12px on the left, instead of the shared `.panel th, .panel td`
+ * rule of styles.css, 16px on the left).
+ */
+async function cellPaddingLeftPx(locator: Locator): Promise<number> {
+  const value = await locator.evaluate((element) => getComputedStyle(element).paddingLeft);
+  return parseFloat(value);
+}
+
+/**
  * One serial file, one shared app (decision 5). The scenarios run in
  * this fixed order because each one reads the state that an earlier one
  * wrote: the app id of scenario (a), the click totals of scenario (b).
@@ -121,14 +155,22 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     // touches `.panel caption` (styles.css), so the same number holds
     // at both.
     expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
+
+    // Issue #380, finding D23 of the UI audit: the `--text-s` token
+    // renders at 14 px, at 1280 px and at 390 px, with no new page
+    // overflow at the narrow width.
+    expect(await elementFontSizePx(page, '#manage-caption')).toBeCloseTo(14, 1);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
+    expect(await elementFontSizePx(page, '#manage-caption')).toBeCloseTo(14, 1);
+    expect(await pageOverflowsX(page)).toBe(false);
     await page.setViewportSize({ width: 1280, height: 720 });
 
     // Issue #384, finding D25: the disabled Delete button shows a dashed
     // border and no opacity change, and its text stays at 4.5:1 or more
     // against its fill. The dialog closes with Cancel, so the demo app
-    // of this serial file stays for every later scenario.
+    // of this serial file stays for every later scenario. `demoManageRow`
+    // is the row this scenario just created above.
     const demoManageRow = manage.row('demo');
     await manage.openDeleteDialog(demoManageRow);
     const confirmDeleteButton = manage.deleteConfirmButton(demoManageRow);
@@ -137,6 +179,17 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await expect(confirmDeleteButton).toHaveCSS('opacity', '1');
     expect(await disabledButtonContrastRatio(confirmDeleteButton)).toBeGreaterThanOrEqual(4.5);
     await manage.cancelDeleteDialog(demoManageRow);
+
+    // Issue #379, finding D10: the Manage table cell padding, the Status
+    // badge, and the Patterns alignment now match the apps table, at a
+    // desktop width and at a narrow width.
+    await expect(manage.statusBadge(demoManageRow)).toHaveCount(1);
+    expect(await cellPaddingLeftPx(manage.patternsCell(demoManageRow))).toBe(16);
+    await expect(manage.patternsCell(demoManageRow)).toHaveCSS('text-align', 'right');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(manage.statusBadge(demoManageRow)).toHaveCount(1);
+    expect(await cellPaddingLeftPx(manage.patternsCell(demoManageRow))).toBe(16);
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     // The app id comes from `GET /api/apps`, through the request context
     // of the test, never from the page response of the POST (correction
@@ -186,6 +239,15 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     // Issue #376: the apps table caption keeps clear space above its
     // text (the acceptance criterion's own end-to-end assertion).
     expect(await captionTopPaddingPx(page, 'apps-caption')).toBeGreaterThanOrEqual(12);
+
+    // Issue #380, finding D23 of the UI audit: the status badge renders
+    // at the `--text-s` size, 14 px, at 1280 px and at 390 px, with no
+    // new page overflow at the narrow width.
+    expect(await elementFontSizePx(page, '.badge')).toBeCloseTo(14, 1);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await elementFontSizePx(page, '.badge')).toBeCloseTo(14, 1);
+    expect(await pageOverflowsX(page)).toBe(false);
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     // Issue #346: the apps page shows one breadcrumb item that repeats
     // the "Apps" heading, so the component hides the whole nav here.
@@ -246,6 +308,12 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
 
     // Issue #376: the users table caption keeps clear space above its text.
     expect(await captionTopPaddingPx(page, 'users-caption')).toBeGreaterThanOrEqual(12);
+
+    // Issue #380: the users view (the filter button, the pager, both
+    // `.btn-small`) keeps no new page overflow at a narrow width.
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await pageOverflowsX(page)).toBe(false);
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     // Issue #346: the users view keeps its two-item breadcrumb, with a
     // link back to the apps page.
@@ -746,6 +814,32 @@ test('the pager shows for a two-page result, with no aria-current (issue #387, D
   await firstPages.goto(appId);
   await expect(page.locator('nav.pager')).toContainText('Page 1 of 2', { timeout: CHAIN_WAIT_MS });
   await expect(page.locator('nav.pager [aria-current]')).toHaveCount(0);
+});
+
+// Issue #392 (D18 of the UI audit of 2026-10-09): the elements caption
+// names the subject of the selected view. This scenario writes one real
+// click through the collector route (never a mock), with a known
+// sessionId, and opens the elements view filtered to that session.
+test('the elements caption names "this session" on a session view (issue #392, D18)', async ({
+  page,
+  request,
+}) => {
+  const monitorUrl = readMonitorUrl();
+  const { appId, appKey, origin } = await registerPagerApp(
+    request,
+    monitorUrl,
+    'session-caption-app',
+  );
+  const marker = 392;
+  await sendUserAndPage(request, monitorUrl, origin, appKey, marker);
+
+  const elements = new ElementsPage(page);
+  await elements.gotoBySession(appId, pagerSessionId(marker));
+  await elements.expectRow('pager-probe.click', { clicks: 1, sessions: 1 }, CHAIN_WAIT_MS);
+  await expect(elements.caption()).toHaveText(
+    'The elements that this session touched, with the click totals of each element.',
+    { timeout: CHAIN_WAIT_MS },
+  );
 });
 
 // Issue #377, finding D9 of the UI audit: the table sits close to the

@@ -152,6 +152,11 @@ export class ManagePage {
     return row.locator('td.patterns');
   }
 
+  /** The status badge span of one row (issue #379, finding D10). */
+  statusBadge(row: ReturnType<ManagePage['row']>) {
+    return row.locator('td.status .badge');
+  }
+
   /** Renames the app of the open edit form, and saves it (design decision D48). */
   async renameAndSave(row: ReturnType<ManagePage['row']>, newName: string): Promise<void> {
     await row.getByLabel('Name', { exact: true }).fill(newName);
