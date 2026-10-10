@@ -149,6 +149,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   the delete request is in flight; the label returns on an error. (#393)
 - Move "Sign out" into its own account menu, clear of the row of nav pills, so the
   button look and the pill look never mix in one row. (#360)
+- Give the Filter button and each pager button the 44 px minimum height of a
+  button, on the users, the sessions, and the first-pages view. (#368)
 
 ### CI
 
