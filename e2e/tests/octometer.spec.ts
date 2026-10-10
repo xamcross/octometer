@@ -1054,11 +1054,11 @@ test('Edit app opens a dialog, with no row growth and no shift of the row below 
   await expect(manage.statusBadge(secondRow)).not.toHaveText(/Not polled yet/);
 
   // Issue #364, the correction of pull request #465. A dialog open can
-  // scroll the whole page by a few pixels on the CI runner.
-  // `overflow-anchor: none` on `body` (`styles.css`) removes the cause.
-  // The row-below check now reads the row's own place against the
-  // table, not its raw `y`. The check then stays true of a static row
-  // through a window scroll the test does not control.
+  // scroll the whole page by a few pixels on the CI runner. The cause
+  // is unknown: a 12 px document scroll at the dialog open on the
+  // Linux runner. Each row check below reads a row's own place
+  // against the table, not its raw `y`. A check then stays true of a
+  // static row through a window scroll the test does not control.
   const table = page.locator('main table').first();
   const tableBoxBefore = await table.boundingBox();
   const firstRowBoxBefore = await firstRow.boundingBox();
@@ -1097,11 +1097,12 @@ test('Edit app opens a dialog, with no row growth and no shift of the row below 
   const renamedRow = manage.row(renamedTo);
   await expect(renamedRow).toBeVisible();
 
+  const tableBoxAfter = await table.boundingBox();
   const secondRowBoxAfter = await secondRow.boundingBox();
-  if (!secondRowBoxAfter) {
+  if (!tableBoxAfter || !secondRowBoxAfter) {
     throw new Error('The row below has no box after the save.');
   }
-  expect(secondRowBoxAfter.y).toBe(secondRowBoxBefore.y);
+  expect(secondRowBoxAfter.y - tableBoxAfter.y).toBe(secondRowBoxBefore.y - tableBoxBefore.y);
 });
 
 /** A fixed, well-formed UUID for one test request's `sessionId` field (the form of `collector.spec.ts`). */
