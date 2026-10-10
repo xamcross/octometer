@@ -31,6 +31,8 @@
   --sunny: #ffd93d;
   --seaweed: #6ee7b7;
   --octo: #a78bfa;
+  --octo-head-band: #423a57;
+  --octo-face-band: #ffffff;
   --on-bright: #241f3d;
   --backdrop: rgb(36 31 61 / 0.6);
 
@@ -568,10 +570,28 @@ dialog {
 
 /*
  * The octo fill of the mark's head vanishes on the octo band, so the
- * band gives the head the paper fill instead. `app.css` cannot reach
+ * band gives the head its own fill instead. `app.css` cannot reach
  * this child template of `app-octo-mark`, because Angular scopes a
  * component style to its own component; this rule stays here, unscoped.
+ *
+ * `--octo-head-band` reads 3:1 or more against `--octo` (WCAG 1.4.11
+ * for a graphic), in each color scheme (issue #439). A plain white
+ * fill read only 2.72:1 against the light `--octo`.
+ *
+ * `--octo-head-band` fails 3:1 against `--on-bright`, the eye fill and
+ * the smile stroke of the component style (1.48:1, in each scheme).
+ * The band gives the eye and the smile the `--octo-face-band` fill
+ * instead (BLOCKER 1 of the review of pull request #459). White reads
+ * 10.6:1 against `--octo-head-band`, in each color scheme.
  */
 .band app-octo-mark .head {
-  fill: var(--paper);
+  fill: var(--octo-head-band);
+}
+
+.band app-octo-mark .eye {
+  fill: var(--octo-face-band);
+}
+
+.band app-octo-mark .smile {
+  stroke: var(--octo-face-band);
 }
