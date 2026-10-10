@@ -84,6 +84,29 @@ async function lineCount(locator: Locator): Promise<number> {
 }
 
 /**
+ * The computed font size of one element, in CSS px (issue #380, finding
+ * D23: the `--text-s` token moves from 12.8 px to 14 px).
+ */
+async function elementFontSizePx(page: Page, selector: string): Promise<number> {
+  const value = await page
+    .locator(selector)
+    .first()
+    .evaluate((element) => getComputedStyle(element).fontSize);
+  return parseFloat(value);
+}
+
+/**
+ * True when the page itself scrolls sideways (issue #380). `.table-scroll`
+ * keeps its own horizontal scroll by design, so this check reads the
+ * document element only, not a table.
+ */
+async function pageOverflowsX(page: Page): Promise<boolean> {
+  return page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+}
+
+/**
  * One serial file, one shared app (decision 5). The scenarios run in
  * this fixed order because each one reads the state that an earlier one
  * wrote: the app id of scenario (a), the click totals of scenario (b).
@@ -121,8 +144,15 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     // touches `.panel caption` (styles.css), so the same number holds
     // at both.
     expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
+
+    // Issue #380, finding D23 of the UI audit: the `--text-s` token
+    // renders at 14 px, at 1280 px and at 390 px, with no new page
+    // overflow at the narrow width.
+    expect(await elementFontSizePx(page, '#manage-caption')).toBeCloseTo(14, 1);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
+    expect(await elementFontSizePx(page, '#manage-caption')).toBeCloseTo(14, 1);
+    expect(await pageOverflowsX(page)).toBe(false);
     await page.setViewportSize({ width: 1280, height: 720 });
 
     // Issue #384, finding D25: the disabled Delete button shows a dashed
@@ -187,6 +217,15 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     // text (the acceptance criterion's own end-to-end assertion).
     expect(await captionTopPaddingPx(page, 'apps-caption')).toBeGreaterThanOrEqual(12);
 
+    // Issue #380, finding D23 of the UI audit: the status badge renders
+    // at the `--text-s` size, 14 px, at 1280 px and at 390 px, with no
+    // new page overflow at the narrow width.
+    expect(await elementFontSizePx(page, '.badge')).toBeCloseTo(14, 1);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await elementFontSizePx(page, '.badge')).toBeCloseTo(14, 1);
+    expect(await pageOverflowsX(page)).toBe(false);
+    await page.setViewportSize({ width: 1280, height: 720 });
+
     // Issue #346: the apps page shows one breadcrumb item that repeats
     // the "Apps" heading, so the component hides the whole nav here.
     const breadcrumb = new BreadcrumbPart(page);
@@ -246,6 +285,12 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
 
     // Issue #376: the users table caption keeps clear space above its text.
     expect(await captionTopPaddingPx(page, 'users-caption')).toBeGreaterThanOrEqual(12);
+
+    // Issue #380: the users view (the filter button, the pager, both
+    // `.btn-small`) keeps no new page overflow at a narrow width.
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await pageOverflowsX(page)).toBe(false);
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     // Issue #346: the users view keeps its two-item breadcrumb, with a
     // link back to the apps page.

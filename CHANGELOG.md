@@ -138,6 +138,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   narrow width too. (#394)
 - Change the Users filter form to a grid: the filter input and the Filter button stay
   on one row from 360 px wide up, and the input keeps its 44 px minimum height. (#374)
+- Raise the token `--text-s` from 12.8 px to 14 px, so the table caption, the status
+  badge, the gap line, the "Data from" line, the account email, the refresh-bar text,
+  `.btn-small`, and each form hint read larger. (#380)
 
 ### CI
 
