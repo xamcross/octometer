@@ -524,29 +524,29 @@ stays stable between runs. The suite never touches the owner's own
 containers: the demo app container of a manual run, `demo-app-mongo-1`
 on port 27117, belongs to a different project.
 
-`tools/demo-app/docker-compose.yml` pulls the MongoDB image from the
-Amazon ECR Public mirror (`public.ecr.aws/docker/library/mongo`), not
-from Docker Hub. Docker Hub refuses an anonymous pull past its daily
-limit. This is the image that each e2e run and each manual demo run
-pulls today. Part B of issue #456 points this file at the GitHub
-Container Registry copy of the section below.
+`tools/demo-app/docker-compose.yml` reads the MongoDB image from the
+variable `OCTOMETER_MONGO_IMAGE`. Each e2e run and each manual demo run
+uses this variable today.
 
 ### The two image sources
 
 Issue #456 moves the CI pull of the MongoDB image off the Amazon ECR
 Public mirror. The move has two parts. Part A adds the workflow
-`mirror-images.yml` and a login step of the `e2e` job. Part A pulls no
-image from the GitHub Container Registry yet.
+`mirror-images.yml` and a login step of the `e2e` job.
 
 A manual run of the workflow (`workflow_dispatch`) pulls the tag from
 the Amazon ECR Public mirror. It pushes the tag into the GitHub
 Container Registry, as `ghcr.io/xamcross/octometer/mongo:8.0`. The job
 logs in first, so the push and a later pull work on a private package
-too. Part B points `tools/demo-app/docker-compose.yml` at this GHCR
-copy, so the `e2e` job no longer reads the Amazon ECR Public mirror.
-The Amazon ECR Public mirror stays the source that the workflow copies
-from. The Amazon ECR Public mirror also stays the source for a
-developer who pulls the image by hand.
+too.
+
+Part B sets the variable `OCTOMETER_MONGO_IMAGE`. The default is the
+Amazon ECR Public mirror, `public.ecr.aws/docker/library/mongo:8.0`,
+the source for a developer machine with no GHCR login. The CI job
+`e2e` sets the variable to the GitHub Container Registry copy,
+`ghcr.io/xamcross/octometer/mongo:8.0`, so the job no longer reads the
+Amazon ECR Public mirror. The Amazon ECR Public mirror stays the
+source that the workflow copies from.
 
 <!--
 Sources:
