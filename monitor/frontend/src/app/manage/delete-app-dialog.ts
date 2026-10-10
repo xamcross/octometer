@@ -120,6 +120,7 @@ export class DeleteAppDialog {
       return;
     }
     this.pending.set(true);
+    this.announcer.announce('Deleting…');
     this.errorMessage.set(null);
     this.http
       .delete<void>(`/api/apps/${this.app().appId}`, { headers: DELETE_HEADERS, body: {} })
