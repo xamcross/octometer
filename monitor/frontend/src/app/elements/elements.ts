@@ -97,6 +97,22 @@ export class Elements {
     return userId ? `Elements of User ${userId}` : 'Elements';
   });
 
+  /**
+   * The caption subject text. It follows the same three branches as
+   * `heading()`, so the table caption always names the subject of the
+   * selected view (issue #392, finding D18 of the UI audit of
+   * 2026-10-09).
+   */
+  protected readonly captionSubject = computed(() => {
+    if (this.sessionId()) {
+      return 'this session';
+    }
+    if (this.anonymous() === 'true') {
+      return 'an anonymous visit';
+    }
+    return 'this user';
+  });
+
   /** The zone name for the "Last interaction" column header (D31). */
   protected readonly zoneName = readZoneName();
 
