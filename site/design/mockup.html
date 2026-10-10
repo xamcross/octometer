@@ -5,7 +5,7 @@
   --ink:#241F3D; --ink-soft:#4B4763; --paper:#FFFFFF; --paper-raised:#FFFFFF;
   --shallows:#E6F3FF; --shallows-deep:#BFDFFF;
   --coral:#FF6B6B; --sunny:#FFD93D; --seaweed:#6EE7B7; --octo:#A78BFA; --on-bright:#241F3D;
-  --link-underline:#D93F3F; --focus-ring:#967200;
+  --link-underline:#D93F3F; --focus-ring:var(--sunny); --focus-halo:var(--on-bright);
   --radius-panel:20px; --radius-control:12px; --radius-pill:999px;
   --line-panel:3px solid var(--ink); --line-control:2px solid var(--ink);
   --shadow-panel:6px 6px 0 var(--ink); --shadow-control:3px 3px 0 var(--ink);
@@ -20,14 +20,14 @@
   :root:not([data-theme="light"]){
     --ink:#F2EFFF; --ink-soft:#B3ADD4; --paper:#241F3D; --paper-raised:#312B57;
     --shallows:#141A2E; --shallows-deep:#232B45;
-    --link-underline:var(--coral); --focus-ring:var(--sunny);
+    --link-underline:var(--coral); --focus-ring:var(--sunny); --focus-halo:var(--ink);
     color-scheme:dark;
   }
 }
 :root[data-theme="dark"]{
   --ink:#F2EFFF; --ink-soft:#B3ADD4; --paper:#241F3D; --paper-raised:#312B57;
   --shallows:#141A2E; --shallows-deep:#232B45;
-  --link-underline:var(--coral); --focus-ring:var(--sunny);
+  --link-underline:var(--coral); --focus-ring:var(--sunny); --focus-halo:var(--ink);
   color-scheme:dark;
 }
 *{box-sizing:border-box}
@@ -191,8 +191,8 @@ label{font-weight:700}
 .foot-meta{display:grid;gap:var(--space-2);font-size:var(--text-s)}
 
 /* the quality floor */
-:focus-visible{outline:3px solid var(--focus-ring);outline-offset:2px;box-shadow:0 0 0 7px var(--ink)}
-.btn:focus-visible{box-shadow:var(--shadow-control),0 0 0 7px var(--ink)}
+:focus-visible{outline:3px solid var(--focus-ring);outline-offset:2px;box-shadow:0 0 0 7px var(--focus-halo)}
+.btn:focus-visible{box-shadow:var(--shadow-control),0 0 0 7px var(--focus-halo)}
 .js .node{opacity:0;transform:translateY(10px);transition:opacity 300ms ease-out,transform 300ms ease-out;transition-delay:calc(var(--i)*90ms)}
 .js .node-in{opacity:1;transform:none}
 @media (prefers-reduced-motion:reduce){

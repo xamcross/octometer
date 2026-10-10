@@ -82,14 +82,15 @@ test('the top bar carries the mark, the wordmark, and the links, and fits at 128
 });
 
 /*
- * Issue #409: the link underline and the focus outline must each clear a
- * 3:1 contrast against the page, in the light scheme and in the dark
- * scheme. The check reads the real computed style of a plain link (the
- * "How it works" link holds no ".btn" class, so it keeps the global "a"
- * underline and the global ":focus-visible" outline); "page.hover()" is
- * not needed. Each check also reads the element's own "opacity", so a
- * future transparent state cannot hide a real contrast failure behind a
- * ratio that math alone says is fine.
+ * Issue #409, BLOCKER 2 of the review of pull request #441: the focus
+ * outline keeps the brand sunny colour in both schemes. The token
+ * "--focus-halo" carries the 3:1 contrast against the page instead (the
+ * outer ring of the box-shadow). The check reads the real computed style
+ * of a plain link (the "How it works" link holds no ".btn" class, so it
+ * keeps the global "a" underline and the global ":focus-visible" ring);
+ * "page.hover()" is not needed. Each check also reads the element's own
+ * "opacity", so a future transparent state cannot hide a real contrast
+ * failure behind a ratio that math alone says is fine.
  */
 const toLinear = (channel: number) => {
   const c = channel / 255;
@@ -111,14 +112,14 @@ const ratioOf = (lumA: number, lumB: number) => {
   return (lighter + 0.05) / (darker + 0.05);
 };
 
-async function measureLinkAndOutline(page: import('@playwright/test').Page) {
+async function measureLinkAndHalo(page: import('@playwright/test').Page) {
   const tokens = await page.evaluate(() => {
     const root = getComputedStyle(document.documentElement);
     return {
       paper: root.getPropertyValue('--paper').trim(),
       shallows: root.getPropertyValue('--shallows').trim(),
       linkUnderline: root.getPropertyValue('--link-underline').trim(),
-      focusRing: root.getPropertyValue('--focus-ring').trim(),
+      focusHalo: root.getPropertyValue('--focus-halo').trim(),
     };
   });
   const howLink = page.getByRole('link', { name: 'How it works' });
@@ -128,39 +129,43 @@ async function measureLinkAndOutline(page: import('@playwright/test').Page) {
   }));
   await page.keyboard.press('Tab');
   await expect(howLink).toBeFocused();
-  const outline = await howLink.evaluate((el) => ({
-    color: getComputedStyle(el).outlineColor,
-    opacity: getComputedStyle(el).opacity,
-  }));
+  // The halo sits in the "0px 0px 0px 7px" layer of the box-shadow
+  // (site.css); its own colour comes just before that layer.
+  const halo = await howLink.evaluate((el) => {
+    const style = getComputedStyle(el);
+    const match = style.boxShadow.match(/rgb\([^)]+\)(?=\s+0px 0px 0px 7px)/);
+    return { color: match ? match[0] : null, opacity: style.opacity };
+  });
   const topbarBackground = await page.evaluate(
     () => getComputedStyle(document.querySelector('.topbar')!).backgroundColor,
   );
-  return { tokens, decoration, outline, topbarBackground };
+  return { tokens, decoration, halo, topbarBackground };
 }
 
-test.describe('the link underline and the focus outline contrast (issue #409)', () => {
+test.describe('the link underline and the focus halo contrast (issue #409)', () => {
   test('the light scheme clears a 3:1 contrast against the page at 1280 px', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/');
-    const { tokens, decoration, outline, topbarBackground } = await measureLinkAndOutline(page);
+    const { tokens, decoration, halo, topbarBackground } = await measureLinkAndHalo(page);
 
     expect(decoration.opacity).toBe('1');
-    expect(outline.opacity).toBe('1');
+    expect(halo.opacity).toBe('1');
+    expect(halo.color).not.toBeNull();
 
-    // The token-level check: "--link-underline" and "--focus-ring" against
+    // The token-level check: "--link-underline" and "--focus-halo" against
     // both page backgrounds (the issue names "--paper" and "--shallows").
     expect(ratioOf(hexLuminance(tokens.linkUnderline), hexLuminance(tokens.paper))).toBeGreaterThanOrEqual(3);
     expect(ratioOf(hexLuminance(tokens.linkUnderline), hexLuminance(tokens.shallows))).toBeGreaterThanOrEqual(3);
-    expect(ratioOf(hexLuminance(tokens.focusRing), hexLuminance(tokens.paper))).toBeGreaterThanOrEqual(3);
-    expect(ratioOf(hexLuminance(tokens.focusRing), hexLuminance(tokens.shallows))).toBeGreaterThanOrEqual(3);
+    expect(ratioOf(hexLuminance(tokens.focusHalo), hexLuminance(tokens.paper))).toBeGreaterThanOrEqual(3);
+    expect(ratioOf(hexLuminance(tokens.focusHalo), hexLuminance(tokens.shallows))).toBeGreaterThanOrEqual(3);
 
-    // The rendered-page check: the real "text-decoration-color" and
-    // "outline-color" of the link, against the bar it sits on.
+    // The rendered-page check: the real "text-decoration-color" of the
+    // link and the real halo colour of its focus ring, against the bar.
     expect(
       ratioOf(rgbLuminance(decoration.color), rgbLuminance(topbarBackground)),
     ).toBeGreaterThanOrEqual(3);
     expect(
-      ratioOf(rgbLuminance(outline.color), rgbLuminance(topbarBackground)),
+      ratioOf(rgbLuminance(halo.color as string), rgbLuminance(topbarBackground)),
     ).toBeGreaterThanOrEqual(3);
   });
 
@@ -170,21 +175,22 @@ test.describe('the link underline and the focus outline contrast (issue #409)', 
     test('the dark scheme clears a 3:1 contrast against the page at 1280 px', async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 720 });
       await page.goto('/');
-      const { tokens, decoration, outline, topbarBackground } = await measureLinkAndOutline(page);
+      const { tokens, decoration, halo, topbarBackground } = await measureLinkAndHalo(page);
 
       expect(decoration.opacity).toBe('1');
-      expect(outline.opacity).toBe('1');
+      expect(halo.opacity).toBe('1');
+      expect(halo.color).not.toBeNull();
 
       expect(ratioOf(hexLuminance(tokens.linkUnderline), hexLuminance(tokens.paper))).toBeGreaterThanOrEqual(3);
       expect(ratioOf(hexLuminance(tokens.linkUnderline), hexLuminance(tokens.shallows))).toBeGreaterThanOrEqual(3);
-      expect(ratioOf(hexLuminance(tokens.focusRing), hexLuminance(tokens.paper))).toBeGreaterThanOrEqual(3);
-      expect(ratioOf(hexLuminance(tokens.focusRing), hexLuminance(tokens.shallows))).toBeGreaterThanOrEqual(3);
+      expect(ratioOf(hexLuminance(tokens.focusHalo), hexLuminance(tokens.paper))).toBeGreaterThanOrEqual(3);
+      expect(ratioOf(hexLuminance(tokens.focusHalo), hexLuminance(tokens.shallows))).toBeGreaterThanOrEqual(3);
 
       expect(
         ratioOf(rgbLuminance(decoration.color), rgbLuminance(topbarBackground)),
       ).toBeGreaterThanOrEqual(3);
       expect(
-        ratioOf(rgbLuminance(outline.color), rgbLuminance(topbarBackground)),
+        ratioOf(rgbLuminance(halo.color as string), rgbLuminance(topbarBackground)),
       ).toBeGreaterThanOrEqual(3);
     });
   });

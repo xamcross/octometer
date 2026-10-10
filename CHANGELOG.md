@@ -54,8 +54,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Let the full-size dialog hold the capture at its own natural width, with a pan, so
   the row text reads at 12.8 px at 390 px too. (#359, the correction round of pull
   request #424)
-- Raise the link underline and the focus outline to a 3:1 contrast against the page
-  in the light scheme, with new tokens `--link-underline` and `--focus-ring`. (#409)
+- Raise the link underline and the focus halo to a 3:1 contrast against the page in
+  the light scheme, with the new tokens `--link-underline` and `--focus-halo`; the
+  focus outline keeps the brand sunny colour in both schemes. (#409)
 - Set the small text token of the design mock to 14 px, the same size as the site
   token. (#425)
 - Add a dark-scheme row for each light pair of the contrast script, so a dark-scheme
