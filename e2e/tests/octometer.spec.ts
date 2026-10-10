@@ -127,37 +127,6 @@ async function pageOverflowsX(page: Page): Promise<boolean> {
 }
 
 /**
- * The darkness of one edge of `.table-scroll`, in a 0 to 765 scale
- * (issue #371, finding D5: the CSS-only scroll-shadow cue). It
- * screenshots the element, decodes the PNG through the browser's own
- * `<img>` decoder (never a hand-rolled parser), and reads one pixel a
- * few px inside the given edge. A value near 0 means a plain `--paper`
- * pixel (the mask covers the shadow, so no cue shows); a higher value
- * means the tinted shadow shows through (the cue is visible).
- */
-async function edgeShadowDarkness(locator: Locator, side: 'left' | 'right'): Promise<number> {
-  const buffer = await locator.screenshot();
-  const dataUrl = `data:image/png;base64,${buffer.toString('base64')}`;
-  return locator.evaluate(async (_element, { dataUrl: url, side: edge }) => {
-    const img = new Image();
-    img.src = url;
-    await img.decode();
-    const canvas = document.createElement('canvas');
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    const context = canvas.getContext('2d');
-    if (!context) {
-      throw new Error('The probe canvas has no 2d context.');
-    }
-    context.drawImage(img, 0, 0);
-    const x = edge === 'left' ? 3 : img.naturalWidth - 4;
-    const y = Math.floor(img.naturalHeight / 2);
-    const [red, green, blue] = context.getImageData(x, y, 1, 1).data;
-    return 255 * 3 - (red + green + blue);
-  }, { dataUrl, side });
-}
-
-/**
  * The left padding of a table cell, in CSS px (issue #379, finding D10:
  * the Manage table used a local `th, td { padding: 0.5rem 0.75rem }`
  * rule, 12px on the left, instead of the shared `.panel th, .panel td`
@@ -618,8 +587,18 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
    * fading edge that shows only on the side that still holds a clipped
    * column. `apps.html` moved the Status column from index 6 to index 2;
    * `apps-page.ts` reads it at cell index 0, not index 4, to match.
+   *
+   * A pixel probe of the rendered cue (a screenshot decoded through
+   * `<img>.decode()`) gave an `EncodingError` in the CI runner's
+   * Chromium. This scenario checks the CSS mechanism and the layout
+   * instead: the clip (`scrollWidth > clientWidth`), the Status header
+   * inside the unscrolled view (the goal of the sticky first column),
+   * and the four-layer `background-image` with the local/scroll
+   * attachment split that `styles.css` gives `.table-scroll` (the cue
+   * itself: two `--paper` masks tied to the table's own content, two
+   * tinted shadows tied to the visible viewport).
    */
-  test('the apps table shows a scroll cue only on the clipped side, and the Status column stays reachable at 390px (issue #371, D5)', async ({
+  test('the apps table carries the CSS scroll-cue layers, and the Status column stays reachable at 390px (issue #371, D5)', async ({
     page,
   }) => {
     const apps = new AppsPage(page);
@@ -654,31 +633,25 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     );
     expect(statusOffsetInView).toBeLessThan(scrollBox.width);
 
-    // At scrollLeft 0, no column precedes the App column: the left cue
-    // stays hidden. Columns still follow past the right edge: the right
-    // cue shows.
-    await tableScroll.evaluate((element) => {
-      element.scrollLeft = 0;
+    // The cue mechanism itself: two opaque masks (`local`, tied to the
+    // table's own content) over two tinted shadows (`scroll`, tied to
+    // the viewport), four `linear-gradient` layers in all. No script
+    // runs this cue; the browser shows or hides each shadow by itself,
+    // from the scroll position, so this check reads the wired-up CSS,
+    // not a rendered pixel.
+    const cueStyle = await tableScroll.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        backgroundImage: style.backgroundImage,
+        backgroundAttachment: style.backgroundAttachment,
+      };
     });
-    const leftAtStart = await edgeShadowDarkness(tableScroll, 'left');
-    const rightAtStart = await edgeShadowDarkness(tableScroll, 'right');
     console.log(
-      `issue #371, D5: at scrollLeft 0, the left cue reads ${leftAtStart}, the right cue reads ${rightAtStart} (0-765 scale).`,
+      `issue #371, D5: .table-scroll background-attachment is "${cueStyle.backgroundAttachment}".`,
     );
-    expect(rightAtStart).toBeGreaterThan(leftAtStart + 20);
-
-    // Scrolled to the far right, the cue flips: no column follows the
-    // last one, so the right cue hides; the App column scrolled out of
-    // view, so the left cue shows.
-    await tableScroll.evaluate((element) => {
-      element.scrollLeft = element.scrollWidth;
-    });
-    const leftAtEnd = await edgeShadowDarkness(tableScroll, 'left');
-    const rightAtEnd = await edgeShadowDarkness(tableScroll, 'right');
-    console.log(
-      `issue #371, D5: at the far scroll position, the left cue reads ${leftAtEnd}, the right cue reads ${rightAtEnd} (0-765 scale).`,
-    );
-    expect(leftAtEnd).toBeGreaterThan(rightAtEnd + 20);
+    const layerCount = (cueStyle.backgroundImage.match(/linear-gradient\(/g) ?? []).length;
+    expect(layerCount).toBe(4);
+    expect(cueStyle.backgroundAttachment.replace(/\s+/g, '')).toBe('local,local,scroll,scroll');
 
     await page.setViewportSize({ width: 1280, height: 720 });
   });
@@ -2168,8 +2141,34 @@ test('a tap on an apps-table row leaves no sticky hover fill in a touch context,
     storageState: STORAGE_STATE_FILE,
   });
   const touchPage = await touchContext.newPage();
+  // A second context's page starts as a background document in
+  // Chromium (`document.hidden` is true): `poll-store.ts` gates every
+  // request, the first one too, on `!document.hidden` (the lesson of
+  // issue #164), so the apps table would never load a row at all.
+  // `bringToFront()` makes this page the visible one.
+  await touchPage.bringToFront();
   const touchApps = new AppsPage(touchPage);
   await touchApps.goto();
+  // Every cell of a data row opens the name link on a click (D28), and
+  // a real tap fires that click, the same way a mouse click does: the
+  // row then navigates away before the 500ms wait, and the next
+  // locator call waits forever for a row that is gone. A capture-phase
+  // listener on the document blocks the click's own default action (and
+  // its bubble to the row's own handler) before either one runs, so the
+  // row stays in place; a tap still sets the real `:hover` state
+  // through Chromium's own touch-to-pointer stack, the state this
+  // scenario measures, because that state comes from the pointer input
+  // itself, not from the click event.
+  await touchPage.evaluate(() => {
+    document.addEventListener(
+      'click',
+      (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      },
+      { capture: true },
+    );
+  });
   const touchCell = touchApps.rowOf('demo').row.locator('td').first();
   const touchRest = await touchCell.evaluate((element) => getComputedStyle(element).backgroundColor);
   await touchCell.tap();
