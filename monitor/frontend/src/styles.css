@@ -112,10 +112,11 @@
  * pill stays at 13.92:1 or more in both schemes.
  *
  * `--coral-edge` is the border token of `.form-error` (issue #383, the
- * correction round of pull request #450). `--coral-deep` on `--paper-raised`
- * (`#312b57`) reads 2.86:1 in the dark scheme, under the 3:1 floor of WCAG
- * 1.4.11. `#ff6b6b` raises the pair to 4.69:1 on `#312b57`, 6.06:1 on
- * `#1d1a33`, and 6.58:1 on `#14122a`.
+ * correction round of pull request #450) and of `.list-error` (issue
+ * #453). `--coral-deep` on `--paper-raised` (`#312b57`) reads 2.86:1 in
+ * the dark scheme, under the 3:1 floor of WCAG 1.4.11. `#ff6b6b` raises
+ * the pair to 4.69:1 on `#312b57`, 6.06:1 on `#1d1a33`, and 6.58:1 on
+ * `#14122a`.
  */
 @media (prefers-color-scheme: dark) {
   :root {
@@ -267,10 +268,18 @@ a {
  * it moves here so the apps view, the users view, the sessions view, and
  * the first-pages view can show the same pattern, with one rule, not
  * five copies.
+ *
+ * The text itself inherits `--ink` from `body`, so it already reads
+ * 13.9:1 or more in each scheme (WCAG 1.4.3). The left border is the
+ * non-text error cue, under WCAG 1.4.11: `var(--coral)` read 2.46:1 on
+ * `--shallows` in the light scheme, under the 3:1 floor (issue #453,
+ * the review comment of pull request #450). `--coral-edge`, the same
+ * token that fixes `.form-error` (issue #383), raises the border to
+ * 4.04:1 in the light scheme and keeps 6.58:1 in the dark scheme.
  */
 .list-error {
   padding-left: 12px;
-  border-left: 3px solid var(--coral);
+  border-left: 3px solid var(--coral-edge);
   font-weight: 700;
 }
 

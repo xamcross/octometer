@@ -200,6 +200,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   width; the account menu keeps its own row, below. (#397)
 - Raise the mascot head fill on the header band to a 3:1 contrast, in each color
   scheme, with the new token `--octo-head-band`. (#439)
+- Raise the `.list-error` left border from `--coral` to `--coral-edge`. The error
+  state of five views now keeps 3:1 or more on the page in the light scheme. (#453)
 - Add a scroll cue to a clipped table, with a sticky first column under 40rem; move the
   Status column next to the App column of the apps table. (#371)
 - Render an app key, an element selector, and a session id in a monospace font; add a
@@ -234,6 +236,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   Docker Hub, in `monitor/backend`, `kit/jvm-mongo`, and `tools/demo-app`. (#447)
 - Scroll each clicked control into view with `behavior: 'instant'` before the click, so
   no smooth scroll moves the hero and how-it-works scenarios. (#448)
+- Focus the lightbox pan region directly and read `scrollLeft` with `expect.poll`, so the
+  keyboard-pan assertion of the lightbox scenario gives a stable result. (#461)
 
 ### Documentation
 
