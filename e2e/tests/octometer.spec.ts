@@ -1767,6 +1767,40 @@ test('the dashboard shell uses the dark tokens under prefers-color-scheme: dark 
   });
   expect(ratio(toHex(badgeColors.fg), toHex(badgeColors.bg))).toBeGreaterThanOrEqual(4.5);
 
+  // Issue #451, corrected in pull request #462 (MAJOR 1 of the review):
+  // the dark focus ring reads 3:1 or more on each of its two layers
+  // against the fill it sits next to. The "demo" row link paints the
+  // row's own `--shallows-deep` fill while the row holds focus, not the
+  // plain page background, so the assertion reads the adjacent cell's
+  // own painted background, not a literal page colour. `opacity: 1`
+  // sits beside each ratio (lesson 24 of the frontend brief).
+  const demoLink = apps.rowOf('demo').nameLink;
+  await demoLink.focus();
+  await expect(demoLink).toHaveCSS('opacity', '1');
+  const ringColors = await demoLink.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const haloMatch = style.boxShadow.match(/rgba?\([^)]+\)/);
+    const cell = element.closest('th, td');
+    const fill = cell ? getComputedStyle(cell).backgroundColor : '';
+    return { line: style.outlineColor, halo: haloMatch ? haloMatch[0] : '', fill };
+  });
+  expect(ratio(toHex(ringColors.line), toHex(ringColors.halo))).toBeGreaterThanOrEqual(3);
+  expect(ratio(toHex(ringColors.halo), toHex(ringColors.fill))).toBeGreaterThanOrEqual(3);
+
+  // BLOCKER 1 of the review of pull request #462: `.band` now gives
+  // `--focus-halo` its own value, `--on-bright`, so a focused band
+  // control reads 3:1 or more on the band fill too, not the page's own
+  // dark value (it read 1.44:1 before this fix).
+  await manageAppsPill.focus();
+  await expect(manageAppsPill).toHaveCSS('opacity', '1');
+  const bandRingColors = await manageAppsPill.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const haloMatch = style.boxShadow.match(/rgba?\([^)]+\)/);
+    return { line: style.outlineColor, halo: haloMatch ? haloMatch[0] : '' };
+  });
+  expect(ratio(toHex(bandRingColors.line), toHex(bandRingColors.halo))).toBeGreaterThanOrEqual(3);
+  expect(ratio(toHex(bandRingColors.halo), toHex(bandFill))).toBeGreaterThanOrEqual(3);
+
   // The disabled "Delete this app" button of the delete dialog
   // (`.btn[disabled]`, issue #384/#410): a shallows fill, an ink-soft
   // text, a dashed border, and no opacity change. This reads the real

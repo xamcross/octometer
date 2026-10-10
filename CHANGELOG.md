@@ -74,6 +74,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   the preview window at 390 px with no clip. (#431)
 - Wait until 56rem to split the waitlist row into two columns, so the page shows no
   sideways scroll at 768 px, at 800 px, or at 870 px. (#442)
+- Give the dark `--focus-halo` its own value, `#726BAB`, so the sunny line reads 3:1 or
+  more against it; record the halo-on-band pair as an accepted exception. (#451)
 
 ### Contract
 
@@ -194,6 +196,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   perpetual loading sentence no longer shows. (#373)
 - Render the raw error text of a failed app's Status cell at 14px monospace, with a
   2-line clamp; the full text stays in the element's `title` attribute. (#395)
+- Add the token `--focus-halo`, its own dark value, `#7b74b3`; the dark focus ring now
+  reads 3:1 or more on the sunny line, the page, the paper, the focused row fill, and
+  the dialog fill. (#451)
+- Give `.band` its own `--focus-halo` value; the dark focus ring on the band now reads
+  3:1 or more too. (#451)
 - Center the "Pause refresh" label inside its pill; show a pause icon or a play icon
   next to the label, in place of the hidden check mark. (#363)
 - Keep the brand mark, the nav pills, and an account control on one row at a phone
