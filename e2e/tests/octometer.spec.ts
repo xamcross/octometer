@@ -993,3 +993,133 @@ test('the delete-confirm button shows a Deleting label while the request is pend
   const afterRows = (await afterResponse.json()) as ReadonlyArray<{ name: string }>;
   expect(afterRows.some((r) => r.name === appName)).toBe(false);
 });
+
+/*
+ * The audit wave of 2026-10-09, group D: #385 hoists the `.field`, the
+ * `.form-hint`, and the base `dialog` rule of the manage forms and the
+ * sign-in form into `styles.css`; #383 darkens the `.form-error` left
+ * border and adds the "⚠" glyph; #438 corrects the invalid-field ring
+ * pair of `docs/design/contrast.mjs`. The three scenarios below give
+ * each issue its own end-to-end assertion.
+ */
+
+// Issue #385, finding D26: the `.field` rule used to drift between the
+// five component style files (0.75rem, 0.5rem, 1rem). This scenario
+// reads the computed `margin-bottom` of the field wrapper on the
+// add-app form, the delete dialog, and the sign-in form (a fresh
+// context: the default project session would redirect /signin to
+// /apps), and confirms the one shared rule gives the three the same
+// value.
+test('the shared .field rule gives the add-app form, the delete dialog, and the sign-in form the same margin (issue #385)', async ({
+  page,
+  browser,
+}) => {
+  // This scenario drives three forms and opens a second browser
+  // context; the default 60s test timeout left too little room for the
+  // sign-in page under a loaded run.
+  test.setTimeout(120_000);
+
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const appName = `shared-field-385-${Date.now()}`;
+  await manage.addApp({ name: appName, origins: ['https://shared-field-385.example'] });
+
+  // `toHaveCSS` polls until the value settles, so a late-applying
+  // stylesheet on a freshly loaded page (the sign-in form below) never
+  // races a one-shot `evaluate` read.
+  const addAppField = page.locator('div.field:has(#add-app-name)');
+  await expect(addAppField).toHaveCSS('margin-bottom', '12px');
+
+  const row = manage.row(appName);
+  await manage.openDeleteDialog(row);
+  const dialogField = row.locator('app-delete-app-dialog div.field:has(.confirm-name)');
+  await expect(dialogField).toHaveCSS('margin-bottom', '12px', { timeout: 15_000 });
+  await manage.cancelDeleteDialog(row);
+
+  // `newTrackedContext()` inherits this file's default storage state,
+  // the owner's signed-in cookie (correction: the fixture merges the
+  // project's `use` options, and this file holds no describe-level
+  // override, unlike `signin.spec.ts`). A signed-in visit to `/signin`
+  // redirects to `/apps` at once (issue #347), so the field never
+  // shows. `browser.newContext` with an explicit empty storage state
+  // gives the true signed-out visitor this scenario needs.
+  const signedOutContext = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  const signedOutPage = await signedOutContext.newPage();
+  await signedOutPage.goto('/signin');
+  await expect(signedOutPage.getByRole('button', { name: 'Send me a link' })).toBeVisible();
+  const signinField = signedOutPage.locator('div.field:has(#signin-email)');
+  await expect(signinField).toHaveCSS('margin-bottom', '12px', { timeout: 15_000 });
+  await signedOutContext.close();
+
+  console.log(
+    'issue #385: the .field margin-bottom reads 12px on the add-app form, the delete ' +
+      'dialog, and the sign-in form.',
+  );
+});
+
+// Issue #383, finding D24: the sign-in form shows its error on the page
+// background (`--shallows`, no panel card), where the former `--coral`
+// border measured 2.46:1. A bad token on the confirm branch of
+// `signin.html` is the deterministic way to raise the form-error paragraph
+// with no mail round trip. `opacity: 1` sits beside the ratio (lesson 24
+// of the frontend brief): a faded element would pass a color-only check.
+test('the sign-in form-error message starts with the warning glyph and its left border passes 3:1 on the page background (issue #383)', async ({
+  newTrackedContext,
+}) => {
+  const context = await newTrackedContext();
+  const page = await context.newPage();
+  await page.goto('/signin?token=e2e-bad-token-383');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+
+  const errorText = page.locator('p.form-error');
+  await expect(errorText).toBeVisible();
+  await expect(errorText).toHaveCSS('opacity', '1');
+  const messageText = (await errorText.textContent()) ?? '';
+  expect(messageText.startsWith('⚠')).toBe(true);
+
+  const [borderColor, pageBackground] = await errorText.evaluate((element) => [
+    getComputedStyle(element).borderLeftColor,
+    getComputedStyle(document.body).backgroundColor,
+  ]);
+  const borderContrast = contrastRatio(borderColor, pageBackground);
+  console.log(
+    `issue #383: the form-error left border is "${borderColor}" on "${pageBackground}", ` +
+      `${borderContrast.toFixed(2)}:1.`,
+  );
+  expect(borderContrast).toBeGreaterThanOrEqual(3);
+});
+
+// Issue #438: `docs/design/contrast.mjs` carried the invalid-field ring
+// pair as the pre-#264 literal `#ff6b6b` (2.8:1), though the CSS rule
+// itself already painted `var(--coral-deep)`. This scenario reads the
+// real ring color of a field that a server-side validation error marks
+// invalid (two equal origins, rejected by the registry), and confirms
+// the painted ring reaches 3:1 on the field fill. `opacity: 1` sits
+// beside the ratio for the same reason as the #383 scenario above.
+test('the invalid-field ring of the add-app form reaches a 3:1 contrast on the field fill (issue #438)', async ({
+  page,
+}) => {
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const origin = 'https://ring-438.example';
+  await manage.addAppExpectingError(
+    { name: `ring-438-${Date.now()}`, origins: [origin, origin] },
+    'An origin appears twice.',
+  );
+
+  const originsField = page.getByLabel('Origins (one per line)');
+  await expect(originsField).toHaveAttribute('aria-invalid', 'true');
+  await expect(originsField).toHaveCSS('opacity', '1');
+
+  const [ringColor, fillColor] = await originsField.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const match = style.boxShadow.match(/rgba?\([^)]+\)/);
+    return [match ? match[0] : '', style.backgroundColor];
+  });
+  const ringContrast = contrastRatio(ringColor, fillColor);
+  console.log(
+    `issue #438: the invalid-field ring is "${ringColor}" on "${fillColor}", ` +
+      `${ringContrast.toFixed(2)}:1.`,
+  );
+  expect(ringContrast).toBeGreaterThanOrEqual(3);
+});

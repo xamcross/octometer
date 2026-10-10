@@ -20,7 +20,7 @@
   </div>
 
   @if (errorMessage(); as message) {
-    <p id="add-app-error" class="form-error">{{ message }}</p>
+    <p id="add-app-error" class="form-error">⚠ {{ message }}</p>
   }
 
   <button type="submit" class="btn btn-primary" [disabled]="pending()">Add app</button>

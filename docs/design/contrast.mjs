@@ -116,7 +116,11 @@ const NONTEXT = [
   ['the band', 'the focus ring: the ink halo on the octo band', '#241f3d', '#a78bfa'],
   ['each page', 'the focus ring: the sunny line on the ink halo', '#ffd93d', '#241f3d'],
   ['users', 'the disabled pager edge on the page background', '#4b4763', '#e6f3ff'],
-  ['manage', 'the invalid field ring on the field fill', '#ff6b6b', '#ffffff'],
+  // Issue #438: the ring rule of styles.css and the five component style
+  // files already paints `var(--coral-deep)` (#264), but this pair still
+  // carried the pre-#264 literal `#ff6b6b` (2.8:1, below the 3:1 floor of
+  // WCAG 1.4.11). The pair now names the real token value, `#d93a3a`.
+  ['manage', 'the invalid field ring on the field fill', '#d93a3a', '#ffffff'],
 ];
 
 /** True for a large text: 24 px, or 18.66 px at the weight 700. */

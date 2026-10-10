@@ -389,6 +389,40 @@ textarea {
   resize: vertical;
 }
 
+/*
+ * The form and dialog rules shared by the manage forms and the sign-in
+ * form (#385). Five component style files held near copies of these
+ * three rules, with drift in the `.field` margin value; this one copy
+ * of each rule ends the drift. The invalid-field ring, the `.form-error`
+ * left border, and `dialog::backdrop` stay out of this hoist: #385 names
+ * only `.field`, `.form-hint`, and the base `dialog` rule.
+ */
+
+.field {
+  margin-bottom: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 32rem;
+}
+
+.form-hint {
+  color: var(--ink-soft);
+  margin: 4px 0 0;
+  font-size: var(--text-s);
+  overflow-wrap: anywhere;
+}
+
+dialog {
+  background: var(--paper-raised);
+  color: var(--ink);
+  border: var(--line-panel);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+  padding: 24px;
+  width: min(100% - 32px, 26rem);
+}
+
 /* The band and the pills (#247) */
 
 /*

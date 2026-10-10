@@ -20,8 +20,8 @@ the base rules.
 | `--paper-raised` | `#FFFFFF` | The dialog fill, one step above the paper. |
 | `--shallows` | `#E6F3FF` | The page background, the zebra row tint. |
 | `--shallows-deep` | `#BFDFFF` | The table head, the neutral status fill. |
-| `--coral` | `#FF6B6B` | The danger fill, the error edge, the link underline. |
-| `--coral-deep` | `#D93A3A` | The invalid field ring; keeps 3:1 or more on `--paper` (WCAG 1.4.11). |
+| `--coral` | `#FF6B6B` | The danger fill, the link underline. |
+| `--coral-deep` | `#D93A3A` | The invalid field ring and the `.form-error` left border; keeps 3:1 or more on `--paper` and on `--shallows` (WCAG 1.4.11, issue #264 and issue #383). |
 | `--sunny` | `#FFD93D` | The primary fill, the current nav pill, the focus ring, the warning fill. |
 | `--seaweed` | `#6EE7B7` | The OK fill. |
 | `--octo` | `#A78BFA` | The header band, the mascot body. Never a text background. |
@@ -109,9 +109,12 @@ instead of adding to it.
 
 The implementer measured each pair with a Node script that computes the WCAG 2.x relative
 luminance and the contrast ratio of the two hex values (`node -e`, run on 2026-09-27). Each
-pair stays at 4.5:1 or above, the floor of WCAG 1.4.3 for normal text.
+text pair stays at 4.5:1 or above, the floor of WCAG 1.4.3 for normal text. The
+`--coral-deep` / `--shallows` row (issue #383) is a non-text indicator, the 3px left border
+of a `.form-error` message on the sign-in page's body background; its floor is the 3:1
+value of WCAG 1.4.11.
 
-| Text | Background | Ratio |
+| Text or edge | Background | Ratio |
 | --- | --- | --- |
 | `--ink` | `--paper` | 15.7:1 |
 | `--ink` | `--shallows` | 13.9:1 |
@@ -122,7 +125,13 @@ pair stays at 4.5:1 or above, the floor of WCAG 1.4.3 for normal text.
 | `--ink` | `--octo` | 5.8:1 |
 | `--ink-soft` | `--paper` | 8.8:1 |
 | `--coral-deep` | `--paper` | 4.5:1 |
+| `--coral-deep` | `--shallows` | 4.0:1 |
 
 `--on-bright` equals `--ink` (both `#241F3D`), so the four `--on-bright` pairs (on `--sunny`,
-`--seaweed`, `--coral`, `--octo`) repeat the four `--ink` rows above; the table keeps the
-nine rows only.
+`--seaweed`, `--coral`, `--octo`) repeat the four `--ink` rows above; the table keeps the ten
+rows only.
+
+`docs/design/contrast.mjs` carries the invalid-field ring pair (the `box-shadow` of
+`[aria-invalid='true']`, `--coral-deep` on `--paper`, 4.5:1). Until issue #438, that pair
+still named the pre-#264 literal `#ff6b6b` (2.8:1, under the 3:1 floor of WCAG 1.4.11);
+the script now names `--coral-deep`'s real value, `#d93a3a`, and the pair passes.

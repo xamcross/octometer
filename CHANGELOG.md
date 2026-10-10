@@ -147,6 +147,13 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   anonymous visit", or "this user". (#392)
 - Show a "Deleting…" label with `aria-busy="true"` on the delete-confirm button while
   the delete request is in flight; the label returns on an error. (#393)
+- Hoist the `.field`, `.form-hint`, and base `dialog` rules of the manage forms and the
+  sign-in form into one shared stylesheet; each form and dialog renders the same.
+  (#385)
+- Darken the `.form-error` left border from `--coral` to `--coral-deep`, and add a
+  leading "⚠" glyph to each error message. (#383)
+- Correct the invalid-field ring pair of `docs/design/contrast.mjs` to the real token
+  value, `--coral-deep`; the pair now reads 4.5:1, at or above the 3:1 floor. (#438)
 
 ### CI
 
