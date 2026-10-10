@@ -54,6 +54,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Let the full-size dialog hold the capture at its own natural width, with a pan, so
   the row text reads at 12.8 px at 390 px too. (#359, the correction round of pull
   request #424)
+- Jump the waitlist field and the submit button into view before each action of
+  the end-to-end scenario, so no scroll is in flight for the click check. (#426)
 
 ### Contract
 
@@ -171,6 +173,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   served-tracker section to `docs/run-guide.md`. (#298)
 - Add the "Your users" section to `docs/add-octometer.md`, and the pseudonymous id and
   erasure paragraph to `docs/privacy.md`. (#300)
+- Pull the local-service MongoDB image from the Amazon ECR Public mirror, not from
+  Docker Hub, so a manual start never hits the anonymous pull limit. (#430)
 
 ## 0.3.0 - 2026-09-28
 

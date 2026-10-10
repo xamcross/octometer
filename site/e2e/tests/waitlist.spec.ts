@@ -51,8 +51,14 @@ function extractLink(body: string, path: string): string {
 }
 
 async function joinWithAddress(page: import('@playwright/test').Page, address: string) {
+  // Issue #426: an instant jump replaces the smooth auto-scroll of
+  // "site.css:16", so no scroll is in flight for the click stability check.
+  const field = page.locator('#waitlist-email');
+  const button = page.locator('form.waitlist-form button[type="submit"]');
+  await field.evaluate((element) => element.scrollIntoView({ behavior: 'instant', block: 'center' }));
   await page.fill('#waitlist-email', address);
-  await page.locator('form.waitlist-form button[type="submit"]').click();
+  await button.evaluate((element) => element.scrollIntoView({ behavior: 'instant', block: 'center' }));
+  await button.click();
 }
 
 test('an address joins the list, confirms through the link, and can remove itself', async ({
