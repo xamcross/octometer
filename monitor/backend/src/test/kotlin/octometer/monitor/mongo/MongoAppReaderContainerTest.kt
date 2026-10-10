@@ -52,7 +52,9 @@ class MongoAppReaderContainerTest {
     companion object {
         @Container
         @JvmStatic
-        private val MONGO = MongoDBContainer(DockerImageName.parse("mongo:7.0"))
+        private val MONGO = MongoDBContainer(
+            DockerImageName.parse("public.ecr.aws/docker/library/mongo:7.0").asCompatibleSubstituteFor("mongo")
+        )
     }
 
     private val root = Files.createTempDirectory("octometer-mongo-reader-container-test-").toFile().also { registerTempRoot(it) }
@@ -658,7 +660,9 @@ class MongoAppReaderContainerTest {
     // stopping it never breaks another test of this suite.
     @Test
     fun `a stopped container gives UNREACHABLE after 2 failed cycles, and keeps the old status after 1`() = runBlocking {
-        val throwaway = MongoDBContainer(DockerImageName.parse("mongo:7.0"))
+        val throwaway = MongoDBContainer(
+            DockerImageName.parse("public.ecr.aws/docker/library/mongo:7.0").asCompatibleSubstituteFor("mongo")
+        )
         throwaway.start()
         try {
             val throwawayReader = MongoAppReader(eventStore, settleLagSeconds = 1, clientFactory = ::shortSelectionTimeoutClient)
@@ -768,7 +772,9 @@ class MongoAppReaderContainerTest {
         // PrivilegeCheckContainerTest): the plain container inits its
         // replica set before auth, so it fails to start once these two
         // env values turn auth on.
-        val throwaway: org.testcontainers.mongodb.MongoDBContainer = org.testcontainers.mongodb.MongoDBContainer(DockerImageName.parse("mongo:7.0"))
+        val throwaway: org.testcontainers.mongodb.MongoDBContainer = org.testcontainers.mongodb.MongoDBContainer(
+            DockerImageName.parse("public.ecr.aws/docker/library/mongo:7.0").asCompatibleSubstituteFor("mongo")
+        )
             .withEnv("MONGO_INITDB_ROOT_USERNAME", rootUser)
             .withEnv("MONGO_INITDB_ROOT_PASSWORD", rootSecondValue)
         throwaway.start()

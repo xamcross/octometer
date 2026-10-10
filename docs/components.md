@@ -21,20 +21,22 @@ repeats a hex value.
 | The refresh line and the pause pill | `app-refresh-bar`, `app-pause-refresh-button` | `monitor/frontend/src/app/refresh-bar/`, `poll/pause-refresh-button.*` | #247 |
 | The button | `.btn`, `.btn-primary`, `.btn-danger`, `.btn-small` | `monitor/frontend/src/styles.css` | #248 |
 | The input and the textarea | `input`, `textarea` | `monitor/frontend/src/styles.css` | #248 |
-| The hint | `.form-hint` | `monitor/frontend/src/app/manage/add-app-form.css` | #248 |
-| The error | `.form-error` | `monitor/frontend/src/app/manage/add-app-form.css` | #248 |
+| The field | `.field` | `monitor/frontend/src/styles.css` | #248, #385 |
+| The hint | `.form-hint` | `monitor/frontend/src/styles.css` | #248, #385 |
+| The error | `.form-error` | `monitor/frontend/src/app/manage/add-app-form.css` | #248, #383 |
 | The panel and the scroll region | `.panel`, `.table-scroll` | `monitor/frontend/src/styles.css` | #249 |
 | The table | `table`, `thead th`, `tbody tr:nth-child(even)` | `monitor/frontend/src/styles.css` | #249 |
 | The status badge | `.badge` | `monitor/frontend/src/styles.css`, `status-format.ts` | #249 |
 | The note under a badge | `.gap-text`, `.error-text` | `monitor/frontend/src/styles.css` | #249 |
 | The last-updated time | `.data-time` | `monitor/frontend/src/app/apps/apps.*` | #390 |
 | The pager | `.pager` | `monitor/frontend/src/app/users/users.css` | #249 |
-| The dialog | `dialog` | `monitor/frontend/src/app/manage/delete-app-dialog.*` | #248 |
+| The dialog | `dialog` | `monitor/frontend/src/styles.css` (the base rule, #385), `monitor/frontend/src/app/manage/delete-app-dialog.*` (`::backdrop`) | #248, #385 |
 | The empty state | `app-empty-state` | `monitor/frontend/src/app/empty-state/` | #250 |
 | The first-load row | `.first-load-row` | `monitor/frontend/src/app/app.css` | #250 |
 | The keys panel | `.keys-panel`, `.key-row` | `monitor/frontend/src/app/manage/add-app-form.*` | #296 |
 | The new-secret-key confirmation | `app-new-secret-key-dialog` | `monitor/frontend/src/app/manage/new-secret-key-dialog.*` | #296 |
 | The sign-in card | `.signin-card` | `monitor/frontend/src/app/signin/signin.*` | #349 |
+| The text link | `a`, with a hover rule | `monitor/frontend/src/styles.css:173-190` | #369 |
 
 ## The band
 
@@ -146,8 +148,9 @@ current section.
 | State | Cue | Token |
 | --- | --- | --- |
 | Rest | Paper fill, ink border, pill radius | `var(--paper)`, `var(--line-control)`, `var(--radius-pill)` (`main-nav.css:11-24`) |
+| Hover | A bright tint against the octo band, in each color scheme, on a mouse hover only | `var(--shallows-bright)` (`main-nav.css:26-40`) |
 | Focus | The shared 3px sunny outline plus the 7px ink ring | `var(--sunny)` (`monitor/frontend/src/styles.css:131-135`) |
-| Current | Sunny fill, ink text, a 3px underline | `var(--sunny)`, `var(--on-bright)` (`main-nav.css:30-36`) |
+| Current | Sunny fill, ink text, a 3px underline | `var(--sunny)`, `var(--on-bright)` (`main-nav.css:46-52`) |
 
 **Accessibility.**
 - Role: `link` (native `<a>`).
@@ -299,6 +302,7 @@ the automatic refresh.
 | State | Cue | Token |
 | --- | --- | --- |
 | Rest | Paper pill, "Pause refresh" label, a pause icon (⏸) | `var(--paper)` (`pause-refresh-button.css:9-21`) |
+| Hover | A shallows tint, on a mouse hover only | `var(--shallows)` (`pause-refresh-button.css:34-38`) |
 | Focus | The shared 3px sunny outline plus the 7px ink ring | `var(--sunny)` (`monitor/frontend/src/styles.css:131-135`) |
 | Pressed | Sunny fill, "Resume refresh" label, a play icon (▶) | `var(--sunny)`, `var(--on-bright)` (`pause-refresh-button.css:29-33`) |
 
@@ -333,8 +337,9 @@ same cartoon shape.
 | State | Cue | Token |
 | --- | --- | --- |
 | Rest | Paper fill, ink border, hard shadow | `var(--paper)`, `var(--line-control)`, `var(--shadow-control)` (`styles.css:293-301`) |
+| Hover | Moved 1px closer, a 4px shadow, on a mouse hover only | (no token; `styles.css:389-414`) |
 | Focus | Its own shadow plus the 7px ink ring, combined | `var(--shadow-control)` (`styles.css:338-342`) |
-| Active | Moved 3px, no shadow | (no token; `styles.css:308-311`) |
+| Active | Moved 3px, no shadow; beats a hover on a mouse press | (no token; `styles.css:308-311`, `:402-413`) |
 | Disabled | Shallows fill, ink-soft text, a dashed border, no shadow, no pointer | `var(--shallows)`, `var(--ink-soft)` (`styles.css:341-347`) |
 
 **Accessibility.**
@@ -370,7 +375,7 @@ edit-app form, the delete confirmation, and the user filter.
 | --- | --- | --- |
 | Rest | Paper fill, ink border | `var(--paper)`, `var(--line-control)` (`styles.css:349-354`) |
 | Focus | The shared 3px sunny outline plus the 7px ink ring | `var(--sunny)` (`styles.css:131-135`) |
-| Invalid | An inset coral ring, plus the ink ring on focus | `var(--coral)` (`add-app-form.css:17-31`) |
+| Invalid | An inset coral-deep ring, plus the ink ring on focus | `var(--coral-deep)` (`add-app-form.css:11-25`, issue #438) |
 | Invalid, forced colors | A 3px dashed outline, a 3px solid outline on focus | `currentColor` (`add-app-form.css:33-50`, issue #266) |
 
 **Accessibility.**
@@ -399,7 +404,9 @@ separate guide.
 
 **Anatomy.**
 - `<p id="..." class="form-hint">{{ ... }}</p>`, tied to its field by `aria-describedby`
-  (`add-app-form.html:23`).
+  (`add-app-form.html:19`).
+- The rule is global (`monitor/frontend/src/styles.css`, issue #385); no component style
+  file holds its own copy.
 - The connection-string hint text lives once in `field-hints.ts`, so the add form and the
   edit form show the same words for the field they share (`manage/field-hints.ts:1-17`).
   Issue #299 (D5, D40) brings the route pattern hint back, under the editable field (see
@@ -410,7 +417,7 @@ separate guide.
 
 | State | Cue | Token |
 | --- | --- | --- |
-| Rest | Ink-soft text, small size | `var(--ink-soft)`, `var(--text-s)` (`add-app-form.css:41-46`) |
+| Rest | Ink-soft text, small size | `var(--ink-soft)`, `var(--text-s)` (`styles.css`) |
 
 **Accessibility.**
 - Role: none; a plain `<p>`.
@@ -420,37 +427,45 @@ separate guide.
 **Rules.**
 - Do set the margin in the hint's own rule, `margin: 4px 0 0`, because the base sheet
   resets no `<p>` margin (rule: "a paragraph inside a new rule sets its margin",
-  `add-app-form.css:41-46`).
+  `styles.css`).
 
 ## The error
 
 **Purpose.** The error names why a form submit failed, next to the field it blames.
 
 **Anatomy.**
-- `<p id="..." class="form-error">{{ message }}</p>`, shown only while `errorMessage()`
-  holds a value (`add-app-form.html:42-44`).
+- `<p id="..." class="form-error">⚠ {{ message }}</p>`, shown only while `errorMessage()`
+  holds a value (`add-app-form.html:22-24`). The leading glyph is plain text, not CSS
+  generated content, so a screen reader and a `textContent` read both carry it
+  (issue #383).
 
 **States.**
 
 | State | Cue | Token |
 | --- | --- | --- |
-| Shown | A 3px coral left border, bold ink text | `var(--coral)`, `var(--ink)` (`add-app-form.css:33-39`) |
+| Shown | A 3px coral-edge left border, bold ink text, a leading "⚠" glyph | `var(--coral-edge)` (`#d93a3a` light, `#ff6b6b` dark), `var(--ink)` (`add-app-form.css`) |
 
 **Accessibility.**
 - Role: none; a plain `<p>`.
 - Accessible name: not applicable; the text is the content.
-- Second cue beside color: the bold weight, next to the coral border. The text itself
-  stays ink, not coral, because coral text on paper measures 2.78:1, under the WCAG 1.4.3
-  floor. This is the accepted departure of the #254 design review.
+- Second cue beside color: the bold weight and the "⚠" glyph, next to the coral-edge
+  border (3:1 or more on `--paper`, `--shallows`, and `--paper-raised`, WCAG 1.4.11,
+  issue #383). The text itself stays ink, not coral, because coral text on paper
+  measures 2.78:1, under the WCAG 1.4.3 floor. This is the accepted departure of the
+  #254 design review.
 - `aria-*` that changes: the field's `aria-describedby` adds this paragraph's id once it
-  shows (`add-app-form.html:16-20`).
+  shows (`add-app-form.html:14-18`).
 
 **Rules.**
 - Do keep the error text in ink, not coral, so the message stays above 4.5:1 on the
-  paper fill (`add-app-form.css:33-39`, the accepted departure of the #254 design review).
+  paper fill (`add-app-form.css`, the accepted departure of the #254 design review).
 - Do not omit the margin reset when a shared rule changes. `.form-error` sets
   `margin: 8px 0 0` in its own rule, because the base sheet resets no `<p>` margin (rule:
-  "a paragraph inside a new rule sets its margin", `add-app-form.css:38`).
+  "a paragraph inside a new rule sets its margin", `add-app-form.css`).
+- Do use `var(--coral-edge)` for the left border. The token takes `#ff6b6b` in the dark
+  scheme, because `--coral-deep` on `--paper-raised` measures 2.86:1, under the 3:1
+  floor of WCAG 1.4.11 (issue #383, BLOCKER 1 of the correction round of pull request
+  #450).
 
 ## The route patterns field
 
@@ -716,7 +731,7 @@ app form (issue #364, D3) and the new-secret-key confirmation share the same nat
 
 | State | Cue | Token |
 | --- | --- | --- |
-| Rest (open) | Paper-raised fill over a dimmed backdrop, hard shadow | `var(--paper-raised)`, `var(--backdrop)`, `var(--shadow-panel)` (`delete-app-dialog.css:1-13`) |
+| Rest (open) | Paper-raised fill over a dimmed backdrop, hard shadow | `var(--paper-raised)`, `var(--backdrop)`, `var(--shadow-panel)` (the base rule in `styles.css`, #385; `::backdrop` in `delete-app-dialog.css`) |
 | Focus | The shared 3px sunny outline plus the 7px ink ring | `var(--sunny)` (`monitor/frontend/src/styles.css:131-135`) |
 | Disabled (confirm button) | Shallows fill, ink-soft text, a dashed border, until the typed name matches | `var(--shallows)`, `var(--ink-soft)` (`styles.css:341-347`) |
 
@@ -724,7 +739,7 @@ app form (issue #364, D3) and the new-secret-key confirmation share the same nat
 - Role: `dialog`, `aria-modal="true"` implied by the native `<dialog>` element.
 - Accessible name: the heading text, "Delete `<app>`?" (`aria-labelledby`).
 - Second cue beside color: the ink border and the hard shadow, next to the dimmed
-  backdrop (`delete-app-dialog.css:1-9`).
+  backdrop (the base `dialog` rule, `styles.css`, #385).
 - Target size: `min-height: 44px` on the trigger and on each dialog button
   (`delete-app-dialog.css:46-48`, `styles.css:293-336`).
 

@@ -26,6 +26,17 @@ button {
   line-height: 1;
 }
 
+/*
+ * The hover state of the pill (#369), the same rule as the nav pill.
+ * The `(hover: hover)` guard keeps a touch tap from leaving a stuck
+ * hover state (MAJOR 2 of the review of pull request #445).
+ */
+@media (hover: hover) {
+  button:hover {
+    background: var(--shallows);
+  }
+}
+
 /* The pressed state (WCAG 1.4.1). The label text and the icon carry the state, not colour alone. */
 button[aria-pressed='true'] {
   background: var(--sunny);

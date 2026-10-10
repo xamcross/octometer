@@ -10,9 +10,16 @@
 # anonymous pull past its daily limit, and the CI job pulls this image
 # on every run. The tag stays 8.0 (the rule of 2026-10-09: no version
 # change).
+#
+# Issue #456, part B: the variable OCTOMETER_MONGO_IMAGE names the
+# image. The default is the Amazon ECR Public mirror, for a developer
+# machine. The CI job "e2e" sets the variable to the GitHub Container
+# Registry copy, ghcr.io/xamcross/octometer/mongo:8.0, so the job pulls
+# the mirror of .github/workflows/mirror-images.yml and does not read
+# the Amazon ECR Public mirror.
 services:
   mongo:
-    image: public.ecr.aws/docker/library/mongo:8.0
+    image: ${OCTOMETER_MONGO_IMAGE:-public.ecr.aws/docker/library/mongo:8.0}
     ports:
       - "127.0.0.1:${OCTOMETER_DEMO_MONGO_PORT:-27017}:27017"
     volumes:

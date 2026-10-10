@@ -70,6 +70,10 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   token. (#425)
 - Add a dark-scheme row for each light pair of the contrast script, so a dark-scheme
   regression now shows in the script output. (#429)
+- Shrink the side padding of the hero preview table under 48rem, so the table fits
+  the preview window at 390 px with no clip. (#431)
+- Wait until 56rem to split the waitlist row into two columns, so the page shows no
+  sideways scroll at 768 px, at 800 px, or at 870 px. (#442)
 
 ### Contract
 
@@ -176,6 +180,15 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   "Last interaction" column keep their seconds. (#390)
 - Open the Edit app form in a dialog, like the delete dialog and the new-secret-key
   dialog; the table row keeps its own height. (#364)
+- Add a hover state to the `.btn` class, the nav pill, the Pause refresh pill, and
+  the global link style. (#369)
+- Hoist the `.field`, `.form-hint`, and base `dialog` rules of the manage forms and the
+  sign-in form into one shared stylesheet; each form and dialog renders the same.
+  (#385)
+- Darken the `.form-error` left border from `--coral` to `--coral-deep`, and add a
+  leading "⚠" glyph to each error message. (#383)
+- Correct the invalid-field ring pair of `docs/design/contrast.mjs` to the real token
+  value, `--coral-deep`; the pair now reads 4.5:1, at or above the 3:1 floor. (#438)
 - Center the "Pause refresh" label inside its pill; show a pause icon or a play icon
   next to the label, in place of the hidden check mark. (#363)
 - Keep the brand mark, the nav pills, and an account control on one row at a phone
@@ -185,6 +198,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### CI
 
+- Add the workflow `mirror-images.yml`, a manual mirror of the MongoDB image into the
+  GitHub Container Registry; give the `e2e` job a registry login. (#456)
+- Point the demo app's compose file at `OCTOMETER_MONGO_IMAGE`; the `e2e` job sets it
+  to the GitHub Container Registry mirror, so the job no longer reads the Amazon ECR
+  Public mirror. (#456)
 - Upload `e2e/.run/*.log` as the artifact `e2e-run-logs` on a failure of the `e2e`
   job, with a retention of 3 days. (#418)
 - Pull the demo app's MongoDB image and the monitor's base image from the Amazon
@@ -201,6 +219,10 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 - Give each clone its own Docker Compose project in the end-to-end harness, derived
   from the clone's path, with `OCTOMETER_E2E_PROJECT` as the override. (#406)
+- Pull each Testcontainers MongoDB image from the Amazon ECR Public mirror, not from
+  Docker Hub, in `monitor/backend`, `kit/jvm-mongo`, and `tools/demo-app`. (#447)
+- Scroll each clicked control into view with `behavior: 'instant'` before the click, so
+  no smooth scroll moves the hero and how-it-works scenarios. (#448)
 
 ### Documentation
 
@@ -217,6 +239,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   erasure paragraph to `docs/privacy.md`. (#300)
 - Pull the local-service MongoDB image from the Amazon ECR Public mirror, not from
   Docker Hub, so a manual start never hits the anonymous pull limit. (#430)
+- Make `tools/minor_issues_table.py` honor the `\|` escape inside a cell, and fail with
+  an exit code when a row misses a column. (#449)
 
 ## 0.3.0 - 2026-09-28
 

@@ -23,13 +23,16 @@
   --paper-raised: #ffffff;
   --paper-bright: #ffffff;
   --shallows: #e6f3ff;
+  --shallows-bright: #e6f3ff;
   --shallows-deep: #bfdfff;
   --coral: #ff6b6b;
   --coral-deep: #d93a3a;
+  --coral-edge: #d93a3a;
   --sunny: #ffd93d;
   --seaweed: #6ee7b7;
   --octo: #a78bfa;
   --octo-head-band: #423a57;
+  --octo-face-band: #ffffff;
   --on-bright: #241f3d;
   --backdrop: rgb(36 31 61 / 0.6);
 
@@ -77,10 +80,10 @@
 /*
  * The dark color scheme (issue #361, the UI audit finding D1). A user with
  * a dark system preference gets this block. Each bright fill token
- * (`--coral`, `--sunny`, `--seaweed`, `--on-bright`, `--paper-bright`)
- * stays out of this block on purpose, so it keeps its light value in both
- * schemes (step 3 of the issue): `--on-bright` stays dark text on each
- * bright fill.
+ * (`--coral`, `--sunny`, `--seaweed`, `--on-bright`, `--paper-bright`,
+ * `--shallows-bright`) stays out of this block on purpose, so it keeps its
+ * light value in both schemes (step 3 of the issue): `--on-bright` stays
+ * dark text on each bright fill.
  *
  * `--octo` gets a lighter dark value than the audit draft (`#5b45b0`):
  * `--on-bright` text on that fill measured 2.18:1 on the band (the account
@@ -99,6 +102,20 @@
  * then made the band dark on dark: the nav pill label and the "Sign out"
  * label read 1.21:1 on the band, under the floor of 4.5:1. `--paper-bright`
  * keeps `#ffffff` in each scheme, so `.band` stays bright on dark too.
+ *
+ * The correction round of pull request #445 adds `--shallows-bright`
+ * (note N1 of the review). The nav pill hover fill once read
+ * `--shallows`; inside `.band`, `--ink` turns into `--on-bright`, dark
+ * text, and `--shallows` turns dark too in the dark scheme, so the
+ * hovered pill painted dark text on a near-black fill, at 1.16:1.
+ * `--shallows-bright` keeps `#e6f3ff` in each scheme, so the hovered
+ * pill stays at 13.92:1 or more in both schemes.
+ *
+ * `--coral-edge` is the border token of `.form-error` (issue #383, the
+ * correction round of pull request #450). `--coral-deep` on `--paper-raised`
+ * (`#312b57`) reads 2.86:1 in the dark scheme, under the 3:1 floor of WCAG
+ * 1.4.11. `#ff6b6b` raises the pair to 4.69:1 on `#312b57`, 6.06:1 on
+ * `#1d1a33`, and 6.58:1 on `#14122a`.
  */
 @media (prefers-color-scheme: dark) {
   :root {
@@ -109,6 +126,7 @@
     --shallows: #14122a;
     --shallows-deep: #2c2850;
     --octo: #9b7be5;
+    --coral-edge: #ff6b6b;
   }
 }
 
@@ -168,6 +186,17 @@ a {
   text-decoration-color: var(--coral);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
+}
+
+/*
+ * The hover state of a text link (#369): a thicker underline. The
+ * `(hover: hover)` guard keeps a touch tap from leaving a stuck hover
+ * state (MAJOR 2 of the review of pull request #445).
+ */
+@media (hover: hover) {
+  a:hover {
+    text-decoration-thickness: 3px;
+  }
 }
 
 /*
@@ -366,6 +395,33 @@ a {
   box-shadow: none;
 }
 
+/*
+ * The hover state of a button (#369). The selector `:not([disabled])`
+ * excludes a disabled button, at each specificity (#410). The rule order
+ * of the two selectors does not matter for that reason. The
+ * `(hover: hover)` guard keeps a touch tap from leaving a stuck hover
+ * state (MAJOR 2 of the review of pull request #445).
+ */
+@media (hover: hover) {
+  .btn:hover:not([disabled]) {
+    transform: translate(-1px, -1px);
+    box-shadow: 4px 4px 0 var(--ink);
+  }
+
+  /*
+   * The press beats the hover (MAJOR 1 of the review of pull request
+   * #445). `.btn:hover:not([disabled])` has the specificity (0,3,0);
+   * `.btn:active` alone has (0,2,0). A mouse press always holds
+   * `:hover` too, so this rule adds `:active` to the hover selector,
+   * at (0,4,0), to win the press and keep the pressed state of #263:
+   * moved 3px, no shadow.
+   */
+  .btn:hover:not([disabled]):active {
+    transform: translate(3px, 3px);
+    box-shadow: none;
+  }
+}
+
 .btn-primary {
   background: var(--sunny);
 }
@@ -400,6 +456,21 @@ a {
 }
 
 /*
+ * The hover shadow of #369 can replace the focus ring shadow above, at
+ * an equal source order. This variant lists both shadows together (the
+ * lesson of #258). A mouse hover on a focused button then keeps its
+ * ring. The `(hover: hover)` guard keeps a touch tap from leaving a
+ * stuck hover state (MAJOR 2 of the review of pull request #445).
+ */
+@media (hover: hover) {
+  .btn:hover:not([disabled]):focus-visible {
+    box-shadow:
+      4px 4px 0 var(--ink),
+      0 0 0 7px var(--ink);
+  }
+}
+
+/*
  * A second copy of the reduced-motion query (#263). `.btn` above sets
  * its own transition, at the same specificity (0,1,0) as a `.btn` rule
  * inside the media query near the top of this file; the browser gives
@@ -413,6 +484,18 @@ a {
   }
 
   .btn:active {
+    transform: none;
+    box-shadow: var(--shadow-control);
+  }
+
+  /*
+   * The matching press-over-hover fix for reduced motion (MAJOR 1 of
+   * the review of pull request #445). `.btn:hover:not([disabled])`
+   * still wins by specificity inside a `prefers-reduced-motion`
+   * block, so this rule adds `:active` to it, to keep the pressed
+   * state of #263 under reduced motion too.
+   */
+  .btn:hover:not([disabled]):active {
     transform: none;
     box-shadow: var(--shadow-control);
   }
@@ -436,6 +519,40 @@ textarea {
   resize: vertical;
 }
 
+/*
+ * The form and dialog rules shared by the manage forms and the sign-in
+ * form (#385). Five component style files held near copies of these
+ * three rules, with drift in the `.field` margin value; this one copy
+ * of each rule ends the drift. The invalid-field ring, the `.form-error`
+ * left border, and `dialog::backdrop` stay out of this hoist: #385 names
+ * only `.field`, `.form-hint`, and the base `dialog` rule.
+ */
+
+.field {
+  margin-bottom: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 32rem;
+}
+
+.form-hint {
+  color: var(--ink-soft);
+  margin: 4px 0 0;
+  font-size: var(--text-s);
+  overflow-wrap: anywhere;
+}
+
+dialog {
+  background: var(--paper-raised);
+  color: var(--ink);
+  border: var(--line-panel);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+  padding: 24px;
+  width: min(100% - 32px, 26rem);
+}
+
 /* The band and the pills (#247) */
 
 /*
@@ -447,7 +564,21 @@ textarea {
  * `--octo-head-band` reads 3:1 or more against `--octo` (WCAG 1.4.11
  * for a graphic), in each color scheme (issue #439). A plain white
  * fill read only 2.72:1 against the light `--octo`.
+ *
+ * `--octo-head-band` fails 3:1 against `--on-bright`, the eye fill and
+ * the smile stroke of the component style (1.48:1, in each scheme).
+ * The band gives the eye and the smile the `--octo-face-band` fill
+ * instead (BLOCKER 1 of the review of pull request #459). White reads
+ * 10.6:1 against `--octo-head-band`, in each color scheme.
  */
 .band app-octo-mark .head {
   fill: var(--octo-head-band);
+}
+
+.band app-octo-mark .eye {
+  fill: var(--octo-face-band);
+}
+
+.band app-octo-mark .smile {
+  stroke: var(--octo-face-band);
 }

@@ -123,6 +123,12 @@ const NONTEXT = [
   ['each page', 'the control edge on the paper', '#241f3d', '#ffffff'],
   ['the band', 'the nav pill edge on the octo band', '#241f3d', '#a78bfa'],
   ['the band', 'the mascot head fill on the octo band', '#423a57', '#a78bfa'],
+  // BLOCKER 1 of the review of pull request #459: the eye fill and the
+  // smile stroke read `--on-bright` on the plain head, but the band
+  // head fill is too dark for that pair. The band gives the eye and
+  // the smile the `--octo-face-band` fill instead, white on the band
+  // head fill.
+  ['the band', 'the mascot eye and smile on the octo band head', '#ffffff', '#423a57'],
   ['each page', 'the panel edge on the page background', '#241f3d', '#e6f3ff'],
   ['each table', 'the head cell edge on the head fill', '#241f3d', '#bfdfff'],
   ['apps', 'the badge edge on the badge fill (seaweed)', '#241f3d', '#6ee7b7'],
@@ -133,7 +139,16 @@ const NONTEXT = [
   ['the band', 'the focus ring: the ink halo on the octo band', '#241f3d', '#a78bfa'],
   ['each page', 'the focus ring: the sunny line on the ink halo', '#ffd93d', '#241f3d'],
   ['users', 'the disabled pager edge on the page background', '#4b4763', '#e6f3ff'],
-  ['manage', 'the invalid field ring on the field fill', '#ff6b6b', '#ffffff'],
+  // Issue #438: the ring rule of styles.css and the five component style
+  // files already paints `var(--coral-deep)` (#264), but this pair still
+  // carried the pre-#264 literal `#ff6b6b` (2.8:1, below the 3:1 floor of
+  // WCAG 1.4.11). The pair now names the real token value, `#d93a3a`.
+  ['manage', 'the invalid field ring on the field fill', '#d93a3a', '#ffffff'],
+  // Issue #383 and MAJOR 3 of the review of pull request #450: the
+  // `.form-error` left border uses its own token, `--coral-edge`. The
+  // light value equals `--coral-deep`'s hex, `#d93a3a`.
+  ['manage, signin', 'the form-error edge on the page background', '#d93a3a', '#e6f3ff'],
+  ['manage', 'the form-error edge on the paper and on the dialog fill', '#d93a3a', '#ffffff'],
 ];
 
 /*
@@ -200,6 +215,10 @@ const DARK_NONTEXT = [
   ['the band', 'the nav pill edge on the octo band', '#241f3d', '#9b7be5'],
   ['main', "the mascot's eye on the octo head (the first-load mark)", '#241f3d', '#9b7be5'],
   ['the band', 'the mascot head fill on the octo band', '#423a57', '#9b7be5'],
+  // BLOCKER 1 of the review of pull request #459: the band's own
+  // `--octo-face-band` stays white in each color scheme, so this pair
+  // equals the light-scheme pair above.
+  ['the band', 'the mascot eye and smile on the octo band head', '#ffffff', '#423a57'],
   ['each page', 'the panel edge on the page background', '#ece9ff', '#14122a'],
   ['each table', 'the head cell edge on the head fill', '#ece9ff', '#2c2850'],
   ['apps', 'the badge edge on the badge fill (seaweed)', '#241f3d', '#6ee7b7'],
@@ -210,7 +229,17 @@ const DARK_NONTEXT = [
   ['the band', 'the focus ring: the ink halo on the octo band', '#241f3d', '#9b7be5'],
   ['each page', 'the focus ring: the sunny line on the ink halo', '#ffd93d', '#ece9ff'],
   ['users', 'the disabled pager edge on the page background', '#b9b4d6', '#14122a'],
-  ['manage', 'the invalid field ring on the field fill', '#ff6b6b', '#1d1a33'],
+  // Issue #438: this dark-scheme row still named the pre-#264 literal
+  // too (#435 copied the light-scheme mistake). `--coral-deep` keeps
+  // its light value in the dark scheme, so the real pair is the same
+  // hex, on the dark field fill.
+  ['manage', 'the invalid field ring on the field fill', '#d93a3a', '#1d1a33'],
+  // Issue #383 and BLOCKER 1 of the review of pull request #450: the
+  // dark value of `--coral-edge`, `#ff6b6b`, reads 3:1 or more on each
+  // fill the `.form-error` border paints, the dialog fill included.
+  ['manage, signin', 'the form-error edge on the page background', '#ff6b6b', '#14122a'],
+  ['manage', 'the form-error edge on the paper', '#ff6b6b', '#1d1a33'],
+  ['dialog', 'the form-error edge on the dialog fill', '#ff6b6b', '#312b57'],
 ];
 
 /*

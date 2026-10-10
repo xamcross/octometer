@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.MongoDBContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,7 +36,8 @@ class MongoEventLogStoreEventCapTest {
     private static final Instant START = Instant.parse("2026-09-22T10:00:00.000Z");
 
     @Container
-    private static final MongoDBContainer MONGO = new MongoDBContainer("mongo:7.0");
+    private static final MongoDBContainer MONGO = new MongoDBContainer(
+            DockerImageName.parse("public.ecr.aws/docker/library/mongo:7.0").asCompatibleSubstituteFor("mongo"));
 
     private MongoClient client;
     private MongoDatabase database;

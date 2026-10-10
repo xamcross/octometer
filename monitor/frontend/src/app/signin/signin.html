@@ -3,7 +3,7 @@
   <p>You asked for a sign-in link.</p>
 
   @if (errorMessage(); as message) {
-    <p class="form-error">{{ message }}</p>
+    <p class="form-error">⚠ {{ message }}</p>
     <a routerLink="/signin">Request a new link</a>
   } @else {
     <button type="button" class="btn btn-primary" [disabled]="pending()" (click)="onConfirmClick()">
@@ -35,7 +35,7 @@
         </div>
 
         @if (errorMessage(); as message) {
-          <p id="signin-error" class="form-error">{{ message }}</p>
+          <p id="signin-error" class="form-error">⚠ {{ message }}</p>
         }
 
         <button type="submit" class="btn btn-primary" [disabled]="pending()">Send me a link</button>

@@ -10,6 +10,8 @@ import { FirstPagesPage } from '../pages/first-pages-page';
 import { ManagePage } from '../pages/manage-page';
 import { SessionsPage } from '../pages/sessions-page';
 import { UsersPage } from '../pages/users-page';
+import { DESKTOP_CHROME_USER_AGENT } from '../setup/constants';
+import { STORAGE_STATE_FILE } from '../setup/state';
 
 /**
  * The wait bound of decision 5b: the flush of the tracker (1 s), the
@@ -136,6 +138,36 @@ async function cellPaddingLeftPx(locator: Locator): Promise<number> {
 }
 
 /**
+ * The style set of one hover check of issue #369 (finding D13 of the UI
+ * audit): the fill, the text colour, the shadow, the position, the
+ * underline, and the transition duration. This suite runs in real
+ * Chromium. `getComputedStyle` already resolves each `var()` token here
+ * (lesson 7 of the frontend brief is for jsdom, not this suite).
+ */
+interface HoverStyle {
+  readonly backgroundColor: string;
+  readonly color: string;
+  readonly boxShadow: string;
+  readonly transform: string;
+  readonly textDecorationThickness: string;
+  readonly transitionDuration: string;
+}
+
+async function hoverStyleOf(locator: Locator): Promise<HoverStyle> {
+  return locator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      backgroundColor: style.backgroundColor,
+      color: style.color,
+      boxShadow: style.boxShadow,
+      transform: style.transform,
+      textDecorationThickness: style.textDecorationThickness,
+      transitionDuration: style.transitionDuration,
+    };
+  });
+}
+
+/**
  * Waits, through `GET /api/apps`, for the status of the named app to
  * leave `NEVER_POLLED` (issue #364, D3). It checks the API, never the
  * rendered badge: a view that reads the list one time, and again only
@@ -221,6 +253,16 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await expect(confirmDeleteButton).toHaveCSS('border-style', 'dashed');
     await expect(confirmDeleteButton).toHaveCSS('opacity', '1');
     expect(await disabledButtonContrastRatio(confirmDeleteButton)).toBeGreaterThanOrEqual(4.5);
+
+    // Issue #369: the hover rule excludes a disabled `.btn` (pull
+    // request #410). A hover over the disabled confirm button gives no
+    // shadow change and no shape change.
+    const restStyle = await hoverStyleOf(confirmDeleteButton);
+    await confirmDeleteButton.hover();
+    const hoverStyle = await hoverStyleOf(confirmDeleteButton);
+    expect(hoverStyle.transform).toBe(restStyle.transform);
+    expect(hoverStyle.boxShadow).toBe(restStyle.boxShadow);
+
     await manage.cancelDeleteDialog(demoManageRow);
 
     // Issue #379, finding D10: the Manage table cell padding, the Status
@@ -1258,6 +1300,187 @@ test('the delete-confirm button shows a Deleting label while the request is pend
   expect(afterRows.some((r) => r.name === appName)).toBe(false);
 });
 
+/*
+ * The audit wave of 2026-10-09, group D: #385 hoists the `.field`, the
+ * `.form-hint`, and the base `dialog` rule of the manage forms and the
+ * sign-in form into `styles.css`; #383 darkens the `.form-error` left
+ * border and adds the "⚠" glyph; #438 corrects the invalid-field ring
+ * pair of `docs/design/contrast.mjs`. The three scenarios below give
+ * each issue its own end-to-end assertion.
+ */
+
+// Issue #385, finding D26: the `.field` rule used to drift between the
+// five component style files (0.75rem, 0.5rem, 1rem). This scenario
+// reads the computed `margin-bottom` of the field wrapper on the
+// add-app form, the delete dialog, and the sign-in form (a fresh
+// context: the default project session would redirect /signin to
+// /apps), and confirms the one shared rule gives the three the same
+// value.
+test('the shared .field rule gives the add-app form, the delete dialog, and the sign-in form the same margin (issue #385)', async ({
+  page,
+  browser,
+}) => {
+  // This scenario drives three forms and opens a second browser
+  // context; the default 60s test timeout left too little room for the
+  // sign-in page under a loaded run.
+  test.setTimeout(120_000);
+
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const appName = `shared-field-385-${Date.now()}`;
+  await manage.addApp({ name: appName, origins: ['https://shared-field-385.example'] });
+
+  // `toHaveCSS` polls until the value settles, so a late-applying
+  // stylesheet on a freshly loaded page (the sign-in form below) never
+  // races a one-shot `evaluate` read.
+  const addAppField = page.locator('div.field:has(#add-app-name)');
+  await expect(addAppField).toHaveCSS('margin-bottom', '12px');
+
+  const row = manage.row(appName);
+  await manage.openDeleteDialog(row);
+  const dialogField = row.locator('app-delete-app-dialog div.field:has(.confirm-name)');
+  await expect(dialogField).toHaveCSS('margin-bottom', '12px', { timeout: 15_000 });
+  await manage.cancelDeleteDialog(row);
+
+  // `newTrackedContext()` inherits this file's default storage state,
+  // the owner's signed-in cookie (correction: the fixture merges the
+  // project's `use` options, and this file holds no describe-level
+  // override, unlike `signin.spec.ts`). A signed-in visit to `/signin`
+  // redirects to `/apps` at once (issue #347), so the field never
+  // shows. `browser.newContext` with an explicit empty storage state
+  // gives the true signed-out visitor this scenario needs.
+  const signedOutContext = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  const signedOutPage = await signedOutContext.newPage();
+  await signedOutPage.goto('/signin');
+  await expect(signedOutPage.getByRole('button', { name: 'Send me a link' })).toBeVisible();
+  const signinField = signedOutPage.locator('div.field:has(#signin-email)');
+  await expect(signinField).toHaveCSS('margin-bottom', '12px', { timeout: 15_000 });
+  await signedOutContext.close();
+
+  console.log(
+    'issue #385: the .field margin-bottom reads 12px on the add-app form, the delete ' +
+      'dialog, and the sign-in form.',
+  );
+});
+
+// Issue #383, finding D24: the sign-in form shows its error on the page
+// background (`--shallows`, no panel card), where the former `--coral`
+// border measured 2.46:1. A bad token on the confirm branch of
+// `signin.html` is the deterministic way to raise the form-error paragraph
+// with no mail round trip. `opacity: 1` sits beside the ratio (lesson 24
+// of the frontend brief): a faded element would pass a color-only check.
+//
+// BLOCKER 1 of the review of pull request #450: the `.form-error` border
+// also sits on a dialog fill (`--paper-raised`), darker than the page in
+// the dark scheme. This scenario reads the border on the sign-in page in
+// both color schemes, and inside the delete dialog in the dark scheme
+// too, so the `--coral-edge` token gets a reading on each background it
+// paints.
+test('the sign-in form-error message starts with the warning glyph and its left border passes 3:1 on its background, in both color schemes and in a dialog (issue #383)', async ({
+  page,
+  newTrackedContext,
+}) => {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    const context = await newTrackedContext();
+    const signinPage = await context.newPage();
+    await signinPage.emulateMedia({ colorScheme });
+    await signinPage.goto('/signin?token=e2e-bad-token-383');
+    await signinPage.getByRole('button', { name: 'Sign in' }).click();
+
+    const errorText = signinPage.locator('p.form-error');
+    await expect(errorText).toBeVisible();
+    await expect(errorText).toHaveCSS('opacity', '1');
+    const messageText = (await errorText.textContent()) ?? '';
+    expect(messageText.startsWith('⚠')).toBe(true);
+
+    const [borderColor, pageBackground] = await errorText.evaluate((element) => [
+      getComputedStyle(element).borderLeftColor,
+      getComputedStyle(document.body).backgroundColor,
+    ]);
+    const borderContrast = contrastRatio(borderColor, pageBackground);
+    console.log(
+      `issue #383 (${colorScheme}): the sign-in form-error left border is "${borderColor}" ` +
+        `on "${pageBackground}", ${borderContrast.toFixed(2)}:1.`,
+    );
+    expect(borderContrast).toBeGreaterThanOrEqual(3);
+  }
+
+  // The delete dialog paints its fill with `--paper-raised`. A route
+  // abort on the DELETE request is the deterministic way to raise the
+  // dialog's own form-error paragraph, with no server change.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const appName = `form-error-edge-450-${Date.now()}`;
+  await manage.addApp({ name: appName, origins: ['https://form-error-edge-450.example'] });
+  const row = manage.row(appName);
+
+  await page.route('**/api/apps/*', async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fallback();
+      return;
+    }
+    await route.abort();
+  });
+  await manage.openDeleteDialog(row);
+  await manage.deleteConfirmNameField(row).fill(appName);
+  await manage.deleteConfirmButton(row).click();
+
+  const dialogError = row.locator('app-delete-app-dialog p.form-error');
+  await expect(dialogError).toBeVisible();
+  await expect(dialogError).toHaveCSS('opacity', '1');
+  const [dialogBorderColor, dialogFill] = await dialogError.evaluate((element) => {
+    const dialogEl = element.closest('dialog');
+    return [
+      getComputedStyle(element).borderLeftColor,
+      dialogEl ? getComputedStyle(dialogEl).backgroundColor : '',
+    ];
+  });
+  const dialogBorderContrast = contrastRatio(dialogBorderColor, dialogFill);
+  console.log(
+    `issue #383 (dark, dialog): the delete-dialog form-error left border is ` +
+      `"${dialogBorderColor}" on "${dialogFill}", ${dialogBorderContrast.toFixed(2)}:1.`,
+  );
+  expect(dialogBorderContrast).toBeGreaterThanOrEqual(3);
+
+  await page.unroute('**/api/apps/*');
+});
+
+// Issue #438: `docs/design/contrast.mjs` carried the invalid-field ring
+// pair as the pre-#264 literal `#ff6b6b` (2.8:1), though the CSS rule
+// itself already painted `var(--coral-deep)`. This scenario reads the
+// real ring color of a field that a server-side validation error marks
+// invalid (two equal origins, rejected by the registry), and confirms
+// the painted ring reaches 3:1 on the field fill. `opacity: 1` sits
+// beside the ratio for the same reason as the #383 scenario above.
+test('the invalid-field ring of the add-app form reaches a 3:1 contrast on the field fill (issue #438)', async ({
+  page,
+}) => {
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const origin = 'https://ring-438.example';
+  await manage.addAppExpectingError(
+    { name: `ring-438-${Date.now()}`, origins: [origin, origin] },
+    'An origin appears twice.',
+  );
+
+  const originsField = page.getByLabel('Origins (one per line)');
+  await expect(originsField).toHaveAttribute('aria-invalid', 'true');
+  await expect(originsField).toHaveCSS('opacity', '1');
+
+  const [ringColor, fillColor] = await originsField.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const match = style.boxShadow.match(/rgba?\([^)]+\)/);
+    return [match ? match[0] : '', style.backgroundColor];
+  });
+  const ringContrast = contrastRatio(ringColor, fillColor);
+  console.log(
+    `issue #438: the invalid-field ring is "${ringColor}" on "${fillColor}", ` +
+      `${ringContrast.toFixed(2)}:1.`,
+  );
+  expect(ringContrast).toBeGreaterThanOrEqual(3);
+});
+
 /**
  * Reads the border radius and the box shadow of one control (issue
  * #360, finding D11). Chromium gives back a plain px string and a
@@ -1521,25 +1744,198 @@ test('the header band holds two rows, not three, at 390px width (issue #397)', a
 
 // Issue #439, the confirmation comment of pull request #435: the mascot
 // head fill on the header band keeps a 3:1 contrast against the band, so
-// the graphic stays visible (WCAG 1.4.11). `opacity: 1` rules out a
-// faded ancestor masking the real painted color (lesson 24 of the
-// frontend brief).
+// the graphic stays visible (WCAG 1.4.11). BLOCKER 1 of the review of
+// pull request #459: the eye fill also keeps a 3:1 contrast against the
+// head fill, in the light scheme and in the dark scheme. `opacity: 1`
+// rules out a faded ancestor masking the real painted color (lesson 24
+// of the frontend brief).
 test('the mascot head fill reads 3:1 or more against the header band (issue #439)', async ({
   page,
 }) => {
   const apps = new AppsPage(page);
   await apps.goto();
   const head = page.locator('header.band app-octo-mark .head');
+  const eye = page.locator('header.band app-octo-mark .eye').first();
   const band = page.locator('header.band');
 
   await expect(head).toHaveCSS('opacity', '1');
-  const [headFill, bandFill] = await Promise.all([
-    head.evaluate((element) => getComputedStyle(element).fill),
-    band.evaluate((element) => getComputedStyle(element).backgroundColor),
-  ]);
-  const ratio = contrastRatio(headFill, bandFill);
+  await expect(eye).toHaveCSS('opacity', '1');
+
+  async function measurePairs(): Promise<{
+    headFill: string;
+    bandFill: string;
+    eyeFill: string;
+    headOnBand: number;
+    eyeOnHead: number;
+  }> {
+    const [headFill, bandFill, eyeFill] = await Promise.all([
+      head.evaluate((element) => getComputedStyle(element).fill),
+      band.evaluate((element) => getComputedStyle(element).backgroundColor),
+      eye.evaluate((element) => getComputedStyle(element).fill),
+    ]);
+    return {
+      headFill,
+      bandFill,
+      eyeFill,
+      headOnBand: contrastRatio(headFill, bandFill),
+      eyeOnHead: contrastRatio(eyeFill, headFill),
+    };
+  }
+
+  const light = await measurePairs();
   console.log(
-    `issue #439: the mascot head fill is ${headFill} on the band ${bandFill}, a ratio of ${ratio.toFixed(2)}:1.`,
+    `issue #439: light scheme, the head fill ${light.headFill} on the band ${light.bandFill} reads ${light.headOnBand.toFixed(2)}:1; the eye fill ${light.eyeFill} on the head reads ${light.eyeOnHead.toFixed(2)}:1.`,
   );
-  expect(ratio).toBeGreaterThanOrEqual(3);
+  expect(light.headOnBand).toBeGreaterThanOrEqual(3);
+  expect(light.eyeOnHead).toBeGreaterThanOrEqual(3);
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const dark = await measurePairs();
+  console.log(
+    `issue #439: dark scheme, the head fill ${dark.headFill} on the band ${dark.bandFill} reads ${dark.headOnBand.toFixed(2)}:1; the eye fill ${dark.eyeFill} on the head reads ${dark.eyeOnHead.toFixed(2)}:1.`,
+  );
+  expect(dark.headOnBand).toBeGreaterThanOrEqual(3);
+  expect(dark.eyeOnHead).toBeGreaterThanOrEqual(3);
+});
+
+/**
+ * Issue #369 (finding D13 of the UI audit of 2026-10-09): a button, a
+ * nav pill, the Pause refresh pill, and a text link had no `:hover`
+ * rule. Each check reads `opacity` as `1` first (lesson 24 of the
+ * frontend brief). It then reads the text contrast, so the ratio
+ * reads the true painted colour.
+ */
+test('a button, a nav pill, the pause pill, and a link each change under hover (issue #369)', async ({
+  page,
+  browser,
+}) => {
+  // The button: the "Add app" submit button of the manage view, a
+  // `.btn.btn-primary`.
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const addAppButton = page.getByRole('button', { name: 'Add app' });
+  await expect(addAppButton).toHaveCSS('opacity', '1');
+  const buttonRest = await hoverStyleOf(addAppButton);
+  await addAppButton.hover();
+  const buttonHover = await hoverStyleOf(addAppButton);
+  expect(buttonHover.transform).not.toBe(buttonRest.transform);
+  expect(buttonHover.boxShadow).not.toBe(buttonRest.boxShadow);
+  // The fill and the text colour stay the same. The text contrast of
+  // the button stays at its own ratio.
+  expect(buttonHover.backgroundColor).toBe(buttonRest.backgroundColor);
+  expect(buttonHover.color).toBe(buttonRest.color);
+  expect(contrastRatio(buttonHover.color, buttonHover.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+
+  // MAJOR 1 of the review of pull request #445: a mouse press beats
+  // the hover. `page.mouse.down()` over the button holds `:hover` and
+  // `:active` at the same time, so this reads the real press, not the
+  // hover alone.
+  const addAppBox = await addAppButton.boundingBox();
+  if (!addAppBox) {
+    throw new Error('The "Add app" button has no box.');
+  }
+  await page.mouse.move(addAppBox.x + addAppBox.width / 2, addAppBox.y + addAppBox.height / 2);
+  await page.mouse.down();
+  // The 80ms transform transition of `.btn` (styles.css) needs a short
+  // wait, so the read happens after the press settles, not mid-move.
+  await page.waitForTimeout(150);
+  const buttonPress = await hoverStyleOf(addAppButton);
+  await page.mouse.up();
+  expect(buttonPress.transform).toBe('matrix(1, 0, 0, 1, 3, 3)');
+  expect(buttonPress.boxShadow).toBe('none');
+
+  // MAJOR 2 of the review of pull request #445: a touch tap leaves no
+  // sticky hover. A context with `hasTouch` and `isMobile`, at 390 px,
+  // signed in through the same storage state as the default context.
+  // `baseURL` repeats here too (the config comment above states the
+  // same rule for `userAgent`): a context a test opens itself does not
+  // inherit the project `use` block.
+  const monitorUrl = process.env.E2E_MONITOR_URL;
+  if (!monitorUrl) {
+    throw new Error('E2E_MONITOR_URL is absent. The global setup did not run, or it failed.');
+  }
+  const touchContext = await browser.newContext({
+    baseURL: monitorUrl,
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+    userAgent: DESKTOP_CHROME_USER_AGENT,
+    storageState: STORAGE_STATE_FILE,
+  });
+  const touchPage = await touchContext.newPage();
+  const touchManage = new ManagePage(touchPage);
+  await touchManage.goto();
+  const touchButton = touchPage.getByRole('button', { name: 'Add app' });
+  const touchRest = await hoverStyleOf(touchButton);
+  await touchButton.tap();
+  await touchPage.waitForTimeout(500);
+  const touchAfterTap = await hoverStyleOf(touchButton);
+  expect(touchAfterTap.transform).toBe(touchRest.transform);
+  expect(touchAfterTap.boxShadow).toBe(touchRest.boxShadow);
+  await touchContext.close();
+
+  // The nav pill: "Apps" is not the current link on the manage view.
+  const nav = page.getByRole('navigation', { name: 'Main' });
+  const appsPill = nav.getByRole('link', { name: 'Apps', exact: true });
+  await expect(appsPill).toHaveCSS('opacity', '1');
+  const pillRest = await hoverStyleOf(appsPill);
+  await appsPill.hover();
+  const pillHover = await hoverStyleOf(appsPill);
+  expect(pillHover.backgroundColor).not.toBe(pillRest.backgroundColor);
+  expect(contrastRatio(pillHover.color, pillHover.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+
+  // The Pause refresh pill, on the apps view (the refresh bar).
+  const apps = new AppsPage(page);
+  await apps.goto();
+  const pauseButton = page.getByRole('button', { name: 'Pause refresh' });
+  await expect(pauseButton).toHaveCSS('opacity', '1');
+  const pauseRest = await hoverStyleOf(pauseButton);
+  await pauseButton.hover();
+  const pauseHover = await hoverStyleOf(pauseButton);
+  expect(pauseHover.backgroundColor).not.toBe(pauseRest.backgroundColor);
+  expect(contrastRatio(pauseHover.color, pauseHover.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+
+  // The text link: "Go to the apps" of the not-found page, under the
+  // global `a` rule, with no pill and no band around it. The link
+  // sets no background of its own; it stays transparent. The
+  // contrast check below reads the `.panel` fill behind it instead.
+  await page.goto('/no-such-page');
+  const textLink = page.getByRole('link', { name: 'Go to the apps' });
+  const panelBackground = await page
+    .locator('.panel')
+    .first()
+    .evaluate((element) => getComputedStyle(element).backgroundColor);
+  await expect(textLink).toHaveCSS('opacity', '1');
+  const linkRest = await hoverStyleOf(textLink);
+  await textLink.hover();
+  const linkHover = await hoverStyleOf(textLink);
+  expect(linkHover.textDecorationThickness).not.toBe(linkRest.textDecorationThickness);
+  expect(contrastRatio(linkHover.color, panelBackground)).toBeGreaterThanOrEqual(4.5);
+
+  // `prefers-reduced-motion: reduce` (step 5 of the issue): the
+  // transition of `.btn` yields to it. The hover shadow of the button
+  // above then applies with no animation.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await manage.goto();
+  const reducedAddAppButton = page.getByRole('button', { name: 'Add app' });
+  await reducedAddAppButton.hover();
+  const reducedStyle = await hoverStyleOf(reducedAddAppButton);
+  expect(reducedStyle.transitionDuration).toBe('0s');
+
+  // Note N1 of the review of pull request #445: the hovered nav pill
+  // stays readable in the dark color scheme too. "Manage apps" is not
+  // the current link on the apps view, so its hover rule applies.
+  await page.emulateMedia({ reducedMotion: 'no-preference', colorScheme: 'dark' });
+  await apps.goto();
+  const darkPill = page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Manage apps' });
+  const darkPillRest = await hoverStyleOf(darkPill);
+  await darkPill.hover();
+  await expect(darkPill).toHaveCSS('opacity', '1');
+  const darkPillHover = await hoverStyleOf(darkPill);
+  expect(darkPillHover.backgroundColor).not.toBe(darkPillRest.backgroundColor);
+  expect(
+    contrastRatio(darkPillHover.color, darkPillHover.backgroundColor),
+  ).toBeGreaterThanOrEqual(4.5);
 });

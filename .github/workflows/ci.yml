@@ -323,6 +323,19 @@ jobs:
     if: needs.changes.outputs.e2e == 'true' || needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Issue #456: "packages: read" lets this job log in to the GitHub
+    # Container Registry and pull the mirrored MongoDB image, public or
+    # private.
+    permissions:
+      contents: read
+      packages: read
+    # Issue #456, part B: this variable points the demo app's compose
+    # file at the GitHub Container Registry mirror. The pretest step
+    # of the e2e suite passes the whole job environment to
+    # "docker compose up" (e2e/setup/global-setup.ts), so this job
+    # needs no other change to carry the variable through.
+    env:
+      OCTOMETER_MONGO_IMAGE: ghcr.io/xamcross/octometer/mongo:8.0
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -395,6 +408,11 @@ jobs:
       # three variables.
       - name: Print the JaCoCo agent line of the monitor and of the demo app
         run: ./gradlew -q :monitor:backend:jacocoAgentArgs >> "$GITHUB_ENV"
+      # Issue #456: the login lets the compose pull of the mirrored
+      # MongoDB image work, whether the package stays private or turns
+      # public. The job token needs no secret of its own.
+      - name: Log in to the GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
       # Step (c). Issue #406: the fixed project name, through the
       # override variable, so this job's own outputs stay stable.
       - name: Run the end-to-end suite

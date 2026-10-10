@@ -20,12 +20,14 @@ the base rules.
 | `--paper-raised` | `#FFFFFF` | The dialog fill, one step above the paper. |
 | `--shallows` | `#E6F3FF` | The page background, the zebra row tint. |
 | `--shallows-deep` | `#BFDFFF` | The table head, the neutral status fill. |
-| `--coral` | `#FF6B6B` | The danger fill, the error edge, the link underline. |
-| `--coral-deep` | `#D93A3A` | The invalid field ring; keeps 3:1 or more on `--paper` (WCAG 1.4.11). |
+| `--coral` | `#FF6B6B` | The danger fill, the link underline. |
+| `--coral-deep` | `#D93A3A` | The invalid field ring; keeps 3:1 or more on `--paper` and on `--shallows` (WCAG 1.4.11, issue #264 and issue #438). |
+| `--coral-edge` | `#D93A3A` light, `#FF6B6B` dark | The `.form-error` left border; keeps 3:1 or more on `--paper`, `--shallows`, and `--paper-raised` (WCAG 1.4.11, issue #383 and issue #450). |
 | `--sunny` | `#FFD93D` | The primary fill, the current nav pill, the focus ring, the warning fill. |
 | `--seaweed` | `#6EE7B7` | The OK fill. |
 | `--octo` | `#A78BFA` | The header band, the mascot body. Never a text background. |
 | `--octo-head-band` | `#423A57` | The mascot head fill on the header band; keeps 3:1 or more on `--octo` (WCAG 1.4.11). |
+| `--octo-face-band` | `#FFFFFF` | The mascot eye fill and smile stroke on the header band; keeps 10.6:1 on `--octo-head-band` (WCAG 1.4.11, issue #439, BLOCKER 1 of pull request #459). |
 | `--on-bright` | `#241F3D` | The text and the edge on each bright fill. It stays dark in a dark theme. |
 | `--backdrop` | `rgb(36 31 61 / 0.6)` | The dim layer behind a dialog. |
 | `--radius-panel` | `20px` | A comic panel. |
@@ -112,9 +114,12 @@ instead of adding to it.
 
 The implementer measured each pair with a Node script that computes the WCAG 2.x relative
 luminance and the contrast ratio of the two hex values (`node -e`, run on 2026-09-27). Each
-pair stays at 4.5:1 or above, the floor of WCAG 1.4.3 for normal text.
+text pair stays at 4.5:1 or above, the floor of WCAG 1.4.3 for normal text. The
+`--coral-deep` / `--shallows` row (issue #383) is a non-text indicator, the 3px left border
+of a `.form-error` message on the sign-in page's body background; its floor is the 3:1
+value of WCAG 1.4.11.
 
-| Text | Background | Ratio |
+| Text or edge | Background | Ratio |
 | --- | --- | --- |
 | `--ink` | `--paper` | 15.7:1 |
 | `--ink` | `--shallows` | 13.9:1 |
@@ -125,10 +130,25 @@ pair stays at 4.5:1 or above, the floor of WCAG 1.4.3 for normal text.
 | `--ink` | `--octo` | 5.8:1 |
 | `--ink-soft` | `--paper` | 8.8:1 |
 | `--coral-deep` | `--paper` | 4.5:1 |
+| `--coral-deep` | `--shallows` | 4.0:1 |
 
 `--on-bright` equals `--ink` (both `#241F3D`), so the four `--on-bright` pairs (on `--sunny`,
-`--seaweed`, `--coral`, `--octo`) repeat the four `--ink` rows above; the table keeps the
-nine rows only.
+`--seaweed`, `--coral`, `--octo`) repeat the four `--ink` rows above; the table keeps the ten
+rows only.
+
+`docs/design/contrast.mjs` carries the invalid-field ring pair (the `box-shadow` of
+`[aria-invalid='true']`, `--coral-deep` on `--paper`, 4.5:1). Until issue #438, that pair
+still named the pre-#264 literal `#ff6b6b` (2.8:1, under the 3:1 floor of WCAG 1.4.11);
+the script now names `--coral-deep`'s real value, `#d93a3a`, and the pair passes. In the
+dark scheme (issue #435), `--coral-deep` keeps its light value and still passes: 3.70:1
+on the dark `--paper` (`#1D1A33`) and 4.02:1 on the dark `--shallows` (`#14122A`).
+
+The `.form-error` left border uses a separate token, `--coral-edge` (issue #383 and issue
+#450). `--coral-edge` keeps `--coral-deep`'s light value, `#d93a3a`. It reads 4.55:1 on
+`--paper`, 4.04:1 on `--shallows`, and 4.55:1 on the dialog fill `--paper-raised` in the
+light scheme. In the dark scheme `--coral-edge` takes `#ff6b6b`. The pair then reads 6.06:1 on
+`--paper`, 6.58:1 on `--shallows`, and 4.69:1 on `--paper-raised`, the fill of
+`DeleteAppDialog` and `NewSecretKeyDialog`.
 
 ## The dark color scheme
 
