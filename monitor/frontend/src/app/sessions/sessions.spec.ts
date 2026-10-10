@@ -109,7 +109,7 @@ describe('Sessions', () => {
 
   it('shows a focusable heading', () => {
     const heading = root().querySelector('h1');
-    expect(heading?.textContent).toContain('Anonymous sessions');
+    expect(heading?.textContent).toContain('Sessions');
     expect(heading?.getAttribute('tabindex')).toBe('-1');
   });
 

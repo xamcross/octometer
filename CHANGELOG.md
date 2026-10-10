@@ -224,6 +224,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   Apply this fix in the apps, the users, the sessions, and the first-pages view. (#465)
 - Give the name field of the edit-app dialog `preventScroll: true` on its open focus
   call. The page then stays still. The row below keeps one `y` value. (#465)
+- Use one term for each dashboard concept: "clicks" in the delete dialog, "Manage
+  apps" on the manage heading, "Sessions" on the sessions heading, and a lower-case
+  "user" in the Elements heading. (#391)
 
 ### CI
 
