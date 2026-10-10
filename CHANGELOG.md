@@ -70,6 +70,10 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   token. (#425)
 - Add a dark-scheme row for each light pair of the contrast script, so a dark-scheme
   regression now shows in the script output. (#429)
+- Shrink the side padding of the hero preview table under 48rem, so the table fits
+  the preview window at 390 px with no clip. (#431)
+- Wait until 56rem to split the waitlist row into two columns, so the page shows no
+  sideways scroll at 768 px, at 800 px, or at 870 px. (#442)
 
 ### Contract
 

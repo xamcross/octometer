@@ -323,9 +323,17 @@ a:hover {
   /* The row border-radius of a collapsed table needs the clip below. */
   overflow: hidden;
 }
+/*
+ * Issue #431 (the audit finding L3, the confirmation comment of pull
+ * request #423): the table's right border and the last column's padding
+ * clip against the window at 390 px. A smaller side padding here fits
+ * five columns in the narrow window; "@media (min-width: 48rem)" below
+ * restores the wider padding, where the window already shows the table
+ * in full.
+ */
 .hero-preview-table th,
 .hero-preview-table td {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-2);
   text-align: left;
 }
 .hero-preview-table thead th {
@@ -691,6 +699,23 @@ a:hover {
   gap: var(--space-5);
   align-items: start;
 }
+/* Issue #442 (the correction of the review of pull request #440): the
+ * two-column grid of issue #381 started at 48rem, with the
+ * ".wl-pilot" column collapsed to a width the row could not hold at
+ * the same time as the 48rem cap of the form column, so the page
+ * scrolled sideways from 768 px to about 870 px (14 px at 768 px).
+ * The grid now waits for 56rem, the same breakpoint as ".hero" above,
+ * and stacks the form over the pilot list below it. This block
+ * stands after the base ".wl" rule above (the MAJOR 1 correction of
+ * the review of pull request #457): the same specificity ties go to
+ * the later rule in the source, so an earlier placement silently lost
+ * "gap: var(--space-6)" to the base rule's "gap: var(--space-5)". */
+@media (min-width: 56rem) {
+  .wl {
+    grid-template-columns: minmax(0, 48rem) 1fr;
+    gap: var(--space-6);
+  }
+}
 .panel {
   background: var(--paper);
   border: var(--line-panel);
@@ -902,14 +927,6 @@ label {
   .flow {
     justify-self: start;
   }
-  /* Issue #381, audit finding L6, step 1 and step 2: the old rule
-   * "max-width: 26rem" left about two-thirds of the row empty. The new
-   * cap of 48rem matches the mockup (site/design/mockup.html), with the
-   * pilot list of step 5 beside the form in the second column. */
-  .wl {
-    grid-template-columns: minmax(0, 48rem) 1fr;
-    gap: var(--space-6);
-  }
   /* The field and the button sit on one row: column 1 holds the field,
    * column 2 holds the button. The button's own paragraph and the
    * status region each span the full row, on their own row. */
@@ -940,4 +957,10 @@ label {
    * floor in a two-column row at 1280px (the review of pull request
    * #424); ".levels" above site/src/styles/site.css:353 keeps one column
    * at every width, with no override here. */
+  /* Issue #431: the window shows the table in full from 48rem, so the
+   * side padding of each cell goes back to its wider value here. */
+  .hero-preview-table th,
+  .hero-preview-table td {
+    padding: var(--space-2) var(--space-3);
+  }
 }
