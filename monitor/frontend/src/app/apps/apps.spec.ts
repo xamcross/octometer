@@ -121,7 +121,7 @@ describe('Apps', () => {
 
   it('shows a loading text before the first answer arrives, and no table', () => {
     expect(root().querySelector('table')).toBeNull();
-    expect(root().textContent).toContain('Octometer reads the app list.');
+    expect(root().textContent).toContain('Loading apps…');
   });
 
   it('shows no retention text before the health answer arrives', () => {

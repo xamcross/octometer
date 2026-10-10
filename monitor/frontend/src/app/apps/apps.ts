@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Component, OnDestroy, computed, effect, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
+import { Announcer } from '../announcer';
 import { AppNames } from '../app-names';
 import { EmptyState } from '../empty-state/empty-state';
 import { createPollStore } from '../poll/poll-store';
@@ -44,6 +45,7 @@ export class Apps implements OnDestroy {
   private readonly router = inject(Router);
   private readonly refreshIntervalState = inject(RefreshIntervalState);
   private readonly appNames = inject(AppNames);
+  private readonly announcer = inject(Announcer);
 
   /** The poll store of the app list. */
   protected readonly store = createPollStore<AppRow[]>(() => this.http.get<AppRow[]>('/api/apps'));
@@ -68,6 +70,38 @@ export class Apps implements OnDestroy {
     return days === null ? null : `Totals of the last ${numberFormat.format(days)} days.`;
   });
 
+  /**
+   * The text of a failed first load (D6 of the UI audit of 2026-10-09,
+   * issue #373). Null while `data()` holds a value, else the text when
+   * `error()` holds a value (BLOCKER 1 of the review of pull request
+   * #452: a failed health request also sets `error()`, with no data
+   * request in flight and a `firstLoadPending()` that never clears; the
+   * old guard then kept the loading sentence forever). The template
+   * shows this text with a "Try again" button, in place of a loading
+   * sentence that never ends.
+   */
+  protected readonly listError = computed<string | null>(() => {
+    if (this.store.data() !== undefined) {
+      return null;
+    }
+    return this.store.error() !== undefined
+      ? 'Octometer cannot read the app list. Try again.'
+      : null;
+  });
+
+  /**
+   * True while a "Try again" click waits for its answer (MAJOR 2 of the
+   * review of pull request #452, the pending-control pattern of issue
+   * #428). The template disables the button and shows "Trying again…"
+   * while this signal is true, so a second click cannot start a second
+   * request.
+   */
+  protected readonly retryPending = signal(false);
+
+  /** The `data` and `dataError` of the store at the moment a retry starts. */
+  private retryBaselineData: AppRow[] | undefined = undefined;
+  private retryBaselineError: unknown = undefined;
+
   constructor() {
     // Fills the app-name store from each answer of GET /api/apps (issue
     // #270), so the breadcrumb of a level 2 or a level 3 view can show the
@@ -78,6 +112,40 @@ export class Apps implements OnDestroy {
         this.appNames.setFromRows(rows);
       }
     });
+
+    // Announces the result of a "Try again" retry, once the request
+    // answers (MAJOR 2 of the review of pull request #452). It waits
+    // until `data` or `dataError` holds a fresh reference, the same
+    // compare as the pager announce effects of `users.ts`.
+    effect(() => {
+      if (!this.retryPending()) {
+        return;
+      }
+      const data = this.store.data();
+      const error = this.store.dataError();
+      if (data === this.retryBaselineData && error === this.retryBaselineError) {
+        return; // The retry request has not answered yet.
+      }
+      this.retryPending.set(false);
+      this.announcer.announce(
+        data !== undefined
+          ? 'The app list loaded.'
+          : (this.listError() ?? 'The app list did not load.'),
+      );
+    });
+  }
+
+  /**
+   * Retries the first load after a failure (issue #373). It announces
+   * the pending state at once, then the result, through the one
+   * `Announcer` region (MAJOR 2 of the review of pull request #452).
+   */
+  protected retry(): void {
+    this.retryBaselineData = this.store.data();
+    this.retryBaselineError = this.store.dataError();
+    this.retryPending.set(true);
+    this.announcer.announce('Trying again…');
+    this.store.refresh();
   }
 
   /** Clears the 30 s clock interval, so no timer survives this component. */

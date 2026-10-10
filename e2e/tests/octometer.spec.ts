@@ -1781,3 +1781,282 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
     contrastRatio(darkPillHover.color, darkPillHover.backgroundColor),
   ).toBeGreaterThanOrEqual(4.5);
 });
+
+/**
+ * The painted background colour behind one element: the element's own
+ * background when it holds one, else the nearest ancestor's (issue
+ * #373, issue #395). `.list-error` and `.error-text` set no background
+ * of their own, so each contrast check below reads the panel or the
+ * page background instead.
+ */
+async function paintedColors(locator: Locator): Promise<{ fg: string; bg: string }> {
+  return locator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    let ancestor: Element | null = element.parentElement;
+    let background = style.backgroundColor;
+    while (ancestor && (background === 'rgba(0, 0, 0, 0)' || background === 'transparent')) {
+      background = getComputedStyle(ancestor).backgroundColor;
+      ancestor = ancestor.parentElement;
+    }
+    return { fg: style.color, bg: background };
+  });
+}
+
+/**
+ * Issue #373 (D6 of the UI audit of 2026-10-09): a list view that fails
+ * its first load shows the `.list-error` text with a "Try again" button,
+ * in place of a loading sentence that never ends. One fresh app, with no
+ * event sent to it, gives the users view, the sessions view, and the
+ * first-pages view an empty, not a table, once the retry answers; the
+ * apps view keeps a table, because the app list itself holds this one
+ * app. Each of the four cases routes its own GET to a 500 once, so the
+ * assertion above the loop fails on the unpatched view: the loading
+ * sentence of issue #373's "Current behaviour" never clears, and no
+ * "Try again" button exists for `root().querySelector` to find.
+ */
+test('a failed first load shows the error state, and "Try again" reloads the list (issue #373, D6)', async ({
+  page,
+  request,
+}) => {
+  const monitorUrl = readMonitorUrl();
+  const { appId } = await registerPagerApp(request, monitorUrl, 'list-error-app');
+
+  const cases: ReadonlyArray<{
+    name: string;
+    url: string;
+    apiGlob: string;
+    errorText: string;
+    afterSuccess: 'table' | 'empty';
+    emptyText?: string;
+  }> = [
+    {
+      name: 'apps',
+      url: '/apps',
+      apiGlob: '**/api/apps',
+      errorText: 'Octometer cannot read the app list. Try again.',
+      afterSuccess: 'table',
+    },
+    {
+      name: 'users',
+      url: `/apps/${appId}/users`,
+      apiGlob: `**/api/apps/${appId}/users*`,
+      errorText: 'Octometer cannot read the user list. Try again.',
+      afterSuccess: 'empty',
+      emptyText: 'No app user has clicked yet.',
+    },
+    {
+      name: 'sessions',
+      url: `/apps/${appId}/sessions?anonymous=true`,
+      apiGlob: `**/api/apps/${appId}/sessions*`,
+      errorText: 'Octometer cannot read the anonymous session list. Try again.',
+      afterSuccess: 'empty',
+      emptyText: 'No anonymous session yet.',
+    },
+    {
+      name: 'first-pages',
+      url: `/apps/${appId}/first-pages`,
+      apiGlob: `**/api/apps/${appId}/first-pages*`,
+      errorText: 'Octometer cannot read the first page list. Try again.',
+      afterSuccess: 'empty',
+      emptyText: 'No first page yet.',
+    },
+  ];
+
+  for (const testCase of cases) {
+    let hits = 0;
+    await page.route(testCase.apiGlob, (route) => {
+      hits += 1;
+      return hits === 1 ? route.fulfill({ status: 500, body: '' }) : route.continue();
+    });
+
+    await page.goto(testCase.url);
+
+    const errorParagraph = page.locator('p.list-error');
+    await expect(errorParagraph).toHaveText(testCase.errorText, { timeout: CHAIN_WAIT_MS });
+    await expect(page.locator('table')).toHaveCount(0);
+    const retryButton = page.getByRole('button', { name: 'Try again' });
+    await expect(retryButton).toBeVisible();
+    await expect(retryButton).toHaveCSS('opacity', '1');
+
+    await retryButton.click();
+    await expect(errorParagraph).toHaveCount(0, { timeout: CHAIN_WAIT_MS });
+    if (testCase.afterSuccess === 'table') {
+      await expect(page.locator('table')).toBeVisible({ timeout: CHAIN_WAIT_MS });
+    } else {
+      await expect(page.getByText(testCase.emptyText!)).toBeVisible({ timeout: CHAIN_WAIT_MS });
+    }
+
+    await page.unroute(testCase.apiGlob);
+    console.log(
+      `issue #373, D6: the ${testCase.name} view showed "${testCase.errorText}" on a routed ` +
+        `500, with no table, and recovered after "Try again".`,
+    );
+  }
+
+  // Step 2 of the implementation: the error state keeps 4.5:1 in both
+  // colour schemes. The apps view stands for the four views; they share
+  // the one `.list-error` rule of styles.css.
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    let hits = 0;
+    await page.route('**/api/apps', (route) => {
+      hits += 1;
+      return hits === 1 ? route.fulfill({ status: 500, body: '' }) : route.continue();
+    });
+    await page.goto('/apps');
+    const errorParagraph = page.locator('p.list-error');
+    await expect(errorParagraph).toBeVisible({ timeout: CHAIN_WAIT_MS });
+    const colors = await paintedColors(errorParagraph);
+    const contrast = ratio(toHex(colors.fg), toHex(colors.bg));
+    console.log(`issue #373, D6: the list-error text contrast in ${colorScheme} mode is ${contrast.toFixed(2)}:1.`);
+    expect(contrast).toBeGreaterThanOrEqual(4.5);
+    await page.unroute('**/api/apps');
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+});
+
+/**
+ * BLOCKER 1 of the review of pull request #452: a failed `GET
+ * /api/health` must give the same error state as a failed list request,
+ * not the loading sentence that never ends. The old `listError()` guard
+ * read `firstLoadPending()`, a flag that never clears while the health
+ * route fails, because `intervalMs$` then emits no interval and the
+ * store sends no data request. The fix reads `data()` and `error()`
+ * alone. The health route stays routed to 500 through the whole test, so
+ * the assertion also proves that "Try again" still recovers the list
+ * through its own `GET /api/apps`, with no interval from the health
+ * route (issue #373, "Current behaviour", second mode).
+ */
+test('a failed health request shows the error state too, and "Try again" still recovers the list (issue #373, D6, BLOCKER 1 of the review of pull request #452)', async ({
+  page,
+}) => {
+  await page.route('**/api/health', (route) => route.fulfill({ status: 500, body: '' }));
+
+  const apps = new AppsPage(page);
+  await apps.goto();
+
+  const errorParagraph = page.locator('p.list-error');
+  await expect(errorParagraph).toHaveText('Octometer cannot read the app list. Try again.', {
+    timeout: CHAIN_WAIT_MS,
+  });
+  await expect(page.getByText('Loading apps…')).toHaveCount(0);
+  await expect(page.locator('table')).toHaveCount(0);
+
+  const retryButton = page.getByRole('button', { name: 'Try again' });
+  await expect(retryButton).toBeVisible();
+  await retryButton.click();
+
+  // The health route still answers 500 here: the list recovers through
+  // its own GET /api/apps alone, with no help from the health interval.
+  await expect(errorParagraph).toHaveCount(0, { timeout: CHAIN_WAIT_MS });
+  await expect(page.locator('table')).toBeVisible({ timeout: CHAIN_WAIT_MS });
+
+  await page.unroute('**/api/health');
+  console.log(
+    'issue #373, D6, BLOCKER 1: the apps view showed the error state on a failed health ' +
+      'request, with no table and no "Loading apps…" sentence, and "Try again" recovered ' +
+      'the list while the health route still answered 500.',
+  );
+});
+
+/**
+ * Issue #395 (D20 of the UI audit of 2026-10-09): the raw error text of
+ * a failed app's Status cell renders at 14px monospace, with a 2-line
+ * clamp, and the full raw text stays in the element's `title` attribute.
+ * A mock answer of `GET /api/apps` stands in for a real failed poll, the
+ * same way the health-banner mock above stands in for a real API
+ * outage: issue #395 names no app state that a real collector run must
+ * reach, only the rendering of a `lastError` string the API already
+ * gives. The placeholder connection string holds no real credential
+ * (`<user>:<password>`, `exampledb`), the fixture form of the secret-scan
+ * rule.
+ */
+test('a failed app shows a short status text with the raw error in the title (issue #395, D20)', async ({
+  page,
+}) => {
+  const rawError =
+    'mongodb+srv://<user>:<password>@cluster0.example.mongodb.net/exampledb: connection ' +
+    'refused after 30000 ms, retrying with backoff; no replica reachable; check the network ' +
+    'access list and the credentials.';
+  const failedRow = {
+    appId: 1,
+    name: 'status-cell-app',
+    clicks: 0,
+    uniqueUsers: 0,
+    uniqueSessions: 0,
+    status: 'UNREACHABLE',
+    lastSuccessAt: null,
+    lastError: rawError,
+    nextPollAt: null,
+    gaps: [],
+  };
+  await page.route('**/api/apps', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([failedRow]),
+    }),
+  );
+
+  const apps = new AppsPage(page);
+  await apps.goto();
+
+  const errorParagraph = page.locator('p.error-text');
+  await expect(errorParagraph).toBeVisible();
+
+  const style = await errorParagraph.evaluate((element) => {
+    const computed = getComputedStyle(element);
+    return {
+      fontSize: computed.fontSize,
+      fontFamily: computed.fontFamily,
+      opacity: computed.opacity,
+    };
+  });
+  console.log(`issue #395, D20: the error text font is ${style.fontSize} ${style.fontFamily}.`);
+  expect(style.fontSize).toBe('14px');
+  expect(style.fontFamily.toLowerCase()).toContain('monospace');
+  expect(style.opacity).toBe('1');
+
+  // `Range.getClientRects()` (the `lineCount` helper above) counts every
+  // laid-out line, clamped or not, because `-webkit-line-clamp` clips the
+  // paint, not the layout. The clamp itself shows instead through the
+  // element's own box: `clientHeight` stops at 2 lines, while
+  // `scrollHeight` still measures the full, unclamped text.
+  const clampMetrics = await errorParagraph.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      lineClamp: style.webkitLineClamp,
+      display: style.display,
+      overflow: style.overflow,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+    };
+  });
+  console.log(
+    `issue #395, D20: the ${rawError.length}-character error text clamps at ` +
+      `clientHeight ${clampMetrics.clientHeight}px against a full scrollHeight of ` +
+      `${clampMetrics.scrollHeight}px (line-clamp ${clampMetrics.lineClamp}, ` +
+      `display ${clampMetrics.display}, overflow ${clampMetrics.overflow}).`,
+  );
+  // Chromium resolves the legacy `display: -webkit-box` keyword to its own
+  // internal box type (`flow-root` on this build), so this assertion reads
+  // the declared `-webkit-line-clamp` and `overflow` values, plus the real
+  // box-height proof below, not the resolved `display` keyword.
+  expect(clampMetrics.lineClamp).toBe('2');
+  expect(clampMetrics.overflow).toBe('hidden');
+  expect(clampMetrics.scrollHeight).toBeGreaterThan(clampMetrics.clientHeight);
+
+  await expect(errorParagraph).toHaveAttribute('title', rawError);
+
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await apps.goto();
+    const colors = await paintedColors(page.locator('p.error-text'));
+    const contrast = ratio(toHex(colors.fg), toHex(colors.bg));
+    console.log(`issue #395, D20: the error text contrast in ${colorScheme} mode is ${contrast.toFixed(2)}:1.`);
+    expect(contrast).toBeGreaterThanOrEqual(4.5);
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+
+  await page.unroute('**/api/apps');
+});
