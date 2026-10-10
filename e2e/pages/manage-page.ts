@@ -152,6 +152,11 @@ export class ManagePage {
     return row.locator('td.patterns');
   }
 
+  /** The status badge span of one row (issue #379, finding D10). */
+  statusBadge(row: ReturnType<ManagePage['row']>) {
+    return row.locator('td.status .badge');
+  }
+
   /** Renames the app of the open edit form, and saves it (design decision D48). */
   async renameAndSave(row: ReturnType<ManagePage['row']>, newName: string): Promise<void> {
     await row.getByLabel('Name', { exact: true }).fill(newName);
@@ -208,6 +213,16 @@ export class ManagePage {
   /** The heading of the add-app panel (issue #389, finding D29). */
   addAppHeading() {
     return this.page.getByRole('heading', { name: 'Add an app' });
+  }
+
+  /**
+   * The "Type the app name to confirm" field of one row's delete
+   * dialog (issue #393). Scoped to the dialog host of #384, so a
+   * page-wide or row-wide lookup of this label never matches a field
+   * of a different, closed dialog.
+   */
+  deleteConfirmNameField(row: ReturnType<ManagePage['row']>) {
+    return this.deleteDialogHost(row).getByLabel('Type the app name to confirm');
   }
 
   /**

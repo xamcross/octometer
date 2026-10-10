@@ -37,9 +37,11 @@ async function captionTopPaddingPx(page: Page, captionId: string): Promise<numbe
 /**
  * The WCAG 2.x contrast ratio of the text color against the background
  * color of one element (issue #384, finding D25: the disabled Delete
- * button measured about 2.07:1 at `opacity: 0.55`). The locator
- * evaluate reads the two resolved `rgb(...)` strings of the real
- * browser; the ratio math runs here in Node.
+ * button measured about 2.07:1 at `opacity: 0.55`; issue #393, MAJOR 3
+ * of the review of pull request #428: the pending delete label reused
+ * the same floor). The locator evaluate reads the two resolved
+ * `rgb(...)` strings of the real browser; the ratio math runs here in
+ * Node.
  */
 async function disabledButtonContrastRatio(button: Locator): Promise<number> {
   const [textColor, backgroundColor] = (await button.evaluate((element) => {
@@ -84,6 +86,40 @@ async function lineCount(locator: Locator): Promise<number> {
 }
 
 /**
+ * The computed font size of one element, in CSS px (issue #380, finding
+ * D23: the `--text-s` token moves from 12.8 px to 14 px).
+ */
+async function elementFontSizePx(page: Page, selector: string): Promise<number> {
+  const value = await page
+    .locator(selector)
+    .first()
+    .evaluate((element) => getComputedStyle(element).fontSize);
+  return parseFloat(value);
+}
+
+/**
+ * True when the page itself scrolls sideways (issue #380). `.table-scroll`
+ * keeps its own horizontal scroll by design, so this check reads the
+ * document element only, not a table.
+ */
+async function pageOverflowsX(page: Page): Promise<boolean> {
+  return page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+}
+
+/**
+ * The left padding of a table cell, in CSS px (issue #379, finding D10:
+ * the Manage table used a local `th, td { padding: 0.5rem 0.75rem }`
+ * rule, 12px on the left, instead of the shared `.panel th, .panel td`
+ * rule of styles.css, 16px on the left).
+ */
+async function cellPaddingLeftPx(locator: Locator): Promise<number> {
+  const value = await locator.evaluate((element) => getComputedStyle(element).paddingLeft);
+  return parseFloat(value);
+}
+
+/**
  * One serial file, one shared app (decision 5). The scenarios run in
  * this fixed order because each one reads the state that an earlier one
  * wrote: the app id of scenario (a), the click totals of scenario (b).
@@ -121,14 +157,22 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     // touches `.panel caption` (styles.css), so the same number holds
     // at both.
     expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
+
+    // Issue #380, finding D23 of the UI audit: the `--text-s` token
+    // renders at 14 px, at 1280 px and at 390 px, with no new page
+    // overflow at the narrow width.
+    expect(await elementFontSizePx(page, '#manage-caption')).toBeCloseTo(14, 1);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await captionTopPaddingPx(page, 'manage-caption')).toBeGreaterThanOrEqual(12);
+    expect(await elementFontSizePx(page, '#manage-caption')).toBeCloseTo(14, 1);
+    expect(await pageOverflowsX(page)).toBe(false);
     await page.setViewportSize({ width: 1280, height: 720 });
 
     // Issue #384, finding D25: the disabled Delete button shows a dashed
     // border and no opacity change, and its text stays at 4.5:1 or more
     // against its fill. The dialog closes with Cancel, so the demo app
-    // of this serial file stays for every later scenario.
+    // of this serial file stays for every later scenario. `demoManageRow`
+    // is the row this scenario just created above.
     const demoManageRow = manage.row('demo');
     await manage.openDeleteDialog(demoManageRow);
     const confirmDeleteButton = manage.deleteConfirmButton(demoManageRow);
@@ -137,6 +181,17 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await expect(confirmDeleteButton).toHaveCSS('opacity', '1');
     expect(await disabledButtonContrastRatio(confirmDeleteButton)).toBeGreaterThanOrEqual(4.5);
     await manage.cancelDeleteDialog(demoManageRow);
+
+    // Issue #379, finding D10: the Manage table cell padding, the Status
+    // badge, and the Patterns alignment now match the apps table, at a
+    // desktop width and at a narrow width.
+    await expect(manage.statusBadge(demoManageRow)).toHaveCount(1);
+    expect(await cellPaddingLeftPx(manage.patternsCell(demoManageRow))).toBe(16);
+    await expect(manage.patternsCell(demoManageRow)).toHaveCSS('text-align', 'right');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(manage.statusBadge(demoManageRow)).toHaveCount(1);
+    expect(await cellPaddingLeftPx(manage.patternsCell(demoManageRow))).toBe(16);
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     // The app id comes from `GET /api/apps`, through the request context
     // of the test, never from the page response of the POST (correction
@@ -186,6 +241,15 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     // Issue #376: the apps table caption keeps clear space above its
     // text (the acceptance criterion's own end-to-end assertion).
     expect(await captionTopPaddingPx(page, 'apps-caption')).toBeGreaterThanOrEqual(12);
+
+    // Issue #380, finding D23 of the UI audit: the status badge renders
+    // at the `--text-s` size, 14 px, at 1280 px and at 390 px, with no
+    // new page overflow at the narrow width.
+    expect(await elementFontSizePx(page, '.badge')).toBeCloseTo(14, 1);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await elementFontSizePx(page, '.badge')).toBeCloseTo(14, 1);
+    expect(await pageOverflowsX(page)).toBe(false);
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     // Issue #346: the apps page shows one breadcrumb item that repeats
     // the "Apps" heading, so the component hides the whole nav here.
@@ -247,11 +311,41 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     // Issue #376: the users table caption keeps clear space above its text.
     expect(await captionTopPaddingPx(page, 'users-caption')).toBeGreaterThanOrEqual(12);
 
+    // Issue #380: the users view (the filter button, the pager, both
+    // `.btn-small`) keeps no new page overflow at a narrow width.
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await pageOverflowsX(page)).toBe(false);
+    await page.setViewportSize({ width: 1280, height: 720 });
+
     // Issue #346: the users view keeps its two-item breadcrumb, with a
     // link back to the apps page.
     const breadcrumb = new BreadcrumbPart(page);
     await breadcrumb.expectLabels(['Apps', 'demo'], CHAIN_WAIT_MS);
     await expect(breadcrumb.linkNamed('Apps')).toHaveAttribute('href', /\/apps$/);
+
+    // Issue #374, the audit finding D14: at 360 px wide, the filter
+    // input and the Filter button stay on one row, next to each other,
+    // and the input keeps its 44 px minimum height.
+    await page.setViewportSize({ width: 360, height: 844 });
+    const filterInputBox = (await users.filterInput().boundingBox())!;
+    const filterButtonBox = (await users.filterButton().boundingBox())!;
+    console.log(
+      `issue #374: at 360px wide, the filter input box is top ${filterInputBox.y}px, ` +
+        `left ${filterInputBox.x}px, height ${filterInputBox.height}px; the Filter ` +
+        `button box is top ${filterButtonBox.y}px, left ${filterButtonBox.x}px.`,
+    );
+    // The button sits to the right of the input, on the same row: its
+    // left edge is past the input's left edge, and its vertical span
+    // overlaps the input's vertical span.
+    expect(filterButtonBox.x).toBeGreaterThan(filterInputBox.x);
+    expect(filterButtonBox.y).toBeLessThan(filterInputBox.y + filterInputBox.height);
+    expect(filterButtonBox.y + filterButtonBox.height).toBeGreaterThan(filterInputBox.y);
+    const filterInputMinHeight = await users
+      .filterInput()
+      .evaluate((element) => parseFloat(getComputedStyle(element).minHeight));
+    console.log(`issue #374: the filter input's minimum height is ${filterInputMinHeight}px.`);
+    expect(filterInputMinHeight).toBeGreaterThanOrEqual(44);
+    await page.setViewportSize({ width: 1280, height: 720 });
   });
 
   test(
@@ -724,6 +818,32 @@ test('the pager shows for a two-page result, with no aria-current (issue #387, D
   await expect(page.locator('nav.pager [aria-current]')).toHaveCount(0);
 });
 
+// Issue #392 (D18 of the UI audit of 2026-10-09): the elements caption
+// names the subject of the selected view. This scenario writes one real
+// click through the collector route (never a mock), with a known
+// sessionId, and opens the elements view filtered to that session.
+test('the elements caption names "this session" on a session view (issue #392, D18)', async ({
+  page,
+  request,
+}) => {
+  const monitorUrl = readMonitorUrl();
+  const { appId, appKey, origin } = await registerPagerApp(
+    request,
+    monitorUrl,
+    'session-caption-app',
+  );
+  const marker = 392;
+  await sendUserAndPage(request, monitorUrl, origin, appKey, marker);
+
+  const elements = new ElementsPage(page);
+  await elements.gotoBySession(appId, pagerSessionId(marker));
+  await elements.expectRow('pager-probe.click', { clicks: 1, sessions: 1 }, CHAIN_WAIT_MS);
+  await expect(elements.caption()).toHaveText(
+    'The elements that this session touched, with the click totals of each element.',
+    { timeout: CHAIN_WAIT_MS },
+  );
+});
+
 // Issue #377, finding D9 of the UI audit: the table sits close to the
 // panel border, with no empty strip below the last row.
 test('the manage table has no bottom margin below the last row (issue #377)', async ({ page }) => {
@@ -778,6 +898,100 @@ test('the add-app heading has no top margin (issue #389)', async ({ page }) => {
     };
   });
   expect(Math.abs(gaps.topGap - gaps.bottomGap)).toBeLessThanOrEqual(2);
+});
+
+// Issue #393, finding D30 of the UI audit: the delete-confirm button
+// shows "Deleting…" with aria-busy="true" while the delete request is
+// in flight. The route below holds the DELETE answer open, so the
+// pending state stays visible long enough for the assertions; the real
+// request can finish in under one render frame.
+test('the delete-confirm button shows a Deleting label while the request is pending (issue #393, D30)', async ({
+  page,
+  request,
+}) => {
+  const monitorUrl = readMonitorUrl();
+  const appName = `delete-pending-app-${Date.now()}`;
+  const createResponse = await request.post('/api/apps', {
+    headers: { Origin: monitorUrl },
+    data: { name: appName, origins: ['https://delete-pending.example'] },
+  });
+  expect(createResponse.status()).toBe(201);
+
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const row = manage.row(appName);
+  await expect(row).toBeVisible();
+
+  let releaseDelete = () => {};
+  const deleteHeld = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+  await page.route('**/api/apps/*', async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fallback();
+      return;
+    }
+    await deleteHeld;
+    const response = await route.fetch();
+    await route.fulfill({ response });
+  });
+
+  await manage.openDeleteDialog(row);
+  await manage.deleteConfirmNameField(row).fill(appName);
+  const confirmButton = manage.deleteConfirmButton(row);
+  const cancelButton = row.getByRole('button', { name: 'Cancel' });
+  await expect(confirmButton).toHaveText('Delete this app');
+  await expect(confirmButton).not.toHaveAttribute('aria-busy');
+
+  // MAJOR 2 of the review of pull request #428: the confirm button
+  // keeps the width of its longer, rest-state label, so Cancel does
+  // not move under the pointer once the pending label shrinks it.
+  const restConfirmBox = await confirmButton.boundingBox();
+  const restCancelBox = await cancelButton.boundingBox();
+  if (!restConfirmBox || !restCancelBox) {
+    throw new Error('The confirm button or the Cancel button has no box in the rest state.');
+  }
+
+  await confirmButton.click();
+  await expect(confirmButton).toHaveText('Deleting…');
+  await expect(confirmButton).toHaveAttribute('aria-busy', 'true');
+  await expect(confirmButton).toBeDisabled();
+
+  const pendingConfirmBox = await confirmButton.boundingBox();
+  const pendingCancelBox = await cancelButton.boundingBox();
+  if (!pendingConfirmBox || !pendingCancelBox) {
+    throw new Error('The confirm button or the Cancel button has no box in the pending state.');
+  }
+  console.log(
+    `issue #393, MAJOR 2: the confirm button width is ${restConfirmBox.width}px at rest ` +
+      `and ${pendingConfirmBox.width}px pending; the Cancel button left x is ` +
+      `${restCancelBox.x}px at rest and ${pendingCancelBox.x}px pending.`,
+  );
+  expect(Math.abs(pendingConfirmBox.width - restConfirmBox.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(pendingCancelBox.x - restCancelBox.x)).toBeLessThanOrEqual(1);
+
+  // MAJOR 3 of the review of pull request #428: pull request #410
+  // gives `.btn[disabled]` the shallows fill and the ink-soft text, in
+  // place of the old opacity rule, so the pending label stays at an
+  // accessible contrast with no rule of its own. The `opacity: 1`
+  // check documents that #410 state (lesson 24 of the frontend brief:
+  // a contrast check beside an explicit opacity assertion, since
+  // `getComputedStyle` colors alone ignore a faded element).
+  await expect(confirmButton).toHaveCSS('opacity', '1');
+  const pendingContrast = await disabledButtonContrastRatio(confirmButton);
+  console.log(`issue #393, MAJOR 3: the pending label contrast is ${pendingContrast.toFixed(2)}:1.`);
+  expect(pendingContrast).toBeGreaterThanOrEqual(4.5);
+
+  releaseDelete();
+  await expect(row.locator('dialog[aria-labelledby^="delete-app-heading"]')).toBeHidden();
+  await page.unroute('**/api/apps/*');
+
+  // Reads the stored state, not only the page text: the app is truly
+  // gone from the registry's own answer (lesson 19 of the frontend
+  // brief).
+  const afterResponse = await request.get('/api/apps');
+  const afterRows = (await afterResponse.json()) as ReadonlyArray<{ name: string }>;
+  expect(afterRows.some((r) => r.name === appName)).toBe(false);
 });
 
 /**

@@ -57,9 +57,16 @@ a:hover{text-decoration-thickness:3px}
   .topbar-links li:not(:last-child){display:inline}
 }
 
-/* 1. the hero: the one bold place of the page */
-.hero{display:flex;gap:var(--space-4) var(--space-6);align-items:flex-start;flex-wrap:wrap}
-.hero-text{flex:1 1 18rem;display:grid;gap:var(--space-4);justify-items:start}
+/* 1. the hero: the one bold place of the page (the audit finding L3: a
+   two-column grid at 56rem and above puts the preview beside the copy) */
+.hero{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4) var(--space-6)}
+.hero-text{display:grid;gap:var(--space-4);justify-items:start}
+@media (min-width:56rem){
+  .hero{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center}
+  .hero>.mark{grid-column:1;grid-row:1}
+  .hero-text{grid-column:1;grid-row:2}
+  .hero-preview{grid-column:2;grid-row:1 / span 2}
+}
 .word{font:600 var(--text-xl)/1.15 var(--display)}
 .hero h1{font-size:clamp(var(--text-2xl),7vw,var(--text-4xl));max-width:22ch}
 .lead{max-width:44ch;font-size:var(--text-l)}
@@ -69,6 +76,28 @@ a:hover{text-decoration-thickness:3px}
 .mark .smile{stroke:var(--on-bright);stroke-width:2}
 @keyframes wave{0%{transform:rotate(0)}30%{transform:rotate(-7deg)}65%{transform:rotate(6deg)}100%{transform:rotate(0)}}
 .arms{transform-box:view-box;transform-origin:16px 13px;animation:wave 600ms ease-in-out both}
+
+/* the hero preview (the audit finding L3, the proposal board "Hero
+   proposal"): a product shot built in HTML, in the visual family of
+   ".frame"; it stays out of the accessibility tree */
+.hero-preview{margin:0;min-width:0}
+.hero-preview-window{background:var(--paper);border:var(--line-panel);border-radius:var(--radius-panel);box-shadow:var(--shadow-panel);overflow:hidden}
+.hero-preview-bar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--octo);color:var(--on-bright);border-bottom:var(--line-panel)}
+.hero-preview-brand{font:600 var(--text-m)/1 var(--display)}
+.hero-preview-tabs{display:flex;gap:var(--space-2)}
+.hero-preview-tab{font:600 var(--text-s)/1 var(--display);padding:var(--space-1) var(--space-3);background:var(--paper);color:var(--ink);border:var(--line-control);border-radius:var(--radius-pill)}
+.hero-preview-tab.is-active{background:var(--sunny);color:var(--on-bright);border-color:var(--on-bright)}
+.hero-preview-body{padding:var(--space-4);display:grid;gap:var(--space-3)}
+.hero-preview-title-row{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:var(--space-2)}
+.hero-preview-title{font:600 var(--text-l)/1 var(--display)}
+.hero-preview-table{width:100%;border-collapse:collapse;font-size:var(--text-s);border:var(--line-control);border-radius:var(--radius-control);overflow:hidden}
+.hero-preview-table th,.hero-preview-table td{padding:var(--space-2) var(--space-3);text-align:left}
+.hero-preview-table thead th{background:var(--shallows-deep);font-weight:700}
+.hero-preview-table tbody td{border-top:1px solid var(--shallows-deep)}
+.hero-preview-status{display:inline-block;padding:2px var(--space-2);font-weight:700;border:var(--line-control);border-radius:var(--radius-pill)}
+.hero-preview-status.is-ok{background:var(--seaweed);color:var(--on-bright);border-color:var(--on-bright)}
+.hero-preview-status.is-slow{background:var(--sunny);color:var(--on-bright);border-color:var(--on-bright)}
+.hero-preview-caption{margin:0;padding:var(--space-3) var(--space-4);color:var(--ink-soft);border-top:var(--line-control)}
 
 /* controls */
 .btn{display:inline-block;font:600 var(--text-m)/1.2 var(--display);padding:var(--space-3) var(--space-5);background:var(--paper);color:var(--ink);border:var(--line-control);border-radius:var(--radius-control);box-shadow:var(--shadow-control);cursor:pointer;text-decoration:none;transition:transform 80ms,box-shadow 80ms}
@@ -102,10 +131,15 @@ a:hover{text-decoration-thickness:3px}
 .in-ink .glyph *{stroke:var(--ink)}
 
 /* 3. the three levels */
-.levels{display:grid;gap:var(--space-5)}
+/* issue #359, the correction round of pull request #424: a two-column
+   row at 1280px gives the users card and the elements card a row text
+   below the 12px floor. The users table and the elements table do not
+   fit a narrower capture, so one column at every width keeps the row
+   text readable (site.css:343, "the mockup rules verbatim"). */
+.levels{display:grid;gap:var(--space-5);grid-template-columns:1fr}
 .frame{display:grid;align-content:start;grid-template-rows:auto 1fr auto;gap:var(--space-3);padding:var(--space-4);background:var(--paper);border:var(--line-panel);border-radius:var(--radius-panel);box-shadow:var(--shadow-panel);margin:0}
 .frame h3{font-size:var(--text-l)}
-.frame picture{align-self:end}
+.frame-open{align-self:end}
 .frame figcaption{max-width:50ch}
 .ph{font-size:var(--text-s);color:var(--ink-soft)}
 .tbl{overflow-x:auto;background:var(--shallows);border:var(--line-control);border-radius:var(--radius-control)}
@@ -186,8 +220,6 @@ label{font-weight:700}
   .panel-body>p:nth-of-type(1){grid-column:2;grid-row:1;align-self:center}
   .panel-body>p:nth-of-type(2){grid-column:1/-1;grid-row:2}
   .panel-body .btn{width:auto}
-  .levels{grid-template-columns:1fr 1fr}
-  .levels>:first-child{grid-column:1/-1}
 }
 </style>
 <nav class="topbar" aria-label="Site navigation">
@@ -223,6 +255,35 @@ label{font-weight:700}
       <a class="btn btn-primary" href="#waitlist-email">Join the waitlist</a>
       <p class="small soft">Octometer is in a pilot. Join the waitlist, and we invite you.</p>
     </div>
+    <!-- the audit finding L3: a product shot built in HTML, not a screenshot -->
+    <figure class="hero-preview" aria-hidden="true">
+      <div class="hero-preview-window">
+        <div class="hero-preview-bar">
+          <span class="hero-preview-brand">Octometer</span>
+          <span class="hero-preview-tabs">
+            <span class="hero-preview-tab is-active">Apps</span>
+            <span class="hero-preview-tab">Manage apps</span>
+          </span>
+        </div>
+        <div class="hero-preview-body">
+          <div class="hero-preview-title-row">
+            <span class="hero-preview-title">Apps</span>
+            <span class="small soft">Last 30 days · refreshes each minute</span>
+          </div>
+          <table class="hero-preview-table">
+            <thead>
+              <tr><th scope="col">App</th><th scope="col">Clicks</th><th scope="col">Users</th><th scope="col">Sessions</th><th scope="col">Status</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>[app one]</td><td>[n]</td><td>[n]</td><td>[n]</td><td><span class="hero-preview-status is-ok">OK</span></td></tr>
+              <tr><td>[app two]</td><td>[n]</td><td>[n]</td><td>[n]</td><td><span class="hero-preview-status is-ok">OK</span></td></tr>
+              <tr><td>[app three]</td><td>[n]</td><td>[n]</td><td>[n]</td><td><span class="hero-preview-status is-slow">Slow</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figcaption class="hero-preview-caption small">The apps view: click a row to open its users, then a user to open the elements.</figcaption>
+      </div>
+    </figure>
   </header>
 
   <section class="sec" aria-labelledby="how-title">
