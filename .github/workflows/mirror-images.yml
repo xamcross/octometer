@@ -1,0 +1,33 @@
+# The mirror workflow of a third-party image.
+# Source: issue #456. A manual run copies one image into the registry of
+# this repository, so a busy day of CI runs meets no anonymous pull limit.
+name: Mirror images
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The MongoDB tag to mirror'
+        required: false
+        default: '8.0'
+
+permissions:
+  packages: write
+  contents: read
+
+jobs:
+  mirror-mongo:
+    name: Mirror the MongoDB image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Pull the MongoDB image from the Amazon ECR Public mirror
+        run: docker pull public.ecr.aws/docker/library/mongo:${{ inputs.tag }}
+      - name: Tag the image for the GitHub Container Registry
+        run: |
+          docker tag public.ecr.aws/docker/library/mongo:${{ inputs.tag }} \
+            ghcr.io/xamcross/octometer/mongo:${{ inputs.tag }}
+      - name: Log in to the GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Push the image to the GitHub Container Registry
+        run: docker push ghcr.io/xamcross/octometer/mongo:${{ inputs.tag }}

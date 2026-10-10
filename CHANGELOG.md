@@ -179,6 +179,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 
 ### CI
 
+- Add the workflow `mirror-images.yml`, a manual mirror of the MongoDB image into the
+  GitHub Container Registry; give the `e2e` job a registry login. (#456)
 - Upload `e2e/.run/*.log` as the artifact `e2e-run-logs` on a failure of the `e2e`
   job, with a retention of 3 days. (#418)
 - Pull the demo app's MongoDB image and the monitor's base image from the Amazon

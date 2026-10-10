@@ -530,6 +530,19 @@ from Docker Hub. Docker Hub refuses an anonymous pull past its daily
 limit, and this is the image that each e2e run and each manual demo
 run pulls.
 
+### The two image sources
+
+The GitHub Container Registry holds the CI copy of the MongoDB image,
+`ghcr.io/xamcross/octometer/mongo:8.0`. The workflow
+`mirror-images.yml` pulls the tag from the Amazon ECR Public mirror and
+pushes it into the registry. A manual run starts the workflow
+(`workflow_dispatch`). The job `e2e` now logs in to the registry
+before the end-to-end suite, so a later pull works on a private
+package too. A developer machine keeps the Amazon ECR Public mirror as
+its own source, through `tools/demo-app/docker-compose.yml`
+(`public.ecr.aws/docker/library/mongo:8.0`). Each mirror avoids the
+anonymous pull limit of Docker Hub.
+
 <!--
 Sources:
 monitor/backend/README.md ("Config", "The daily backup", "How to restore a
@@ -569,4 +582,6 @@ Section 7, "The collector": issue #297, design decisions D21, D40, D50, D57, and
   brief review of 2026-10-01 (B4, B5, M2, M5).
   monitor/backend/Dockerfile, fly.toml, docker-entrypoint.sh,
   tools/local-service/README.md, .github/workflows/ci.yml (the "deploy" job).
+"The two image sources": issue #456, .github/workflows/mirror-images.yml, and
+  the "e2e" job's registry login of .github/workflows/ci.yml.
 -->
