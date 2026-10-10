@@ -51,6 +51,13 @@ export class App {
   protected readonly appReady = signal(false);
 
   /**
+   * True while the account button shows the full email on a phone
+   * (issue #397). The account button replaces the email span under
+   * 40rem; a press of the button reveals the email text next to it.
+   */
+  protected readonly accountEmailRevealed = signal(false);
+
+  /**
    * The error text of the monitor API (D30): a failed `GET /api/health`,
    * or a failed data poll of the active view (issue #164). Null while
    * both routes answer well. The banner shows this text.
@@ -123,6 +130,11 @@ export class App {
   /** Ends the session, on a click of the header "Sign out" control (D52). */
   protected onSignOutClick(): void {
     this.me.signOut();
+  }
+
+  /** Toggles the full email next to the account button, on a click (issue #397). */
+  protected onAccountButtonClick(): void {
+    this.accountEmailRevealed.update((revealed) => !revealed);
   }
 
   /**

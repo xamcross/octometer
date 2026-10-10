@@ -125,6 +125,13 @@ const NONTEXT = [
   ['each page', 'the control edge on the page background', '#241f3d', '#e6f3ff'],
   ['each page', 'the control edge on the paper', '#241f3d', '#ffffff'],
   ['the band', 'the nav pill edge on the octo band', '#241f3d', '#a78bfa'],
+  ['the band', 'the mascot head fill on the octo band', '#423a57', '#a78bfa'],
+  // BLOCKER 1 of the review of pull request #459: the eye fill and the
+  // smile stroke read `--on-bright` on the plain head, but the band
+  // head fill is too dark for that pair. The band gives the eye and
+  // the smile the `--octo-face-band` fill instead, white on the band
+  // head fill.
+  ['the band', 'the mascot eye and smile on the octo band head', '#ffffff', '#423a57'],
   ['each page', 'the panel edge on the page background', '#241f3d', '#e6f3ff'],
   ['each table', 'the head cell edge on the head fill', '#241f3d', '#bfdfff'],
   ['apps', 'the badge edge on the badge fill (seaweed)', '#241f3d', '#6ee7b7'],
@@ -216,6 +223,11 @@ const DARK_NONTEXT = [
   ['each page', 'the control edge on the paper', '#ece9ff', '#1d1a33'],
   ['the band', 'the nav pill edge on the octo band', '#241f3d', '#9b7be5'],
   ['main', "the mascot's eye on the octo head (the first-load mark)", '#241f3d', '#9b7be5'],
+  ['the band', 'the mascot head fill on the octo band', '#423a57', '#9b7be5'],
+  // BLOCKER 1 of the review of pull request #459: the band's own
+  // `--octo-face-band` stays white in each color scheme, so this pair
+  // equals the light-scheme pair above.
+  ['the band', 'the mascot eye and smile on the octo band head', '#ffffff', '#423a57'],
   ['each page', 'the panel edge on the page background', '#ece9ff', '#14122a'],
   ['each table', 'the head cell edge on the head fill', '#ece9ff', '#2c2850'],
   ['apps', 'the badge edge on the badge fill (seaweed)', '#241f3d', '#6ee7b7'],

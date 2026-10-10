@@ -1,1 +1,4 @@
-<button type="button" [attr.aria-pressed]="pressed()" (click)="toggle()">Pause refresh</button>
+<button type="button" [attr.aria-pressed]="pressed()" (click)="toggle()">
+  <span class="icon" aria-hidden="true">{{ pressed() ? '▶' : '⏸' }}</span>
+  <span>{{ pressed() ? 'Resume refresh' : 'Pause refresh' }}</span>
+</button>
