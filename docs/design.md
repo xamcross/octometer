@@ -37,7 +37,7 @@ the base rules.
 | `--line-control` | `2px solid var(--ink)` | The outline of a control. |
 | `--shadow-panel` | `6px 6px 0 var(--ink)` | The hard shadow of a panel. |
 | `--shadow-control` | `3px 3px 0 var(--ink)` | The hard shadow of a control. |
-| `--focus-halo` | `var(--ink)` light, `#726BAB` dark | The 7px halo of the focus ring; its own token, not plain `--ink` (issue #451). |
+| `--focus-halo` | `var(--ink)` light, `#7B74B3` dark | The 7px halo of the focus ring; its own token, not plain `--ink` (issue #451). `.band` overrides it with `--on-bright` (pull request #462). |
 | `--space-1` | `4px` | The space scale, a 4px base. |
 | `--space-2` | `8px` | The space scale. |
 | `--space-3` | `12px` | The space scale. |
@@ -112,11 +112,22 @@ box-shadow, such as `.btn`, must repeat the 7px halo ring in its own `:focus-vis
 ring instead of adding to it.
 
 `--focus-halo` keeps `--ink`'s value in the light scheme. Issue #451 gives it its own
-literal value in the dark scheme, `#726BAB`, because plain `--ink` (`#ECE9FF`) reads 1.2:1
-against the sunny line, under the 3:1 floor of WCAG 1.4.11. `#726BAB` reads 3.5:1 against
-the sunny line, 3.8:1 against the dark page background, and 3.5:1 against the dark paper.
-The site's own dark `--focus-halo` (`site/src/styles/tokens.css`) takes the same value, for
-the same reason.
+literal value in the dark scheme, `#726BAB` at first, because plain `--ink` (`#ECE9FF`)
+reads 1.2:1 against the sunny line, under the 3:1 floor of WCAG 1.4.11.
+
+The correction round of pull request #462 raises that value to `#7B74B3`. `#726BAB` did
+not clear 3:1 against the focused row fill (`--shallows-deep`, 2.89:1) nor against the
+dialog fill (`--paper-raised`, 2.73:1). `#7B74B3` reads 3.1:1 against the sunny line, 4.3:1
+against the dark page background, 4.0:1 against the dark paper, 3.3:1 against the focused
+row fill, and 3.1:1 against the dialog fill.
+
+`.band` reads none of this: a custom property resolves the `var()` inside it at the
+element that declares it, so `--focus-halo: var(--ink)` at `:root` freezes to the `--ink`
+of `:root`, and a focused band control once kept that frozen value on the band fill, at
+1.44:1 in the dark scheme. `.band` now sets its own `--focus-halo`, `var(--on-bright)`, so
+a focused band control reads 4.75:1 on the band fill (the same value `.band` used before
+issue #451). The site's own dark `--focus-halo` (`site/src/styles/tokens.css`) keeps
+`#726BAB`, a separate token with no row or dialog fill of its own.
 
 ## The contrast table
 
@@ -175,7 +186,7 @@ fill (a badge, a button, the band) keeps its ink text in each scheme.
 | `--shallows` | `#E6F3FF` | `#14122A` |
 | `--shallows-deep` | `#BFDFFF` | `#2C2850` |
 | `--octo` | `#A78BFA` | `#9B7BE5` |
-| `--focus-halo` | `var(--ink)` (`#241F3D`) | `#726BAB` |
+| `--focus-halo` | `var(--ink)` (`#241F3D`) | `#7B74B3` |
 
 `.band` of `monitor/frontend/src/app/app.css` no longer sets `--ink: #241f3d;` and
 `--paper: #ffffff;` as hex literals. It sets `--ink: var(--on-bright)` and
@@ -203,7 +214,10 @@ light-scheme table above; run `node docs/design/contrast.mjs`.
 Issue #451 clears the four fails of `docs/design/contrast.mjs`. Issue #438 (pull request
 #450) fixes the first one, the dashboard invalid-field ring. The dashboard and the site
 focus ring (the sunny line on the halo) each get a token fix too: `--focus-halo` now takes
-its own dark value, `#726BAB` (see "The focus ring" above and "The dark color scheme").
+its own dark value (see "The focus ring" above and "The dark color scheme"). The
+correction round of pull request #462 raises the dashboard's dark value to `#7B74B3`,
+so the focused row fill and the dialog fill clear 3:1 too, and gives `.band` its own
+`--focus-halo`, so the band keeps its 4.75:1 ring.
 
 One pair stays an accepted exception: the site focus halo on the octo band, in the dark
 scheme (1.8:1, under the 3:1 floor of WCAG 1.4.11). The hero preview bar

@@ -21,12 +21,16 @@
  * below come from issue #361, now merged, with their own measured values).
  *
  * Issue #451 gives the dashboard and the site each a dedicated dark
- * `--focus-halo` value (`#726bab`), so the sunny line reads 3:1 or more
- * against it, and it reads 3:1 or more against each page it sits on. The
- * same issue adds the `accepted` field: an edge row can carry a one-sentence
- * reason as its fifth entry, for a pair that stays under its floor on
- * purpose. The script then prints that row with the result `accepted`, and
- * counts it apart from `fails`.
+ * `--focus-halo` value, so the sunny line reads 3:1 or more against it,
+ * and it reads 3:1 or more against each fill it sits on. The correction
+ * round of pull request #462 raises the dashboard's dark value from
+ * `#726bab` to `#7b74b3` (the focused row fill and the dialog fill
+ * still failed at `#726bab`), and gives `.band` its own value, so the
+ * band keeps its own 4.75:1 ring. The site keeps its own `#726bab`,
+ * a separate token. The same issue adds the `accepted` field: an edge
+ * row can carry a one-sentence reason as its fifth entry, for a pair
+ * that stays under its floor on purpose. The script then prints that
+ * row with the result `accepted`, and counts it apart from `fails`.
  */
 
 /** The linear value of one sRGB channel. */
@@ -144,6 +148,12 @@ const NONTEXT = [
   ['apps', 'the badge edge on the badge fill (sunny)', '#241f3d', '#ffd93d'],
   ['each page', 'the focus ring: the halo on the page background', '#241f3d', '#e6f3ff'],
   ['each page', 'the focus ring: the halo on the paper', '#241f3d', '#ffffff'],
+  // Issue #451, the correction round of pull request #462: the row and
+  // the dialog pair of the dark section below, measured in the light
+  // scheme too. The light `--focus-halo` keeps `--ink`'s value, so each
+  // ratio equals an existing row above.
+  ['each table', 'the focus ring: the halo on the focused row fill', '#241f3d', '#bfdfff'],
+  ['dialog', 'the focus ring: the halo on the raised paper', '#241f3d', '#ffffff'],
   ['the band', 'the focus ring: the halo on the octo band', '#241f3d', '#a78bfa'],
   ['each page', 'the focus ring: the sunny line on the halo', '#ffd93d', '#241f3d'],
   ['users', 'the disabled pager edge on the page background', '#4b4763', '#e6f3ff'],
@@ -232,14 +242,19 @@ const DARK_NONTEXT = [
   ['apps', 'the badge edge on the badge fill (seaweed)', '#241f3d', '#6ee7b7'],
   ['apps', 'the badge edge on the badge fill (coral)', '#241f3d', '#ff6b6b'],
   ['apps', 'the badge edge on the badge fill (sunny)', '#241f3d', '#ffd93d'],
-  // Issue #451: `--focus-halo` takes its own dark value, `#726bab`, not
-  // plain `--ink` (`#ece9ff`); the sunny line then reads 3.46:1 on it
-  // (it read 1.2:1 on plain `--ink`). `.band` sets its own `--ink` and
-  // reads none of the dark tokens, so its own halo row stays unchanged.
-  ['each page', 'the focus ring: the halo on the page background', '#726bab', '#14122a'],
-  ['each page', 'the focus ring: the halo on the paper', '#726bab', '#1d1a33'],
+  // Issue #451, raised in the correction round of pull request #462
+  // (BLOCKER 1, BLOCKER 2, MAJOR 1, MAJOR 2): `--focus-halo` takes its
+  // own dark value, `#7b74b3`, not plain `--ink` (`#ece9ff`). The ring
+  // reads this value at the page, the paper, the focused row fill, and
+  // the dialog fill; the sunny line reads 3.05:1 on it. `.band` sets
+  // its own `--focus-halo` too (`--on-bright`, `app.css`), so the band
+  // row below keeps its own value, not this one.
+  ['each page', 'the focus ring: the halo on the page background', '#7b74b3', '#14122a'],
+  ['each page', 'the focus ring: the halo on the paper', '#7b74b3', '#1d1a33'],
+  ['each table', 'the focus ring: the halo on the focused row fill', '#7b74b3', '#2c2850'],
+  ['dialog', 'the focus ring: the halo on the raised paper', '#7b74b3', '#312b57'],
   ['the band', 'the focus ring: the halo on the octo band', '#241f3d', '#9b7be5'],
-  ['each page', 'the focus ring: the sunny line on the halo', '#ffd93d', '#726bab'],
+  ['each page', 'the focus ring: the sunny line on the halo', '#ffd93d', '#7b74b3'],
   ['users', 'the disabled pager edge on the page background', '#b9b4d6', '#14122a'],
   // Issue #438: this dark-scheme row still named the pre-#264 literal
   // too (#435 copied the light-scheme mistake). `--coral-deep` keeps

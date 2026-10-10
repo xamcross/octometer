@@ -126,11 +126,18 @@
  * 1.4.11. `#ff6b6b` raises the pair to 4.69:1 on `#312b57`, 6.06:1 on
  * `#1d1a33`, and 6.58:1 on `#14122a`.
  *
- * `--focus-halo` (issue #451) takes `#726bab` in the dark scheme, not
- * plain `--ink` (`#ece9ff`). `#726bab` reads 3.46:1 on the sunny line
- * (`#ffd93d`), 3.84:1 on the dark `--shallows` (`#14122a`), and 3.29:1
- * on the dark `--paper` (`#1d1a33`); each ratio clears the 3:1 floor
- * of WCAG 1.4.11.
+ * `--focus-halo` (issue #451, raised in the correction round of pull
+ * request #462, BLOCKER 1, MAJOR 1, and MAJOR 2 of the review) takes
+ * `#7b74b3` in the dark scheme, not plain `--ink` (`#ece9ff`) and not
+ * the first dark value, `#726bab`. The first value cleared 3:1 against
+ * the page and the paper, but not against the focused row fill
+ * (`--shallows-deep`, 2.89:1) nor the dialog fill (`--paper-raised`,
+ * 2.73:1). `#7b74b3` reads 3.05:1 on the sunny line (`#ffd93d`), 4.34:1
+ * on the dark page (`#14122a`), 4.00:1 on the dark paper (`#1d1a33`),
+ * 3.27:1 on the focused row fill (`#2c2850`), and 3.09:1 on the dialog
+ * fill (`#312b57`); each ratio clears the 3:1 floor of WCAG 1.4.11.
+ * `.band` sets its own `--focus-halo` (`app.css`), so the band keeps
+ * its unchanged ring.
  */
 @media (prefers-color-scheme: dark) {
   :root {
@@ -142,7 +149,7 @@
     --shallows-deep: #2c2850;
     --octo: #9b7be5;
     --coral-edge: #ff6b6b;
-    --focus-halo: #726bab;
+    --focus-halo: #7b74b3;
   }
 }
 
