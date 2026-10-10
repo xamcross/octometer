@@ -75,6 +75,22 @@ export class FirstPages {
     return error instanceof HttpErrorResponse && error.status === 404;
   });
 
+  /**
+   * The text of a failed first load (D6 of the UI audit of 2026-10-09,
+   * issue #373). Null while the first request is in flight, and null
+   * again once a good answer arrives. The template shows this text with
+   * a "Try again" button, in place of a loading sentence that never
+   * ends. The button calls `store.refresh()`.
+   */
+  protected readonly listError = computed<string | null>(() => {
+    if (this.store.firstLoadPending() || this.store.data() !== undefined) {
+      return null;
+    }
+    return this.store.error() !== undefined
+      ? 'Octometer cannot read the first page list. Try again.'
+      : null;
+  });
+
   /** The page count of the last good answer. 1 before the first answer arrives. */
   protected readonly pageCount = computed(() => this.store.data()?.pageCount ?? 1);
 

@@ -145,7 +145,7 @@ describe('Users', () => {
 
   it('shows a loading text before the first answer arrives, and no table', () => {
     expect(root().querySelector('table')).toBeNull();
-    expect(root().textContent).toContain('Octometer reads the user list.');
+    expect(root().textContent).toContain('Loading users…');
   });
 
   it('sends the request with the page query parameter of the route', () => {

@@ -163,6 +163,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   "Data from" line. The cell reads its own 30 s clock, so the relative text stays
   fresh with no new poll answer. The Sessions "Start time" column and the Elements
   "Last interaction" column keep their seconds. (#390)
+- Show an error state with a "Try again" button on the apps view, the users view, the
+  sessions view, and the first-pages view, when the first list request fails; the
+  perpetual loading sentence no longer shows. (#373)
+- Render the raw error text of a failed app's Status cell at 14px monospace, with a
+  2-line clamp; the full text stays in the element's `title` attribute. (#395)
 
 ### CI
 

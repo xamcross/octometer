@@ -68,6 +68,22 @@ export class Apps implements OnDestroy {
     return days === null ? null : `Totals of the last ${numberFormat.format(days)} days.`;
   });
 
+  /**
+   * The text of a failed first load (D6 of the UI audit of 2026-10-09,
+   * issue #373). Null while the first request is in flight, and null
+   * again once a good answer arrives. The template shows this text with
+   * a "Try again" button, in place of a loading sentence that never
+   * ends. The button calls `store.refresh()`.
+   */
+  protected readonly listError = computed<string | null>(() => {
+    if (this.store.firstLoadPending() || this.store.data() !== undefined) {
+      return null;
+    }
+    return this.store.error() !== undefined
+      ? 'Octometer cannot read the app list. Try again.'
+      : null;
+  });
+
   constructor() {
     // Fills the app-name store from each answer of GET /api/apps (issue
     // #270), so the breadcrumb of a level 2 or a level 3 view can show the
