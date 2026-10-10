@@ -99,6 +99,9 @@ const TEXT = [
   ['each data page', 'the refresh note', '#4b4763', '#e6f3ff', 12.8, 400],
   ['apps', 'the retention note', '#241f3d', '#e6f3ff', 16, 400],
   ['each data page', 'the pause pill', '#241f3d', '#ffffff', 16, 600],
+  // Issue #468: the hovered pause pill light fill, `#99c6ff`, beside
+  // the dark pair that issue #454 adds below (`#3d3570`).
+  ['each data page', 'the hovered pause pill', '#241f3d', '#99c6ff', 16, 600],
   ['each table', 'the panel caption', '#4b4763', '#ffffff', 12.8, 400],
   ['manage', 'the panel caption (bold)', '#4b4763', '#ffffff', 12.8, 700],
   ['each table', 'the table head cell', '#241f3d', '#bfdfff', 16, 600],
