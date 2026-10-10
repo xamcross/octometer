@@ -21,13 +21,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # The review of pull request #458, MAJOR M1: the dispatch input is
+      # untrusted text. Each step below reads it through the environment,
+      # quoted, so a hostile value runs as data and never as a command.
       - name: Pull the MongoDB image from the Amazon ECR Public mirror
-        run: docker pull public.ecr.aws/docker/library/mongo:${{ inputs.tag }}
+        env:
+          TAG: ${{ inputs.tag }}
+        run: docker pull "public.ecr.aws/docker/library/mongo:$TAG"
       - name: Tag the image for the GitHub Container Registry
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
-          docker tag public.ecr.aws/docker/library/mongo:${{ inputs.tag }} \
-            ghcr.io/xamcross/octometer/mongo:${{ inputs.tag }}
+          docker tag "public.ecr.aws/docker/library/mongo:$TAG" \
+            "ghcr.io/xamcross/octometer/mongo:$TAG"
       - name: Log in to the GitHub Container Registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
       - name: Push the image to the GitHub Container Registry
-        run: docker push ghcr.io/xamcross/octometer/mongo:${{ inputs.tag }}
+        env:
+          TAG: ${{ inputs.tag }}
+        run: docker push "ghcr.io/xamcross/octometer/mongo:$TAG"
