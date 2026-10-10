@@ -158,6 +158,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   button, on the users, the sessions, and the first-pages view. (#368)
 - Add a dark color scheme: a `prefers-color-scheme: dark` block of dark tokens, and the
   band's ink and paper as token values, not hex literals. (#361)
+- Rename the "Data time" column of the apps table to "Last updated". The cell now
+  shows a relative time, with the full time in its title; the status cell drops the
+  "Data from" line. The cell reads its own 30 s clock, so the relative text stays
+  fresh with no new poll answer. The Sessions "Start time" column and the Elements
+  "Last interaction" column keep their seconds. (#390)
 
 ### CI
 

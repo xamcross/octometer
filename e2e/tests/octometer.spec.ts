@@ -254,6 +254,17 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await apps.goto();
     await apps.expectStatus('demo', 'OK', CHAIN_WAIT_MS);
 
+    // Issue #390, finding D16 of the UI audit: the "Last updated" column
+    // shows a short relative time, with the full local date and time (no
+    // seconds) in the title of the <time> element, and the header carries
+    // no zone name any more.
+    await expect(apps.lastUpdatedHeader).toHaveText('Last updated');
+    const lastUpdatedTime = apps.rowOf('demo').lastUpdated.locator('time');
+    await expect(lastUpdatedTime).toBeVisible({ timeout: CHAIN_WAIT_MS });
+    await expect(lastUpdatedTime).toHaveText(/^(just now|\d+ (min|hours?|days?) ago)$/);
+    const lastUpdatedTitle = await lastUpdatedTime.getAttribute('title');
+    expect(lastUpdatedTitle).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+
     // Issue #376: the apps table caption keeps clear space above its
     // text (the acceptance criterion's own end-to-end assertion).
     expect(await captionTopPaddingPx(page, 'apps-caption')).toBeGreaterThanOrEqual(12);
