@@ -61,6 +61,15 @@ a:hover{text-decoration-thickness:3px}
    two-column grid at 56rem and above puts the preview beside the copy) */
 .hero{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4) var(--space-6)}
 .hero-text{display:grid;gap:var(--space-4);justify-items:start}
+/* the audit finding L15 (issue #370): under 48rem the standalone mark
+   hides, and ".hero-brand" shows a 40px mark beside the wordmark. */
+.hero>.mark{display:none}
+.hero-brand{display:flex;align-items:center;gap:var(--space-2)}
+.hero-mark{width:40px;height:40px}
+@media (min-width:48rem){
+  .hero>.mark{display:block}
+  .hero-mark{display:none}
+}
 @media (min-width:56rem){
   .hero{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center}
   .hero>.mark{grid-column:1;grid-row:1}
@@ -246,7 +255,14 @@ label{font-weight:700}
       <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2"/>
     </svg>
     <div class="hero-text">
-      <p class="word">Octometer</p>
+      <div class="hero-brand">
+        <svg class="mark hero-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <circle class="head" cx="16" cy="13" r="9"/>
+          <circle class="eye" cx="12.6" cy="11.5" r="1.6"/><circle class="eye" cx="19.4" cy="11.5" r="1.6"/>
+          <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2"/>
+        </svg>
+        <p class="word">Octometer</p>
+      </div>
       <h1>Every click in your app, counted.</h1>
       <p class="lead">Octometer counts each click in your web app. One script tag, one dashboard, no cookie banner.</p>
       <a class="btn btn-primary" href="#waitlist-email">Join the waitlist</a>

@@ -152,6 +152,33 @@ a:hover {
   gap: var(--space-4);
   justify-items: start;
 }
+/*
+ * The audit finding L15 (issue #370): under 48rem the standalone mark of
+ * the hero hides, and ".hero-brand" shows a 40 px mark next to the
+ * wordmark, in the same row, at the top of ".hero-text". At 48rem and
+ * above ".hero-brand" keeps only the wordmark, and the standalone mark
+ * shows again, in the place it held before issue #370.
+ */
+.hero > .mark {
+  display: none;
+}
+.hero-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.hero-mark {
+  width: 40px;
+  height: 40px;
+}
+@media (min-width: 48rem) {
+  .hero > .mark {
+    display: block;
+  }
+  .hero-mark {
+    display: none;
+  }
+}
 @media (min-width: 56rem) {
   .hero {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

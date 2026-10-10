@@ -46,6 +46,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Add a product-shot preview to the right side of the hero at 56rem and above, built
   as an HTML table in the visual family of `.frame`, so no empty strip sits past the
   copy. (#372)
+- Move the hero mark beside the wordmark under 48rem, so it does not sit alone above
+  the heading on a phone. (#370)
 
 ### Contract
 

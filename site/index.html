@@ -44,6 +44,10 @@
     </nav>
     <div class="page">
       <header class="hero">
+        <!-- #370, the audit finding L15: under 48rem ".hero-mark" sits beside
+             the wordmark in ".hero-brand", and this standalone mark hides
+             (site.css). At 48rem and above this mark shows, unchanged from
+             before issue #370, and ".hero-brand" hides its own small mark. -->
         <svg class="mark" width="96" height="96" viewBox="0 0 32 32" aria-hidden="true">
           <g class="arms">
             <path
@@ -56,7 +60,15 @@
           <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2" />
         </svg>
         <div class="hero-text">
-          <p class="word">Octometer</p>
+          <div class="hero-brand">
+            <svg class="mark hero-mark" viewBox="0 0 32 32" aria-hidden="true">
+              <circle class="head" cx="16" cy="13" r="9" />
+              <circle class="eye" cx="12.6" cy="11.5" r="1.6" />
+              <circle class="eye" cx="19.4" cy="11.5" r="1.6" />
+              <path class="smile" d="M12.4 16.2Q16 19.4 19.6 16.2" />
+            </svg>
+            <p class="word">Octometer</p>
+          </div>
           <h1>Every click in your app, counted.</h1>
           <p class="lead">
             Octometer counts each click in your web app. One script tag, one dashboard, no cookie

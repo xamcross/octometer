@@ -50,6 +50,23 @@ test('the hero shows the promise and the button reaches the form', async ({ page
   );
   expect(noteFontSize390).toBe(14);
 
+  // The audit finding L15 (issue #370): at 390 px the mark sits beside
+  // the wordmark, in the same row, and not alone above it. The 96 px
+  // standalone mark hides, and ".hero-mark" shows at 40 px.
+  const heroBrandAt390 = await page.evaluate(() => {
+    const mark = document.querySelector('.hero-mark') as HTMLElement;
+    const word = document.querySelector('.hero-text .word') as HTMLElement;
+    const bigMark = document.querySelector('.hero > .mark') as HTMLElement;
+    const markRect = mark.getBoundingClientRect();
+    const wordRect = word.getBoundingClientRect();
+    return {
+      bigMarkHidden: getComputedStyle(bigMark).display === 'none',
+      markHeight: markRect.height,
+      sameRow: markRect.top < wordRect.bottom && wordRect.top < markRect.bottom,
+    };
+  });
+  expect(heroBrandAt390).toEqual({ bigMarkHidden: true, markHeight: 40, sameRow: true });
+
   // The audit finding L3 (issue #372): at 390 px the preview sits below
   // the copy, with no sideways scroll.
   await expect(heroPreview).toBeVisible();
@@ -85,6 +102,20 @@ test('the hero shows the promise and the button reaches the form', async ({ page
   expect(statusHeadAt768).toEqual({ text: 'Status', clipped: false });
 
   await page.setViewportSize({ width: 1280, height: 720 });
+
+  // Issue #370 keeps the 1280 px layout as it was before the fix: the
+  // 96 px standalone mark still shows above the text block, and the
+  // small ".hero-mark" of the phone row stays hidden.
+  const heroMarkAt1280 = await page.evaluate(() => {
+    const big = document.querySelector('.hero > .mark') as HTMLElement;
+    const small = document.querySelector('.hero-mark') as HTMLElement;
+    return {
+      bigVisible: getComputedStyle(big).display !== 'none',
+      bigHeight: big.getBoundingClientRect().height,
+      smallHidden: getComputedStyle(small).display === 'none',
+    };
+  });
+  expect(heroMarkAt1280).toEqual({ bigVisible: true, bigHeight: 96, smallHidden: true });
 
   const button = page.getByRole('link', { name: 'Join the waitlist' });
   await expect(button).toHaveAttribute('href', '#waitlist-email');
