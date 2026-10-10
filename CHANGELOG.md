@@ -196,8 +196,16 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   perpetual loading sentence no longer shows. (#373)
 - Render the raw error text of a failed app's Status cell at 14px monospace, with a
   2-line clamp; the full text stays in the element's `title` attribute. (#395)
-- Add the token `--focus-halo`, its own dark value, `#726BAB`; the dark focus ring now
+- Add the token `--focus-halo`, its own dark value, `#726bab`; the dark focus ring now
   reads 3:1 or more on the sunny line, the page, and the paper. (#451)
+- Give `.band` its own `--focus-halo` value; the dark focus ring on the band now reads
+  3:1 or more too. (#451)
+- Center the "Pause refresh" label inside its pill; show a pause icon or a play icon
+  next to the label, in place of the hidden check mark. (#363)
+- Keep the brand mark, the nav pills, and an account control on one row at a phone
+  width; the account menu keeps its own row, below. (#397)
+- Raise the mascot head fill on the header band to a 3:1 contrast, in each color
+  scheme, with the new token `--octo-head-band`. (#439)
 
 ### CI
 

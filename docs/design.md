@@ -26,6 +26,8 @@ the base rules.
 | `--sunny` | `#FFD93D` | The primary fill, the current nav pill, the focus ring, the warning fill. |
 | `--seaweed` | `#6EE7B7` | The OK fill. |
 | `--octo` | `#A78BFA` | The header band, the mascot body. Never a text background. |
+| `--octo-head-band` | `#423A57` | The mascot head fill on the header band; keeps 3:1 or more on `--octo` (WCAG 1.4.11). |
+| `--octo-face-band` | `#FFFFFF` | The mascot eye fill and smile stroke on the header band; keeps 10.6:1 on `--octo-head-band` (WCAG 1.4.11, issue #439, BLOCKER 1 of pull request #459). |
 | `--on-bright` | `#241F3D` | The text and the edge on each bright fill. It stays dark in a dark theme. |
 | `--backdrop` | `rgb(36 31 61 / 0.6)` | The dim layer behind a dialog. |
 | `--radius-panel` | `20px` | A comic panel. |

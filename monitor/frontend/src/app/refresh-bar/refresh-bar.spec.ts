@@ -60,8 +60,8 @@ describe('RefreshBar', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('shows the button with the accessible name "Pause refresh"', () => {
-    expect(button().textContent?.trim()).toBe('Pause refresh');
+  it('shows the button with the label "Pause refresh" while the refresh runs', () => {
+    expect(button().textContent?.trim()).toBe('⏸Pause refresh');
     expect(button().getAttribute('aria-pressed')).toBe('false');
   });
 
@@ -87,11 +87,11 @@ describe('RefreshBar', () => {
     expect(text()).toBe('The refresh is paused.');
   });
 
-  it('sets aria-pressed to true, and keeps the accessible name, on a press', () => {
+  it('sets aria-pressed to true, and shows the label "Resume refresh", on a press', () => {
     button().click();
     fixture.detectChanges();
     expect(button().getAttribute('aria-pressed')).toBe('true');
-    expect(button().textContent?.trim()).toBe('Pause refresh');
+    expect(button().textContent?.trim()).toBe('▶Resume refresh');
   });
 
   it('writes "Refresh paused" to the announcer on a press', async () => {

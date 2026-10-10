@@ -18,6 +18,17 @@
     @if (me.email(); as email) {
       <div class="account-menu" role="group" aria-label="Account">
         <span class="account-email">{{ email }}</span>
+        <button
+          type="button"
+          class="btn account-button"
+          [attr.aria-expanded]="accountEmailRevealed()"
+          (click)="onAccountButtonClick()"
+        >
+          Account
+        </button>
+        @if (accountEmailRevealed()) {
+          <span class="account-email-popup">{{ email }}</span>
+        }
         <button type="button" class="btn" (click)="onSignOutClick()">Sign out</button>
       </div>
     }
