@@ -91,7 +91,7 @@ export class Elements {
       return `Elements of Session ${sessionId}`;
     }
     if (this.anonymous() === 'true') {
-      return 'Elements of Anonymous';
+      return 'Elements of anonymous visitors';
     }
     const userId = this.userId();
     return userId ? `Elements of user ${userId}` : 'Elements';
@@ -108,7 +108,7 @@ export class Elements {
       return 'this session';
     }
     if (this.anonymous() === 'true') {
-      return 'an anonymous visit';
+      return 'an anonymous visitor';
     }
     return 'this user';
   });

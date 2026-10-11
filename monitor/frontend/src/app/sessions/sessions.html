@@ -17,14 +17,15 @@
 } @else if (store.data(); as page) {
   @if (page.rows.length === 0) {
     <section class="panel">
-      <app-empty-state text="No anonymous session yet." />
+      <app-empty-state text="No sessions of anonymous visitors yet." />
     </section>
   } @else {
     <section class="panel">
       <div class="table-scroll" tabindex="0" role="region" aria-labelledby="sessions-caption">
         <table>
           <caption id="sessions-caption">
-            The anonymous sessions of this app, with the click totals of each session.
+            The sessions of the anonymous visitors of this app, with the click totals of each
+            session.
           </caption>
           <thead>
             <tr>
@@ -65,7 +66,7 @@
     </section>
 
     @if (showPager()) {
-      <nav class="pager" aria-label="Pages of the anonymous session list">
+      <nav class="pager" aria-label="Pages of the session list">
         <button
           class="btn btn-small"
           type="button"
@@ -98,5 +99,5 @@
     {{ retryPending() ? 'Trying again…' : 'Try again' }}
   </button>
 } @else {
-  <p>Loading anonymous sessions…</p>
+  <p>Loading sessions…</p>
 }
