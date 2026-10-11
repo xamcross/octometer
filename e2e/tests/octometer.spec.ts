@@ -2181,7 +2181,17 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   await appsPill.hover();
   const pillHover = await hoverStyleAfterTransition(appsPill, pillRest, ['backgroundColor']);
   expect(pillHover.backgroundColor).not.toBe(pillRest.backgroundColor);
+  await expect(appsPill).toHaveCSS('opacity', '1');
   expect(contrastRatio(pillHover.color, pillHover.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+  // Issue #474: the hovered nav pill fill must also differ from its
+  // own rest fill (`--paper-bright`) by 1.5:1 or more, not only from
+  // the band fill behind the pill.
+  const pillFillContrast = contrastRatio(pillHover.backgroundColor, pillRest.backgroundColor);
+  console.log(
+    `issue #474 (light): the nav pill rest fill is "${pillRest.backgroundColor}"; ` +
+      `the hovered fill is "${pillHover.backgroundColor}", ${pillFillContrast.toFixed(2)}:1.`,
+  );
+  expect(pillFillContrast).toBeGreaterThanOrEqual(1.5);
 
   // The Pause refresh pill, on the apps view (the refresh bar).
   const apps = new AppsPage(page);
@@ -2286,6 +2296,18 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   expect(
     contrastRatio(darkPillHover.color, darkPillHover.backgroundColor),
   ).toBeGreaterThanOrEqual(4.5);
+  // Issue #474: the dark hovered nav pill fill against its own rest
+  // fill. `--shallows-bright-deep` keeps one value in each scheme, so
+  // this ratio equals the light pair above.
+  const darkPillFillContrast = contrastRatio(
+    darkPillHover.backgroundColor,
+    darkPillRest.backgroundColor,
+  );
+  console.log(
+    `issue #474 (dark): the nav pill rest fill is "${darkPillRest.backgroundColor}"; ` +
+      `the hovered fill is "${darkPillHover.backgroundColor}", ${darkPillFillContrast.toFixed(2)}:1.`,
+  );
+  expect(darkPillFillContrast).toBeGreaterThanOrEqual(1.5);
 
   // Issue #454: the dark Pause refresh pill keeps a visible hover cue
   // too. The pill sits outside `.band`, so its hover fill is

@@ -24,6 +24,21 @@
   --paper-bright: #ffffff;
   --shallows: #e6f3ff;
   --shallows-bright: #e6f3ff;
+  /*
+   * Issue #474: the nav pill hover fill, in place of `--shallows-bright`.
+   * The rest-to-hover measure of #474 (the hover fill against the rest
+   * fill, not only against the fill behind the control) read 1.13:1 for
+   * the old pair (`--paper-bright` to `--shallows-bright`), under the
+   * 1.5:1 floor. `--shallows-bright-deep` keeps one value in each
+   * scheme, the same way `--shallows-bright` does: the nav pill sits
+   * inside `.band`, where the text stays dark (`--on-bright`) in each
+   * scheme, so a dark hover fill (such as the dark value of
+   * `--shallows-hover`) would fail the text contrast in the dark
+   * scheme. `#99c6ff` reads 1.77:1 against the rest fill, 1.54:1
+   * against the light band, 1.87:1 against the dark band, and the pill
+   * text reads 8.87:1 on it (`docs/design.md`).
+   */
+  --shallows-bright-deep: #99c6ff;
   --shallows-deep: #bfdfff;
   --shallows-hover: #99c6ff;
   --coral: #ff6b6b;
