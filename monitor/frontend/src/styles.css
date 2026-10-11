@@ -29,6 +29,16 @@
   --coral: #ff6b6b;
   --coral-deep: #d93a3a;
   --coral-edge: #d93a3a;
+  /*
+   * The link underline (issue #483). Plain `--coral` read 1.6:1 against
+   * the hovered row fill (`--shallows-hover`, `#99c6ff`) in the light
+   * scheme, under the 3:1 floor of WCAG 1.4.11. `#c23030` raises the
+   * light pairs to 5.6:1 on the paper, 5.0:1 on the zebra fill, and
+   * 3.2:1 on the hovered row fill. The dark scheme keeps `--coral`
+   * below: it already read 6.1:1, 6.6:1, and 3.9:1 against the three
+   * dark fills.
+   */
+  --link-underline: #c23030;
   --sunny: #ffd93d;
   --seaweed: #6ee7b7;
   --octo: #a78bfa;
@@ -168,6 +178,13 @@
     --shallows-hover: #3d3570;
     --octo: #9b7be5;
     --coral-edge: #ff6b6b;
+    /*
+     * Issue #483: the dark scheme keeps the plain `--coral` value,
+     * `#ff6b6b`, not the light scheme's darker `#c23030`. The dark
+     * fills are already dark, so `#c23030` would read under 3:1 on
+     * the dark hovered row fill (1.9:1); `#ff6b6b` reads 3.9:1 there.
+     */
+    --link-underline: var(--coral);
     --focus-halo: #7b74b3;
   }
 }
@@ -225,7 +242,8 @@ h3 {
 a {
   color: var(--ink);
   text-decoration: underline;
-  text-decoration-color: var(--coral);
+  /* Issue #483: a dedicated token, not plain `--coral`; see the `:root` comment above. */
+  text-decoration-color: var(--link-underline);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
 }
