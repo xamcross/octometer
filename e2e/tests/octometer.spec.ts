@@ -2345,12 +2345,13 @@ test('a tap on an apps-table row leaves no sticky hover fill in a touch context,
   // neighbour fill does, so one reading of `textDecorationColor`
   // serves all three pairs.
   const mouseNameLink = page.locator('tbody tr').first().getByRole('link').first();
+  await expect(mouseNameLink).toHaveCSS('opacity', '1');
   const lightUnderline = await mouseNameLink.evaluate(
     (element) => getComputedStyle(element).textDecorationColor,
   );
-  const { bg: zebraBackground } = await paintedColors(
-    page.locator('tbody tr').nth(1).locator('td').first(),
-  );
+  const zebraCell = page.locator('tbody tr').nth(1).locator('td').first();
+  await expect(zebraCell).toHaveCSS('opacity', '1');
+  const { bg: zebraBackground } = await paintedColors(zebraCell);
   const lightUnderlineOnPaper = contrastRatio(lightUnderline, paperBackground);
   const lightUnderlineOnZebra = contrastRatio(lightUnderline, zebraBackground);
   const lightUnderlineOnHover = contrastRatio(lightUnderline, mouseHover);
@@ -2439,12 +2440,13 @@ test('a tap on an apps-table row leaves no sticky hover fill in a touch context,
   // Issue #483, the dark scheme: the same three pairs as the light
   // scheme above.
   const darkNameLink = page.locator('tbody tr').first().getByRole('link').first();
+  await expect(darkNameLink).toHaveCSS('opacity', '1');
   const darkUnderline = await darkNameLink.evaluate(
     (element) => getComputedStyle(element).textDecorationColor,
   );
-  const { bg: darkZebraBackground } = await paintedColors(
-    page.locator('tbody tr').nth(1).locator('td').first(),
-  );
+  const darkZebraCell = page.locator('tbody tr').nth(1).locator('td').first();
+  await expect(darkZebraCell).toHaveCSS('opacity', '1');
+  const { bg: darkZebraBackground } = await paintedColors(darkZebraCell);
   const darkUnderlineOnPaper = contrastRatio(darkUnderline, darkPaperBackground);
   const darkUnderlineOnZebra = contrastRatio(darkUnderline, darkZebraBackground);
   const darkUnderlineOnHover = contrastRatio(darkUnderline, darkMouseHover);
