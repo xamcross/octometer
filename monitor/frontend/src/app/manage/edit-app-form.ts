@@ -179,21 +179,10 @@ export class EditAppForm {
     this.routePatternsLoaded.set(false);
     this.errorMessage.set(null);
     this.editing.set(true);
-    // TEMP DIAGNOSTIC (issue #479): removed in the fix commit.
-    console.log('ISSUE479 before showModal scrollY=' + window.scrollY);
     this.dialogEl().nativeElement.showModal();
-    // TEMP DIAGNOSTIC (issue #479): removed in the fix commit.
-    console.log('ISSUE479 after showModal scrollY=' + window.scrollY);
-    afterNextRender(
-      () => {
-        // TEMP DIAGNOSTIC (issue #479): removed in the fix commit.
-        console.log('ISSUE479 before focus scrollY=' + window.scrollY);
-        this.nameField()?.nativeElement.focus({ preventScroll: true });
-        // TEMP DIAGNOSTIC (issue #479): removed in the fix commit.
-        console.log('ISSUE479 after focus scrollY=' + window.scrollY);
-      },
-      { injector: this.injector },
-    );
+    afterNextRender(() => this.nameField()?.nativeElement.focus({ preventScroll: true }), {
+      injector: this.injector,
+    });
     this.http.get<AppDetail>(`/api/apps/${this.app().appId}`).subscribe({
       next: (detail) => {
         this.origins.set(detail.origins.join('\n'));
