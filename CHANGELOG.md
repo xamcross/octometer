@@ -76,6 +76,12 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   sideways scroll at 768 px, at 800 px, or at 870 px. (#442)
 - Give the dark `--focus-halo` its own value, `#726BAB`, so the sunny line reads 3:1 or
   more against it; record the halo-on-band pair as an accepted exception. (#451)
+- Recapture the three landing-page dashboard screenshots against the fixed apps view
+  (#390, #394, #346) and a believable demo data spread: one heading with no duplicate
+  breadcrumb, a short day count, and a real "First pages" link in each row. Give
+  `screenshots.mjs` an `OCTOMETER_SESSION_COOKIE` option, so it reads the signed-in
+  dashboard of design decision D52. Add an end-to-end check that the three PNG files
+  are the current capture, not the stale pre-#378 files. (#378)
 
 ### Contract
 
