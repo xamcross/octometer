@@ -33,8 +33,7 @@ const NETWORK_FAILURE_TEXT = 'Octometer cannot reach the API. Check the network 
  *
  * The table is one flat `<table>`. `@for` tracks each row by `userId`
  * (D29). The row with `userId: null` shows the text "(anonymous)" and
- * opens the "Anonymous sessions" view with `anonymous=true` (D44,
- * issue #115).
+ * opens the Sessions view with `anonymous=true` (D44, issue #115).
  *
  * A click on a data cell of a row opens the link of the user cell
  * (D28), the same way as the level 1 view.

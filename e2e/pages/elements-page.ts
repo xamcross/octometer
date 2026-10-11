@@ -8,9 +8,10 @@ export interface ElementRowLocators {
 }
 
 /**
- * The level 3 view of one app, filtered to one user, one anonymous set, or
- * one session (D13, `?userId=`, `?anonymous=true`, `?sessionId=`). This
- * suite needs the `userId` filter only (decision 5f).
+ * The level 3 view of one app, filtered to one user, one anonymous visitor,
+ * or one session (D13, `?userId=`, `?anonymous=true`, `?sessionId=`). The
+ * suite used the `userId` filter only (decision 5f) until issue #482 added
+ * the anonymous-visitor caption check.
  */
 export class ElementsPage {
   constructor(private readonly page: Page) {}
@@ -22,6 +23,11 @@ export class ElementsPage {
   /** Opens the view filtered to one session (issue #392, D18). */
   async gotoBySession(appId: number, sessionId: string): Promise<void> {
     await this.page.goto(`/apps/${appId}/elements?sessionId=${encodeURIComponent(sessionId)}`);
+  }
+
+  /** Opens the view filtered to the anonymous visitor (issue #482). */
+  async gotoByAnonymous(appId: number): Promise<void> {
+    await this.page.goto(`/apps/${appId}/elements?anonymous=true`);
   }
 
   /** The table caption element. */

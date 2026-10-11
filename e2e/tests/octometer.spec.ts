@@ -1507,8 +1507,16 @@ test('the delete-confirm button shows a Deleting label while the request is pend
  * term that each place now uses: "clicks" in the delete dialog, "Manage
  * apps" on the Manage heading, "Sessions" on the Sessions heading, and a
  * lower-case "user" in the Elements heading.
+ *
+ * Issue #482 extends the scenario with the maintainer's decision of
+ * 2026-10-11: "an anonymous visitor" for the person, "a session" for the
+ * record, and "a click" in place of "an event". It adds one anonymous
+ * session to the app, then reads the sessions-view caption and the
+ * Elements caption of the anonymous case, so both name "session" and
+ * "an anonymous visitor" and name no "anonymous session" or "anonymous
+ * visit".
  */
-test('the dashboard uses one term for each of the four concepts of issue #391', async ({
+test('the dashboard uses one term for each of the four concepts of issue #391, and for the anonymous case and a click (issue #482)', async ({
   page,
   request,
 }) => {
@@ -1527,8 +1535,28 @@ test('the dashboard uses one term for each of the four concepts of issue #391', 
   await sendUserAndPage(request, monitorUrl, origin, created.appKey, marker);
   // D17 names the "removes N clicks" branch of the delete dialog, which
   // shows once the app leaves NEVER_POLLED; the other branch names "no
-  // event" and plays no part in this scenario.
+  // click" and plays no part in this scenario.
   await waitForFirstPoll(request, appName, CHAIN_WAIT_MS);
+  // Issue #482: one anonymous session with a real click, so the sessions
+  // view and the Elements caption of the anonymous case both render a
+  // row, not the empty state (`octo:session-start` alone never shows as
+  // an elements row, `ElementsRouteTest.kt`).
+  const anonymousResponse = await request.fetch(`${monitorUrl}/collect`, {
+    method: 'POST',
+    headers: {
+      Origin: origin,
+      'Content-Type': 'application/json',
+      'X-Octometer-Key': created.appKey,
+    },
+    data: JSON.stringify({
+      sessionId: anonymousSessionId(marker),
+      clicks: [
+        { element: 'octo:session-start', ageMs: 0, path: `/pager-page-${marker}` },
+        { element: 'pager-probe.click', ageMs: 0 },
+      ],
+    }),
+  });
+  expect(anonymousResponse.status()).toBe(204);
 
   const manage = new ManagePage(page);
   await manage.goto();
@@ -1544,7 +1572,7 @@ test('the dashboard uses one term for each of the four concepts of issue #391', 
   await manage.openDeleteDialog(row);
   const dialogMessage = manage.deleteDialogMessage(row);
   await expect(dialogMessage).toContainText('clicks of', { timeout: CHAIN_WAIT_MS });
-  await expect(dialogMessage).not.toContainText('events');
+  await expect(dialogMessage).not.toContainText('event');
   await manage.cancelDeleteDialog(row);
 
   const sessions = new SessionsPage(page);
@@ -1556,10 +1584,32 @@ test('the dashboard uses one term for each of the four concepts of issue #391', 
   await expect(page).toHaveTitle(`Sessions of App ${created.appId} - Octometer`);
   await new BreadcrumbPart(page).currentItem().waitFor();
   await expect(new BreadcrumbPart(page).currentItem()).toHaveText('Sessions');
+  // Issue #482: the caption names "the anonymous visitors", never
+  // "anonymous session" (minor_issues/481.md, row 3; MAJOR 1 of the
+  // review of pull request #486: the view lists the anonymous visitors
+  // only, not every session of the app).
+  await expect(sessions.caption()).toHaveText(
+    'The sessions of the anonymous visitors of this app, with the click totals of each ' +
+      'session.',
+    { timeout: CHAIN_WAIT_MS },
+  );
+  await expect(sessions.caption()).not.toContainText('anonymous session');
 
   const elements = new ElementsPage(page);
   await elements.gotoByUser(created.appId, userId);
   await expect(page.locator('h1')).toHaveText(`Elements of user ${userId}`);
+
+  // Issue #482: the Elements caption of the anonymous case names "an
+  // anonymous visitor", never "an anonymous visit" (issue #392). MAJOR 2
+  // of the review of pull request #486: the heading and the title of the
+  // same case must name the same term, never "Anonymous" alone.
+  await elements.gotoByAnonymous(created.appId);
+  await expect(page.locator('h1')).toHaveText('Elements of anonymous visitors');
+  await expect(page).toHaveTitle(`Anonymous visitors of App ${created.appId} - Octometer`);
+  await expect(elements.caption()).toHaveText(
+    'The elements that an anonymous visitor touched, with the click totals of each element.',
+    { timeout: CHAIN_WAIT_MS },
+  );
 });
 
 /*
@@ -2631,9 +2681,9 @@ test('a failed first load shows the error state, and "Try again" reloads the lis
       name: 'sessions',
       url: `/apps/${appId}/sessions?anonymous=true`,
       apiGlob: `**/api/apps/${appId}/sessions*`,
-      errorText: 'Octometer cannot read the anonymous session list. Try again.',
+      errorText: 'Octometer cannot read the session list. Try again.',
       afterSuccess: 'empty',
-      emptyText: 'No anonymous session yet.',
+      emptyText: 'No sessions of anonymous visitors yet.',
     },
     {
       name: 'first-pages',

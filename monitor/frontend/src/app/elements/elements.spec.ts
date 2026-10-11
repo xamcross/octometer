@@ -114,7 +114,7 @@ describe('Elements', () => {
     startStore();
     httpMock.expectOne('/api/apps/7/elements?anonymous=true').flush(buildResponse());
 
-    expect(root().querySelector('h1')?.textContent).toBe('Elements of Anonymous');
+    expect(root().querySelector('h1')?.textContent).toBe('Elements of anonymous visitors');
   });
 
   it('puts the refresh bar directly after the heading, and before the table content', () => {
@@ -320,12 +320,12 @@ describe('Elements', () => {
       expect(getComputedStyle(timeCell).whiteSpace).toBe('nowrap');
     });
 
-    it('shows "No events yet." when the row list is empty', () => {
+    it('shows "No clicks yet." when the row list is empty', () => {
       startStore();
       flushElements(buildResponse({ rows: [] }));
 
       expect(root().querySelector('table')).toBeNull();
-      expect(root().textContent).toContain('No events yet.');
+      expect(root().textContent).toContain('No clicks yet.');
     });
 
     it('tracks each row with the stable key element: a second answer that drops a row and changes the order keeps the tr node of each surviving row', () => {
@@ -373,7 +373,7 @@ describe('Elements', () => {
       );
     });
 
-    it('names "an anonymous visit" on an anonymous view', () => {
+    it('names "an anonymous visitor" on an anonymous view', () => {
       fixture.componentRef.setInput('userId', null);
       fixture.componentRef.setInput('anonymous', 'true');
       fixture.detectChanges();
@@ -381,7 +381,7 @@ describe('Elements', () => {
       flushElements(buildResponse(), 'anonymous=true');
 
       expect(root().querySelector('caption')?.textContent?.trim()).toBe(
-        'The elements that an anonymous visit touched, with the click totals of each element.',
+        'The elements that an anonymous visitor touched, with the click totals of each element.',
       );
     });
 
