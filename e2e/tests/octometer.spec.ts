@@ -1067,12 +1067,26 @@ test('Edit app opens a dialog, with no row growth and no shift of the row below 
     throw new Error('A row of the manage table has no box.');
   }
 
+  // TEMP DIAGNOSTIC (issue #479): removed in the fix commit. Collects
+  // the component's own scrollY log lines, then fails on purpose, so
+  // the CI job's assertion message carries the exact values.
+  const issue479DiagLogs: string[] = [];
+  page.on('console', (msg) => {
+    if (msg.text().startsWith('ISSUE479')) {
+      issue479DiagLogs.push(msg.text());
+    }
+  });
+
   // Opens the dialog of the first row, and proves it is a real modal
   // dialog (`showModal()`, not a plain `open` attribute toggle): the CSS
   // pseudo-class `:modal` matches only the top layer, modal case.
   await manage.openEditForm(firstRow);
   await expect(page.locator('dialog:modal')).toHaveCount(1);
   await expect(manage.editDialog(firstRow)).toHaveCount(1);
+
+  // TEMP DIAGNOSTIC (issue #479): removed in the fix commit.
+  await page.waitForTimeout(500);
+  expect(issue479DiagLogs, 'issue #479 diagnostic log lines').toEqual([]);
 
   const tableBoxDuring = await table.boundingBox();
   const firstRowBoxDuring = await firstRow.boundingBox();
