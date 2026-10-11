@@ -227,6 +227,11 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   Apply this fix in the apps, the users, the sessions, and the first-pages view. (#465)
 - Give the name field of the edit-app dialog `preventScroll: true` on its open focus
   call. The page then stays still. The row below keeps one `y` value. (#465)
+- Use one term for each dashboard concept: "clicks" in the delete dialog, "Manage
+  apps" on the manage heading, "Sessions" on the sessions heading, and a lower-case
+  "user" in the Elements heading. (#391)
+- Give the Manage route title and crumb, and the Sessions route title, the same
+  term as their own heading. (#391)
 - Raise the hovered table row fill from `--shallows-deep` to `--shallows-hover`; the
   cue now reads 1.5:1 or more against the paper in each color scheme. (#472)
 - Give the pressed Pause refresh pill its own hover fill, `--coral`; the cue now reads

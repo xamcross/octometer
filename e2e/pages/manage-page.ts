@@ -229,6 +229,11 @@ export class ManagePage {
     return this.page.getByRole('heading', { name: 'Add an app' });
   }
 
+  /** The message paragraph of one row's open delete dialog (issue #391). */
+  deleteDialogMessage(row: ReturnType<ManagePage['row']>) {
+    return this.deleteDialogHost(row).locator('dialog p');
+  }
+
   /**
    * The "Type the app name to confirm" field of one row's delete
    * dialog (issue #393). Scoped to the dialog host of #384, so a

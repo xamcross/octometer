@@ -8,7 +8,7 @@
     @if (app().status === 'NEVER_POLLED') {
       Octometer holds no event of {{ app().name }} yet.
     } @else {
-      This removes <strong>{{ formattedClicks() }}</strong> events of {{ app().name }}.
+      This removes <strong>{{ formattedClicks() }}</strong> clicks of {{ app().name }}.
     }
     This cannot be undone.
   </p>
