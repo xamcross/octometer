@@ -170,7 +170,7 @@ describe('Sessions', () => {
     expect(root().textContent).toContain('First page: /pricing');
   });
 
-  it('sends firstPath=(unknown), and shows "No sessions yet." for the empty answer', () => {
+  it('sends firstPath=(unknown), and shows "No sessions of anonymous visitors yet." for the empty answer', () => {
     fixture.componentRef.setInput('firstPath', '(unknown)');
     fixture.detectChanges();
     startStore();
@@ -180,7 +180,7 @@ describe('Sessions', () => {
     fixture.detectChanges();
 
     expect(root().querySelector('table')).toBeNull();
-    expect(root().textContent).toContain('No sessions yet.');
+    expect(root().textContent).toContain('No sessions of anonymous visitors yet.');
     expect(root().textContent).toContain('First page: (unknown)');
   });
 
@@ -440,12 +440,12 @@ describe('Sessions', () => {
       expect(getComputedStyle(cell).cursor).toBe('pointer');
     });
 
-    it('shows "No sessions yet." when the row list is empty', () => {
+    it('shows "No sessions of anonymous visitors yet." when the row list is empty', () => {
       startStore();
       flushSessions(buildPage({ rows: [] }));
 
       expect(root().querySelector('table')).toBeNull();
-      expect(root().textContent).toContain('No sessions yet.');
+      expect(root().textContent).toContain('No sessions of anonymous visitors yet.');
     });
 
     it('tracks each row with the stable key sessionId: a second answer that drops a row and changes the order keeps the tr node of each surviving row', () => {

@@ -14,7 +14,7 @@ export class SessionsPage {
   }
 
   async expectNoSessions(timeoutMs: number): Promise<void> {
-    await expect(this.page.getByText('No sessions yet.')).toBeVisible({
+    await expect(this.page.getByText('No sessions of anonymous visitors yet.')).toBeVisible({
       timeout: timeoutMs,
     });
   }

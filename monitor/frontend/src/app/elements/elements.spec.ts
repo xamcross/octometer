@@ -114,7 +114,7 @@ describe('Elements', () => {
     startStore();
     httpMock.expectOne('/api/apps/7/elements?anonymous=true').flush(buildResponse());
 
-    expect(root().querySelector('h1')?.textContent).toBe('Elements of Anonymous');
+    expect(root().querySelector('h1')?.textContent).toBe('Elements of anonymous visitors');
   });
 
   it('puts the refresh bar directly after the heading, and before the table content', () => {

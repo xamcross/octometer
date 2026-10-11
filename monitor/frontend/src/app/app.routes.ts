@@ -41,7 +41,7 @@ function elementsUserLabel(snapshot: ActivatedRouteSnapshot): string {
     return `Session ${shortSessionId(sessionId)}`;
   }
   if (snapshot.queryParamMap.get('anonymous') === 'true') {
-    return 'Anonymous';
+    return 'Anonymous visitors';
   }
   const userId = snapshot.queryParamMap.get('userId');
   return userId ? `User ${userId}` : 'Elements';
@@ -152,8 +152,14 @@ export const routes: Routes = [
     // path change alone.
     runGuardsAndResolvers: 'paramsOrQueryParamsChange',
     canActivate: [requireElementsFilter],
+    // The anonymous case names "anonymous visitors" alone, with no app id
+    // part: the heading and the crumb of the same case hold the same term,
+    // not the app id (issue #482, MAJOR 2 of the review of pull request
+    // #486).
     title: (route: ActivatedRouteSnapshot) =>
-      `${elementsUserLabel(route)} of App ${route.paramMap.get('appId')} - Octometer`,
+      route.queryParamMap.get('anonymous') === 'true'
+        ? 'Elements of anonymous visitors - Octometer'
+        : `${elementsUserLabel(route)} of App ${route.paramMap.get('appId')} - Octometer`,
     loadComponent: () => import('./elements/elements').then((m) => m.Elements),
     data: {
       breadcrumb: (snapshot: ActivatedRouteSnapshot): BreadcrumbItem[] => {

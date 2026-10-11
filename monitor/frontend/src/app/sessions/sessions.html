@@ -17,14 +17,15 @@
 } @else if (store.data(); as page) {
   @if (page.rows.length === 0) {
     <section class="panel">
-      <app-empty-state text="No sessions yet." />
+      <app-empty-state text="No sessions of anonymous visitors yet." />
     </section>
   } @else {
     <section class="panel">
       <div class="table-scroll" tabindex="0" role="region" aria-labelledby="sessions-caption">
         <table>
           <caption id="sessions-caption">
-            The sessions of this app, with the click totals of each session.
+            The sessions of the anonymous visitors of this app, with the click totals of each
+            session.
           </caption>
           <thead>
             <tr>

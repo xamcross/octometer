@@ -1584,10 +1584,13 @@ test('the dashboard uses one term for each of the four concepts of issue #391, a
   await expect(page).toHaveTitle(`Sessions of App ${created.appId} - Octometer`);
   await new BreadcrumbPart(page).currentItem().waitFor();
   await expect(new BreadcrumbPart(page).currentItem()).toHaveText('Sessions');
-  // Issue #482: the caption names "session", never "anonymous session"
-  // (minor_issues/481.md, row 3).
+  // Issue #482: the caption names "the anonymous visitors", never
+  // "anonymous session" (minor_issues/481.md, row 3; MAJOR 1 of the
+  // review of pull request #486: the view lists the anonymous visitors
+  // only, not every session of the app).
   await expect(sessions.caption()).toHaveText(
-    'The sessions of this app, with the click totals of each session.',
+    'The sessions of the anonymous visitors of this app, with the click totals of each ' +
+      'session.',
     { timeout: CHAIN_WAIT_MS },
   );
   await expect(sessions.caption()).not.toContainText('anonymous session');
@@ -1597,8 +1600,12 @@ test('the dashboard uses one term for each of the four concepts of issue #391, a
   await expect(page.locator('h1')).toHaveText(`Elements of user ${userId}`);
 
   // Issue #482: the Elements caption of the anonymous case names "an
-  // anonymous visitor", never "an anonymous visit" (issue #392).
+  // anonymous visitor", never "an anonymous visit" (issue #392). MAJOR 2
+  // of the review of pull request #486: the heading and the title of the
+  // same case must name the same term, never "Anonymous" alone.
   await elements.gotoByAnonymous(created.appId);
+  await expect(page.locator('h1')).toHaveText('Elements of anonymous visitors');
+  await expect(page).toHaveTitle('Elements of anonymous visitors - Octometer');
   await expect(elements.caption()).toHaveText(
     'The elements that an anonymous visitor touched, with the click totals of each element.',
     { timeout: CHAIN_WAIT_MS },
@@ -2523,7 +2530,7 @@ test('a failed first load shows the error state, and "Try again" reloads the lis
       apiGlob: `**/api/apps/${appId}/sessions*`,
       errorText: 'Octometer cannot read the session list. Try again.',
       afterSuccess: 'empty',
-      emptyText: 'No sessions yet.',
+      emptyText: 'No sessions of anonymous visitors yet.',
     },
     {
       name: 'first-pages',
