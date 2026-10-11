@@ -1870,9 +1870,47 @@ test('the dashboard shell uses the dark tokens under prefers-color-scheme: dark 
   page,
 }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   const apps = new AppsPage(page);
   await apps.goto();
+
+  // Issue #487: the focused skip link's underline read the dashboard's
+  // `--link-underline` token, 2.01:1 on the `--sunny` fill in the dark
+  // scheme, under the 4.5:1 floor of WCAG 1.4.3 (the review comment
+  // 6106541507 of pull request #485). `page.keyboard.press('Tab')` from
+  // the page top reaches the skip link, the first focusable element of
+  // `app.html`, the same way a real keyboard user does. `opacity: 1`
+  // sits beside each ratio (lesson 24 of the frontend brief).
+  await page.keyboard.press('Tab');
+  const skipLink = page.locator('.skip-link');
+  await expect(skipLink).toBeFocused();
+  await expect(skipLink).toHaveCSS('opacity', '1');
+  const skipLinkColors = await skipLink.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const haloMatch = style.boxShadow.match(/rgba?\([^)]+\)/);
+    return {
+      fg: style.color,
+      underline: style.textDecorationColor,
+      fill: style.backgroundColor,
+      halo: haloMatch ? haloMatch[0] : '',
+    };
+  });
+  const skipLinkTextContrast = ratio(toHex(skipLinkColors.fg), toHex(skipLinkColors.fill));
+  const skipLinkUnderlineContrast = ratio(
+    toHex(skipLinkColors.underline),
+    toHex(skipLinkColors.fill),
+  );
+  const skipLinkRingContrast = ratio(toHex(skipLinkColors.halo), toHex(skipLinkColors.fill));
+  console.log(
+    `issue #487 (dark): the focused skip link text is "${skipLinkColors.fg}", its underline is ` +
+      `"${skipLinkColors.underline}", and its ring halo is "${skipLinkColors.halo}", each on the ` +
+      `fill "${skipLinkColors.fill}": ${skipLinkTextContrast.toFixed(2)}:1 text, ` +
+      `${skipLinkUnderlineContrast.toFixed(2)}:1 underline, ${skipLinkRingContrast.toFixed(2)}:1 ring.`,
+  );
+  expect(skipLinkTextContrast).toBeGreaterThanOrEqual(4.5);
+  expect(skipLinkUnderlineContrast).toBeGreaterThanOrEqual(4.5);
+  expect(skipLinkRingContrast).toBeGreaterThanOrEqual(3);
 
   // The body keeps the dark `--shallows` token (#14122a), not the
   // bright page (#e6f3ff).

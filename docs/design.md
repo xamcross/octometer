@@ -29,7 +29,7 @@ the base rules.
 | `--coral-edge` | `#D93A3A` light, `#FF6B6B` dark | The `.form-error` and `.list-error` left border; keeps 3:1 or more on `--paper`, `--shallows`, and `--paper-raised` (WCAG 1.4.11, issue #383, issue #450, and issue #453). |
 | `--link-underline` (site) | `#D93F3F` light, `var(--coral)` dark | The site's link underline; keeps 3:1 or more on `--paper` and `--shallows` (WCAG 1.4.11, issue #409). |
 | `--link-underline` (dashboard) | `#C23030` light, `var(--coral)` dark | The dashboard's link underline; keeps 3:1 or more on `--paper`, `--shallows`, and `--shallows-hover` (WCAG 1.4.11, issue #483). |
-| `--sunny` | `#FFD93D` | The primary fill, the current nav pill, the focus ring, the warning fill. |
+| `--sunny` | `#FFD93D` | The primary fill, the current nav pill, the focus ring, the warning fill, the skip link fill. |
 | `--sunny-deep` | `#C79400` | The hovered pressed Pause refresh pill fill; keeps 1.5:1 or more against `--sunny` and 4.5:1 or more against `--on-bright`, in each scheme (issue #473, the review of pull request #484). |
 | `--seaweed` | `#6EE7B7` | The OK fill. |
 | `--octo` | `#A78BFA` | The header band, the mascot body. Never a text background. |
