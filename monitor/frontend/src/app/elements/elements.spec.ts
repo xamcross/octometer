@@ -103,7 +103,7 @@ describe('Elements', () => {
 
   it('shows a focusable heading naming the user', () => {
     const heading = root().querySelector('h1');
-    expect(heading?.textContent).toBe('Elements of User 42');
+    expect(heading?.textContent).toBe('Elements of user 42');
     expect(heading?.getAttribute('tabindex')).toBe('-1');
   });
 
