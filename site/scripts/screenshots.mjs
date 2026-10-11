@@ -7,6 +7,11 @@
 // The default base URL is the local monitor of the owner's machine. The
 // script never changes the monitor; it only reads its pages and its API.
 //
+// Issue #378: every "/api/" route of the monitor needs a session since
+// issue #301. Set "OCTOMETER_SESSION_COOKIE" to the "octometer_session"
+// cookie of a signed-in run, so this script reads the real app list and
+// shows the real dashboard, not the sign-in page.
+//
 // Fix of BLOCKER 1, the review of pull request #324: the two files of one
 // view come from the one viewport, with the device scale factor as the
 // only difference (2 for the large file, 1 for the phone file). A shorter
@@ -35,6 +40,17 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = join(here, '..', 'public', 'screens');
 
+// Issue #378: the dashboard needs a session for every "/api/" route
+// since issue #301. "OCTOMETER_SESSION_COOKIE" carries one "name=value"
+// pair ("octometer_session=<token>"); a blank value keeps the old
+// behaviour, for a monitor build with no accounts.
+const SESSION_COOKIE = process.env.OCTOMETER_SESSION_COOKIE ?? '';
+
+/** The fetch init of one authenticated API read, or an empty object with no session cookie. */
+function sessionFetchInit() {
+  return SESSION_COOKIE ? { headers: { Cookie: SESSION_COOKIE } } : {};
+}
+
 const VIEWPORT_HEIGHT = 800;
 const NARROW_VIEWPORT_WIDTH = 720;
 const APPS_VIEWPORT_WIDTH = 920;
@@ -45,7 +61,7 @@ const FILE_VARIANTS = [
 
 /** Reads the first app row of the demo monitor. */
 async function readFirstAppId(baseURL) {
-  const response = await fetch(`${baseURL}/api/apps`);
+  const response = await fetch(`${baseURL}/api/apps`, sessionFetchInit());
   if (!response.ok) {
     throw new Error(`GET /api/apps gave the status ${response.status}.`);
   }
@@ -58,7 +74,7 @@ async function readFirstAppId(baseURL) {
 
 /** Reads the first user row of one app of the demo monitor. */
 async function readFirstUserId(baseURL, appId) {
-  const response = await fetch(`${baseURL}/api/apps/${appId}/users`);
+  const response = await fetch(`${baseURL}/api/apps/${appId}/users`, sessionFetchInit());
   if (!response.ok) {
     throw new Error(`GET /api/apps/${appId}/users gave the status ${response.status}.`);
   }
@@ -73,6 +89,13 @@ async function readFirstUserId(baseURL, appId) {
 async function captureAtScale(browser, baseURL, view, deviceScaleFactor) {
   const viewport = { width: view.width, height: VIEWPORT_HEIGHT };
   const context = await browser.newContext({ viewport, deviceScaleFactor });
+  if (SESSION_COOKIE) {
+    const [name, ...rest] = SESSION_COOKIE.split('=');
+    const url = new URL(baseURL);
+    await context.addCookies([
+      { name, value: rest.join('='), domain: url.hostname, path: '/' },
+    ]);
+  }
   const page = await context.newPage();
   try {
     await page.goto(`${baseURL}${view.path}`);

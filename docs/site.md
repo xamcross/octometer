@@ -88,6 +88,11 @@ needs no app id or user id as an argument. It writes six PNG files into
 `site/public/screens/`: a 1200 px file and a 600 px file for each view, for the two
 sources of the `<picture>` element of each frame.
 
+Every `/api/` route of the monitor needs a session (design decision D52, issue #301).
+Set `OCTOMETER_SESSION_COOKIE` to the `octometer_session` cookie of a signed-in run
+(`name=value`), so the script reads the real app list, not the sign-in page (issue
+#378).
+
 Two rules:
 
 - A screenshot changes only through this script. Never edit a screenshot file by hand.
