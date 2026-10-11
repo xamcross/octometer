@@ -150,7 +150,7 @@ current section.
 | State | Cue | Token |
 | --- | --- | --- |
 | Rest | Paper fill, ink border, pill radius | `var(--paper)`, `var(--line-control)`, `var(--radius-pill)` (`main-nav.css:11-24`) |
-| Hover | A bright tint against the octo band, in each color scheme, on a mouse hover only | `var(--shallows-bright)` (`main-nav.css:26-40`) |
+| Hover | A bright tint against the octo band, in each color scheme, on a mouse hover only | `var(--shallows-bright-deep)` (`main-nav.css:26-40`) |
 | Focus | The shared 3px sunny outline plus the 7px ink ring | `var(--sunny)` (`monitor/frontend/src/styles.css:131-135`) |
 | Current | Sunny fill, ink text, a 3px underline | `var(--sunny)`, `var(--on-bright)` (`main-nav.css:46-52`) |
 

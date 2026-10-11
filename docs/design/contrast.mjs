@@ -91,8 +91,10 @@ const TEXT = [
   ['each page', 'the current nav pill', '#241f3d', '#ffd93d', 16, 600],
   ['each page', 'the other nav pill', '#241f3d', '#ffffff', 16, 600],
   // Issue #454: the hovered nav pill pair, outside pull request #445.
-  // `--shallows-bright` keeps `#e6f3ff` in each scheme.
-  ['each page', 'the hovered nav pill', '#241f3d', '#e6f3ff', 16, 600],
+  // Issue #474 moves the fill from `--shallows-bright` (`#e6f3ff`) to
+  // `--shallows-bright-deep` (`#99c6ff`), so the nav pill clears the
+  // rest-to-hover floor too.
+  ['each page', 'the hovered nav pill', '#241f3d', '#99c6ff', 16, 600],
   ['each page', 'the breadcrumb link and text', '#241f3d', '#e6f3ff', 16, 400],
   ['each page', 'the breadcrumb current item', '#241f3d', '#e6f3ff', 16, 700],
   ['each page', 'the page title h1', '#241f3d', '#e6f3ff', 25, 600],
@@ -209,8 +211,10 @@ const DARK_TEXT = [
   ['each page', 'the current nav pill', '#241f3d', '#ffd93d', 16, 600],
   ['each page', 'the other nav pill', '#241f3d', '#ffffff', 16, 600],
   // Issue #454: the hovered nav pill pair, outside pull request #445.
-  // `--shallows-bright` keeps `#e6f3ff` in each scheme.
-  ['each page', 'the hovered nav pill', '#241f3d', '#e6f3ff', 16, 600],
+  // Issue #474 moves the fill from `--shallows-bright` (`#e6f3ff`) to
+  // `--shallows-bright-deep` (`#99c6ff`), so the nav pill clears the
+  // rest-to-hover floor too.
+  ['each page', 'the hovered nav pill', '#241f3d', '#99c6ff', 16, 600],
   ['each page', 'the "Sign out" button', '#241f3d', '#ffffff', 16, 600],
   ['each page', 'the breadcrumb link and text', '#ece9ff', '#14122a', 16, 400],
   ['each page', 'the breadcrumb current item', '#ece9ff', '#14122a', 16, 700],
@@ -338,13 +342,29 @@ const DARK_NONTEXT = [
  * Issue #483 adds the name-link underline, `--link-underline`, against
  * the paper row, the zebra row, and the hovered row fill, with the 3:1
  * floor of WCAG 1.4.11 for a non-text cue, in each scheme.
+ *
+ * Issue #474 adds a rest-to-hover pair for each hover rule: the hover
+ * fill against its own rest fill, not against the fill behind the
+ * control. A hover cue is a change of state, so the rest fill is the
+ * second reference (the decision of #474, from review comment
+ * 6099975804 of pull request #471). The nav pill pair failed at
+ * 1.13:1 against the old `--shallows-bright` hover fill; the fix below
+ * raises the nav pill hover fill to a new token.
  */
 
 // [the page, the fill or the cue, the colour, the neighbour, the floor, the reason]
 const FILL = [
-  ['the band', 'the hovered nav pill fill on the octo band', '#e6f3ff', '#a78bfa', 1.5],
+  // Issue #474 moves the nav pill hover fill from `--shallows-bright`
+  // (`#e6f3ff`) to `--shallows-bright-deep` (`#99c6ff`).
+  ['the band', 'the hovered nav pill fill on the octo band', '#99c6ff', '#a78bfa', 1.5],
   ['each data page', 'the hovered pause pill fill on the page', '#99c6ff', '#e6f3ff', 1.5],
   ['each table', 'the hovered row fill on the paper', '#99c6ff', '#ffffff', 1.5],
+  // Issue #474: the rest-to-hover pairs, the hover fill against its
+  // own rest fill.
+  ['the band', 'the nav pill rest fill to its hover fill', '#ffffff', '#99c6ff', 1.5],
+  ['each data page', 'the pause pill rest fill to its hover fill', '#ffffff', '#99c6ff', 1.5],
+  ['each table', 'the paper row rest fill to its hover fill', '#ffffff', '#99c6ff', 1.5],
+  ['each table', 'the zebra row rest fill to its hover fill', '#e6f3ff', '#99c6ff', 1.5],
   ['manage, signin', 'the form-error border on the page', '#d93a3a', '#e6f3ff', 3],
   // Issue #473: the pressed pause pill fill, `--sunny`, against the
   // page. The pair stays under its floor on purpose; the label text and
@@ -370,9 +390,18 @@ const FILL = [
 ];
 
 const DARK_FILL = [
-  ['the band', 'the hovered nav pill fill on the octo band', '#e6f3ff', '#9b7be5', 1.5],
+  // Issue #474 moves the nav pill hover fill from `--shallows-bright`
+  // (`#e6f3ff`) to `--shallows-bright-deep` (`#99c6ff`); the new token
+  // keeps one value in each scheme.
+  ['the band', 'the hovered nav pill fill on the octo band', '#99c6ff', '#9b7be5', 1.5],
   ['each data page', 'the hovered pause pill fill on the page', '#3d3570', '#14122a', 1.5],
   ['each table', 'the hovered row fill on the paper', '#3d3570', '#1d1a33', 1.5],
+  // Issue #474: the rest-to-hover pairs, the hover fill against its
+  // own rest fill.
+  ['the band', 'the nav pill rest fill to its hover fill', '#ffffff', '#99c6ff', 1.5],
+  ['each data page', 'the pause pill rest fill to its hover fill', '#1d1a33', '#3d3570', 1.5],
+  ['each table', 'the paper row rest fill to its hover fill', '#1d1a33', '#3d3570', 1.5],
+  ['each table', 'the zebra row rest fill to its hover fill', '#14122a', '#3d3570', 1.5],
   ['manage, signin', 'the form-error border on the page', '#ff6b6b', '#14122a', 3],
   // Issue #473: `--sunny` keeps its light value in the dark scheme, and
   // the dark page is far darker than the light page, so this pair clears

@@ -25,17 +25,22 @@ a {
 
 /*
  * The hover state of a nav pill (#369): a tint against the octo band.
- * `--shallows-bright` keeps a bright tint in each color scheme (note N1
- * of the review of pull request #445): the pill sits inside `.band`,
- * where `--ink` turns into the dark text color `--on-bright` in every
- * scheme, so the hover fill must stay bright too, or the text falls
- * under the WCAG 1.4.3 floor in the dark scheme. The `(hover: hover)`
- * guard keeps a touch tap from leaving a stuck hover state (MAJOR 2 of
- * the same review).
+ * `--shallows-bright-deep` keeps a bright tint in each color scheme
+ * (note N1 of the review of pull request #445): the pill sits inside
+ * `.band`, where `--ink` turns into the dark text color `--on-bright`
+ * in every scheme, so the hover fill must stay bright too, or the
+ * text falls under the WCAG 1.4.3 floor in the dark scheme. The
+ * `(hover: hover)` guard keeps a touch tap from leaving a stuck hover
+ * state (MAJOR 2 of the same review).
+ *
+ * Issue #474: the old fill, `--shallows-bright`, read 1.13:1 against
+ * its own rest fill (`--paper-bright`), under the 1.5:1 floor of a
+ * hover cue. `--shallows-bright-deep` raises the pair to 1.77:1
+ * (`styles.css`).
  */
 @media (hover: hover) {
   a:hover {
-    background: var(--shallows-bright);
+    background: var(--shallows-bright-deep);
   }
 }
 
