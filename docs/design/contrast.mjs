@@ -296,25 +296,40 @@ const DARK_NONTEXT = [
 
 /*
  * The fill pairs (issue #469, finding N2 of the review of pull request
- * #467): a fill checked against the fill behind it, not a text colour
- * and not an edge colour. Pull request #471 adds this kind of pair for
- * the hovered nav pill, the hovered pause pill, and the form-error
- * border too; it is not merged yet, so issue #472 adds only the row
- * below, in the same form, and leaves the other three pairs to pull
- * request #471.
+ * #467): a fill compared with the fill behind it, not a text colour and
+ * not an edge colour. A pair of this kind can stay invisible to the lists
+ * above: a hover fill that equals the page behind it shows no text-color
+ * change and no edge, so no pair of `TEXT` or `NONTEXT` catches it.
  *
- * The floor is 1.5 for a hover cue. The row below names the hovered
- * row fill of issue #472, `--shallows-hover`, against the paper
- * (`--paper`), the rest fill of an odd row.
+ * The floor is 1.5 for a hover cue or a pressed cue, and 3 for a control
+ * edge under WCAG 1.4.11; each row below names its own floor as its
+ * fifth entry. A row may carry a reason as its sixth entry, for a pair
+ * that stays under its floor on purpose (the `accepted` field of issue
+ * #451).
+ *
+ * Issue #468 (merged through pull request #480) fixes the light value
+ * of `--shallows-hover` to `#99c6ff`, so the hovered Pause refresh pill
+ * now reads 1.57:1 against the page, clear of the 1.5 floor.
+ *
+ * Issue #472 (merged through pull request #480) gives the hovered row
+ * fill the same token, `--shallows-hover`, in place of `--shallows-deep`.
+ * The row below names that token's value in each scheme, against
+ * `--paper`.
  */
 
 // [the page, the fill or the cue, the colour, the neighbour, the floor, the reason]
 const FILL = [
+  ['the band', 'the hovered nav pill fill on the octo band', '#e6f3ff', '#a78bfa', 1.5],
+  ['each data page', 'the hovered pause pill fill on the page', '#99c6ff', '#e6f3ff', 1.5],
   ['each table', 'the hovered row fill on the paper', '#99c6ff', '#ffffff', 1.5],
+  ['manage, signin', 'the form-error border on the page', '#d93a3a', '#e6f3ff', 3],
 ];
 
 const DARK_FILL = [
+  ['the band', 'the hovered nav pill fill on the octo band', '#e6f3ff', '#9b7be5', 1.5],
+  ['each data page', 'the hovered pause pill fill on the page', '#3d3570', '#14122a', 1.5],
   ['each table', 'the hovered row fill on the paper', '#3d3570', '#1d1a33', 1.5],
+  ['manage, signin', 'the form-error border on the page', '#ff6b6b', '#14122a', 3],
 ];
 
 /*
@@ -426,9 +441,9 @@ function edgeResult(page, kind, r, reason) {
 
 /*
  * The result word of one fill pair (issue #469): `pass`, `fail`, or
- * `accepted`. The floor varies per row (today, only 1.5), unlike the
- * fixed 3:1 floor of `edgeResult`; a row with a `reason` stays under
- * its floor on purpose, the same rule as `edgeResult`.
+ * `accepted`. The floor varies per row (1.5 or 3), unlike the fixed 3:1
+ * floor of `edgeResult`; a row with a `reason` stays under its floor on
+ * purpose, the same rule as `edgeResult`.
  */
 function fillResult(page, kind, r, floor, reason) {
   pairs += 1;
