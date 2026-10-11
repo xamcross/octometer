@@ -136,6 +136,10 @@ const TEXT = [
   ['dialog', 'the dialog strong text', '#241f3d', '#ffffff', 16, 700],
   ['dialog', 'the Cancel button', '#241f3d', '#ffffff', 16, 600],
   ['dialog', 'the disabled confirm button', DISABLED_INK, DISABLED_FILL, 16, 600],
+  // Issue #487: the skip link's underline used `--link-underline`
+  // (`#c23030`), 4.06:1 on the `--sunny` fill, under the 4.5:1 floor.
+  // `--on-bright` is the fix; it reads the same ratio as the link text.
+  ['each page', 'the skip link underline on focus', '#241f3d', '#ffd93d', 16, 400],
 ];
 
 // [the page, the edge or the ring, the colour, the neighbour]
@@ -180,6 +184,11 @@ const NONTEXT = [
   // (2.46:1 on the page background, under the 3:1 floor of WCAG 1.4.11)
   // to `--coral-edge`, the token that already fixes `.form-error`.
   ['apps, users, sessions, first-pages, manage', 'the list-error edge on the page background', '#d93a3a', '#e6f3ff'],
+  // Issue #487: the halo already reads 3:1 or more against the skip
+  // link's own `--sunny` fill (`--focus-halo` keeps `--ink`'s light
+  // value, `#241f3d`). This row records the pair so a later change to
+  // either token keeps the ring visible on the skip link fill.
+  ['each page', 'the focus ring: the halo on the skip link fill', '#241f3d', '#ffd93d'],
 ];
 
 /*
@@ -245,6 +254,11 @@ const DARK_TEXT = [
   ['dialog', 'the dialog strong text', '#ece9ff', '#312b57', 16, 700],
   ['dialog', 'the Cancel button', '#ece9ff', '#1d1a33', 16, 600],
   ['dialog', 'the disabled confirm button', DARK_DISABLED_INK, DARK_DISABLED_FILL, 16, 600],
+  // Issue #487: the dark scheme keeps the plain `--coral` value for
+  // `--link-underline` (`#ff6b6b`), 2.01:1 on the `--sunny` fill, under
+  // the 4.5:1 floor. `--on-bright` is scheme-invariant, so the fixed
+  // ratio equals the light-scheme row above.
+  ['each page', 'the skip link underline on focus', '#241f3d', '#ffd93d', 16, 400],
 ];
 
 // [the page, the edge or the ring, the colour, the neighbour]
@@ -292,6 +306,11 @@ const DARK_NONTEXT = [
   // (`var(--coral)` and `--coral-edge` share the dark value `#ff6b6b`);
   // the fix only raises the light-scheme value.
   ['apps, users, sessions, first-pages, manage', 'the list-error edge on the page background', '#ff6b6b', '#14122a'],
+  // Issue #487: the dark `--focus-halo` (`#7b74b3`) reads 3.05:1 against
+  // the skip link's own `--sunny` fill, clear of the 3:1 floor. This row
+  // records the pair so a later change to either token keeps the ring
+  // visible on the skip link fill.
+  ['each page', 'the focus ring: the halo on the skip link fill', '#7b74b3', '#ffd93d'],
 ];
 
 /*
