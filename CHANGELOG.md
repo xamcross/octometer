@@ -229,6 +229,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   call. The page then stays still. The row below keeps one `y` value. (#465)
 - Raise the hovered table row fill from `--shallows-deep` to `--shallows-hover`; the
   cue now reads 1.5:1 or more against the paper in each color scheme. (#472)
+- Give the name-link underline its own token, `--link-underline`; it now reads 3:1 or
+  more against the paper, the zebra fill, and the hovered row fill, in each scheme. (#483)
 
 ### CI
 
