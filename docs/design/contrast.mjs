@@ -99,6 +99,9 @@ const TEXT = [
   ['each data page', 'the refresh note', '#4b4763', '#e6f3ff', 12.8, 400],
   ['apps', 'the retention note', '#241f3d', '#e6f3ff', 16, 400],
   ['each data page', 'the pause pill', '#241f3d', '#ffffff', 16, 600],
+  // Issue #468: the hovered pause pill light fill, `#99c6ff`, beside
+  // the dark pair that issue #454 adds below (`#3d3570`).
+  ['each data page', 'the hovered pause pill', '#241f3d', '#99c6ff', 16, 600],
   ['each table', 'the panel caption', '#4b4763', '#ffffff', 12.8, 400],
   ['manage', 'the panel caption (bold)', '#4b4763', '#ffffff', 12.8, 700],
   ['each table', 'the table head cell', '#241f3d', '#bfdfff', 16, 600],
@@ -304,25 +307,28 @@ const DARK_NONTEXT = [
  * that stays under its floor on purpose (the `accepted` field of issue
  * #451).
  *
- * The light row of the hovered Pause refresh pill still reads today's
- * `--shallows-hover` value, `#e6f3ff`, the same hex as the page: 1.00:1,
- * under the 1.5 floor. The issue for that gap is filed; this row keeps
- * today's value, so the script shows the gap until that issue's fix
- * lands.
+ * Issue #468 (merged through pull request #480) fixes the light value
+ * of `--shallows-hover` to `#99c6ff`, so the hovered Pause refresh pill
+ * now reads 1.57:1 against the page, clear of the 1.5 floor.
+ *
+ * Issue #472 (merged through pull request #480) gives the hovered row
+ * fill the same token, `--shallows-hover`, in place of `--shallows-deep`.
+ * The row below names that token's value in each scheme, against
+ * `--paper`.
  */
 
 // [the page, the fill or the cue, the colour, the neighbour, the floor, the reason]
 const FILL = [
   ['the band', 'the hovered nav pill fill on the octo band', '#e6f3ff', '#a78bfa', 1.5],
-  ['each data page', 'the hovered pause pill fill on the page', '#e6f3ff', '#e6f3ff', 1.5],
-  ['each table', 'the hovered row fill on the paper', '#bfdfff', '#ffffff', 1.5],
+  ['each data page', 'the hovered pause pill fill on the page', '#99c6ff', '#e6f3ff', 1.5],
+  ['each table', 'the hovered row fill on the paper', '#99c6ff', '#ffffff', 1.5],
   ['manage, signin', 'the form-error border on the page', '#d93a3a', '#e6f3ff', 3],
 ];
 
 const DARK_FILL = [
   ['the band', 'the hovered nav pill fill on the octo band', '#e6f3ff', '#9b7be5', 1.5],
   ['each data page', 'the hovered pause pill fill on the page', '#3d3570', '#14122a', 1.5],
-  ['each table', 'the hovered row fill on the paper', '#2c2850', '#1d1a33', 1.5],
+  ['each table', 'the hovered row fill on the paper', '#3d3570', '#1d1a33', 1.5],
   ['manage, signin', 'the form-error border on the page', '#ff6b6b', '#14122a', 3],
 ];
 

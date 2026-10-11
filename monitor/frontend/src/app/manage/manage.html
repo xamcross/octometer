@@ -26,7 +26,25 @@
             @for (row of rows; track row.appId) {
               <tr>
                 <th scope="row">{{ row.name }}</th>
-                <td class="app-key">{{ shortAppKey(row) }}</td>
+                <td class="app-key">
+                  <div class="app-key-row">
+                    @if (row.appKey; as key) {
+                      <span class="code">{{ shortAppKey(row) }}</span>
+                      <button
+                        type="button"
+                        class="btn btn-small"
+                        [attr.title]="key"
+                        [attr.aria-label]="'Copy the app key of ' + row.name"
+                        (click)="copyAppKey(row)"
+                      >
+                        {{ copiedAppKeyId() === row.appId ? 'Copied' : 'Copy' }}
+                      </button>
+                    } @else {
+                      <span class="visually-hidden">None</span
+                      ><span class="code" aria-hidden="true">–</span>
+                    }
+                  </div>
+                </td>
                 <td class="origins">
                   @for (origin of originsOf(row); track origin) {
                     <div>{{ origin }}</div>

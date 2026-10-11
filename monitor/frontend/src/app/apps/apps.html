@@ -25,11 +25,11 @@
           <thead>
             <tr>
               <th scope="col">App</th>
+              <th scope="col">Status</th>
               <th scope="col" class="num">Clicks</th>
               <th scope="col" class="num">Unique users</th>
               <th scope="col" class="num">Unique sessions</th>
               <th scope="col" class="first-pages-header">First pages</th>
-              <th scope="col">Status</th>
               <th scope="col">Last updated</th>
             </tr>
           </thead>
@@ -39,6 +39,18 @@
                 <th scope="row">
                   <a [routerLink]="['/apps', row.appId, 'users']">{{ row.name }}</a>
                 </th>
+                <td class="status" (click)="onRowCellClick(row, $event)">
+                  <span class="badge" [class]="statusBadgeClass(row.status)">
+                    <span aria-hidden="true">{{ statusIcon(row.status) }}</span>
+                    {{ statusLabel(row.status) }}
+                  </span>
+                  @if (isFailed(row.status) && row.lastError) {
+                    <p class="error-text" [title]="row.lastError">{{ row.lastError }}</p>
+                  }
+                  @for (gap of row.gaps; track gap.from) {
+                    <p class="gap-text">{{ gapText(gap) }}</p>
+                  }
+                </td>
                 <td class="num" (click)="onRowCellClick(row, $event)">
                   @if (row.status === 'NEVER_POLLED') {
                     <span class="visually-hidden">No data</span><span aria-hidden="true">–</span>
@@ -64,18 +76,6 @@
                   <a [routerLink]="['/apps', row.appId, 'first-pages']" class="first-pages-link"
                     >First pages</a
                   >
-                </td>
-                <td class="status" (click)="onRowCellClick(row, $event)">
-                  <span class="badge" [class]="statusBadgeClass(row.status)">
-                    <span aria-hidden="true">{{ statusIcon(row.status) }}</span>
-                    {{ statusLabel(row.status) }}
-                  </span>
-                  @if (isFailed(row.status) && row.lastError) {
-                    <p class="error-text" [title]="row.lastError">{{ row.lastError }}</p>
-                  }
-                  @for (gap of row.gaps; track gap.from) {
-                    <p class="gap-text">{{ gapText(gap) }}</p>
-                  }
                 </td>
                 <td class="data-time" (click)="onRowCellClick(row, $event)">
                   @if (row.lastSuccessAt) {

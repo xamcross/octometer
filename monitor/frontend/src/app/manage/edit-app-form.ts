@@ -158,6 +158,18 @@ export class EditAppForm {
    * Opens the dialog with the current name, the current origin list, and
    * the current route pattern list. The default focus goes to the name
    * field, the first field of the form (issue #364).
+   *
+   * The focus call sets `preventScroll: true` (the fix of the CI run
+   * 38065369384 of pull request #465): with no option, a browser can
+   * still scroll the page toward the name field's pre-promotion
+   * position in the document, before it paints the dialog as a fixed,
+   * centered top-layer box. The scroll then stays, and it moves the row
+   * below by a few pixels, so the table-row scenario of issue #364
+   * reads two different `y` values for one static row. The amount
+   * depends on the exact height of each row above the dialog, so a
+   * font change alone can turn a 0 px shift into a few-pixel one, with
+   * no change to the dialog's own code. `preventScroll: true` removes
+   * the scroll call itself, so the page never moves.
    */
   protected open(): void {
     this.name.set(this.app().name);
@@ -168,7 +180,9 @@ export class EditAppForm {
     this.errorMessage.set(null);
     this.editing.set(true);
     this.dialogEl().nativeElement.showModal();
-    afterNextRender(() => this.nameField()?.nativeElement.focus(), { injector: this.injector });
+    afterNextRender(() => this.nameField()?.nativeElement.focus({ preventScroll: true }), {
+      injector: this.injector,
+    });
     this.http.get<AppDetail>(`/api/apps/${this.app().appId}`).subscribe({
       next: (detail) => {
         this.origins.set(detail.origins.join('\n'));

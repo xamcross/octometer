@@ -168,6 +168,34 @@ async function hoverStyleOf(locator: Locator): Promise<HoverStyle> {
 }
 
 /**
+ * The hover style of one element, read after its transition ends
+ * (issue #464). `.btn` (styles.css:401-403) transitions `transform`
+ * and `box-shadow` over 80 ms; a plain read right after `locator.hover()`
+ * can land inside that window and give an in-between value, not the
+ * settled hover value. `transitionDuration` names the length of that
+ * window; this polls `hoverStyleOf` until each named field differs from
+ * its rest value, with a 2 s cap, and returns the last read style.
+ */
+async function hoverStyleAfterTransition(
+  locator: Locator,
+  rest: HoverStyle,
+  fields: readonly (keyof HoverStyle)[],
+): Promise<HoverStyle> {
+  await locator.evaluate((element) => getComputedStyle(element).transitionDuration);
+  let latest: HoverStyle = rest;
+  await expect
+    .poll(
+      async () => {
+        latest = await hoverStyleOf(locator);
+        return fields.every((field) => latest[field] !== rest[field]);
+      },
+      { timeout: 2_000 },
+    )
+    .toBe(true);
+  return latest;
+}
+
+/**
  * Waits, through `GET /api/apps`, for the status of the named app to
  * leave `NEVER_POLLED` (issue #364, D3). It checks the API, never the
  * rendered badge: a view that reads the list one time, and again only
@@ -580,6 +608,82 @@ test.describe.serial('Octometer, the distribution and the demo app (issue #175)'
     await page.setViewportSize({ width: 1280, height: 720 });
   });
 
+  /**
+   * Issue #371, finding D5: the Status column of the apps table now sits
+   * right after the App column, so a user reaches it at 390px with no
+   * full scroll; `.table-scroll` also gets a CSS-only scroll cue, a
+   * fading edge that shows only on the side that still holds a clipped
+   * column. `apps.html` moved the Status column from index 6 to index 2;
+   * `apps-page.ts` reads it at cell index 0, not index 4, to match.
+   *
+   * A pixel probe of the rendered cue (a screenshot decoded through
+   * `<img>.decode()`) gave an `EncodingError` in the CI runner's
+   * Chromium. This scenario checks the CSS mechanism and the layout
+   * instead: the clip (`scrollWidth > clientWidth`), the Status header
+   * inside the unscrolled view (the goal of the sticky first column),
+   * and the four-layer `background-image` with the local/scroll
+   * attachment split that `styles.css` gives `.table-scroll` (the cue
+   * itself: two `--paper` masks tied to the table's own content, two
+   * tinted shadows tied to the visible viewport).
+   */
+  test('the apps table carries the CSS scroll-cue layers, and the Status column stays reachable at 390px (issue #371, D5)', async ({
+    page,
+  }) => {
+    const apps = new AppsPage(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await apps.goto();
+
+    const tableScroll = page.locator('.table-scroll').first();
+    const statusHeader = page.getByRole('columnheader', { name: 'Status' });
+
+    // The table still holds more columns than the screen shows
+    // (apps.css sets `table { min-width: 50rem }`), so it stays clipped.
+    const widths = await tableScroll.evaluate((element) => ({
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    }));
+    expect(widths.scrollWidth).toBeGreaterThan(widths.clientWidth);
+    console.log(
+      `issue #371, D5: .table-scroll scrollWidth is ${widths.scrollWidth}px, clientWidth is ${widths.clientWidth}px, at 390px.`,
+    );
+
+    // The Status header's left edge sits inside the visible,
+    // unscrolled width of the container, so a user reaches it with no
+    // scroll at all.
+    const statusBox = await statusHeader.boundingBox();
+    const scrollBox = await tableScroll.boundingBox();
+    if (!statusBox || !scrollBox) {
+      throw new Error('The Status header or the scroll container has no box.');
+    }
+    const statusOffsetInView = statusBox.x - scrollBox.x;
+    console.log(
+      `issue #371, D5: the Status header sits ${statusOffsetInView.toFixed(1)}px inside a ${scrollBox.width.toFixed(1)}px-wide view, with no scroll.`,
+    );
+    expect(statusOffsetInView).toBeLessThan(scrollBox.width);
+
+    // The cue mechanism itself: two opaque masks (`local`, tied to the
+    // table's own content) over two tinted shadows (`scroll`, tied to
+    // the viewport), four `linear-gradient` layers in all. No script
+    // runs this cue; the browser shows or hides each shadow by itself,
+    // from the scroll position, so this check reads the wired-up CSS,
+    // not a rendered pixel.
+    const cueStyle = await tableScroll.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        backgroundImage: style.backgroundImage,
+        backgroundAttachment: style.backgroundAttachment,
+      };
+    });
+    console.log(
+      `issue #371, D5: .table-scroll background-attachment is "${cueStyle.backgroundAttachment}".`,
+    );
+    const layerCount = (cueStyle.backgroundImage.match(/linear-gradient\(/g) ?? []).length;
+    expect(layerCount).toBe(4);
+    expect(cueStyle.backgroundAttachment.replace(/\s+/g, '')).toBe('local,local,scroll,scroll');
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+  });
+
   test('the not-found page shows its sentence and the link to the apps', async ({ page }) => {
     await page.goto('/no-such-page');
     await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
@@ -760,8 +864,45 @@ test('an app is registered and its keys show one time (issue #296)', async ({ pa
   await manage.goto();
   const row = manage.row(appName);
   await expect(row).toBeVisible();
-  await expect(manage.appKeyCell(row)).toHaveText(firstAppKey.slice(0, 8));
+  const appKeyCell = manage.appKeyCell(row);
+  const shortAppKeyText = await appKeyCell.locator('.code').textContent();
+  console.log(`issue #386, D27: the app-key cell shows "${shortAppKeyText}" in a monospace font.`);
+  expect(shortAppKeyText?.trim()).toBe(firstAppKey.slice(0, 8));
   await expect(manage.originCells(row)).toHaveText(['https://a.example', 'https://b.example']);
+
+  // Issue #386, finding D27: the app-key cell renders in a monospace
+  // font of at least 14px, and its Copy button writes the full key to
+  // the clipboard and announces "Copied" through the one status region.
+  const appKeyCode = appKeyCell.locator('.code');
+  const codeFont = await appKeyCode.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { family: style.fontFamily, size: parseFloat(style.fontSize) };
+  });
+  console.log(
+    `issue #386, D27: the app-key cell font is "${codeFont.family}" at ${codeFont.size}px.`,
+  );
+  expect(codeFont.family.toLowerCase()).toContain('monospace');
+  expect(codeFont.size).toBeGreaterThanOrEqual(14);
+
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  const copyButton = manage.appKeyCopyButton(row);
+  // The Copy control reads the shared `.btn` font (D45), not `.code`: a
+  // control label is UI chrome, never a data value (docs/components.md,
+  // "The code-like value"). This confirms the two stay apart.
+  const copyButtonFontFamily = await copyButton.evaluate(
+    (element) => getComputedStyle(element).fontFamily,
+  );
+  console.log(`issue #386, D27: the Copy button font is "${copyButtonFontFamily}".`);
+  expect(copyButtonFontFamily.toLowerCase()).not.toContain('monospace');
+  await expect(copyButton).toHaveAttribute('title', firstAppKey);
+  await copyButton.click();
+  await expect(copyButton).toHaveText('Copied');
+  const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+  console.log(
+    `issue #386, D27: the clipboard holds a key of length ${clipboardText.length}, the full key is of length ${firstAppKey.length}.`,
+  );
+  expect(clipboardText).toBe(firstAppKey);
+  await expect(page.locator('[role="status"]')).toHaveText('Copied');
 
   // "Edit app" adds a third origin, and the list shows three.
   await manage.openEditForm(row);
@@ -787,6 +928,55 @@ test('an app is registered and its keys show one time (issue #296)', async ({ pa
     throw new Error(`The app "${appName}" is absent from the answer of GET /api/apps.`);
   }
   expect(createdRow).not.toHaveProperty('secretKey');
+});
+
+/**
+ * Issue #386, finding D27: one glyph marks every empty value of the
+ * dashboard. The "demo" app registers through the legacy
+ * connection-string path (D32), so it holds no app key: its cell shows
+ * the shared en dash, `–`, the same glyph `status-format.ts` uses for
+ * an unpolled count, with a hidden "None" text for a screen reader.
+ * This scenario also checks the monospace class on the elements
+ * selector cell and the sessions session-id link.
+ */
+test('the app-key cell of an app with no key shows one empty-value glyph, and the selector and session-id cells render in monospace (issue #386, D27)', async ({
+  page,
+  request,
+}) => {
+  const manage = new ManagePage(page);
+  await manage.goto();
+  const demoRow = manage.row('demo');
+  const demoAppKeyCell = manage.appKeyCell(demoRow);
+  const hiddenText = demoAppKeyCell.locator('.visually-hidden');
+  const glyph = demoAppKeyCell.locator('[aria-hidden="true"]');
+  await expect(hiddenText).toHaveText('None');
+  await expect(glyph).toHaveText('–');
+  await expect(demoAppKeyCell.getByRole('button')).toHaveCount(0);
+
+  // A fresh app of its own, with one tracked user click (gives the
+  // elements row) and one anonymous session of the same marker (gives
+  // the sessions row), the same helpers the pager scenarios use.
+  const monitorUrl = readMonitorUrl();
+  const { appId, appKey, origin } = await registerPagerApp(request, monitorUrl, 'code-class-app');
+  const marker = 386;
+  await sendUserAndPage(request, monitorUrl, origin, appKey, marker);
+  await sendAnonymousSessionOfSamePath(request, monitorUrl, origin, appKey, marker);
+
+  const elements = new ElementsPage(page);
+  await elements.gotoByUser(appId, `pager-user-${marker}`);
+  const elementCell = page.locator('tbody th.code').first();
+  await expect(elementCell).toBeVisible({ timeout: CHAIN_WAIT_MS });
+  const elementFont = await elementCell.evaluate((element) => getComputedStyle(element).fontFamily);
+  console.log(`issue #386, D27: the elements selector cell font is "${elementFont}".`);
+  expect(elementFont.toLowerCase()).toContain('monospace');
+
+  const sessions = new SessionsPage(page);
+  await sessions.goto(appId);
+  const sessionLink = page.locator('tbody th a.code').first();
+  await expect(sessionLink).toBeVisible({ timeout: CHAIN_WAIT_MS });
+  const sessionFont = await sessionLink.evaluate((element) => getComputedStyle(element).fontFamily);
+  console.log(`issue #386, D27: the session-id link font is "${sessionFont}".`);
+  expect(sessionFont.toLowerCase()).toContain('monospace');
 });
 
 // Issue #364, finding D3 of the UI audit: Edit app opened an inline form
@@ -863,9 +1053,17 @@ test('Edit app opens a dialog, with no row growth and no shift of the row below 
   await expect(manage.statusBadge(firstRow)).not.toHaveText(/Not polled yet/);
   await expect(manage.statusBadge(secondRow)).not.toHaveText(/Not polled yet/);
 
+  // Issue #364, the correction of pull request #465. A dialog open can
+  // scroll the whole page by a few pixels on the CI runner. The cause
+  // is unknown: a 12 px document scroll at the dialog open on the
+  // Linux runner. Each row check below reads a row's own place
+  // against the table, not its raw `y`. A check then stays true of a
+  // static row through a window scroll the test does not control.
+  const table = page.locator('main table').first();
+  const tableBoxBefore = await table.boundingBox();
   const firstRowBoxBefore = await firstRow.boundingBox();
   const secondRowBoxBefore = await secondRow.boundingBox();
-  if (!firstRowBoxBefore || !secondRowBoxBefore) {
+  if (!tableBoxBefore || !firstRowBoxBefore || !secondRowBoxBefore) {
     throw new Error('A row of the manage table has no box.');
   }
 
@@ -876,18 +1074,20 @@ test('Edit app opens a dialog, with no row growth and no shift of the row below 
   await expect(page.locator('dialog:modal')).toHaveCount(1);
   await expect(manage.editDialog(firstRow)).toHaveCount(1);
 
+  const tableBoxDuring = await table.boundingBox();
   const firstRowBoxDuring = await firstRow.boundingBox();
   const secondRowBoxDuring = await secondRow.boundingBox();
-  if (!firstRowBoxDuring || !secondRowBoxDuring) {
+  if (!tableBoxDuring || !firstRowBoxDuring || !secondRowBoxDuring) {
     throw new Error('A row of the manage table has no box, with the dialog open.');
   }
   console.log(
     `issue #364: the row height is ${firstRowBoxBefore.height}px before the dialog opens ` +
       `and ${firstRowBoxDuring.height}px while it is open; the row below sits at ` +
-      `${secondRowBoxBefore.y}px before and ${secondRowBoxDuring.y}px while the dialog is open.`,
+      `${secondRowBoxBefore.y - tableBoxBefore.y}px before and ` +
+      `${secondRowBoxDuring.y - tableBoxDuring.y}px while the dialog is open, each against the table top.`,
   );
   expect(firstRowBoxDuring.height).toBe(firstRowBoxBefore.height);
-  expect(secondRowBoxDuring.y).toBe(secondRowBoxBefore.y);
+  expect(secondRowBoxDuring.y - tableBoxDuring.y).toBe(secondRowBoxBefore.y - tableBoxBefore.y);
 
   // The rename keeps the exact same length as firstName: a longer name
   // can wrap onto a second line in the narrow App column, which would
@@ -897,11 +1097,12 @@ test('Edit app opens a dialog, with no row growth and no shift of the row below 
   const renamedRow = manage.row(renamedTo);
   await expect(renamedRow).toBeVisible();
 
+  const tableBoxAfter = await table.boundingBox();
   const secondRowBoxAfter = await secondRow.boundingBox();
-  if (!secondRowBoxAfter) {
+  if (!tableBoxAfter || !secondRowBoxAfter) {
     throw new Error('The row below has no box after the save.');
   }
-  expect(secondRowBoxAfter.y).toBe(secondRowBoxBefore.y);
+  expect(secondRowBoxAfter.y - tableBoxAfter.y).toBe(secondRowBoxBefore.y - tableBoxBefore.y);
 });
 
 /** A fixed, well-formed UUID for one test request's `sessionId` field (the form of `collector.spec.ts`). */
@@ -1851,7 +2052,10 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   await expect(addAppButton).toHaveCSS('opacity', '1');
   const buttonRest = await hoverStyleOf(addAppButton);
   await addAppButton.hover();
-  const buttonHover = await hoverStyleOf(addAppButton);
+  const buttonHover = await hoverStyleAfterTransition(addAppButton, buttonRest, [
+    'boxShadow',
+    'transform',
+  ]);
   expect(buttonHover.transform).not.toBe(buttonRest.transform);
   expect(buttonHover.boxShadow).not.toBe(buttonRest.boxShadow);
   // The fill and the text colour stay the same. The text contrast of
@@ -1914,7 +2118,7 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   await expect(appsPill).toHaveCSS('opacity', '1');
   const pillRest = await hoverStyleOf(appsPill);
   await appsPill.hover();
-  const pillHover = await hoverStyleOf(appsPill);
+  const pillHover = await hoverStyleAfterTransition(appsPill, pillRest, ['backgroundColor']);
   expect(pillHover.backgroundColor).not.toBe(pillRest.backgroundColor);
   expect(contrastRatio(pillHover.color, pillHover.backgroundColor)).toBeGreaterThanOrEqual(4.5);
 
@@ -1925,9 +2129,21 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   await expect(pauseButton).toHaveCSS('opacity', '1');
   const pauseRest = await hoverStyleOf(pauseButton);
   await pauseButton.hover();
-  const pauseHover = await hoverStyleOf(pauseButton);
+  await expect(pauseButton).toHaveCSS('opacity', '1');
+  const pauseHover = await hoverStyleAfterTransition(pauseButton, pauseRest, ['backgroundColor']);
+  const lightPageBackground = await pauseButton.evaluate(
+    () => getComputedStyle(document.body).backgroundColor,
+  );
   expect(pauseHover.backgroundColor).not.toBe(pauseRest.backgroundColor);
   expect(contrastRatio(pauseHover.color, pauseHover.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+  // Issue #468: the light Pause refresh pill keeps a visible hover cue
+  // too. The fill must differ from the light page by 1.5:1 or more.
+  const pauseFillContrast = contrastRatio(pauseHover.backgroundColor, lightPageBackground);
+  console.log(
+    `issue #468 (light): the hovered pause pill fill is "${pauseHover.backgroundColor}" ` +
+      `on the page "${lightPageBackground}", ${pauseFillContrast.toFixed(2)}:1.`,
+  );
+  expect(pauseFillContrast).toBeGreaterThanOrEqual(1.5);
 
   // The text link: "Go to the apps" of the not-found page, under the
   // global `a` rule, with no pill and no band around it. The link
@@ -1942,7 +2158,9 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   await expect(textLink).toHaveCSS('opacity', '1');
   const linkRest = await hoverStyleOf(textLink);
   await textLink.hover();
-  const linkHover = await hoverStyleOf(textLink);
+  const linkHover = await hoverStyleAfterTransition(textLink, linkRest, [
+    'textDecorationThickness',
+  ]);
   expect(linkHover.textDecorationThickness).not.toBe(linkRest.textDecorationThickness);
   expect(contrastRatio(linkHover.color, panelBackground)).toBeGreaterThanOrEqual(4.5);
 
@@ -1983,7 +2201,9 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   await expect(darkPauseButton).toHaveCSS('opacity', '1');
   const darkPauseRest = await hoverStyleOf(darkPauseButton);
   await darkPauseButton.hover();
-  const darkPauseHover = await hoverStyleOf(darkPauseButton);
+  const darkPauseHover = await hoverStyleAfterTransition(darkPauseButton, darkPauseRest, [
+    'backgroundColor',
+  ]);
   const darkPageBackground = await darkPauseButton.evaluate(
     () => getComputedStyle(document.body).backgroundColor,
   );
@@ -2000,6 +2220,135 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
       `on the page "${darkPageBackground}", ${darkPauseFillContrast.toFixed(2)}:1.`,
   );
   expect(darkPauseFillContrast).toBeGreaterThanOrEqual(1.5);
+});
+
+/**
+ * Issue #446: the review of pull request #445 found that the
+ * pre-existing `tr:hover` rules of the apps view, the users view, the
+ * sessions view, and the first-pages view carried no
+ * `@media (hover: hover)` guard, unlike the control hover rules that
+ * issue #369 added in that same pull request. This scenario checks the
+ * apps view (the other three views share the identical rule, the same
+ * fix, from the same stylesheet pattern). A mouse keeps the hover fill
+ * at 1280px; a tap leaves none after 500ms at 390px.
+ */
+test('a tap on an apps-table row leaves no sticky hover fill in a touch context, and a mouse still keeps it (issue #446)', async ({
+  page,
+  browser,
+}) => {
+  const monitorUrl = process.env.E2E_MONITOR_URL;
+  if (!monitorUrl) {
+    throw new Error('E2E_MONITOR_URL is absent. The global setup did not run, or it failed.');
+  }
+
+  // The first row (`:nth-child(1)`, odd), never a row picked by name: by
+  // this point in the file, earlier scenarios registered several more
+  // apps, and an even row would also match the zebra rule of
+  // styles.css, `tr:nth-child(even) > *`, at a higher specificity than
+  // the hover rule. That zebra-versus-hover case belongs to a
+  // different issue; this scenario isolates the `(hover: hover)` guard
+  // on a row the zebra rule never touches.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const apps = new AppsPage(page);
+  await apps.goto();
+  const mouseCell = page.locator('tbody tr').first().locator('td').first();
+  const mouseRest = await mouseCell.evaluate((element) => getComputedStyle(element).backgroundColor);
+  // The cell sets no background of its own at rest (the odd row keeps
+  // the panel's own paper fill), so the real paper colour comes from
+  // the nearest ancestor that paints one (`paintedColors`, issue #373).
+  const { bg: paperBackground } = await paintedColors(mouseCell);
+  await mouseCell.hover();
+  const mouseHover = await mouseCell.evaluate((element) => getComputedStyle(element).backgroundColor);
+  console.log(
+    `issue #446: at 1280px, the row fill is ${mouseRest} at rest and ${mouseHover} under a mouse hover.`,
+  );
+  expect(mouseHover).not.toBe(mouseRest);
+
+  // Issue #472: the hovered row fill must differ from the paper by
+  // 1.5:1 or more, and the row text must keep 4.5:1 or more on the new
+  // fill. `opacity` reads `1` first (lesson 24 of the frontend brief),
+  // so the ratio reads the true painted colour.
+  await expect(mouseCell).toHaveCSS('opacity', '1');
+  const lightRowText = await mouseCell.evaluate((element) => getComputedStyle(element).color);
+  const lightRowFillContrast = contrastRatio(mouseHover, paperBackground);
+  console.log(
+    `issue #472 (light): the hovered row fill is "${mouseHover}" on the paper ` +
+      `"${paperBackground}", ${lightRowFillContrast.toFixed(2)}:1.`,
+  );
+  expect(lightRowFillContrast).toBeGreaterThanOrEqual(1.5);
+  expect(contrastRatio(lightRowText, mouseHover)).toBeGreaterThanOrEqual(4.5);
+
+  const touchContext = await browser.newContext({
+    baseURL: monitorUrl,
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+    userAgent: DESKTOP_CHROME_USER_AGENT,
+    storageState: STORAGE_STATE_FILE,
+  });
+  const touchPage = await touchContext.newPage();
+  // A second context's page starts as a background document in
+  // Chromium (`document.hidden` is true): `poll-store.ts` gates every
+  // request, the first one too, on `!document.hidden` (the lesson of
+  // issue #164), so the apps table would never load a row at all.
+  // `bringToFront()` makes this page the visible one.
+  await touchPage.bringToFront();
+  const touchApps = new AppsPage(touchPage);
+  await touchApps.goto();
+  // Every cell of a data row opens the name link on a click (D28), and
+  // a real tap fires that click, the same way a mouse click does: the
+  // row then navigates away before the 500ms wait, and the next
+  // locator call waits forever for a row that is gone. A capture-phase
+  // listener on the document blocks the click's own default action (and
+  // its bubble to the row's own handler) before either one runs, so the
+  // row stays in place; a tap still sets the real `:hover` state
+  // through Chromium's own touch-to-pointer stack, the state this
+  // scenario measures, because that state comes from the pointer input
+  // itself, not from the click event.
+  await touchPage.evaluate(() => {
+    document.addEventListener(
+      'click',
+      (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      },
+      { capture: true },
+    );
+  });
+  const touchCell = touchApps.rowOf('demo').row.locator('td').first();
+  const touchRest = await touchCell.evaluate((element) => getComputedStyle(element).backgroundColor);
+  await touchCell.tap();
+  await touchPage.waitForTimeout(500);
+  const touchAfterTap = await touchCell.evaluate((element) => getComputedStyle(element).backgroundColor);
+  console.log(
+    `issue #446: at 390px in a touch context, the row fill is ${touchRest} at rest and ${touchAfterTap} 500ms after a tap.`,
+  );
+  expect(touchAfterTap).toBe(touchRest);
+  await touchContext.close();
+
+  // Issue #472, the dark scheme: the same row, the same viewport,
+  // under `prefers-color-scheme: dark`.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await apps.goto();
+  const darkMouseCell = page.locator('tbody tr').first().locator('td').first();
+  await expect(darkMouseCell).toHaveCSS('opacity', '1');
+  const darkMouseRest = await darkMouseCell.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  const { bg: darkPaperBackground } = await paintedColors(darkMouseCell);
+  await darkMouseCell.hover();
+  const darkMouseHover = await darkMouseCell.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  const darkRowText = await darkMouseCell.evaluate((element) => getComputedStyle(element).color);
+  const darkRowFillContrast = contrastRatio(darkMouseHover, darkPaperBackground);
+  console.log(
+    `issue #472 (dark): the hovered row fill is "${darkMouseHover}" on the paper ` +
+      `"${darkPaperBackground}", ${darkRowFillContrast.toFixed(2)}:1.`,
+  );
+  expect(darkMouseHover).not.toBe(darkMouseRest);
+  expect(darkRowFillContrast).toBeGreaterThanOrEqual(1.5);
+  expect(contrastRatio(darkRowText, darkMouseHover)).toBeGreaterThanOrEqual(4.5);
 });
 
 /**

@@ -528,6 +528,10 @@ on port 27117, belongs to a different project.
 variable `OCTOMETER_MONGO_IMAGE`. Each e2e run and each manual demo run
 uses this variable today.
 
+A failed CI run uploads the artifact `e2e-report`. It holds
+`error-context.md` and `trace.zip` for each failed scenario. Download
+it with `gh run download <run id> -n e2e-report -D <folder>`.
+
 ### The two image sources
 
 Issue #456 moves the CI pull of the MongoDB image off the Amazon ECR
