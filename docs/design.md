@@ -20,7 +20,8 @@ the base rules.
 | `--paper-raised` | `#FFFFFF` | The dialog fill, one step above the paper. |
 | `--paper-bright` | `#FFFFFF` | The `.band` fill; it keeps white in each scheme (pull request #435). |
 | `--shallows` | `#E6F3FF` | The page background, the zebra row tint. |
-| `--shallows-bright` | `#E6F3FF` | The hovered nav pill fill in `.band`; it keeps the light value in each scheme (pull request #445, issue #369). |
+| `--shallows-bright` | `#E6F3FF` | A past hover fill of the nav pill; no rule reads it today (issue #474 moves the nav pill hover fill to `--shallows-bright-deep`). |
+| `--shallows-bright-deep` | `#99C6FF` | The hovered nav pill fill in `.band`; it keeps one value in each scheme, so the fill stays bright against the dark text and against the rest fill (issue #474). |
 | `--shallows-deep` | `#BFDFFF` | The table head, the neutral status fill. |
 | `--shallows-hover` | `#99C6FF` light, `#3D3570` dark | The hovered Pause refresh pill fill, outside `.band` (issue #454, issue #468). |
 | `--coral` | `#FF6B6B` | The danger fill. |
@@ -195,7 +196,7 @@ dark ratio of each pair.
 
 | Fill | Neighbour | Light ratio | Dark ratio | Floor |
 | --- | --- | --- | --- | --- |
-| The hovered nav pill fill (`--shallows-bright`) | The octo band (`--octo`) | 2.4:1 | 2.9:1 | 1.5:1 |
+| The hovered nav pill fill (`--shallows-bright-deep`) | The octo band (`--octo`) | 1.5:1 | 1.9:1 | 1.5:1 |
 | The hovered pause pill fill (`--shallows-hover`) | The page (`--shallows`) | 1.0:1 | 1.7:1 | 1.5:1 |
 | The hovered row fill (`--shallows-deep`) | The paper (`--paper`) | 1.4:1 | 1.2:1 | 1.5:1 |
 | The form-error border (`--coral-edge`) | The page (`--shallows`) | 4.0:1 | 6.6:1 | 3:1 |
@@ -214,6 +215,40 @@ page (`#E6F3FF` on `#E6F3FF`), so it reads 1.00:1, under the floor; a separate, 
 filed issue raises `--shallows-hover` in the light scheme (`#99C6FF` reads 1.6:1 on the
 page). The hovered row fill reads under the floor in each scheme too, a gap that issue
 #469 only shows; a later issue picks the fix.
+
+### The rest-to-hover pairs (issue #474)
+
+A hover cue is a change of state: the user sees the rest fill, then the hover fill. The
+measure above (the fill against the fill behind the control) misses that change when the
+hover fill still reads well against the band or the page. Issue #474 (the decision of
+review comment 6099975804 on pull request #471) adds a second measure: the hover fill
+against its own rest fill, at the same 1.5:1 floor.
+
+| Control | Rest fill | Hover fill | Light ratio | Dark ratio | Floor |
+| --- | --- | --- | --- | --- | --- |
+| The nav pill (before the fix) | `--paper-bright` | `--shallows-bright` | 1.1:1 | 1.1:1 | 1.5:1 |
+| The nav pill (after the fix) | `--paper-bright` | `--shallows-bright-deep` | 1.8:1 | 1.8:1 | 1.5:1 |
+| The pause pill | `--paper` | `--shallows-hover` | 1.8:1 | 1.6:1 | 1.5:1 |
+| The paper row | `--paper` | `--shallows-hover` | 1.8:1 | 1.6:1 | 1.5:1 |
+| The zebra row | `--shallows` | `--shallows-hover` | 1.6:1 | 1.7:1 | 1.5:1 |
+| The pressed pill under hover (issue #473, already in `contrast.mjs`) | `--sunny` | `--sunny-deep` | 2.0:1 | 2.0:1 | 1.5:1 |
+
+The `.btn` controls (`styles.css`) change only `transform` and `box-shadow` under hover;
+the fill stays `var(--paper)`. No rest-to-hover pair applies to `.btn`.
+
+`node docs/design/contrast.mjs` read `pairs=215 fails=2 accepted=2` with the old nav
+pill pair in place: the nav pill failed at 1.13:1 in each scheme, the one new fail. Each
+other new pair passed on the first run. The fix below raises the nav pill hover fill, so
+the same run now reads `pairs=215 fails=0 accepted=2`.
+
+`--shallows-bright-deep` fixes the nav pill. `--shallows-hover` cannot serve the nav
+pill: its dark value (`#3D3570`) is dark, and the nav pill sits inside `.band`, where the
+text stays dark (`--on-bright`) in each scheme; a dark hover fill would fail the text
+contrast in the dark scheme. `--shallows-deep` (`#BFDFFF`) reads only 1.4:1 against the
+rest fill, under the floor. `--shallows-bright-deep` (`#99C6FF`) keeps one value in each
+scheme, the same way `--shallows-bright` and `--paper-bright` do: it reads 1.54:1 against
+the light band, 1.87:1 against the dark band, 1.77:1 against the rest fill in each
+scheme, and the nav pill text (`--ink`) reads 8.87:1 on it.
 
 ## The dark color scheme
 
