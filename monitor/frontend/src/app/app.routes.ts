@@ -89,10 +89,10 @@ export const routes: Routes = [
   },
   {
     path: 'manage',
-    title: 'Manage - Octometer',
+    title: 'Manage apps - Octometer',
     loadComponent: () => import('./manage/manage').then((m) => m.Manage),
     data: {
-      breadcrumb: (): BreadcrumbItem[] => [{ label: 'Manage', path: null }],
+      breadcrumb: (): BreadcrumbItem[] => [{ label: 'Manage apps', path: null }],
     },
   },
   {
@@ -135,7 +135,7 @@ export const routes: Routes = [
     runGuardsAndResolvers: 'paramsOrQueryParamsChange',
     canActivate: [requireSessionsFilter],
     title: (route: ActivatedRouteSnapshot) =>
-      `Anonymous sessions of App ${route.paramMap.get('appId')} - Octometer`,
+      `Sessions of App ${route.paramMap.get('appId')} - Octometer`,
     loadComponent: () => import('./sessions/sessions').then((m) => m.Sessions),
     data: {
       breadcrumb: (snapshot: ActivatedRouteSnapshot): BreadcrumbItem[] => [

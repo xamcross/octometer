@@ -1533,6 +1533,11 @@ test('the dashboard uses one term for each of the four concepts of issue #391', 
   const manage = new ManagePage(page);
   await manage.goto();
   await expect(page.locator('h1')).toHaveText('Manage apps');
+  // MAJOR 1 of the review of pull request #481: the page title must name
+  // the same term as the heading. The breadcrumb nav of this view carries
+  // one item, and issue #346 hides a one-item trail, so no crumb check
+  // runs here; `app.routes.spec.ts` covers that label at the unit level.
+  await expect(page).toHaveTitle('Manage apps - Octometer');
 
   const row = manage.row(appName);
   await expect(row).toBeVisible();
@@ -1545,6 +1550,12 @@ test('the dashboard uses one term for each of the four concepts of issue #391', 
   const sessions = new SessionsPage(page);
   await sessions.goto(created.appId);
   await expect(page.locator('h1')).toHaveText('Sessions');
+  // MAJOR 2 of the review of pull request #481: the page title must name
+  // the same term as the heading, and the breadcrumb's own crumb (visible
+  // here: three items) must agree too.
+  await expect(page).toHaveTitle(`Sessions of App ${created.appId} - Octometer`);
+  await new BreadcrumbPart(page).currentItem().waitFor();
+  await expect(new BreadcrumbPart(page).currentItem()).toHaveText('Sessions');
 
   const elements = new ElementsPage(page);
   await elements.gotoByUser(created.appId, userId);

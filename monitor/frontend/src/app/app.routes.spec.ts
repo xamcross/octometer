@@ -29,10 +29,10 @@ describe('routes', () => {
 
   it('opens the Manage placeholder for /manage', async () => {
     await harness.navigateByUrl('/manage');
-    expect(heading()).toContain('Manage');
-    expect(TestBed.inject(Title).getTitle()).toBe('Manage - Octometer');
+    expect(heading()).toContain('Manage apps');
+    expect(TestBed.inject(Title).getTitle()).toBe('Manage apps - Octometer');
     expect(buildBreadcrumb(router.routerState.snapshot.root)).toEqual([
-      { label: 'Manage', path: null },
+      { label: 'Manage apps', path: null },
     ]);
   });
 
@@ -80,7 +80,7 @@ describe('routes', () => {
   it('opens the Sessions placeholder for /apps/:appId/sessions with anonymous=true', async () => {
     await harness.navigateByUrl('/apps/7/sessions?anonymous=true');
     expect(heading()).toContain('Sessions');
-    expect(TestBed.inject(Title).getTitle()).toBe('Anonymous sessions of App 7 - Octometer');
+    expect(TestBed.inject(Title).getTitle()).toBe('Sessions of App 7 - Octometer');
     const breadcrumb = buildBreadcrumb(router.routerState.snapshot.root);
     expect(breadcrumb).toEqual([
       { label: 'Apps', path: '/apps' },
