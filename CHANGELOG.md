@@ -298,6 +298,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   `--shallows-bright`, `--shallows-hover`, `--link-underline`, and `--focus-ring`. (#475)
 - Name the artifact `e2e-report` as the place of the Playwright failure evidence
   (`error-context.md`, `trace.zip`) in `docs/run-guide.md`, with the download command. (#477)
+- Raise the focused skip link's underline colour to `--on-bright`, so it reads 4.5:1 or
+  more against the `--sunny` fill in each colour scheme. (#487)
 
 ## 0.3.0 - 2026-09-28
 

@@ -19,6 +19,14 @@
  * zoom, so no part of the link stays on screen while it is hidden. The
  * link becomes visible again on focus, 8px clear of each edge, so the
  * focus ring never clips at the page corner (minor_issues/254.md, #247).
+ *
+ * Issue #487: the `a` rule of `styles.css` paints the underline in
+ * `--link-underline`, `#c23030` in the light scheme. That colour on the
+ * `--sunny` fill read 4.06:1 in the light scheme and 2.01:1 in the dark
+ * scheme (the dark scheme keeps the plain `--coral` value for
+ * `--link-underline`, `#ff6b6b`), each under the 4.5:1 floor of WCAG
+ * 1.4.3. `--on-bright` raises the underline to 11.4:1 in each scheme,
+ * the same ratio as the link text itself, with no new token.
  */
 .skip-link {
   position: absolute;
@@ -32,6 +40,7 @@
   padding: 8px 16px;
   background: var(--sunny);
   color: var(--on-bright);
+  text-decoration-color: var(--on-bright);
   border: var(--line-control);
   border-radius: var(--radius-pill);
   transform: translateY(-100%);
