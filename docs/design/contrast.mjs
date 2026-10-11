@@ -295,6 +295,29 @@ const DARK_NONTEXT = [
 ];
 
 /*
+ * The fill pairs (issue #469, finding N2 of the review of pull request
+ * #467): a fill checked against the fill behind it, not a text colour
+ * and not an edge colour. Pull request #471 adds this kind of pair for
+ * the hovered nav pill, the hovered pause pill, and the form-error
+ * border too; it is not merged yet, so issue #472 adds only the row
+ * below, in the same form, and leaves the other three pairs to pull
+ * request #471.
+ *
+ * The floor is 1.5 for a hover cue. The row below names the hovered
+ * row fill of issue #472, `--shallows-hover`, against the paper
+ * (`--paper`), the rest fill of an odd row.
+ */
+
+// [the page, the fill or the cue, the colour, the neighbour, the floor, the reason]
+const FILL = [
+  ['each table', 'the hovered row fill on the paper', '#99c6ff', '#ffffff', 1.5],
+];
+
+const DARK_FILL = [
+  ['each table', 'the hovered row fill on the paper', '#3d3570', '#1d1a33', 1.5],
+];
+
+/*
  * The site section (issue #429, MAJOR 3 of the correction round of pull
  * request #441): one row for each text-on-fill pair and each edge of
  * `site/src/styles/site.css`, so the site itself has cover, not only the
@@ -401,6 +424,38 @@ function edgeResult(page, kind, r, reason) {
   return 'fail';
 }
 
+/*
+ * The result word of one fill pair (issue #469): `pass`, `fail`, or
+ * `accepted`. The floor varies per row (today, only 1.5), unlike the
+ * fixed 3:1 floor of `edgeResult`; a row with a `reason` stays under
+ * its floor on purpose, the same rule as `edgeResult`.
+ */
+function fillResult(page, kind, r, floor, reason) {
+  pairs += 1;
+  const ok = r >= floor;
+  if (ok) return 'pass';
+  if (reason) {
+    accepted += 1;
+    acceptedRows.push(`${page} — ${kind}, ${f1(r)}:1. ${reason}`);
+    return 'accepted';
+  }
+  fails += 1;
+  return 'fail';
+}
+
+/** Prints one fill-pair table (issue #469), in one scheme. */
+function printFillTable(rows) {
+  console.log('| Page | Fill or cue | Colour | Neighbour | Ratio | Floor | Result |');
+  console.log('| --- | --- | --- | --- | --- | --- | --- |');
+  for (const [page, kind, a, b, floor, reason] of rows) {
+    const r = ratio(a, b);
+    const result = fillResult(page, kind, r, floor, reason);
+    console.log(
+      `| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | ${floor}:1 | ${result} |`,
+    );
+  }
+}
+
 console.log('The disabled confirm button (#410): ' + DISABLED_INK + ' on ' + DISABLED_FILL);
 console.log('');
 console.log('## The dashboard, the light scheme');
@@ -425,6 +480,8 @@ for (const [page, kind, a, b, reason] of NONTEXT) {
   const result = edgeResult(page, kind, r, reason);
   console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${result} |`);
 }
+console.log('');
+printFillTable(FILL);
 console.log('');
 console.log('## The dashboard, the dark scheme (issue #361, prefers-color-scheme: dark)');
 console.log(
@@ -451,6 +508,8 @@ for (const [page, kind, a, b, reason] of DARK_NONTEXT) {
   const result = edgeResult(page, kind, r, reason);
   console.log(`| ${page} | ${kind} | \`${a}\` | \`${b}\` | ${f1(r)}:1 | 3:1 | ${result} |`);
 }
+console.log('');
+printFillTable(DARK_FILL);
 
 /** Prints one site TEXT table, in one scheme, with one page-label suffix. */
 function printSiteText(scheme, suffix) {

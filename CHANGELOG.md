@@ -227,6 +227,10 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
 - Use one term for each dashboard concept: "clicks" in the delete dialog, "Manage
   apps" on the manage heading, "Sessions" on the sessions heading, and a lower-case
   "user" in the Elements heading. (#391)
+- Give the Manage route title and crumb, and the Sessions route title, the same
+  term as their own heading. (#391)
+- Raise the hovered table row fill from `--shallows-deep` to `--shallows-hover`; the
+  cue now reads 1.5:1 or more against the paper in each color scheme. (#472)
 
 ### CI
 
