@@ -227,7 +227,7 @@ against its own rest fill, at the same 1.5:1 floor.
 | Control | Rest fill | Hover fill | Light ratio | Dark ratio | Floor |
 | --- | --- | --- | --- | --- | --- |
 | The nav pill (before the fix) | `--paper-bright` | `--shallows-bright` | 1.1:1 | 1.1:1 | 1.5:1 |
-| The nav pill (after the fix) | `--paper-bright` | `--shallows-bright-deep` | 1.5:1 | 1.5:1 | 1.5:1 |
+| The nav pill (after the fix) | `--paper-bright` | `--shallows-bright-deep` | 1.8:1 | 1.8:1 | 1.5:1 |
 | The pause pill | `--paper` | `--shallows-hover` | 1.8:1 | 1.6:1 | 1.5:1 |
 | The paper row | `--paper` | `--shallows-hover` | 1.8:1 | 1.6:1 | 1.5:1 |
 | The zebra row | `--shallows` | `--shallows-hover` | 1.6:1 | 1.7:1 | 1.5:1 |
