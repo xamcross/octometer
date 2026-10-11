@@ -282,6 +282,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   keyboard-pan assertion of the lightbox scenario gives a stable result. (#461)
 - Read each hover style of the `.btn` transition scenario with `expect.poll`, so the read
   waits for the 80 ms transition to end. (#464)
+- Scroll the "Edit app" button into view before the edit-dialog scenario reads its
+  "before" boxes, so the click needs no scroll of its own on the Linux CI runner. (#479)
 
 ### Documentation
 

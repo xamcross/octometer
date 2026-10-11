@@ -1054,25 +1054,59 @@ test('Edit app opens a dialog, with no row growth and no shift of the row below 
   await expect(manage.statusBadge(secondRow)).not.toHaveText(/Not polled yet/);
 
   // Issue #364, the correction of pull request #465. A dialog open can
-  // scroll the whole page by a few pixels on the CI runner. The cause
-  // is unknown: a 12 px document scroll at the dialog open on the
-  // Linux runner. Each row check below reads a row's own place
-  // against the table, not its raw `y`. A check then stays true of a
-  // static row through a window scroll the test does not control.
+  // scroll the whole page by a few pixels on the CI runner. Each row
+  // check below reads a row's own place against the table, not its
+  // raw `y`. A check then stays true of a static row through a window
+  // scroll the test does not control.
   const table = page.locator('main table').first();
+
+  // Issue #479: the "Edit app" button sits in a row inside
+  // `.table-scroll` (`overflow-x: auto` since #371). On the Linux CI
+  // runner the table is wider than the wrapper, so the wrapper is a
+  // real scroll container, and a Playwright click scrolls its target
+  // into view when Chromium judges it not fully visible; Chromium's
+  // scroll-into-view of an element inside a nested scroller can move
+  // the window too. This moves the button into view here, before the
+  // "before" reads, so the later click needs no scroll of its own.
+  const editButton = firstRow.getByRole('button', { name: 'Edit app' });
+  await editButton.scrollIntoViewIfNeeded();
+
   const tableBoxBefore = await table.boundingBox();
   const firstRowBoxBefore = await firstRow.boundingBox();
   const secondRowBoxBefore = await secondRow.boundingBox();
   if (!tableBoxBefore || !firstRowBoxBefore || !secondRowBoxBefore) {
     throw new Error('A row of the manage table has no box.');
   }
+  const scrollYBefore = await page.evaluate(() => window.scrollY);
+
+  // Confirms the cause on the CI runner: the `.table-scroll` wrapper
+  // state right before the click. The values sit in the message of
+  // the assertion below, together with the two `scrollY` reads.
+  const tableScrollDimsBefore = await page.evaluate(() => {
+    const wrapper = document.querySelector('.table-scroll');
+    return { scrollWidth: wrapper?.scrollWidth ?? null, clientWidth: wrapper?.clientWidth ?? null };
+  });
 
   // Opens the dialog of the first row, and proves it is a real modal
   // dialog (`showModal()`, not a plain `open` attribute toggle): the CSS
   // pseudo-class `:modal` matches only the top layer, modal case.
   await manage.openEditForm(firstRow);
+  const scrollYAfterClick = await page.evaluate(() => window.scrollY);
   await expect(page.locator('dialog:modal')).toHaveCount(1);
   await expect(manage.editDialog(firstRow)).toHaveCount(1);
+
+  expect(
+    scrollYAfterClick,
+    'issue #479: scrollY before the click is ' +
+      scrollYBefore +
+      ', scrollY after the click is ' +
+      scrollYAfterClick +
+      ', .table-scroll scrollWidth is ' +
+      tableScrollDimsBefore.scrollWidth +
+      ', .table-scroll clientWidth is ' +
+      tableScrollDimsBefore.clientWidth +
+      '.',
+  ).toBe(scrollYBefore);
 
   const tableBoxDuring = await table.boundingBox();
   const firstRowBoxDuring = await firstRow.boundingBox();
@@ -1080,6 +1114,7 @@ test('Edit app opens a dialog, with no row growth and no shift of the row below 
   if (!tableBoxDuring || !firstRowBoxDuring || !secondRowBoxDuring) {
     throw new Error('A row of the manage table has no box, with the dialog open.');
   }
+  const scrollYDuring = await page.evaluate(() => window.scrollY);
   console.log(
     `issue #364: the row height is ${firstRowBoxBefore.height}px before the dialog opens ` +
       `and ${firstRowBoxDuring.height}px while it is open; the row below sits at ` +
@@ -1088,6 +1123,11 @@ test('Edit app opens a dialog, with no row growth and no shift of the row below 
   );
   expect(firstRowBoxDuring.height).toBe(firstRowBoxBefore.height);
   expect(secondRowBoxDuring.y - tableBoxDuring.y).toBe(secondRowBoxBefore.y - tableBoxBefore.y);
+
+  // Issue #479: an absolute check in addition to the relative reads
+  // above. `window.scrollY` itself stays the same before and during
+  // the dialog, now that the click needs no scroll of its own.
+  expect(scrollYDuring).toBe(scrollYBefore);
 
   // The rename keeps the exact same length as firstName: a longer name
   // can wrap onto a second line in the narrow App column, which would
@@ -1103,6 +1143,10 @@ test('Edit app opens a dialog, with no row growth and no shift of the row below 
     throw new Error('The row below has no box after the save.');
   }
   expect(secondRowBoxAfter.y - tableBoxAfter.y).toBe(secondRowBoxBefore.y - tableBoxBefore.y);
+
+  // Issue #479: the absolute check again, after the dialog closes.
+  const scrollYAfter = await page.evaluate(() => window.scrollY);
+  expect(scrollYAfter).toBe(scrollYBefore);
 });
 
 /** A fixed, well-formed UUID for one test request's `sessionId` field (the form of `collector.spec.ts`). */
