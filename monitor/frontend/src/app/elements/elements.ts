@@ -108,7 +108,7 @@ export class Elements {
       return 'this session';
     }
     if (this.anonymous() === 'true') {
-      return 'an anonymous visit';
+      return 'an anonymous visitor';
     }
     return 'this user';
   });

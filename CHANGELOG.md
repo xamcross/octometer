@@ -234,6 +234,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   term as their own heading. (#391)
 - Raise the hovered table row fill from `--shallows-deep` to `--shallows-hover`; the
   cue now reads 1.5:1 or more against the paper in each color scheme. (#472)
+- Use "anonymous visitor", "session", and "click" for the anonymous case and a click,
+  in the sessions view, the Elements caption, and the empty states. (#482)
 
 ### CI
 

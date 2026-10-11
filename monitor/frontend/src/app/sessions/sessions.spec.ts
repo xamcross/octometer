@@ -138,7 +138,7 @@ describe('Sessions', () => {
 
   it('shows a loading text before the first answer arrives, and no table', () => {
     expect(root().querySelector('table')).toBeNull();
-    expect(root().textContent).toContain('Loading anonymous sessions…');
+    expect(root().textContent).toContain('Loading sessions…');
   });
 
   it('sends the request with anonymous=true and the page query parameter of the route', () => {
@@ -170,7 +170,7 @@ describe('Sessions', () => {
     expect(root().textContent).toContain('First page: /pricing');
   });
 
-  it('sends firstPath=(unknown), and shows "No anonymous session yet." for the empty answer', () => {
+  it('sends firstPath=(unknown), and shows "No sessions yet." for the empty answer', () => {
     fixture.componentRef.setInput('firstPath', '(unknown)');
     fixture.detectChanges();
     startStore();
@@ -180,7 +180,7 @@ describe('Sessions', () => {
     fixture.detectChanges();
 
     expect(root().querySelector('table')).toBeNull();
-    expect(root().textContent).toContain('No anonymous session yet.');
+    expect(root().textContent).toContain('No sessions yet.');
     expect(root().textContent).toContain('First page: (unknown)');
   });
 
@@ -440,12 +440,12 @@ describe('Sessions', () => {
       expect(getComputedStyle(cell).cursor).toBe('pointer');
     });
 
-    it('shows "No anonymous session yet." when the row list is empty', () => {
+    it('shows "No sessions yet." when the row list is empty', () => {
       startStore();
       flushSessions(buildPage({ rows: [] }));
 
       expect(root().querySelector('table')).toBeNull();
-      expect(root().textContent).toContain('No anonymous session yet.');
+      expect(root().textContent).toContain('No sessions yet.');
     });
 
     it('tracks each row with the stable key sessionId: a second answer that drops a row and changes the order keeps the tr node of each surviving row', () => {
@@ -509,7 +509,7 @@ describe('Sessions', () => {
       flushSessions(buildPage({ pageCount: 5 }));
 
       const nav = root().querySelector('nav.pager') as HTMLElement;
-      expect(nav.getAttribute('aria-label')).toBe('Pages of the anonymous session list');
+      expect(nav.getAttribute('aria-label')).toBe('Pages of the session list');
     });
 
     it('disables Previous with aria-disabled on page 1, and does not navigate on a click', () => {
@@ -606,7 +606,7 @@ describe('Sessions', () => {
       fixture.detectChanges();
       vi.advanceTimersByTime(200);
 
-      expect(announcer.message()).toBe('2 anonymous sessions. Page 2 of 5.');
+      expect(announcer.message()).toBe('2 sessions. Page 2 of 5.');
     });
 
     it('announces no page part when the fresh answer has one page, so the spoken text agrees with the hidden pager (MAJOR 3 of the review of #405)', () => {
@@ -622,7 +622,7 @@ describe('Sessions', () => {
       fixture.detectChanges();
       vi.advanceTimersByTime(200);
 
-      expect(announcer.message()).toBe('1 anonymous session.');
+      expect(announcer.message()).toBe('1 session.');
     });
 
     it('gives the pager buttons a minimum width of 24 CSS px, and a minimum height of 44 CSS px or more through the global .btn rule (issue #368, D4)', () => {

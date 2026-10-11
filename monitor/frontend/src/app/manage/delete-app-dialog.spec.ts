@@ -181,7 +181,7 @@ describe('DeleteAppDialog', () => {
     openDialog();
 
     const dialog = root().querySelector('dialog')!;
-    expect(dialog.textContent).toContain('Octometer holds no event of traficio yet.');
+    expect(dialog.textContent).toContain('Octometer holds no click of traficio yet.');
     expect(dialog.textContent).not.toContain('0');
   });
 

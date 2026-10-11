@@ -102,7 +102,7 @@ export class Sessions {
       return null;
     }
     return this.store.error() !== undefined
-      ? 'Octometer cannot read the anonymous session list. Try again.'
+      ? 'Octometer cannot read the session list. Try again.'
       : null;
   });
 
@@ -235,8 +235,8 @@ export class Sessions {
       this.retryPending.set(false);
       this.announcer.announce(
         data !== undefined
-          ? 'The anonymous session list loaded.'
-          : (this.listError() ?? 'The anonymous session list did not load.'),
+          ? 'The session list loaded.'
+          : (this.listError() ?? 'The session list did not load.'),
       );
     });
   }
@@ -327,15 +327,15 @@ export class Sessions {
     this.announcer.announce(`${this.rowCountText(page.rows.length)}${pagePart}`);
   }
 
-  /** The count part of the announce text: "No anonymous session." or "N anonymous sessions." */
+  /** The count part of the announce text: "No sessions." or "N sessions." */
   private rowCountText(count: number): string {
     if (count === 0) {
-      return 'No anonymous session.';
+      return 'No sessions.';
     }
     if (count === 1) {
-      return '1 anonymous session.';
+      return '1 session.';
     }
-    return `${count} anonymous sessions.`;
+    return `${count} sessions.`;
   }
 
   /** The request parameters: anonymous=true and the page always, firstPath only when it holds a value. */
