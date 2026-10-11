@@ -315,6 +315,10 @@ const DARK_NONTEXT = [
  * fill the same token, `--shallows-hover`, in place of `--shallows-deep`.
  * The row below names that token's value in each scheme, against
  * `--paper`.
+ *
+ * Issue #483 adds the name-link underline, `--link-underline`, against
+ * the paper row, the zebra row, and the hovered row fill, with the 3:1
+ * floor of WCAG 1.4.11 for a non-text cue, in each scheme.
  */
 
 // [the page, the fill or the cue, the colour, the neighbour, the floor, the reason]
@@ -337,6 +341,13 @@ const FILL = [
   // Issue #473, the review of pull request #484: `--coral` carries the
   // danger meaning; `--sunny-deep` is the new token.
   ['each data page', 'the pressed pause pill hover fill on the pressed fill', '#c79400', '#ffd93d', 1.5],
+  // Issue #483: the name-link underline against the paper row, the
+  // zebra row, and the hovered row fill. Plain `--coral` (`#ff6b6b`)
+  // read 2.8:1, 2.5:1, and 1.6:1 here, under the 3:1 floor of WCAG
+  // 1.4.11; `--link-underline` now adds `#c23030`.
+  ['each table', 'the name-link underline on the paper row', '#c23030', '#ffffff', 3],
+  ['each table', 'the name-link underline on the zebra row', '#c23030', '#e6f3ff', 3],
+  ['each table', 'the name-link underline on the hovered row fill', '#c23030', '#99c6ff', 3],
 ];
 
 const DARK_FILL = [
@@ -351,6 +362,11 @@ const DARK_FILL = [
   // Issue #473, the review of pull request #484: `--sunny-deep` keeps
   // one value in each scheme.
   ['each data page', 'the pressed pause pill hover fill on the pressed fill', '#c79400', '#ffd93d', 1.5],
+  // Issue #483: the dark scheme keeps plain `--coral` (`#ff6b6b`); it
+  // already clears the 3:1 floor against the three dark fills.
+  ['each table', 'the name-link underline on the paper row', '#ff6b6b', '#1d1a33', 3],
+  ['each table', 'the name-link underline on the zebra row', '#ff6b6b', '#14122a', 3],
+  ['each table', 'the name-link underline on the hovered row fill', '#ff6b6b', '#3d3570', 3],
 ];
 
 /*
