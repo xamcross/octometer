@@ -234,8 +234,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   term as their own heading. (#391)
 - Raise the hovered table row fill from `--shallows-deep` to `--shallows-hover`; the
   cue now reads 1.5:1 or more against the paper in each color scheme. (#472)
-- Give the pressed Pause refresh pill its own hover fill, `--coral`; the cue now reads
-  2.0:1 or more against the pressed fill in each color scheme. (#473)
+- Give the pressed Pause refresh pill its own hover fill, the new token `--sunny-deep`;
+  the cue now reads 2.0:1 or more against the pressed fill in each color scheme, and the
+  forced-colours mode keeps the system pair under hover too. (#473)
 
 ### CI
 

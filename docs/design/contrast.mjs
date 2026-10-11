@@ -334,7 +334,9 @@ const FILL = [
     1.5,
     'The pressed pill text and icon carry the pressed state too (WCAG 1.4.1).',
   ],
-  ['each data page', 'the pressed pause pill hover fill on the pressed fill', '#ff6b6b', '#ffd93d', 1.5],
+  // Issue #473, the review of pull request #484: `--coral` carries the
+  // danger meaning; `--sunny-deep` is the new token.
+  ['each data page', 'the pressed pause pill hover fill on the pressed fill', '#c79400', '#ffd93d', 1.5],
 ];
 
 const DARK_FILL = [
@@ -346,7 +348,9 @@ const DARK_FILL = [
   // the dark page is far darker than the light page, so this pair clears
   // its floor with no `reason`.
   ['each data page', 'the pressed pause pill fill on the page', '#ffd93d', '#14122a', 1.5],
-  ['each data page', 'the pressed pause pill hover fill on the pressed fill', '#ff6b6b', '#ffd93d', 1.5],
+  // Issue #473, the review of pull request #484: `--sunny-deep` keeps
+  // one value in each scheme.
+  ['each data page', 'the pressed pause pill hover fill on the pressed fill', '#c79400', '#ffd93d', 1.5],
 ];
 
 /*
