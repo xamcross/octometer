@@ -121,7 +121,7 @@ describe('routes', () => {
   it('opens the Elements placeholder for an anonymous user', async () => {
     await harness.navigateByUrl('/apps/7/elements?anonymous=true');
     expect(heading()).toBe('Elements of anonymous visitors');
-    expect(TestBed.inject(Title).getTitle()).toBe('Elements of anonymous visitors - Octometer');
+    expect(TestBed.inject(Title).getTitle()).toBe('Anonymous visitors of App 7 - Octometer');
     const breadcrumb = buildBreadcrumb(router.routerState.snapshot.root);
     expect(breadcrumb).toEqual([
       { label: 'Apps', path: '/apps' },

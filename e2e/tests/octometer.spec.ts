@@ -1605,7 +1605,7 @@ test('the dashboard uses one term for each of the four concepts of issue #391, a
   // same case must name the same term, never "Anonymous" alone.
   await elements.gotoByAnonymous(created.appId);
   await expect(page.locator('h1')).toHaveText('Elements of anonymous visitors');
-  await expect(page).toHaveTitle('Elements of anonymous visitors - Octometer');
+  await expect(page).toHaveTitle(`Anonymous visitors of App ${created.appId} - Octometer`);
   await expect(elements.caption()).toHaveText(
     'The elements that an anonymous visitor touched, with the click totals of each element.',
     { timeout: CHAIN_WAIT_MS },
