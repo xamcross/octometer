@@ -2253,12 +2253,30 @@ test('a tap on an apps-table row leaves no sticky hover fill in a touch context,
   await apps.goto();
   const mouseCell = page.locator('tbody tr').first().locator('td').first();
   const mouseRest = await mouseCell.evaluate((element) => getComputedStyle(element).backgroundColor);
+  // The cell sets no background of its own at rest (the odd row keeps
+  // the panel's own paper fill), so the real paper colour comes from
+  // the nearest ancestor that paints one (`paintedColors`, issue #373).
+  const { bg: paperBackground } = await paintedColors(mouseCell);
   await mouseCell.hover();
   const mouseHover = await mouseCell.evaluate((element) => getComputedStyle(element).backgroundColor);
   console.log(
     `issue #446: at 1280px, the row fill is ${mouseRest} at rest and ${mouseHover} under a mouse hover.`,
   );
   expect(mouseHover).not.toBe(mouseRest);
+
+  // Issue #472: the hovered row fill must differ from the paper by
+  // 1.5:1 or more, and the row text must keep 4.5:1 or more on the new
+  // fill. `opacity` reads `1` first (lesson 24 of the frontend brief),
+  // so the ratio reads the true painted colour.
+  await expect(mouseCell).toHaveCSS('opacity', '1');
+  const lightRowText = await mouseCell.evaluate((element) => getComputedStyle(element).color);
+  const lightRowFillContrast = contrastRatio(mouseHover, paperBackground);
+  console.log(
+    `issue #472 (light): the hovered row fill is "${mouseHover}" on the paper ` +
+      `"${paperBackground}", ${lightRowFillContrast.toFixed(2)}:1.`,
+  );
+  expect(lightRowFillContrast).toBeGreaterThanOrEqual(1.5);
+  expect(contrastRatio(lightRowText, mouseHover)).toBeGreaterThanOrEqual(4.5);
 
   const touchContext = await browser.newContext({
     baseURL: monitorUrl,
@@ -2307,6 +2325,30 @@ test('a tap on an apps-table row leaves no sticky hover fill in a touch context,
   );
   expect(touchAfterTap).toBe(touchRest);
   await touchContext.close();
+
+  // Issue #472, the dark scheme: the same row, the same viewport,
+  // under `prefers-color-scheme: dark`.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await apps.goto();
+  const darkMouseCell = page.locator('tbody tr').first().locator('td').first();
+  await expect(darkMouseCell).toHaveCSS('opacity', '1');
+  const darkMouseRest = await darkMouseCell.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  const { bg: darkPaperBackground } = await paintedColors(darkMouseCell);
+  await darkMouseCell.hover();
+  const darkMouseHover = await darkMouseCell.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  );
+  const darkRowText = await darkMouseCell.evaluate((element) => getComputedStyle(element).color);
+  const darkRowFillContrast = contrastRatio(darkMouseHover, darkPaperBackground);
+  console.log(
+    `issue #472 (dark): the hovered row fill is "${darkMouseHover}" on the paper ` +
+      `"${darkPaperBackground}", ${darkRowFillContrast.toFixed(2)}:1.`,
+  );
+  expect(darkMouseHover).not.toBe(darkMouseRest);
+  expect(darkRowFillContrast).toBeGreaterThanOrEqual(1.5);
+  expect(contrastRatio(darkRowText, darkMouseHover)).toBeGreaterThanOrEqual(4.5);
 });
 
 /**

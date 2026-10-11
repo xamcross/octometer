@@ -91,6 +91,12 @@ tbody td {
  * tap holds no real hover state, so a touch device never gets a sticky
  * fill after a tap. `tr:focus-within` stays outside the guard; a
  * keyboard user gets the same fill on each device.
+ *
+ * The hover rule paints `--shallows-hover`, not `--shallows-deep` (issue
+ * #472): `--shallows-deep` read 1.4:1 on the paper row and 1.2:1 on the
+ * zebra row, under the 1.5:1 floor of a hover cue, in each scheme.
+ * `--shallows-hover` reads 1.5:1 or more against each neighbour, in each
+ * scheme, while the row text keeps 4.5:1 or more on the new fill.
  */
 tbody tr:focus-within > * {
   background: var(--shallows-deep);
@@ -98,7 +104,7 @@ tbody tr:focus-within > * {
 
 @media (hover: hover) {
   tbody tr:hover > * {
-    background: var(--shallows-deep);
+    background: var(--shallows-hover);
   }
 }
 
