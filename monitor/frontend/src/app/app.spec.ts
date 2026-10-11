@@ -106,7 +106,7 @@ describe('App', () => {
       await fixture.whenStable();
 
       const heading = (fixture.nativeElement as HTMLElement).querySelector('h1');
-      expect(heading?.textContent).toContain('Manage');
+      expect(heading?.textContent).toContain('Manage apps');
       expect(document.activeElement).toBe(heading);
     });
 

@@ -1502,6 +1502,67 @@ test('the delete-confirm button shows a Deleting label while the request is pend
 });
 
 /*
+ * Issue #391 (D17 of the UI audit of 2026-10-09): the dashboard used two
+ * terms for one concept in four places. This scenario confirms the one
+ * term that each place now uses: "clicks" in the delete dialog, "Manage
+ * apps" on the Manage heading, "Sessions" on the Sessions heading, and a
+ * lower-case "user" in the Elements heading.
+ */
+test('the dashboard uses one term for each of the four concepts of issue #391', async ({
+  page,
+  request,
+}) => {
+  const monitorUrl = readMonitorUrl();
+  const origin = 'https://one-term-e2e.example';
+  const appName = `one-term-app-${Date.now()}`;
+  const createResponse = await request.post('/api/apps', {
+    headers: { Origin: monitorUrl },
+    data: { name: appName, origins: [origin] },
+  });
+  expect(createResponse.status()).toBe(201);
+  const created = (await createResponse.json()) as { appId: number; appKey: string };
+
+  const marker = 391;
+  const userId = `pager-user-${marker}`;
+  await sendUserAndPage(request, monitorUrl, origin, created.appKey, marker);
+  // D17 names the "removes N clicks" branch of the delete dialog, which
+  // shows once the app leaves NEVER_POLLED; the other branch names "no
+  // event" and plays no part in this scenario.
+  await waitForFirstPoll(request, appName, CHAIN_WAIT_MS);
+
+  const manage = new ManagePage(page);
+  await manage.goto();
+  await expect(page.locator('h1')).toHaveText('Manage apps');
+  // MAJOR 1 of the review of pull request #481: the page title must name
+  // the same term as the heading. The breadcrumb nav of this view carries
+  // one item, and issue #346 hides a one-item trail, so no crumb check
+  // runs here; `app.routes.spec.ts` covers that label at the unit level.
+  await expect(page).toHaveTitle('Manage apps - Octometer');
+
+  const row = manage.row(appName);
+  await expect(row).toBeVisible();
+  await manage.openDeleteDialog(row);
+  const dialogMessage = manage.deleteDialogMessage(row);
+  await expect(dialogMessage).toContainText('clicks of', { timeout: CHAIN_WAIT_MS });
+  await expect(dialogMessage).not.toContainText('events');
+  await manage.cancelDeleteDialog(row);
+
+  const sessions = new SessionsPage(page);
+  await sessions.goto(created.appId);
+  await expect(page.locator('h1')).toHaveText('Sessions');
+  // MAJOR 2 of the review of pull request #481: the page title must name
+  // the same term as the heading, and the breadcrumb's own crumb (visible
+  // here: three items) must agree too.
+  await expect(page).toHaveTitle(`Sessions of App ${created.appId} - Octometer`);
+  await new BreadcrumbPart(page).currentItem().waitFor();
+  await expect(new BreadcrumbPart(page).currentItem()).toHaveText('Sessions');
+
+  const elements = new ElementsPage(page);
+  await elements.gotoByUser(created.appId, userId);
+  await expect(page.locator('h1')).toHaveText(`Elements of user ${userId}`);
+});
+
+/*
  * The audit wave of 2026-10-09, group D: #385 hoists the `.field`, the
  * `.form-hint`, and the base `dialog` rule of the manage forms and the
  * sign-in form into `styles.css`; #383 darkens the `.form-error` left

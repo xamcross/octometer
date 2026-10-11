@@ -94,7 +94,7 @@ export class Elements {
       return 'Elements of Anonymous';
     }
     const userId = this.userId();
-    return userId ? `Elements of User ${userId}` : 'Elements';
+    return userId ? `Elements of user ${userId}` : 'Elements';
   });
 
   /**

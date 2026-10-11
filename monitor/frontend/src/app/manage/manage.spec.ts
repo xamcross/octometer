@@ -103,7 +103,7 @@ describe('Manage', () => {
 
   it('shows a focusable heading', () => {
     const heading = root().querySelector('h1');
-    expect(heading?.textContent).toContain('Manage');
+    expect(heading?.textContent).toContain('Manage apps');
     expect(heading?.getAttribute('tabindex')).toBe('-1');
     flushList([]);
   });
