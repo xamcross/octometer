@@ -236,6 +236,8 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   cue now reads 1.5:1 or more against the paper in each color scheme. (#472)
 - Use "anonymous visitor", "session", and "click" for the anonymous case and a click,
   in the sessions view, the Elements caption, and the empty states. (#482)
+- Give the name-link underline its own token, `--link-underline`; it now reads 3:1 or
+  more against the paper, the zebra fill, and the hovered row fill, in each scheme. (#483)
 
 ### CI
 

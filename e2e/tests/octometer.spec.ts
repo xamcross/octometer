@@ -2389,6 +2389,32 @@ test('a tap on an apps-table row leaves no sticky hover fill in a touch context,
   expect(lightRowFillContrast).toBeGreaterThanOrEqual(1.5);
   expect(contrastRatio(lightRowText, mouseHover)).toBeGreaterThanOrEqual(4.5);
 
+  // Issue #483: the name-link underline must keep 3:1 or more (WCAG
+  // 1.4.11) against the paper row, the zebra row, and the hovered row
+  // fill. The colour itself does not change on hover; only the
+  // neighbour fill does, so one reading of `textDecorationColor`
+  // serves all three pairs.
+  const mouseNameLink = page.locator('tbody tr').first().getByRole('link').first();
+  await expect(mouseNameLink).toHaveCSS('opacity', '1');
+  const lightUnderline = await mouseNameLink.evaluate(
+    (element) => getComputedStyle(element).textDecorationColor,
+  );
+  const zebraCell = page.locator('tbody tr').nth(1).locator('td').first();
+  await expect(zebraCell).toHaveCSS('opacity', '1');
+  const { bg: zebraBackground } = await paintedColors(zebraCell);
+  const lightUnderlineOnPaper = contrastRatio(lightUnderline, paperBackground);
+  const lightUnderlineOnZebra = contrastRatio(lightUnderline, zebraBackground);
+  const lightUnderlineOnHover = contrastRatio(lightUnderline, mouseHover);
+  console.log(
+    `issue #483 (light): the name-link underline "${lightUnderline}" reads ` +
+      `${lightUnderlineOnPaper.toFixed(2)}:1 on the paper, ` +
+      `${lightUnderlineOnZebra.toFixed(2)}:1 on the zebra fill, and ` +
+      `${lightUnderlineOnHover.toFixed(2)}:1 on the hovered row fill.`,
+  );
+  expect(lightUnderlineOnPaper).toBeGreaterThanOrEqual(3);
+  expect(lightUnderlineOnZebra).toBeGreaterThanOrEqual(3);
+  expect(lightUnderlineOnHover).toBeGreaterThanOrEqual(3);
+
   const touchContext = await browser.newContext({
     baseURL: monitorUrl,
     hasTouch: true,
@@ -2460,6 +2486,29 @@ test('a tap on an apps-table row leaves no sticky hover fill in a touch context,
   expect(darkMouseHover).not.toBe(darkMouseRest);
   expect(darkRowFillContrast).toBeGreaterThanOrEqual(1.5);
   expect(contrastRatio(darkRowText, darkMouseHover)).toBeGreaterThanOrEqual(4.5);
+
+  // Issue #483, the dark scheme: the same three pairs as the light
+  // scheme above.
+  const darkNameLink = page.locator('tbody tr').first().getByRole('link').first();
+  await expect(darkNameLink).toHaveCSS('opacity', '1');
+  const darkUnderline = await darkNameLink.evaluate(
+    (element) => getComputedStyle(element).textDecorationColor,
+  );
+  const darkZebraCell = page.locator('tbody tr').nth(1).locator('td').first();
+  await expect(darkZebraCell).toHaveCSS('opacity', '1');
+  const { bg: darkZebraBackground } = await paintedColors(darkZebraCell);
+  const darkUnderlineOnPaper = contrastRatio(darkUnderline, darkPaperBackground);
+  const darkUnderlineOnZebra = contrastRatio(darkUnderline, darkZebraBackground);
+  const darkUnderlineOnHover = contrastRatio(darkUnderline, darkMouseHover);
+  console.log(
+    `issue #483 (dark): the name-link underline "${darkUnderline}" reads ` +
+      `${darkUnderlineOnPaper.toFixed(2)}:1 on the paper, ` +
+      `${darkUnderlineOnZebra.toFixed(2)}:1 on the zebra fill, and ` +
+      `${darkUnderlineOnHover.toFixed(2)}:1 on the hovered row fill.`,
+  );
+  expect(darkUnderlineOnPaper).toBeGreaterThanOrEqual(3);
+  expect(darkUnderlineOnZebra).toBeGreaterThanOrEqual(3);
+  expect(darkUnderlineOnHover).toBeGreaterThanOrEqual(3);
 });
 
 /**

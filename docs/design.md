@@ -23,10 +23,11 @@ the base rules.
 | `--shallows-bright` | `#E6F3FF` | The hovered nav pill fill in `.band`; it keeps the light value in each scheme (pull request #445, issue #369). |
 | `--shallows-deep` | `#BFDFFF` | The table head, the neutral status fill. |
 | `--shallows-hover` | `#99C6FF` light, `#3D3570` dark | The hovered Pause refresh pill fill, outside `.band` (issue #454, issue #468). |
-| `--coral` | `#FF6B6B` | The danger fill, the link underline. |
+| `--coral` | `#FF6B6B` | The danger fill. |
 | `--coral-deep` | `#D93A3A` | The invalid field ring; keeps 3:1 or more on `--paper` and on `--shallows` (WCAG 1.4.11, issue #264 and issue #438). |
 | `--coral-edge` | `#D93A3A` light, `#FF6B6B` dark | The `.form-error` and `.list-error` left border; keeps 3:1 or more on `--paper`, `--shallows`, and `--paper-raised` (WCAG 1.4.11, issue #383, issue #450, and issue #453). |
-| `--link-underline` | `#D93F3F` light, `var(--coral)` dark | The site's link underline; keeps 3:1 or more on `--paper` and `--shallows` (WCAG 1.4.11, issue #409). |
+| `--link-underline` (site) | `#D93F3F` light, `var(--coral)` dark | The site's link underline; keeps 3:1 or more on `--paper` and `--shallows` (WCAG 1.4.11, issue #409). |
+| `--link-underline` (dashboard) | `#C23030` light, `var(--coral)` dark | The dashboard's link underline; keeps 3:1 or more on `--paper`, `--shallows`, and `--shallows-hover` (WCAG 1.4.11, issue #483). |
 | `--sunny` | `#FFD93D` | The primary fill, the current nav pill, the focus ring, the warning fill. |
 | `--seaweed` | `#6EE7B7` | The OK fill. |
 | `--octo` | `#A78BFA` | The header band, the mascot body. Never a text background. |
@@ -197,6 +198,15 @@ dark ratio of each pair.
 | The hovered pause pill fill (`--shallows-hover`) | The page (`--shallows`) | 1.0:1 | 1.7:1 | 1.5:1 |
 | The hovered row fill (`--shallows-deep`) | The paper (`--paper`) | 1.4:1 | 1.2:1 | 1.5:1 |
 | The form-error border (`--coral-edge`) | The page (`--shallows`) | 4.0:1 | 6.6:1 | 3:1 |
+| The name-link underline (`--link-underline`) | The paper row (`--paper`) | 5.6:1 | 6.1:1 | 3:1 |
+| The name-link underline (`--link-underline`) | The zebra row (`--shallows`) | 5.0:1 | 6.6:1 | 3:1 |
+| The name-link underline (`--link-underline`) | The hovered row fill (`--shallows-hover`) | 3.2:1 | 3.9:1 | 3:1 |
+
+Issue #483 raises the dashboard's `--link-underline` token. Plain `--coral` (`#FF6B6B`)
+read 2.8:1 on the paper, 2.5:1 on the zebra row, and 1.6:1 on the hovered row fill, each
+under the 3:1 floor of WCAG 1.4.11 in the light scheme. `#C23030` raises the three light
+pairs to 5.6:1, 5.0:1, and 3.2:1. The dark scheme keeps plain `--coral` (`#FF6B6B`): its
+three pairs already read 6.1:1, 6.6:1, and 3.9:1, each clear of the floor.
 
 Two gaps show in the table above. The light hovered pause pill fill still equals the
 page (`#E6F3FF` on `#E6F3FF`), so it reads 1.00:1, under the floor; a separate, already
