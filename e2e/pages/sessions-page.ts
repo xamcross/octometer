@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 
 /**
@@ -14,8 +14,13 @@ export class SessionsPage {
   }
 
   async expectNoSessions(timeoutMs: number): Promise<void> {
-    await expect(this.page.getByText('No anonymous session yet.')).toBeVisible({
+    await expect(this.page.getByText('No sessions yet.')).toBeVisible({
       timeout: timeoutMs,
     });
+  }
+
+  /** The table caption element (issue #482: the sessions view names "session", not "anonymous session"). */
+  caption(): Locator {
+    return this.page.locator('#sessions-caption');
   }
 }
