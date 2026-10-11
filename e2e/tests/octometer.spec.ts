@@ -2256,6 +2256,41 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
   );
   expect(pauseFillContrast).toBeGreaterThanOrEqual(1.5);
 
+  // Issue #473: the pressed pause pill keeps a visible hover cue too.
+  // `page.mouse.move` clears the hover left by the check above, so the
+  // click lands with no `:hover` state yet; the click then sets
+  // `aria-pressed="true"` and the label turns to "Resume refresh".
+  await page.mouse.move(0, 0);
+  await pauseButton.click();
+  // The click moves the mouse onto the pill first, so it leaves the
+  // pill hovered; this second move clears that hover before the rest
+  // style read below.
+  await page.mouse.move(0, 0);
+  const resumeButton = page.getByRole('button', { name: 'Resume refresh' });
+  await expect(resumeButton).toHaveCSS('opacity', '1');
+  const pressedRest = await hoverStyleOf(resumeButton);
+  await resumeButton.hover();
+  const pressedHover = await hoverStyleAfterTransition(resumeButton, pressedRest, [
+    'backgroundColor',
+  ]);
+  expect(pressedHover.backgroundColor).not.toBe(pressedRest.backgroundColor);
+  expect(
+    contrastRatio(pressedHover.color, pressedHover.backgroundColor),
+  ).toBeGreaterThanOrEqual(4.5);
+  const pressedFillContrast = contrastRatio(
+    pressedHover.backgroundColor,
+    pressedRest.backgroundColor,
+  );
+  console.log(
+    `issue #473 (light): the pressed pause pill fill is "${pressedRest.backgroundColor}"; ` +
+      `the hovered pressed fill is "${pressedHover.backgroundColor}", ${pressedFillContrast.toFixed(2)}:1.`,
+  );
+  expect(pressedFillContrast).toBeGreaterThanOrEqual(1.5);
+  // The pill returns to "Pause refresh", so a later check of this file
+  // finds the same label it expects on a fresh view.
+  await page.mouse.move(0, 0);
+  await resumeButton.click();
+
   // The text link: "Go to the apps" of the not-found page, under the
   // global `a` rule, with no pill and no band around it. The link
   // sets no background of its own; it stays transparent. The
@@ -2331,6 +2366,37 @@ test('a button, a nav pill, the pause pill, and a link each change under hover (
       `on the page "${darkPageBackground}", ${darkPauseFillContrast.toFixed(2)}:1.`,
   );
   expect(darkPauseFillContrast).toBeGreaterThanOrEqual(1.5);
+
+  // Issue #473: the pressed pause pill keeps a visible hover cue in the
+  // dark scheme too.
+  await page.mouse.move(0, 0);
+  await darkPauseButton.click();
+  // The click moves the mouse onto the pill first, so it leaves the
+  // pill hovered; this second move clears that hover before the rest
+  // style read below.
+  await page.mouse.move(0, 0);
+  const darkResumeButton = page.getByRole('button', { name: 'Resume refresh' });
+  await expect(darkResumeButton).toHaveCSS('opacity', '1');
+  const darkPressedRest = await hoverStyleOf(darkResumeButton);
+  await darkResumeButton.hover();
+  const darkPressedHover = await hoverStyleAfterTransition(darkResumeButton, darkPressedRest, [
+    'backgroundColor',
+  ]);
+  expect(darkPressedHover.backgroundColor).not.toBe(darkPressedRest.backgroundColor);
+  expect(
+    contrastRatio(darkPressedHover.color, darkPressedHover.backgroundColor),
+  ).toBeGreaterThanOrEqual(4.5);
+  const darkPressedFillContrast = contrastRatio(
+    darkPressedHover.backgroundColor,
+    darkPressedRest.backgroundColor,
+  );
+  console.log(
+    `issue #473 (dark): the pressed pause pill fill is "${darkPressedRest.backgroundColor}"; ` +
+      `the hovered pressed fill is "${darkPressedHover.backgroundColor}", ${darkPressedFillContrast.toFixed(2)}:1.`,
+  );
+  expect(darkPressedFillContrast).toBeGreaterThanOrEqual(1.5);
+  await page.mouse.move(0, 0);
+  await darkResumeButton.click();
 });
 
 /**

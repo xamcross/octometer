@@ -236,6 +236,9 @@ The version number follows the tag form `X.Y.Z`, with no prefix.
   cue now reads 1.5:1 or more against the paper in each color scheme. (#472)
 - Use "anonymous visitor", "session", and "click" for the anonymous case and a click,
   in the sessions view, the Elements caption, and the empty states. (#482)
+- Give the pressed Pause refresh pill its own hover fill, the new token `--sunny-deep`;
+  the cue now reads 2.0:1 or more against the pressed fill in each color scheme, and the
+  forced-colours mode keeps the system pair under hover too. (#473)
 - Give the name-link underline its own token, `--link-underline`; it now reads 3:1 or
   more against the paper, the zebra fill, and the hovered row fill, in each scheme. (#483)
 

@@ -50,9 +50,41 @@ button[aria-pressed='true'] {
   color: var(--on-bright);
 }
 
+/*
+ * The hover cue of the pressed pill (issue #473). The plain `button:hover`
+ * rule and the `button[aria-pressed='true']` rule hold the same
+ * specificity, so the pressed rule keeps its fill under hover and shows
+ * no cue; this rule names both states together, a higher specificity
+ * than each rule alone, so it wins. `--coral` is the danger fill
+ * (`docs/design.md`), so it carries the wrong meaning here; `--sunny`
+ * has no other passing token (the review of pull request #484), so
+ * `--sunny-deep` is a new token, a deeper sunny. It differs from
+ * `--sunny` by 2.0:1 or more in each scheme (one value in each scheme),
+ * and the pressed text, `--on-bright`, reads 5.7:1 or more on it.
+ */
+@media (hover: hover) {
+  button[aria-pressed='true']:hover {
+    background: var(--sunny-deep);
+  }
+}
+
 /* The forced-colours mode keeps the system pair. The user picks that colour there. */
 @media (forced-colors: active) {
   button[aria-pressed='true'] {
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+
+/*
+ * MAJOR 1 of the review of pull request #484: the hover rule above sets
+ * an author `background` only, so the forced-colours mode pairs the
+ * label with `CanvasText` while `Highlight` still paints (1.39:1). This
+ * rule repeats the system pair under hover too, in the pattern of
+ * `apps.css:148`.
+ */
+@media (forced-colors: active) and (hover: hover) {
+  button[aria-pressed='true']:hover {
     background: Highlight;
     color: HighlightText;
   }
