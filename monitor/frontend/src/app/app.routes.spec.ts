@@ -120,15 +120,18 @@ describe('routes', () => {
 
   it('opens the Elements placeholder for an anonymous user', async () => {
     await harness.navigateByUrl('/apps/7/elements?anonymous=true');
-    expect(heading()).toBe('Elements of Anonymous');
-    expect(TestBed.inject(Title).getTitle()).toBe('Anonymous of App 7 - Octometer');
+    expect(heading()).toBe('Elements of anonymous visitors');
+    expect(TestBed.inject(Title).getTitle()).toBe('Anonymous visitors of App 7 - Octometer');
     const breadcrumb = buildBreadcrumb(router.routerState.snapshot.root);
     expect(breadcrumb).toEqual([
       { label: 'Apps', path: '/apps' },
       { label: 'App 7', path: '/apps/7/users', appId: 7 },
-      { label: 'Anonymous', path: null },
+      { label: 'Anonymous visitors', path: null },
     ]);
-    expect(heading()).toContain(breadcrumb[breadcrumb.length - 1].label);
+    // The heading and the last breadcrumb entry name the same term, apart from the case.
+    expect(heading()?.toLowerCase()).toContain(
+      breadcrumb[breadcrumb.length - 1].label.toLowerCase(),
+    );
   });
 
   it('opens the Elements placeholder for a session id (issue #115)', async () => {

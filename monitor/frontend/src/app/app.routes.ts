@@ -41,7 +41,7 @@ function elementsUserLabel(snapshot: ActivatedRouteSnapshot): string {
     return `Session ${shortSessionId(sessionId)}`;
   }
   if (snapshot.queryParamMap.get('anonymous') === 'true') {
-    return 'Anonymous';
+    return 'Anonymous visitors';
   }
   const userId = snapshot.queryParamMap.get('userId');
   return userId ? `User ${userId}` : 'Elements';

@@ -753,7 +753,7 @@ selector, a session id (issue #386, finding D27).
   (`users.ts`, `first-pages.ts`, `sessions.ts`, D15 of the UI audit of 2026-10-09, issue
   #387). A one-page result shows no pager and no pair of disabled buttons. The
   maintainer's decision on the review of pull request #405 widens the rule to the
-  anonymous-sessions view, the third pager of the dashboard.
+  sessions view, the third pager of the dashboard.
 
 **States.**
 
