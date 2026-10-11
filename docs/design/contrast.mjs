@@ -323,6 +323,18 @@ const FILL = [
   ['each data page', 'the hovered pause pill fill on the page', '#99c6ff', '#e6f3ff', 1.5],
   ['each table', 'the hovered row fill on the paper', '#99c6ff', '#ffffff', 1.5],
   ['manage, signin', 'the form-error border on the page', '#d93a3a', '#e6f3ff', 3],
+  // Issue #473: the pressed pause pill fill, `--sunny`, against the
+  // page. The pair stays under its floor on purpose; the label text and
+  // the icon of the pressed pill carry the state too (WCAG 1.4.1).
+  [
+    'each data page',
+    'the pressed pause pill fill on the page',
+    '#ffd93d',
+    '#e6f3ff',
+    1.5,
+    'The pressed pill text and icon carry the pressed state too (WCAG 1.4.1).',
+  ],
+  ['each data page', 'the pressed pause pill hover fill on the pressed fill', '#ff6b6b', '#ffd93d', 1.5],
 ];
 
 const DARK_FILL = [
@@ -330,6 +342,11 @@ const DARK_FILL = [
   ['each data page', 'the hovered pause pill fill on the page', '#3d3570', '#14122a', 1.5],
   ['each table', 'the hovered row fill on the paper', '#3d3570', '#1d1a33', 1.5],
   ['manage, signin', 'the form-error border on the page', '#ff6b6b', '#14122a', 3],
+  // Issue #473: `--sunny` keeps its light value in the dark scheme, and
+  // the dark page is far darker than the light page, so this pair clears
+  // its floor with no `reason`.
+  ['each data page', 'the pressed pause pill fill on the page', '#ffd93d', '#14122a', 1.5],
+  ['each data page', 'the pressed pause pill hover fill on the pressed fill', '#ff6b6b', '#ffd93d', 1.5],
 ];
 
 /*

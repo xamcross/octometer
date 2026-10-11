@@ -50,6 +50,22 @@ button[aria-pressed='true'] {
   color: var(--on-bright);
 }
 
+/*
+ * The hover cue of the pressed pill (issue #473). The plain `button:hover`
+ * rule and the `button[aria-pressed='true']` rule hold the same
+ * specificity, so the pressed rule keeps its fill under hover and shows
+ * no cue; this rule names both states together, a higher specificity
+ * than each rule alone, so it wins. `--coral` differs from `--sunny` by
+ * 2.0:1 or more in each scheme (the two tokens keep the same value in
+ * each scheme), and the pressed text, `--on-bright`, reads 5.7:1 or more
+ * on it.
+ */
+@media (hover: hover) {
+  button[aria-pressed='true']:hover {
+    background: var(--coral);
+  }
+}
+
 /* The forced-colours mode keeps the system pair. The user picks that colour there. */
 @media (forced-colors: active) {
   button[aria-pressed='true'] {
