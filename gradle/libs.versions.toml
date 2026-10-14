@@ -1,6 +1,6 @@
 [versions]
 # Confirm each version with its release page before you raise it.
-kotlin = "2.4.20"
+kotlin = "2.4.21"
 ktor = "3.6.0"
 kotlinx-serialization = "1.11.0"
 kotlinx-coroutines = "1.11.0"
